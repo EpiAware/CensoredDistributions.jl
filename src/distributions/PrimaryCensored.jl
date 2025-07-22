@@ -53,6 +53,12 @@ struct PrimaryCensored{D1 <: UnivariateDistribution, D2 <: UnivariateDistributio
     uncensored::D1
     "The primary event censoring distribution."
     censoring::D2
+
+    function PrimaryCensored(uncensored::D1, censoring::D2) where {D1, D2}
+        minimum(uncensored) == 0 ||
+            throw(ArgumentError("Uncensored distribution must have minimum of zero"))
+        new{D1, D2}(uncensored, censoring)
+    end
 end
 
 function Distributions.params(d::PrimaryCensored)
@@ -67,10 +73,6 @@ Distributions.maximum(d::PrimaryCensored) = maximum(d.uncensored)
 Distributions.insupport(d::PrimaryCensored, x::Real) = insupport(d.uncensored, x)
 
 function Distributions.cdf(d::PrimaryCensored, x::Real)
-    if x <= minimum(d.censoring)
-        return 0.0
-    end
-
     function f(u, x)
         return exp(logcdf(d.uncensored, u) + logpdf(d.censoring, x - u))
     end

@@ -1,76 +1,108 @@
 # [Getting started](@id getting-started)
 
-*Note that this section of the documentation is still under construction. Please see replications for the most up-to-date information. Please feel free to contribute to the documentation by submitting a pull request.*
 
-Welcome to the `CensoredDistributions` documentation! This section is designed to help you get started with the package. It includes a frequently asked questions (FAQ) section, a series of explainers that provide a detailed overview of the platform and its features, and tutorials that will help you get started with `CensoredDistributions` for specific tasks. See the sidebar for the list of topics.
+Welcome to the `CensoredDistributions` documentation! This section is designed to help you get started with the package. It includes a quickstart guide, frequently asked questions (FAQ) section, and tutorials that will help you get started with `CensoredDistributions` for specific tasks. See the sidebar for the list of topics.
 
-## Introduction to the problem
+## Quickstart
 
-Delay distributions play a crucial role in various fields, including epidemiology, reliability analysis, and survival analysis.
+Delay distributions play a crucial role in various fields, including epidemiology, reliability analysis, and survival analysis. In epidemiology, delay distributions are used to model the time between the primary event (e.g. infection) and the secondary event (e.g. onset of symptoms). Both events are often subject to interval censoring, and the delay distribution is often truncated to the time of the secondary event. One of the main functions of `CensoredDistributions.jl` is to provide a flexible framework for working with distributions where one or both (this is commonly called double-censoring) of the events are subject to interval censoring.
 
 ## Loading the packages
 
-```
+```julia
 # Import the package
 using CensoredDistributions
 using Distributions
 using Random
-using Plots
 
 # Set the seed for reproducibility
 Random.seed!(123)
-
-```
-Now we can set up the problem as described [here](https://primarycensored.epinowcast.org/dev/articles/primarycensored.html).
-
-```
-n = 1e4
-meanlog = 1.5
-sdlog = 0.75
-obs_time = 10
-pwindow = 1
-
-# generate the distributions
-
-primary_distribution = Uniform(1, 2)
-delay_distribution = LogNormal(meanlog, sdlog)
-
-```
-Now we can generate our `CensoredDistributions` object
-
 ```
 
-prim_dist = primarycensored(primary_distribution, delay_distribution)
+## Primary event censoring
 
+For the primary event, we'll use a uniform distribution between 1 and 2.
+
+
+```julia
+primary_event = Uniform(0, 1)
 ```
 
-We can then apply the truncation.
+For the delay distribution, we'll use a lognormal distribution with a mean of 1.5 and a standard deviation of 0.75.
 
+```julia
+dist = LogNormal(1.5, 0.75)
 ```
 
-trunc_prime_dist = truncated(prim_dist, 1, 2)
+Now we combine these two distributions to create a primary censored distribution.
 
+```julia
+prim_dist = primarycensored(dist, primary_event)
 ```
 
-And then we can apply our within interval censoring approach:
+For theory explained in more detail, see the [primarycensored](https://primarycensored.epinowcast.org/dev/articles/primarycensored.html) documentation.
 
+We can now generate a random sample from the primary distribution or calculate the probability density function (PDF) and cumulative distribution function (CDF).
+
+```julia
+rand(prim_dist, 10)
 ```
-int_censored_dist = within_interval_censored(trunc_prime_dist, 2, 4)
 
-hist(rand(int_censored_dist, 1000))
+and plot the CDF compared to the unmodified distribution.
 
+```julia
+x = 0:0.01:15
+plot(x, cdf.(dist, x), label="Uncensored")
+plot!(x, cdf.(prim_dist, x), label="Primary censored")
 ```
 
-## Contributing
+## Truncation
 
-We welcome contributions and new contributors!
-We particularly appreciate help on [identifying and identified issues](https://github.com/epiaware/CensoredDistributions.jl/issues).
-Please check and add to the issues, and/or add a [pull request](https://github.com/epiaware/CensoredDistributions.jl/pulls) and see our [contributing guide](https://github.com/epiaware/.github/blob/main/CONTRIBUTING.md) for more information.
+We can then apply the truncation using the normal `truncated` function from `Distributions.jl`.
 
-If you need a different underlying model for your work: `CensoredDistributions` provides a flexible framework for censored distributions in Julia, the language of the future.
-The future the is now.
+```julia    
+trunc_prim_dist = truncated(prim_dist, upper= 10)
+```
 
+We can again sample from the distribution.
 
-## Code of Conduct
+```julia
+rand(trunc_prim_dist, 10)
+```
 
-Please note that the `CensoredDistributions` project is released with a [Contributor Code of Conduct](https://github.com/epiaware/.github/blob/main/CODE_OF_CONDUCT.md). By contributing to this project, you agree to abide by its terms.
+or plot the CDFs of the different distributions.
+
+```julia
+x = 0:0.01:15
+plot(x, cdf.(dist, x), label="Uncensored")
+plot!(x, cdf.(prim_dist, x), label="Primary censored")
+plot!(x, cdf.(trunc_prim_dist, x), label="Truncated and primary censored")
+```
+
+## Secondary interval censoring
+
+We can now apply secondary interval censoring using the `discretise` function. We call this discretisation as rather than specifying an interval for the secondary event, we specify intervals to round to.
+
+```julia
+int_censored_dist = discretise(trunc_prim_dist, 1)
+```
+
+Again we can sample from the distribution.
+
+```julia
+rand(int_censored_dist, 10)
+```
+
+or plot the CDFs of the different distributions.
+
+```julia
+x = 0:0.01:15
+plot(x, cdf.(dist, x), label="Uncensored")
+plot!(x, cdf.(prim_dist, x), label="Primary censored")
+plot!(x, cdf.(trunc_prim_dist, x), label="Truncated and primary censored")
+plot!(x, cdf.(int_censored_dist, x), label="Truncated, primary censored, and discretised")
+```
+
+## Learning more
+
+For more information on the package and its integration with other packages, see the [tutorials](@ref tutorials).

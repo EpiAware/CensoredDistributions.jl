@@ -8,7 +8,6 @@ using Integrals
 
 # Exported constructors and types
 export primarycensored, discretise, discretize, within_interval_censored, weight
-export PrimaryCensored, Discretised, WithinIntervalCensored, Weighted
 
 include("docstrings.jl")
 

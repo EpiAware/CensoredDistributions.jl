@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.11
+# v0.20.13
 
 using Markdown
 using InteractiveUtils
@@ -28,7 +28,7 @@ end
 
 # ╔═╡ 30511a27-984e-40b7-9b1e-34bc87cb8d56
 md"""
-# Fitting distributions using CensoredDistributions.jl and Turing.jl
+# Fitting CensoredDistributions.jl modified distributions with Turing.jl
 
 ## Introduction
 
