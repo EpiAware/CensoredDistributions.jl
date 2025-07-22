@@ -14,8 +14,8 @@
     @test dd_int.interval == 2
 
     # Test error on zero or negative interval
-    @test_throws ArgumentError Discretised(d, 0.0)
-    @test_throws ArgumentError Discretised(d, -1.0)
+    @test_throws ArgumentError discretise(d, 0.0)
+    @test_throws ArgumentError discretise(d, -1.0)
 end
 
 @testitem "Test Discretised aliases" begin

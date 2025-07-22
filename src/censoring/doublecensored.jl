@@ -10,7 +10,7 @@ This is a convenience function that applies the following transformations in seq
 1. Primary event censoring using `primarycensored(uncensored, censoring)`
 2. Truncation using `truncated(dist; lower=lower, upper=upper)` (if bounds are provided)
 3. Secondary event censoring using `discretise(dist, interval)` (if interval is provided)
-
+iww
 The order of operations ensures mathematical correctness, particularly that truncation occurs before secondary event censoring.
 
 # Arguments

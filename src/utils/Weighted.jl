@@ -105,6 +105,45 @@ function weight(dist::UnivariateDistribution, weights::AbstractVector{<:Real})
     return product_distribution([Weighted(dist, w) for w in weights])
 end
 
+# For creating weighted distributions from a vector of distributions and weights
+@doc raw"""
+    weight(dists::AbstractVector{<:UnivariateDistribution}, weights::AbstractVector{<:Real})
+
+Create a product distribution of weighted distributions, where each distribution has its own weight.
+
+# Arguments
+- `dists`: Vector of underlying distributions
+- `weights`: Vector of weights, one for each distribution
+
+# Returns
+A `Product` distribution of `Weighted` distributions suitable for vectorized observations with different distributions.
+
+# Examples
+```julia
+# Different censoring for each observation
+y_obs = [3.5, 4.2, 3.8]  # Observed values
+n_counts = [25, 10, 15]  # Counts for each observation
+pwindows = [1.0, 1.5, 2.0]  # Different primary censoring windows
+obs_times = [10.0, 12.0, 8.0]  # Different observation times
+
+@model function heterogeneous_model(y_obs, n_counts, pwindows, obs_times)
+    μ ~ Normal(2, 1)
+    σ ~ Exponential(1)
+    base_dist = LogNormal(μ, σ)
+    
+    # Create different censored distributions for each observation
+    dists = [doublecensored(base_dist, Uniform(0, pw); upper=ot, interval=1) 
+             for (pw, ot) in zip(pwindows, obs_times)]
+    
+    y_obs ~ weight(dists, n_counts)
+end
+```
+"""
+function weight(dists::AbstractVector{<:UnivariateDistribution}, weights::AbstractVector{<:Real})
+    length(dists) == length(weights) || throw(ArgumentError("Number of distributions must equal number of weights"))
+    return product_distribution([Weighted(d, w) for (d, w) in zip(dists, weights)])
+end
+
 # Distributions.jl interface implementation
 
 # Basic properties

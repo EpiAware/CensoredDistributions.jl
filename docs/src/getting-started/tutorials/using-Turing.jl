@@ -88,26 +88,19 @@ swindows = rand(1:2, n)
 obs_times = rand(8:10, n)
 
 # ╔═╡ 2e04be98-625f-45f4-bf5e-a0074ea1ea01
-md"Let's generates all the $n$ samples by recreating the primary censored sampling function from `CensoredDistributions`, c.f. documentation [here](https://primarycensored.epinowcast.org/reference/rCensoredDistributions.html)."
+md"Let's generate all the $n$ samples using the `doublecensored` convenience function, which combines primary censoring, truncation, and discretisation in the mathematically correct order."
 
 # ╔═╡ aedda79e-c3d6-462e-bb9b-5edefbf0d5fc
-"""
-	function rpcens(dist, censoring; swindow = 1, D = Inf)
+md"The `doublecensored` function streamlines the workflow by applying:
+1. Primary event censoring with the specified primary window
+2. Right truncation at the observation time
+3. Secondary event censoring (discretisation) with the specified interval
 
-Generates samples from the (possibly truncated) censored distribution with delay distribution `dist` and primary censoring distribution `censoring`, and applies a secondary censoring window of width `swindow` on the observation.
-
-If `D<Inf` then the secondary time is also right-truncated at time `D`.
-"""
-function rpcens(dist, censoring; swindow = 1, D = Inf)
-    cens_dist = primarycensored(dist, censoring) |>
-                d -> truncated(d; upper = D) |>
-                d -> discretise(d, swindow)
-    return rand(cens_dist)
-end
+This ensures the correct order of operations and prevents mathematical errors that could occur from manual chaining."
 
 # ╔═╡ a063cf93-9cd2-4c8b-9c0d-87075d1fa20d
 samples = map(pwindows, swindows, obs_times) do pw, sw, ot
-    rpcens(true_dist, Uniform(0.0, pw); swindow = sw, D = ot)
+    rand(doublecensored(true_dist, Uniform(0.0, pw); upper = ot, interval = sw))
 end
 
 # ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
@@ -231,15 +224,16 @@ We see that the model has converged and the diagnostics look good. However, just
 md"
 ## Fitting an improved model using censoring utilities
 
-We'll now fit an improved model using the package's built-in distribution types. We'll use:
-- `primarycensored` to construct primary event censored distributions
-- `truncated` to handle right truncation when observation time is finite
-- `discretise` to handle the secondary interval censoring
+We'll now fit an improved model using the package's convenient utilities. We'll use:
+- `doublecensored` to construct distributions with primary censoring, truncation, and discretisation in the correct order
+- `product_distribution` to efficiently handle multiple distributions with different parameters
+- `weight` to handle the count data (frequency weights) for each observation
 
 This approach directly uses the package's distribution interface, which automatically handles:
 - The primary and secondary censoring windows, which can vary in length.
 - The effect of right truncation in biasing our observations.
 - Proper normalization and log-probability calculations.
+- Vectorised operations for computational efficiency.
 "
 
 # ╔═╡ e24c231a-0bf3-4a03-a307-2ab43cdbecf4
@@ -248,20 +242,16 @@ We make a new `Turing` model that uses the package's distribution types directly
 "
 
 # ╔═╡ 21ffd833-428f-488d-8df3-e8468aa76bb6
-@model function CensoredDistributions_model(y, y_upper, n, pws, Ds)
+@model function CensoredDistributions_model(y, y_upper, n, pws, sws, Ds)
     mu ~ Normal(1.0, 1.0)
     sigma ~ truncated(Normal(0.5, 0.5); lower = 0.0)
     dist = LogNormal(mu, sigma)
-    pcens_dists = map(pws, Ds, swindows) do pw, D, sw
-        dist |>
-            d -> primarycensored(d, Uniform(0.0, pw)) |>
-            d -> truncated(d; upper = D) |>
-            d -> discretise(d, sw)
+
+    pcens_dists = map(pws, Ds, sws) do pw, D, sw
+        doublecensored(dist, Uniform(0.0, pw); upper = D, interval = sw)
     end
 
-    for i in eachindex(y)
-        Turing.@addlogprob! n[i] * logpdf(pcens_dists[i], y[i])
-    end
+    y ~ weight(pcens_dists, n)
 end
 
 # ╔═╡ dfaab7c1-84be-421d-9eb3-60235a2b2a17
@@ -275,8 +265,19 @@ CensoredDistributions_mdl = CensoredDistributions_model(
     delay_counts.observed_delay_upper,
     delay_counts.n,
     delay_counts.pwindow,
+    delay_counts.swindow,
     delay_counts.obs_time
 )
+
+# ╔═╡ 691e3d54-1a31-4686-a70d-711c2fc45dc1
+md" 
+As with other Turing models we can sample from this model (and indeed we could have generated the data using this approach). 
+"
+
+# ╔═╡ b6091409-1a92-4622-b31a-3e29af717cfb
+CensoredDistributions_mdl |>
+	m -> fix(m, mu = 1.5, sigma = 0.5) |>
+    m -> rand(m, 100)
 
 # ╔═╡ d26e224a-dc89-407d-9451-6665321154a2
 md"Now let’s fit the compiled model."
@@ -342,6 +343,8 @@ We see that the model has converged and the diagnostics look good. We also see t
 # ╠═21ffd833-428f-488d-8df3-e8468aa76bb6
 # ╟─dfaab7c1-84be-421d-9eb3-60235a2b2a17
 # ╠═a59e371a-b671-4648-984d-7bcaac367d32
+# ╠═691e3d54-1a31-4686-a70d-711c2fc45dc1
+# ╠═b6091409-1a92-4622-b31a-3e29af717cfb
 # ╟─d26e224a-dc89-407d-9451-6665321154a2
 # ╠═b5cd8b13-e3db-4ed1-80ce-e3ac1c57932c
 # ╠═a53a78b3-dcbe-4b62-a336-a26e647dc8c8

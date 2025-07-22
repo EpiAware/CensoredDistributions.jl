@@ -6,17 +6,18 @@ using Distributions
 using Random
 using Integrals
 
-# Exported constructors and types
-export primarycensored, discretise, discretize, within_interval_censored, weight
-# Exported convenience functions
-export doublecensored
+# Exported censoring functions
+export primarycensored, discretise, discretize, within_interval_censored, doublecensored
+
+# Exported utilities
+export weight
 
 include("docstrings.jl")
 
-include("distributions/PrimaryCensored.jl")
-include("distributions/Discretised.jl")
-include("distributions/WithinIntervalCensored.jl")
-include("distributions/Weight.jl")
-include("distributions/doublecensored.jl")
+include("censoring/PrimaryCensored.jl")
+include("censoring/Discretised.jl")
+include("censoring/WithinIntervalCensored.jl")
+include("censoring/doublecensored.jl")
 
+include("utils/Weighted.jl")
 end

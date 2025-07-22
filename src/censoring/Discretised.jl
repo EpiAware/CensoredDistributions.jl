@@ -77,10 +77,6 @@ end
 #### Probability functions
 
 function Distributions.pdf(d::Discretised, x::Real)
-    if !insupport(d, x)
-        return 0.0
-    end
-    # Probability mass for interval [x, x + interval)
     return cdf(d.dist, x + d.interval) - cdf(d.dist, x)
 end
 
