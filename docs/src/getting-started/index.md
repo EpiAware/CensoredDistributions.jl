@@ -172,7 +172,7 @@ double_censored_dist = doublecensored(Gamma(2, 1), Uniform(0, 1); upper=8, inter
 As with all the other functions, we can sample from the distribution
 
 ```julia
-samples = rand(double_censored_dist, 10)
+rand(double_censored_dist, 10)
 ```
 
 or do any of the other common distribution operations.
