@@ -120,23 +120,20 @@ A `Product` distribution of `Weighted` distributions suitable for vectorized obs
 
 # Examples
 ```julia
-# Different censoring for each observation
-y_obs = [3.5, 4.2, 3.8]  # Observed values
-n_counts = [25, 10, 15]  # Counts for each observation
-pwindows = [1.0, 1.5, 2.0]  # Different primary censoring windows
-obs_times = [10.0, 12.0, 8.0]  # Different observation times
+using CensoredDistributions, Distributions
 
-@model function heterogeneous_model(y_obs, n_counts, pwindows, obs_times)
-    μ ~ Normal(2, 1)
-    σ ~ Exponential(1)
-    base_dist = LogNormal(μ, σ)
-    
-    # Create different censored distributions for each observation
-    dists = [doublecensored(base_dist, Uniform(0, pw); upper=ot, interval=1) 
-             for (pw, ot) in zip(pwindows, obs_times)]
-    
-    y_obs ~ weight(dists, n_counts)
-end
+y_obs = [3.5, 4.2, 3.8]  # Observed values
+μ_values = [2.0, 2.5, 1.8]  # Different means
+σ_values = [0.5, 0.8, 0.6]  # Different standard deviations
+n_counts = [25, 10, 15]  # Counts for each observation
+
+dists = [Normal(μ, σ) for (μ, σ) in zip(μ_values, σ_values)]
+weighted_dists = weight(dists, n_counts)
+
+# Calculate weighted log-likelihood
+total_loglik = sum(logpdf(weighted_dists, y_obs))
+
+
 ```
 """
 function weight(dists::AbstractVector{<:UnivariateDistribution}, weights::AbstractVector{<:Real})
@@ -202,3 +199,6 @@ end
 
 # Sampling - delegates to underlying distribution
 Base.rand(rng::AbstractRNG, d::Weighted) = rand(rng, d.dist)
+
+# Sampler method for efficient sampling
+Distributions.sampler(d::Weighted) = Weighted(sampler(d.dist), d.weights)

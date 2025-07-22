@@ -113,3 +113,6 @@ end
 function floor_to_interval(x::Real, interval::Real)
     return floor(x / interval) * interval
 end
+
+# Sampler method for efficient sampling
+Distributions.sampler(d::Discretised) = d

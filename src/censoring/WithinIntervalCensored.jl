@@ -99,3 +99,6 @@ function Base.rand(
     truncated_dist = truncated(d.dist; lower = d.lower, upper = d.upper)
     return d.lower
 end
+
+# Sampler method for efficient sampling
+Distributions.sampler(d::WithinIntervalCensored) = d

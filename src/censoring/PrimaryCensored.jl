@@ -124,3 +124,6 @@ function Base.rand(
         end
     end
 end
+
+# Sampler method for efficient sampling
+Distributions.sampler(d::PrimaryCensored) = d
