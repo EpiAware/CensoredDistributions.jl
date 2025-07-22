@@ -160,6 +160,23 @@ plot!(x, cdf.(int_censored_dist, x), label="Truncated, primary censored, and dis
 
 Neither the primary censored nor the discretised distributions match the true distribution due to the censoring effects and truncation at the maximum observable delay, which biases both observed distributions towards shorter delays.
 
+## Convenience Function: `doublecensored`
+
+For common workflows involving the complete pipeline of primary censoring, truncation, and secondary event censoring, the package provides a convenient `doublecensored` function that applies all transformations in the correct order (primary censoring → truncation → discretisation):
+
+```julia
+# This is equivalent to the step-by-step approach above
+double_censored_dist = doublecensored(Gamma(2, 1), Uniform(0, 1); upper=8, interval=2)
+```
+
+As with all the other functions, we can sample from the distribution
+
+```julia
+samples = rand(double_censored_dist, 10)
+```
+
+or do any of the other common distribution operations.
+
 ## Key Package Features
 
 In addition to these main functions, the package also includes:
