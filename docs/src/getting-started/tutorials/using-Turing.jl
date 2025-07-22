@@ -55,24 +55,10 @@ We use CairoMakie for plotting, Turing for probabilistic programming, Chain.jl f
 
 # ╔═╡ c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
 md"""
-## Defining the Bayesian model
+## Generate synthetic data using doublecensored distributions
 
-We'll start by defining our Bayesian model using Turing.jl incorporating CensoredDistributions.jl functionality. 
-This model will account for primary censoring, truncation, and discretisation in a probabilistically principled way.
+We'll generate synthetic data directly from the doublecensored distributions, simulating the realistic censoring and truncation scenarios we encounter in practice.
 """
-
-# ╔═╡ 21ffd833-428f-488d-8df3-e8468aa76bb6
-@model function CensoredDistributions_model(y, n, pws, sws, Ds)
-    mu ~ Normal(1.0, 1.0)
-    sigma ~ truncated(Normal(0.5, 0.5); lower = 0.0)
-    dist = LogNormal(mu, sigma)
-
-    pcens_dists = map(pws, Ds, sws) do pw, D, sw
-        doublecensored(dist, Uniform(0.0, pw); upper = D, interval = sw)
-    end
-
-    y ~ weight(pcens_dists, n)
-end
 
 # ╔═╡ b4409687-7bee-4028-824d-03b209aee68d
 Random.seed!(123) # Set seed for reproducibility
@@ -102,20 +88,13 @@ swindows = rand(1:2, n)
 obs_times = rand(8:10, n)
 
 # ╔═╡ 2e04be98-625f-45f4-bf5e-a0074ea1ea01
-md"## Generate synthetic data using our defined model
+md"We'll generate synthetic data by directly sampling from doublecensored distributions that combine primary censoring, truncation, and discretisation."
 
-We now generate synthetic data by fixing our model parameters to their true values and sampling from the prior.
-Instead of taking this appeaoch we could have sampled from the distributions directly as we do in the getting started."
-
-# ╔═╡ a063cf93-9cd2-4c8b-9c0d-87075d1fa20d
-# Instantiate model with no observed data
-double_cens_model = CensoredDistributions_model(
-    nothing, ones(Int, n), pwindows, swindows, obs_times
-)
-
-# Fix parameters to true values and sample from prior
-fixed_model = fix(double_cens_model, (mu = meanlog, sigma = sdlog))
-samples = rand(fixed_model, 1).y
+# ╔═╡ 46d3de42-589c-4403-b67d-e8cd64ce588e
+true_dist = LogNormal(meanlog, sdlog)
+samples = map(pwindows, swindows, obs_times) do pw, sw, ot
+    rand(doublecensored(true_dist, Uniform(0.0, pw); upper = ot, interval = sw))
+end
 
 # ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
 md"Create a dataframe with the data we just generated aggregated to unique combinations and count occurrences.
@@ -151,7 +130,6 @@ x_seq = range(minimum(samples), stop = maximum(samples), length = 100)
 
 # ╔═╡ a5b04acc-acc5-4d4d-8871-09d54caab185
 # Calculate theoretical CDF using true log-normal distribution
-true_dist = LogNormal(meanlog, sdlog)
 theoretical_cdf = @chain x_seq begin
     cdf.(true_dist, _)
 end
@@ -237,11 +215,26 @@ We see that the model has converged and the diagnostics look good. However, just
 "
 
 # ╔═╡ 080c1bca-afcd-46c0-80b8-1708e8d05ae6
-md"## Fitting the full CensoredDistributions model"
+md"## Fitting the full CensoredDistributions model
+
+Now we'll define and fit a model that accounts for the censoring process. This model uses the same mathematical structure as the data generation process."
+
+# ╔═╡ 21ffd833-428f-488d-8df3-e8468aa76bb6
+@model function CensoredDistributions_model(y, n, pws, sws, Ds)
+    mu ~ Normal(1.0, 1.0)
+    sigma ~ truncated(Normal(0.5, 0.5); lower = 0.0)
+    dist = LogNormal(mu, sigma)
+
+    pcens_dists = map(pws, Ds, sws) do pw, D, sw
+        doublecensored(dist, Uniform(0.0, pw); upper = D, interval = sw)
+    end
+
+    y ~ weight(pcens_dists, n)
+end
 
 # ╔═╡ e24c231a-0bf3-4a03-a307-2ab43cdbecf4
 md"
-We use the same `CensoredDistributions_model` we defined earlier, but now we'll fit it to the observed data without fixing the parameters.
+Now we'll instantiate this model with our observed data.
 "
 
 # ╔═╡ dfaab7c1-84be-421d-9eb3-60235a2b2a17
@@ -300,7 +293,9 @@ We also see that the posterior means are near the true parameters and the 90% cr
 # ╠═2d0ca6e6-0333-4aec-93d4-43eb9985dc14
 # ╠═6465e51b-8d71-4c85-ba40-e6d230aa53b1
 # ╟─2e04be98-625f-45f4-bf5e-a0074ea1ea01
-# ╠═a063cf93-9cd2-4c8b-9c0d-87075d1fa20d
+# ╠═4dd5141e-ac5f-429a-af17-cf58905f3a1d
+# ╠═204d3216-9de6-401e-825f-c0d03ec6b2f9
+# ╠═46d3de42-589c-4403-b67d-e8cd64ce588e
 # ╟─50757759-9ec3-42d0-a765-df212642885a
 # ╠═5aed77d3-5798-4538-b3eb-3f4ce43d0423
 # ╟─993f1f74-4a55-47a7-9e3e-c725cba13c0a
