@@ -34,34 +34,50 @@ md"""
 
 ### What are we going to do in this exercise
 
-We'll demonstrate how to use `CensoredDistributions.jl` in conjunction with Turing.jl for Bayesian inference of epidemiological delay distributions. We'll cover the following key points:
+We'll demonstrate how to use `CensoredDistributions.jl` in conjunction with Turing.jl for Bayesian inference of epidemiological delay distributions.
+We'll cover the following key points:
 
-1. Simulating censored delay distribution data
-2. Fitting a naive model using Turing.jl
-3. Evaluating the naive model's performance
-4. Fitting an improved model using `CensoredDistributions.jl` functionality
-5. Comparing the `CensoredDistributions.jl` model's performance to the naive model
+1. Defining a Bayesian model that incorporates double censoring and right truncation
+2. Generating synthetic data from the model using fixed parameters
+3. Fitting a naive model that ignores censoring
+4. Evaluating the naive model's performance
+5. Fitting the full model that accounts for double censoring and right truncation.
+6. Comparing the models' performance
 
 ## What might I need to know before starting
 
-This vignette builds on the concepts introduced in the [Getting Started with CensoredDistributions.jl](FIXME.html) vignette and assumes familiarity with using Turing.jl.
+This tutorial builds on the concepts introduced in [Getting Started with CensoredDistributions.jl](@ getting-started).
 
 ## Packages used
-We use CairoMakie for plotting, Turing for probabilistic programming, and the _classics_ DataFrames, Random, StatsBase (for the ecdf function). We install the CensoredDistributions.jl packages from the github repo.
+We use CairoMakie for plotting, Turing for probabilistic programming, DataFrames, Random, and StatsBase.
 """
 
 # ╔═╡ c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
 md"""
-# Simulating censored and truncated delay distribution data
+## Defining the Bayesian model
 
-We'll start by simulating some censored and truncated delay distribution data. We'll use the `primarycensored` function.
+We'll start by defining our Bayesian model using Turing.jl incorporating CensoredDistributions.jl functionality. 
+This model will account for primary censoring, truncation, and discretisation in a probabilistically principled way.
 """
+
+# ╔═╡ 21ffd833-428f-488d-8df3-e8468aa76bb6
+@model function CensoredDistributions_model(y = nothing, n, pws, sws, Ds)
+    mu ~ Normal(1.0, 1.0)
+    sigma ~ truncated(Normal(0.5, 0.5); lower = 0.0)
+    dist = LogNormal(mu, sigma)
+
+    pcens_dists = map(pws, Ds, sws) do pw, D, sw
+        doublecensored(dist, Uniform(0.0, pw); upper = D, interval = sw)
+    end
+
+    y ~ weight(pcens_dists, n)
+end
 
 # ╔═╡ b4409687-7bee-4028-824d-03b209aee68d
 Random.seed!(123) # Set seed for reproducibility
 
 # ╔═╡ 30e99e77-aad1-43e8-9284-ab0bf8ae741f
-md"Define the parameters for the simulation"
+md"## Define the true parameters for generating synthetic data"
 
 # ╔═╡ 28bcd612-19f6-4e25-b6df-cb43df4f2a73
 n = 2000
@@ -72,11 +88,8 @@ meanlog = 1.5
 # ╔═╡ 54700ad7-6b2a-440f-903a-c126b4c60c0e
 sdlog = 0.75
 
-# ╔═╡ aabd7db4-103a-4029-96d3-0de7077d759d
-true_dist = LogNormal(meanlog, sdlog)
-
 # ╔═╡ 767a58ed-9d7b-41db-a488-10f98a777474
-md"we generate varying pwindow, swindow, and obs_time lengths"
+md"we generate varying pwindow, swindow, and obs_time lengths to create realistic heterogeneous observation scenarios"
 
 # ╔═╡ 35472e04-e096-4948-a218-3de53923f271
 pwindows = rand(1:2, n)
@@ -88,20 +101,26 @@ swindows = rand(1:2, n)
 obs_times = rand(8:10, n)
 
 # ╔═╡ 2e04be98-625f-45f4-bf5e-a0074ea1ea01
-md"Let's generate all the $n$ samples using the `doublecensored` convenience function, which combines primary censoring, truncation, and discretisation in the mathematically correct order."
+md"## Generate synthetic data using our defined model
+
+We now generate synthetic data by fixing our model parameters to their true values and sampling from the prior.
+Instead of taking this appeaoch we could have sampled from the distributions directly as we do in the getting started."
 
 # ╔═╡ aedda79e-c3d6-462e-bb9b-5edefbf0d5fc
-md"The `doublecensored` function streamlines the workflow by applying:
-1. Primary event censoring with the specified primary window
-2. Right truncation at the observation time
-3. Secondary event censoring (discretisation) with the specified interval
-
-This ensures the correct order of operations and prevents mathematical errors that could occur from manual chaining."
+md"First, we create dummy data to instantiate the model, then fix the parameters to their true values and sample from the prior to generate synthetic observations."
 
 # ╔═╡ a063cf93-9cd2-4c8b-9c0d-87075d1fa20d
-samples = map(pwindows, swindows, obs_times) do pw, sw, ot
-    rand(doublecensored(true_dist, Uniform(0.0, pw); upper = ot, interval = sw))
-end
+# Instantiate model with no observed data
+double_cens_model = CensoredDistributions_model(
+    nothing, ones(Int, n), pwindows, swindows, obs_times
+)
+
+# Fix parameters to true values and sample from prior
+fixed_model = fix(double_cens_model, (mu = meanlog, sigma = sdlog))
+samples = sample(fixed_model, Prior(), n; progress = false)
+
+# Extract the generated samples
+delays = [samples[i].y for i in 1:n]
 
 # ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
 md"Create a dataframe with the data we just generated aggregated to unique combinations and count occurrences.
@@ -113,8 +132,6 @@ delay_counts = mapreduce(vcat, pwindows, swindows, obs_times, samples) do pw, sw
         pwindow = pw,
         swindow = sw,
         obs_time = ot,
-        observed_delay = s,
-        observed_delay_upper = s + sw
     )
 end |>
                df -> @groupby(df, :pwindow, :swindow, :obs_time, :observed_delay,
@@ -138,6 +155,7 @@ x_seq = range(minimum(samples), stop = maximum(samples), length = 100)
 
 # ╔═╡ a5b04acc-acc5-4d4d-8871-09d54caab185
 # Calculate theoretical CDF using true log-normal distribution
+true_dist = LogNormal(meanlog, sdlog)
 theoretical_cdf = x_seq |> x -> cdf(true_dist, x)
 
 # ╔═╡ fb6dc898-21a9-4f8d-aa14-5b45974c2242
@@ -175,7 +193,7 @@ We've aggregated the data to unique combinations of `pwindow`, `swindow`, and `o
 md"
 ## Fitting a naive model using Turing
 
-We'll start by fitting a naive model using NUTS from `Turing`. We define the model in the `Turing` PPL.
+We'll now fit a naive model that ignores the censoring process. This model treats the observed delay data as if it came directly from the uncensored delay distribution, providing a baseline for comparison.
 "
 
 # ╔═╡ a257ce07-efbe-45e1-a8b0-ada40c29de8d
@@ -222,14 +240,9 @@ We see that the model has converged and the diagnostics look good. However, just
 
 # ╔═╡ 080c1bca-afcd-46c0-80b8-1708e8d05ae6
 md"
-## Fitting an improved model using censoring utilities
+## Fitting the full CensoredDistributions model
 
-We'll now fit an improved model using the package's convenient utilities. We'll use:
-- `doublecensored` to construct distributions with primary censoring, truncation, and discretisation in the correct order
-- `product_distribution` to efficiently handle multiple distributions with different parameters
-- `weight` to handle the count data (frequency weights) for each observation
-
-This approach directly uses the package's distribution interface, which automatically handles:
+Now we'll fit the full model that accounts for censoring using the same model structure we used to generate the data. This approach directly uses the package's distribution interface, which automatically handles:
 - The primary and secondary censoring windows, which can vary in length.
 - The effect of right truncation in biasing our observations.
 - Proper normalization and log-probability calculations.
@@ -238,21 +251,8 @@ This approach directly uses the package's distribution interface, which automati
 
 # ╔═╡ e24c231a-0bf3-4a03-a307-2ab43cdbecf4
 md"
-We make a new `Turing` model that uses the package's distribution types directly.
+We use the same `CensoredDistributions_model` we defined earlier, but now we'll fit it to the observed data without fixing the parameters.
 "
-
-# ╔═╡ 21ffd833-428f-488d-8df3-e8468aa76bb6
-@model function CensoredDistributions_model(y, y_upper, n, pws, sws, Ds)
-    mu ~ Normal(1.0, 1.0)
-    sigma ~ truncated(Normal(0.5, 0.5); lower = 0.0)
-    dist = LogNormal(mu, sigma)
-
-    pcens_dists = map(pws, Ds, sws) do pw, D, sw
-        doublecensored(dist, Uniform(0.0, pw); upper = D, interval = sw)
-    end
-
-    y ~ weight(pcens_dists, n)
-end
 
 # ╔═╡ dfaab7c1-84be-421d-9eb3-60235a2b2a17
 md"
@@ -262,7 +262,6 @@ Lets instantiate this model with data
 # ╔═╡ a59e371a-b671-4648-984d-7bcaac367d32
 CensoredDistributions_mdl = CensoredDistributions_model(
     delay_counts.observed_delay,
-    delay_counts.observed_delay_upper,
     delay_counts.n,
     delay_counts.pwindow,
     delay_counts.swindow,
@@ -271,16 +270,8 @@ CensoredDistributions_mdl = CensoredDistributions_model(
 
 # ╔═╡ 691e3d54-1a31-4686-a70d-711c2fc45dc1
 md" 
-As with other Turing models we can sample from this model (and indeed we could have generated the data using this approach). 
+Now we fit the unfixed model to recover the true parameters from the synthetic data we generated earlier. This demonstrates the package's ability to perform accurate parameter recovery when the censoring process is properly modelled.
 "
-
-# ╔═╡ b6091409-1a92-4622-b31a-3e29af717cfb
-CensoredDistributions_mdl |>
-	m -> fix(m, mu = 1.5, sigma = 0.5) |>
-    m -> rand(m, 100)
-
-# ╔═╡ d26e224a-dc89-407d-9451-6665321154a2
-md"Now let’s fit the compiled model."
 
 # ╔═╡ b5cd8b13-e3db-4ed1-80ce-e3ac1c57932c
 CensoredDistributions_fit = sample(
@@ -299,7 +290,8 @@ end
 
 # ╔═╡ c045caa6-a44d-4a54-b122-1e50b1e0fe75
 md"
-We see that the model has converged and the diagnostics look good. We also see that the posterior means are very near the true parameters and the 90% credible intervals include the true parameters.
+We see that the model has converged and the diagnostics look good. 
+We also see that the posterior means are near the true parameters and the 90% credible intervals include the true parameters.
 "
 
 # ╔═╡ Cell order:
@@ -307,18 +299,19 @@ We see that the model has converged and the diagnostics look good. We also see t
 # ╟─bb9c75db-6638-48fe-afcb-e78c4bcc057d
 # ╠═3690c122-d630-4fd0-aaf2-aea9226df086
 # ╟─c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
+# ╠═21ffd833-428f-488d-8df3-e8468aa76bb6
 # ╠═b4409687-7bee-4028-824d-03b209aee68d
 # ╟─30e99e77-aad1-43e8-9284-ab0bf8ae741f
 # ╠═28bcd612-19f6-4e25-b6df-cb43df4f2a73
 # ╠═04e414ab-c790-4d31-b216-18776534a287
 # ╠═54700ad7-6b2a-440f-903a-c126b4c60c0e
-# ╠═aabd7db4-103a-4029-96d3-0de7077d759d
 # ╟─767a58ed-9d7b-41db-a488-10f98a777474
 # ╠═35472e04-e096-4948-a218-3de53923f271
 # ╠═2d0ca6e6-0333-4aec-93d4-43eb9985dc14
 # ╠═6465e51b-8d71-4c85-ba40-e6d230aa53b1
 # ╟─2e04be98-625f-45f4-bf5e-a0074ea1ea01
 # ╠═aedda79e-c3d6-462e-bb9b-5edefbf0d5fc
+# ╠═dummy_data_cell
 # ╠═a063cf93-9cd2-4c8b-9c0d-87075d1fa20d
 # ╟─50757759-9ec3-42d0-a765-df212642885a
 # ╠═5aed77d3-5798-4538-b3eb-3f4ce43d0423
@@ -340,11 +333,9 @@ We see that the model has converged and the diagnostics look good. We also see t
 # ╟─7122bd53-81f6-4ea5-a024-86fdd7a7207a
 # ╟─080c1bca-afcd-46c0-80b8-1708e8d05ae6
 # ╟─e24c231a-0bf3-4a03-a307-2ab43cdbecf4
-# ╠═21ffd833-428f-488d-8df3-e8468aa76bb6
 # ╟─dfaab7c1-84be-421d-9eb3-60235a2b2a17
 # ╠═a59e371a-b671-4648-984d-7bcaac367d32
 # ╠═691e3d54-1a31-4686-a70d-711c2fc45dc1
-# ╠═b6091409-1a92-4622-b31a-3e29af717cfb
 # ╟─d26e224a-dc89-407d-9451-6665321154a2
 # ╠═b5cd8b13-e3db-4ed1-80ce-e3ac1c57932c
 # ╠═a53a78b3-dcbe-4b62-a336-a26e647dc8c8
