@@ -1,6 +1,7 @@
 [deps]
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 CensoredDistributions = "b2eeebe4-5992-4301-9193-7ebc9f62c855"
+Chain = "8be319e6-bccf-4806-a6f7-6fae938471bc"
 Changelog = "5217a498-cd5d-4ec6-b8c2-9b85a09b6e3e"
 DataFramesMeta = "1313f7d8-7da2-5740-9ea0-a2ca25f37964"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
