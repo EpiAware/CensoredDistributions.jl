@@ -8,7 +8,7 @@ end
     using Distributions
     use_dist = primarycensored(LogNormal(3.5, 1.5), Uniform(1, 2))
     use_dist_censored = within_interval_censored(use_dist, 3, 10)
-    @test typeof(use_dist_censored) <: PrimaryCensored.WithinIntervalCensored
+    @test typeof(use_dist_censored) <: CensoredDistributions.WithinIntervalCensored
 end
 
 @testitem "Test random generation" begin

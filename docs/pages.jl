@@ -12,14 +12,6 @@ getting_started_pages = Any[
     ]
 ]
 
-showcase_pages = Any[
-    "Overview" => "showcase/index.md"
-]
-
-what_is_pages = [
-    "Overview" => "overview.md"
-]
-
 module_pages = [
     "Overview" => "lib/index.md",
     "Public API" => "lib/public.md",
@@ -35,8 +27,7 @@ developer_pages = [
 pages = [
     "PrimaryCensored.jl: Primary event censored distributions" => "index.md",
     "Getting started" => getting_started_pages,
-    "Showcase" => showcase_pages,
-    "What is PrimaryCensored?" => what_is_pages,
+    "What is CensoredDistributions.jl?" => "overview.md",
     "Modules" => module_pages,
     "Developers" => developer_pages,
     "release-notes.md"

@@ -2,7 +2,7 @@
 @testitem "Aqua.jl" begin
     using Aqua
     Aqua.test_all(
-        PrimaryCensored, ambiguities = false, persistent_tasks = false
+        CensoredDistributions, ambiguities = false, persistent_tasks = false
     )
-    Aqua.test_ambiguities(PrimaryCensored)
+    Aqua.test_ambiguities(CensoredDistributions)
 end

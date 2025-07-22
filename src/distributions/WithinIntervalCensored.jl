@@ -41,7 +41,7 @@ Returning a within interval censored pmf
 # Examples
 
 ```@example
-using PrimaryCensored, Distributions
+using CensoredDistributions, Distributions
 d = truncated(Normal(5,2), 0, 5)
 trunc_d = within_interval_censored(d, 2, 4)
 pdf(trunc_d)
@@ -64,7 +64,7 @@ Returning a within interval censored logpdf
 # Examples
 
 ```@example
-using PrimaryCensored, Distributions
+using CensoredDistributions, Distributions
 d = truncated(Normal(5,2), 0, 5)
 trunc_d = within_interval_censored(d, 2, 4)
 logpdf(trunc_d)
@@ -87,7 +87,7 @@ A random sample from the within-interval censored distribution
 
 # Examples
 ```@example
-using PrimaryCensored, Distributions
+using CensoredDistributions, Distributions
 d = truncated(Normal(5,2), 0, 5)
 trunc_d = within_interval_censored(d, 2, 4)
 rand(trunc_d)

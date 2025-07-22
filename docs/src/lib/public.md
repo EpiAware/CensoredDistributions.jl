@@ -1,6 +1,6 @@
 # Public Documentation
 
-Documentation for `PrimaryCensored.jl`'s public interface.
+Documentation for `CensoredDistributions.jl`'s public interface.
 
 See the Internals section of the manual for internal package docs covering all submodules.
 
@@ -20,6 +20,6 @@ Pages = ["public.md"]
 ## Public API
 
 ```@autodocs
-Modules = [PrimaryCensored]
+Modules = [CensoredDistributions]
 Private = false
 ```

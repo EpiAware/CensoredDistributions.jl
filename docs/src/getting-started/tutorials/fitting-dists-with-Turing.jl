@@ -23,31 +23,31 @@ begin
     using Random
     using CairoMakie, PairPlots
     using StatsBase
-    using PrimaryCensored
+    using CensoredDistributions
 end
 
 # ╔═╡ 30511a27-984e-40b7-9b1e-34bc87cb8d56
 md"""
-# Fitting distributions using PrimaryCensored.jl and Turing.jl
+# Fitting distributions using CensoredDistributions.jl and Turing.jl
 
 ## Introduction
 
 ### What are we going to do in this exercise
 
-We'll demonstrate how to use `PrimaryCensored.jl` in conjunction with Turing.jl for Bayesian inference of epidemiological delay distributions. We'll cover the following key points:
+We'll demonstrate how to use `CensoredDistributions.jl` in conjunction with Turing.jl for Bayesian inference of epidemiological delay distributions. We'll cover the following key points:
 
 1. Simulating censored delay distribution data
 2. Fitting a naive model using Turing.jl
 3. Evaluating the naive model's performance
-4. Fitting an improved model using `PrimaryCensored.jl` functionality
-5. Comparing the `PrimaryCensored.jl` model's performance to the naive model
+4. Fitting an improved model using `CensoredDistributions.jl` functionality
+5. Comparing the `CensoredDistributions.jl` model's performance to the naive model
 
 ## What might I need to know before starting
 
-This vignette builds on the concepts introduced in the [Getting Started with PrimaryCensored.jl](FIXME.html) vignette and assumes familiarity with using Turing.jl.
+This vignette builds on the concepts introduced in the [Getting Started with CensoredDistributions.jl](FIXME.html) vignette and assumes familiarity with using Turing.jl.
 
 ## Packages used
-We use CairoMakie for plotting, Turing for probabilistic programming, and the _classics_ DataFrames, Random, StatsBase (for the ecdf function). We install the PrimaryCensored.jl packages from the github repo.
+We use CairoMakie for plotting, Turing for probabilistic programming, and the _classics_ DataFrames, Random, StatsBase (for the ecdf function). We install the CensoredDistributions.jl packages from the github repo.
 """
 
 # ╔═╡ c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
@@ -88,7 +88,7 @@ swindows = rand(1:2, n)
 obs_times = rand(8:10, n)
 
 # ╔═╡ 2e04be98-625f-45f4-bf5e-a0074ea1ea01
-md"Let's generates all the $n$ samples by recreating the primary censored sampling function from `primarycensoreddist`, c.f. documentation [here](https://primarycensored.epinowcast.org/reference/rprimarycensoreddist.html)."
+md"Let's generates all the $n$ samples by recreating the primary censored sampling function from `CensoredDistributions`, c.f. documentation [here](https://primarycensored.epinowcast.org/reference/rCensoredDistributions.html)."
 
 # ╔═╡ aedda79e-c3d6-462e-bb9b-5edefbf0d5fc
 """
@@ -189,11 +189,7 @@ We'll start by fitting a naive model using NUTS from `Turing`. We define the mod
 @model function naive_model(N, y, n)
     mu ~ Normal(1.0, 1.0)
     sigma ~ truncated(Normal(0.5, 1.0); lower = 0.0)
-    d = LogNormal(mu, sigma)
-
-    for i in eachindex(y)
-        Turing.@addlogprob! n[i] * logpdf(d, y[i])
-    end
+    y ~ weight(LogNormal(mu, sigma), n)
 end
 
 # ╔═╡ 49846128-379c-4c3b-9ec1-567ffa92e079
@@ -252,7 +248,7 @@ We make a new `Turing` model that uses the package's distribution types directly
 "
 
 # ╔═╡ 21ffd833-428f-488d-8df3-e8468aa76bb6
-@model function primarycensoreddist_model(y, y_upper, n, pws, Ds)
+@model function CensoredDistributions_model(y, y_upper, n, pws, Ds)
     mu ~ Normal(1.0, 1.0)
     sigma ~ truncated(Normal(0.5, 0.5); lower = 0.0)
     dist = LogNormal(mu, sigma)
@@ -274,7 +270,7 @@ Lets instantiate this model with data
 "
 
 # ╔═╡ a59e371a-b671-4648-984d-7bcaac367d32
-primarycensoreddist_mdl = primarycensoreddist_model(
+CensoredDistributions_mdl = CensoredDistributions_model(
     delay_counts.observed_delay,
     delay_counts.observed_delay_upper,
     delay_counts.n,
@@ -286,15 +282,15 @@ primarycensoreddist_mdl = primarycensoreddist_model(
 md"Now let’s fit the compiled model."
 
 # ╔═╡ b5cd8b13-e3db-4ed1-80ce-e3ac1c57932c
-primarycensoreddist_fit = sample(
-    primarycensoreddist_mdl, NUTS(), MCMCThreads(), 1000, 4)
+CensoredDistributions_fit = sample(
+    CensoredDistributions_mdl, NUTS(), MCMCThreads(), 1000, 4)
 
 # ╔═╡ a53a78b3-dcbe-4b62-a336-a26e647dc8c8
-summarize(primarycensoreddist_fit)
+summarize(CensoredDistributions_fit)
 
 # ╔═╡ f0c02e4a-c0cc-41de-b1bf-f5fad7e7dfdb
 let
-    f = pairplot(primarycensoreddist_fit)
+    f = pairplot(CensoredDistributions_fit)
     CairoMakie.vlines!(f[1, 1], [meanlog], linewidth = 3)
     CairoMakie.vlines!(f[2, 2], [sdlog], linewidth = 3)
     f

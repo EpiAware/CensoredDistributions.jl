@@ -2,7 +2,7 @@
 
 *Note that this section of the documentation is still under construction. Please see replications for the most up-to-date information. Please feel free to contribute to the documentation by submitting a pull request.*
 
-Welcome to the `PrimaryCensored` documentation! This section is designed to help you get started with the package. It includes a frequently asked questions (FAQ) section, a series of explainers that provide a detailed overview of the platform and its features, and tutorials that will help you get started with `PrimaryCensored` for specific tasks. See the sidebar for the list of topics.
+Welcome to the `CensoredDistributions` documentation! This section is designed to help you get started with the package. It includes a frequently asked questions (FAQ) section, a series of explainers that provide a detailed overview of the platform and its features, and tutorials that will help you get started with `CensoredDistributions` for specific tasks. See the sidebar for the list of topics.
 
 ## Introduction to the problem
 
@@ -12,7 +12,7 @@ Delay distributions play a crucial role in various fields, including epidemiolog
 
 ```
 # Import the package
-using PrimaryCensored
+using CensoredDistributions
 using Distributions
 using Random
 using Plots
@@ -36,7 +36,7 @@ primary_distribution = Uniform(1, 2)
 delay_distribution = LogNormal(meanlog, sdlog)
 
 ```
-Now we can generate our `PrimaryCensoredDist` object
+Now we can generate our `CensoredDistributions` object
 
 ```
 
@@ -64,13 +64,13 @@ hist(rand(int_censored_dist, 1000))
 ## Contributing
 
 We welcome contributions and new contributors!
-We particularly appreciate help on [identifying and identified issues](https://github.com/epiaware/PrimaryCensored.jl/issues).
-Please check and add to the issues, and/or add a [pull request](https://github.com/epiaware/PrimaryCensored.jl/pulls) and see our [contributing guide](https://github.com/epiaware/.github/blob/main/CONTRIBUTING.md) for more information.
+We particularly appreciate help on [identifying and identified issues](https://github.com/epiaware/CensoredDistributions.jl/issues).
+Please check and add to the issues, and/or add a [pull request](https://github.com/epiaware/CensoredDistributions.jl/pulls) and see our [contributing guide](https://github.com/epiaware/.github/blob/main/CONTRIBUTING.md) for more information.
 
-If you need a different underlying model for your work: `primarycensoreddist` provides a flexible framework for censored distributions in Julia, the language of the future.
+If you need a different underlying model for your work: `CensoredDistributions` provides a flexible framework for censored distributions in Julia, the language of the future.
 The future the is now.
 
 
 ## Code of Conduct
 
-Please note that the `primarycensoreddist` project is released with a [Contributor Code of Conduct](https://github.com/epiaware/.github/blob/main/CODE_OF_CONDUCT.md). By contributing to this project, you agree to abide by its terms.
+Please note that the `CensoredDistributions` project is released with a [Contributor Code of Conduct](https://github.com/epiaware/.github/blob/main/CODE_OF_CONDUCT.md). By contributing to this project, you agree to abide by its terms.

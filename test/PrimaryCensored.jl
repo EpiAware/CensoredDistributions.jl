@@ -7,7 +7,7 @@ end
 @testitem "Test constructor" begin
     using Distributions
     use_dist = primarycensored(LogNormal(3.5, 1.5), Uniform(1, 2))
-    @test typeof(use_dist) <: PrimaryCensored.PrimaryCensoredDist
+    @test typeof(use_dist) <: CensoredDistributions.PrimaryCensored
 end
 
 @testitem "Test random generation" begin
