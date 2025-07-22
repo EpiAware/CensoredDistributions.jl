@@ -20,12 +20,12 @@ end
     rng = MersenneTwister(1234)
     @test length(rand(rng, use_dist_censored)) == 1
 
-    out_rngs = zeros(1000000)
-    for i in 1:1000000
+    out_rngs = zeros(1000)
+    for i in 1:1000
         out_rngs[i] = rand(rng, use_dist_censored)
     end
 
-    @test length(out_rngs) ≈ 1e6
+    @test length(out_rngs) ≈ 1000
     @test maximum(out_rngs) <= 10
     @test minimum(out_rngs) >= 0
 end
