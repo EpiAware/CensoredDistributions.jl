@@ -18,6 +18,7 @@ end
 # ╔═╡ 3690c122-d630-4fd0-aaf2-aea9226df086
 begin
     using DataFramesMeta
+    using Chain
     using Turing
     using Distributions
     using Random
@@ -49,7 +50,7 @@ We'll cover the following key points:
 This tutorial builds on the concepts introduced in [Getting Started with CensoredDistributions.jl](@ getting-started).
 
 ## Packages used
-We use CairoMakie for plotting, Turing for probabilistic programming, DataFrames, Random, and StatsBase.
+We use CairoMakie for plotting, Turing for probabilistic programming, Chain.jl for data pipeline workflows, DataFrames, Random, and StatsBase.
 """
 
 # ╔═╡ c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
@@ -121,16 +122,17 @@ md"Create a dataframe with the data we just generated aggregated to unique combi
 "
 
 # ╔═╡ 5aed77d3-5798-4538-b3eb-3f4ce43d0423
-delay_counts = mapreduce(vcat, pwindows, swindows, obs_times, samples) do pw, sw, ot, s
+delay_counts = @chain begin
     DataFrame(
-        pwindow = pw,
-        swindow = sw,
-        obs_time = ot,
+        pwindow = pwindows,
+        swindow = swindows,
+        obs_time = obs_times,
+        observed_delay = samples
     )
-end |>
-               df -> @groupby(df, :pwindow, :swindow, :obs_time, :observed_delay,
-    :observed_delay_upper) |>
-                     gd -> @combine(gd, :n=length(:pwindow))
+    @transform(:observed_delay_upper = :observed_delay .+ :swindow)
+    @groupby(:pwindow, :swindow, :obs_time, :observed_delay, :observed_delay_upper)
+    @combine(:n = length(:pwindow))
+end
 
 # ╔═╡ 993f1f74-4a55-47a7-9e3e-c725cba13c0a
 md"""
@@ -150,7 +152,9 @@ x_seq = range(minimum(samples), stop = maximum(samples), length = 100)
 # ╔═╡ a5b04acc-acc5-4d4d-8871-09d54caab185
 # Calculate theoretical CDF using true log-normal distribution
 true_dist = LogNormal(meanlog, sdlog)
-theoretical_cdf = x_seq |> x -> cdf(true_dist, x)
+theoretical_cdf = @chain x_seq begin
+    cdf.(true_dist, _)
+end
 
 # ╔═╡ fb6dc898-21a9-4f8d-aa14-5b45974c2242
 let
