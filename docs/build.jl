@@ -1,6 +1,6 @@
 
 """Run all Pluto notebooks (".jl" files) in `tutorials_dir` and write outputs to HTML files."""
-function build(target_subdir; _module = PrimaryCensored)
+function build(target_subdir; _module = CensoredDistributions)
     target_dir = joinpath(pkgdir(_module), "docs", "src", target_subdir)
 
     @info "Building notebooks in $target_subdir"

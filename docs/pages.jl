@@ -2,7 +2,7 @@ getting_started_pages = Any[
     "Installation" => "getting-started/installation.md",
     "Frequently asked questions" => "getting-started/faq.md",
     "Tutorials" => [
-        "Fitting distributions with PrimaryCensored and Turing" => "getting-started/tutorials/fitting-with-Turing.md"
+        "Fitting distributions with CensoredDistributions and Turing" => "getting-started/tutorials/fitting-with-Turing.md"
     ]
 ]
 
@@ -13,7 +13,7 @@ module_pages = [
 ]
 
 pages = [
-    "PrimaryCensored.jl: Primary event censored distributions" => "index.md",
+    "CensoredDistributions.jl: Primary event censored distributions" => "index.md",
     "Getting started" => getting_started_pages,
     "Modules" => module_pages
 ]
