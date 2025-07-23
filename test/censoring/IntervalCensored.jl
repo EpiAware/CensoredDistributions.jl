@@ -6,7 +6,7 @@
     ic_regular = interval_censored(d, 1.0)
     @test typeof(ic_regular) <: CensoredDistributions.IntervalCensored
     @test ic_regular.dist === d
-    @test ic_regular.intervals == 1.0
+    @test ic_regular.boundaries == 1.0
     @test CensoredDistributions.is_regular_intervals(ic_regular) == true
 
     # Test arbitrary interval construction
@@ -14,7 +14,7 @@
     ic_arbitrary = interval_censored(d, intervals)
     @test typeof(ic_arbitrary) <: CensoredDistributions.IntervalCensored
     @test ic_arbitrary.dist === d
-    @test ic_arbitrary.intervals == intervals
+    @test ic_arbitrary.boundaries == intervals
     @test CensoredDistributions.is_regular_intervals(ic_arbitrary) == false
 
     # Test constructor error handling
@@ -126,19 +126,17 @@ end
 @testitem "Test IntervalCensored single interval compatibility" begin
     using Distributions
 
-    # Test single interval case (WithinIntervalCensored compatibility)
+    # Test single interval case - should work same as multiple intervals
     d = Normal(5, 2)
     ic = interval_censored(d, [2.0, 4.0])
 
-    # pdf() without argument should work for single interval
-    expected_pdf = cdf(d, 4.0) - cdf(d, 2.0)
-    @test pdf(ic) ≈ expected_pdf
-    @test logpdf(ic) ≈ log(expected_pdf)
+    # pdf at boundary points should work
+    @test pdf(ic, 2.0) > 0
+    @test pdf(ic, 4.0) ≈ 0  # At upper boundary, no mass
 
-    # Multiple intervals should throw error
+    # Should behave consistently with multi-interval case
     ic_multi = interval_censored(d, [2.0, 4.0, 6.0])
-    @test_throws ArgumentError pdf(ic_multi)
-    @test_throws ArgumentError logpdf(ic_multi)
+    @test pdf(ic, 2.0) ≈ pdf(ic_multi, 2.0)
 end
 
 @testitem "Test IntervalCensored sampling - regular intervals" begin
@@ -173,10 +171,10 @@ end
     rng = MersenneTwister(456)
     d = Normal(5, 2)
 
-    # Test single interval case - should return lower bound
+    # Test single interval case - should return interval boundaries based on where samples fall
     ic_single = interval_censored(d, [2.0, 4.0])
     samples_single = rand(rng, ic_single, 100)
-    @test all(s == 2.0 for s in samples_single)  # All samples should be lower bound
+    @test all(s in [2.0, 4.0] for s in samples_single)  # Samples should be interval boundaries
 
     # Test multiple intervals case
     intervals = [0.0, 2.0, 5.0, 10.0]
@@ -191,6 +189,64 @@ end
     # Most samples should be in middle interval [2.0, 5.0] for Normal(5, 2)
     count_middle = sum([s == 2.0 for s in samples_multi])
     @test count_middle > length(samples_multi) * 0.3  # At least 30% in middle interval
+end
+
+@testitem "Test IntervalCensored with negative boundaries - comprehensive" begin
+    using Distributions
+    using Random
+
+    rng = MersenneTwister(789)
+    d = Normal(0, 2)  # Centered at 0, samples can be negative or positive
+
+    # Test with boundaries including negative values
+    boundaries = [-5.0, -2.0, 1.0, 4.0]  # Creates intervals [-5,-2), [-2,1), [1,4)
+    ic = interval_censored(d, boundaries)
+
+    # Test sampling
+    samples = rand(rng, ic, 1000)
+    unique_samples = unique(samples)
+    @test all([s in boundaries for s in unique_samples])
+    @test length(unique_samples) >= 2  # Should see multiple boundaries
+    @test any(s < 0 for s in samples)  # Should have some negative samples
+
+    # Test pdf at each boundary
+    @test pdf(ic, -5.0) > 0  # Should have mass in first interval [-5,-2)
+    @test pdf(ic, -2.0) > 0  # Should have mass in second interval [-2,1)
+    @test pdf(ic, 1.0) > 0   # Should have mass in third interval [1,4)
+    @test pdf(ic, 4.0) ≈ 0   # At upper boundary, no mass (outside intervals)
+
+    # Test cdf behavior
+    @test cdf(ic, -6.0) ≈ 0.0  # Before first boundary
+    @test cdf(ic, -5.0) ≈ cdf(d, -5.0)  # At first boundary
+    @test cdf(ic, -2.0) ≈ cdf(d, -2.0)  # At second boundary
+    @test cdf(ic, 1.0) ≈ cdf(d, 1.0)    # At third boundary
+    @test cdf(ic, 5.0) ≈ cdf(d, 4.0)    # Beyond last boundary
+
+    # Test distribution interface
+    @test minimum(ic) == -5.0  # Should be first boundary
+    @test maximum(ic) == 1.0   # Should be last interval start (where sample can occur)
+    @test insupport(ic, -5.0) == true
+    @test insupport(ic, -2.0) == true
+    @test insupport(ic, 1.0) == true
+    @test insupport(ic, 4.0) == true  # Boundary is in support
+    @test insupport(ic, 0.0) == false  # Not a boundary
+
+    # Test interval bounds computation
+    lower, upper = CensoredDistributions.get_interval_bounds(ic, -3.0)  # In [-5,-2) interval
+    @test lower == -5.0 && upper == -2.0
+
+    lower, upper = CensoredDistributions.get_interval_bounds(ic, 0.0)   # In [-2,1) interval
+    @test lower == -2.0 && upper == 1.0
+
+    lower, upper = CensoredDistributions.get_interval_bounds(ic, 2.0)   # In [1,4) interval
+    @test lower == 1.0 && upper == 4.0
+
+    # Outside boundaries
+    lower, upper = CensoredDistributions.get_interval_bounds(ic, -10.0)  # Before first
+    @test isnan(lower) && isnan(upper)
+
+    lower, upper = CensoredDistributions.get_interval_bounds(ic, 10.0)   # After last
+    @test isnan(lower) && isnan(upper)
 end
 
 @testitem "Test IntervalCensored floor_to_interval helper" begin

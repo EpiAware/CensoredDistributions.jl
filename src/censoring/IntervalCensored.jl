@@ -13,21 +13,22 @@ struct IntervalCensored{D <: UnivariateDistribution, T} <:
        Distributions.UnivariateDistribution{Distributions.ValueSupport}
     "The underlying continuous distribution"
     dist::D
-    "Either a scalar (regular intervals) or vector (arbitrary intervals)"
-    intervals::T
+    "Either a scalar (regular intervals) or vector (boundaries for arbitrary intervals)"
+    boundaries::T
 
     function IntervalCensored(dist::D, interval::Real) where {D}
         interval > 0 || throw(ArgumentError("Interval width must be positive"))
         new{D, typeof(interval)}(dist, interval)
     end
 
-    function IntervalCensored(dist::D, intervals::AbstractVector{<:Real}) where {D}
-        length(intervals) >= 2 ||
+    function IntervalCensored(dist::D, boundaries::AbstractVector{<:Real}) where {D}
+        length(boundaries) >= 2 ||
             throw(ArgumentError("Must provide at least 2 interval boundaries"))
-        issorted(intervals) || throw(ArgumentError("Interval boundaries must be sorted"))
-        all(diff(intervals) .> 0) ||
+        issorted(boundaries) || throw(ArgumentError("Interval boundaries must be sorted"))
+        all(diff(boundaries) .> 0) ||
             throw(ArgumentError("Interval boundaries must be strictly increasing"))
-        new{D, typeof(intervals)}(dist, intervals)
+
+        new{D, typeof(boundaries)}(dist, boundaries)
     end
 end
 
@@ -64,12 +65,12 @@ end
 Construct an interval-censored distribution with arbitrary intervals.
 
 Creates a distribution where observations are censored to specified intervals defined by
-the boundaries. For example, with `intervals=[0, 2, 5, 10]`, observations fall into
+the boundaries. For example, with `boundaries=[0, 2, 5, 10]`, observations fall into
 [0,2), [2,5), or [5,10).
 
 # Arguments
 - `dist`: The underlying continuous distribution
-- `intervals`: Vector of interval boundaries (must be sorted and strictly increasing)
+- `boundaries`: Vector of interval boundaries (must be sorted and strictly increasing)
 
 # Returns
 An `IntervalCensored` distribution
@@ -85,8 +86,8 @@ age_dist = interval_censored(Normal(40, 20), [0, 18, 65, 100])
 measure_dist = interval_censored(Gamma(2, 3), [0.0, 0.5, 1.0, 2.5, 5.0, Inf])
 ```
 "
-function interval_censored(dist::UnivariateDistribution, intervals::AbstractVector{<:Real})
-    return IntervalCensored(dist, intervals)
+function interval_censored(dist::UnivariateDistribution, boundaries::AbstractVector{<:Real})
+    return IntervalCensored(dist, boundaries)
 end
 
 # Helper function to determine if we have regular or arbitrary intervals
@@ -94,7 +95,7 @@ is_regular_intervals(d::IntervalCensored{D, <:Real}) where {D} = true
 is_regular_intervals(d::IntervalCensored{D, <:AbstractVector}) where {D} = false
 
 # Get interval width for regular intervals
-interval_width(d::IntervalCensored{D, <:Real}) where {D} = d.intervals
+interval_width(d::IntervalCensored{D, <:Real}) where {D} = d.boundaries
 
 # Floor value to interval
 function floor_to_interval(x::Real, interval::Real)
@@ -120,12 +121,12 @@ function get_interval_bounds(d::IntervalCensored, x::Real)
         upper = lower + interval_width(d)
         return (lower, upper)
     else
-        idx = find_interval_index(x, d.intervals)
-        if idx == 0 || idx == length(d.intervals)
+        idx = find_interval_index(x, d.boundaries)
+        if idx == 0 || idx == length(d.boundaries)
             # Outside defined intervals
             return (NaN, NaN)
         else
-            return (d.intervals[idx], d.intervals[idx + 1])
+            return (d.boundaries[idx], d.boundaries[idx + 1])
         end
     end
 end
@@ -133,9 +134,9 @@ end
 # Distribution interface methods
 function Distributions.params(d::IntervalCensored)
     if is_regular_intervals(d)
-        return (params(d.dist)..., d.intervals)
+        return (params(d.dist)..., d.boundaries)
     else
-        return (params(d.dist)..., d.intervals)
+        return (params(d.dist)..., d.boundaries)
     end
 end
 
@@ -147,8 +148,8 @@ function Distributions.minimum(d::IntervalCensored)
         return floor_to_interval(cont_min, interval_width(d))
     else
         # Find first interval that could contain values
-        idx = find_interval_index(cont_min, d.intervals)
-        return idx > 0 ? d.intervals[idx] : d.intervals[1]
+        idx = find_interval_index(cont_min, d.boundaries)
+        return idx > 0 ? d.boundaries[idx] : d.boundaries[1]
     end
 end
 
@@ -158,8 +159,8 @@ function Distributions.maximum(d::IntervalCensored)
         return floor_to_interval(cont_max, interval_width(d))
     else
         # Find last interval that could contain values
-        idx = find_interval_index(cont_max, d.intervals)
-        return idx < length(d.intervals) ? d.intervals[idx] : d.intervals[end - 1]
+        idx = find_interval_index(cont_max, d.boundaries)
+        return idx < length(d.boundaries) ? d.boundaries[idx] : d.boundaries[end - 1]
     end
 end
 
@@ -169,7 +170,7 @@ function Distributions.insupport(d::IntervalCensored, x::Real)
         return x % interval_width(d) ≈ 0.0 && insupport(d.dist, x)
     else
         # For arbitrary intervals, x must be an interval boundary
-        return x in d.intervals && insupport(d.dist, x)
+        return x in d.boundaries && insupport(d.dist, x)
     end
 end
 
@@ -183,22 +184,8 @@ function Distributions.pdf(d::IntervalCensored, x::Real)
     return cdf(d.dist, upper) - cdf(d.dist, lower)
 end
 
-# For WithinIntervalCensored compatibility - pdf without x argument
-function Distributions.pdf(d::IntervalCensored)
-    if !is_regular_intervals(d) && length(d.intervals) == 2
-        # Special case: single interval [lower, upper]
-        return cdf(d.dist, d.intervals[2]) - cdf(d.dist, d.intervals[1])
-    else
-        throw(ArgumentError("pdf() without argument only supported for single interval"))
-    end
-end
-
 function Distributions.logpdf(d::IntervalCensored, x::Real)
     return log(pdf(d, x))
-end
-
-function Distributions.logpdf(d::IntervalCensored)
-    return log(pdf(d))
 end
 
 function Distributions.cdf(d::IntervalCensored, x::Real)
@@ -208,13 +195,13 @@ function Distributions.cdf(d::IntervalCensored, x::Real)
         return cdf(d.dist, discretised_x)
     else
         # For arbitrary intervals, use the lower bound of the containing interval
-        idx = find_interval_index(x, d.intervals)
+        idx = find_interval_index(x, d.boundaries)
         if idx == 0
             return 0.0
-        elseif idx >= length(d.intervals)
-            return cdf(d.dist, d.intervals[end])
+        elseif idx >= length(d.boundaries)
+            return cdf(d.dist, d.boundaries[end])
         else
-            return cdf(d.dist, d.intervals[idx])
+            return cdf(d.dist, d.boundaries[idx])
         end
     end
 end
@@ -234,26 +221,21 @@ end
 #### Sampling
 
 function Base.rand(rng::AbstractRNG, d::IntervalCensored)
+    # Sample once from the underlying distribution
+    x = rand(rng, d.dist)
+
     if is_regular_intervals(d)
-        # Sample from continuous distribution and discretise
-        x = rand(rng, d.dist)
+        # Discretise to regular intervals
         return floor_to_interval(x, interval_width(d))
     else
-        if length(d.intervals) == 2
-            # Special case for single interval - return lower bound
-            # This matches WithinIntervalCensored behavior
-            return d.intervals[1]
+        # Find which arbitrary interval contains x
+        idx = find_interval_index(x, d.boundaries)
+        if idx == 0 || idx >= length(d.boundaries)
+            # Outside intervals - this shouldn't happen if dist is properly bounded
+            # Return closest boundary
+            return idx == 0 ? d.boundaries[1] : d.boundaries[end]
         else
-            # For multiple intervals, sample and return the interval lower bound
-            x = rand(rng, d.dist)
-            idx = find_interval_index(x, d.intervals)
-            if idx == 0 || idx >= length(d.intervals)
-                # Outside intervals - this shouldn't happen if dist is properly bounded
-                # Return closest boundary
-                return idx == 0 ? d.intervals[1] : d.intervals[end]
-            else
-                return d.intervals[idx]
-            end
+            return d.boundaries[idx]
         end
     end
 end

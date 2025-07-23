@@ -60,24 +60,14 @@ md"""
 We'll generate synthetic data directly from the doublecensored distributions, simulating the realistic censoring and truncation scenarios we encounter in practice.
 """
 
-# ╔═╡ 21ffd833-428f-488d-8df3-e8468aa76bb6
-@model function CensoredDistributions_model(y, n, pws, sws, Ds)
-    mu ~ Normal(1.0, 1.0)
-    sigma ~ truncated(Normal(0.5, 0.5); lower = 0.0)
-    dist = LogNormal(mu, sigma)
-
-    pcens_dists = map(pws, Ds, sws) do pw, D, sw
-        doublecensored(dist, Uniform(0.0, pw); upper = D, interval = sw)
-    end
-
-    y ~ weight(pcens_dists, n)
-end
-
 # ╔═╡ b4409687-7bee-4028-824d-03b209aee68d
 Random.seed!(123) # Set seed for reproducibility
 
 # ╔═╡ 30e99e77-aad1-43e8-9284-ab0bf8ae741f
-md"## Define the true parameters for generating synthetic data"
+md"### Define the true parameters for generating synthetic data"
+
+# ╔═╡ 2fff24bf-74d3-47b8-be3f-f9d866d85903
+md"We start by defining the number of samples and the true parameters of the lognormal."
 
 # ╔═╡ 28bcd612-19f6-4e25-b6df-cb43df4f2a73
 n = 2000
@@ -88,8 +78,14 @@ meanlog = 1.5
 # ╔═╡ 54700ad7-6b2a-440f-903a-c126b4c60c0e
 sdlog = 0.75
 
+# ╔═╡ d3a7196a-185d-445b-afb7-99b546b1f72a
+md"Now we can define a lognormal distribution using Distributions.jl."
+
+# ╔═╡ 7f82b991-00ca-4eed-994a-981c6d66454c
+true_dist = LogNormal(meanlog, sdlog)
+
 # ╔═╡ 767a58ed-9d7b-41db-a488-10f98a777474
-md"we generate varying pwindow, swindow, and obs_time lengths to create realistic heterogeneous observation scenarios"
+md"For each individual we now sample a primary and secondary event window as well as a relative observation time (relative to their censored primary event)."
 
 # ╔═╡ 35472e04-e096-4948-a218-3de53923f271
 pwindows = rand(1:2, n)
@@ -100,15 +96,15 @@ swindows = rand(1:2, n)
 # ╔═╡ 6465e51b-8d71-4c85-ba40-e6d230aa53b1
 obs_times = rand(8:10, n)
 
-# ╔═╡ 2e04be98-625f-45f4-bf5e-a0074ea1ea01
-md"We'll generate synthetic data by directly sampling from doublecensored distributions that combine primary censoring, truncation, and discretisation."
+# ╔═╡ b5598cc7-ddd1-4d90-af9b-110a518416ac
+md"### Simulate from the double censored distribution for each individual"
 
-# ╔═╡ d61cfc33-0b96-4c7d-a03c-a12e84953936
-true_dist = LogNormal(meanlog, sdlog)
+# ╔═╡ 2e04be98-625f-45f4-bf5e-a0074ea1ea01
+md"Using the `true_dist` and the sampled event times we can sample directly from the double interveal censored distribution to simulate data."
 
 # ╔═╡ f4ed78df-cdbb-4534-890a-fb346dd65f33
 samples = map(pwindows, swindows, obs_times) do pw, sw, ot
-    rand(doublecensored(true_dist, Uniform(0.0, pw); upper = ot, interval = sw))
+    rand(double_interval_censored(true_dist, Uniform(0.0, pw); upper = ot, interval = sw))
 end
 
 # ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
@@ -205,6 +201,8 @@ naive_mdl = naive_model(
     delay_counts.observed_delay .+ 1e-6, # Add a small constant to avoid log(0)
     delay_counts.n)
 
+# ╔═╡ 82e9a2d9-1f00-4b52-b8c3-c824c8ab10c5
+
 # ╔═╡ 71900c43-9f52-474d-adc7-becdc74045da
 md"
 and now let's fit the compiled model.
@@ -234,9 +232,28 @@ md"## Fitting the full CensoredDistributions model
 
 Now we'll define and fit a model that accounts for the censoring process. This model uses the same mathematical structure as the data generation process."
 
+# ╔═╡ 0a14bc09-7d1d-43b3-a7ff-5b09bca1924b
+md"""
+First we define our model.
+
+"""
+
+# ╔═╡ 825227da-5788-4bbd-8546-2d8a30996aaa
+@model function CensoredDistributions_model(y, n, pws, sws, Ds)
+    mu ~ Normal(1.0, 1.0)
+    sigma ~ truncated(Normal(0.5, 0.5); lower = 0.0)
+    dist = LogNormal(mu, sigma)
+
+    pcens_dists = map(pws, Ds, sws) do pw, D, sw
+        double_interval_censored(dist, Uniform(0.0, pw); upper = D, interval = sw)
+    end
+
+    y ~ weight(pcens_dists, n)
+end
+
 # ╔═╡ e24c231a-0bf3-4a03-a307-2ab43cdbecf4
 md"
-First we will instantiate this model with our observed data.
+Then we instantiate this model with our observed data.
 "
 
 # ╔═╡ a59e371a-b671-4648-984d-7bcaac367d32
@@ -279,18 +296,20 @@ We also see that the posterior means are near the true parameters and the 90% cr
 # ╠═bb9c75db-6638-48fe-afcb-e78c4bcc057d
 # ╠═3690c122-d630-4fd0-aaf2-aea9226df086
 # ╟─c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
-# ╠═21ffd833-428f-488d-8df3-e8468aa76bb6
 # ╠═b4409687-7bee-4028-824d-03b209aee68d
 # ╟─30e99e77-aad1-43e8-9284-ab0bf8ae741f
+# ╟─2fff24bf-74d3-47b8-be3f-f9d866d85903
 # ╠═28bcd612-19f6-4e25-b6df-cb43df4f2a73
 # ╠═04e414ab-c790-4d31-b216-18776534a287
 # ╠═54700ad7-6b2a-440f-903a-c126b4c60c0e
+# ╟─d3a7196a-185d-445b-afb7-99b546b1f72a
+# ╠═7f82b991-00ca-4eed-994a-981c6d66454c
 # ╟─767a58ed-9d7b-41db-a488-10f98a777474
 # ╠═35472e04-e096-4948-a218-3de53923f271
 # ╠═2d0ca6e6-0333-4aec-93d4-43eb9985dc14
 # ╠═6465e51b-8d71-4c85-ba40-e6d230aa53b1
+# ╟─b5598cc7-ddd1-4d90-af9b-110a518416ac
 # ╟─2e04be98-625f-45f4-bf5e-a0074ea1ea01
-# ╠═d61cfc33-0b96-4c7d-a03c-a12e84953936
 # ╠═f4ed78df-cdbb-4534-890a-fb346dd65f33
 # ╟─50757759-9ec3-42d0-a765-df212642885a
 # ╠═5aed77d3-5798-4538-b3eb-3f4ce43d0423
@@ -305,12 +324,15 @@ We also see that the posterior means are near the true parameters and the 90% cr
 # ╠═a257ce07-efbe-45e1-a8b0-ada40c29de8d
 # ╟─49846128-379c-4c3b-9ec1-567ffa92e079
 # ╠═4cf596f1-0042-4990-8d0a-caa8ba1db0c7
+# ╠═82e9a2d9-1f00-4b52-b8c3-c824c8ab10c5
 # ╟─71900c43-9f52-474d-adc7-becdc74045da
 # ╠═cd26da77-02fb-4b65-bd7b-88060d0c97e8
 # ╠═10278d0c-8c72-4c5f-b857-d3bc6ff2c242
 # ╠═2c0b4f97-5953-497d-bca9-d1aa46c5150b
 # ╟─7122bd53-81f6-4ea5-a024-86fdd7a7207a
 # ╟─080c1bca-afcd-46c0-80b8-1708e8d05ae6
+# ╟─0a14bc09-7d1d-43b3-a7ff-5b09bca1924b
+# ╠═825227da-5788-4bbd-8546-2d8a30996aaa
 # ╟─e24c231a-0bf3-4a03-a307-2ab43cdbecf4
 # ╠═a59e371a-b671-4648-984d-7bcaac367d32
 # ╟─691e3d54-1a31-4686-a70d-711c2fc45dc1
