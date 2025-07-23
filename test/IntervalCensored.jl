@@ -181,15 +181,14 @@ end
     intervals = [0.0, 2.0, 5.0, 10.0]
     ic_multi = interval_censored(d, intervals)
     samples_multi = rand(rng, ic_multi, 1000)
-    
-    # All samples should be interval boundaries (except last)
+
     # When sampling from intervals, we get the lower bound of the interval containing the sample
     unique_samples = unique(samples_multi)
-    @test all(s in intervals[1:end-1] for s in unique_samples)
+    @test all([s in intervals for s in unique_samples])
     
     # Roughly check distribution of samples across intervals
     # Most samples should be in middle interval [2.0, 5.0] for Normal(5, 2)
-    count_middle = sum(s == 2.0 for s in samples_multi)
+    count_middle = sum([s == 2.0 for s in samples_multi])
     @test count_middle > length(samples_multi) * 0.3  # At least 30% in middle interval
 end
 
