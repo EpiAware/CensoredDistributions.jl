@@ -1,4 +1,4 @@
-@testitem "Code linting" tags=[:jet] begin
+@testitem "Code linting" tags=[:quality] begin
     if VERSION >= v"1.10"
         using JET
         using Distributions

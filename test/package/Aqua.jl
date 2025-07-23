@@ -1,5 +1,5 @@
 
-@testitem "Aqua.jl" begin
+@testitem "Aqua.jl" tags=[:quality] begin
     using Aqua
     Aqua.test_all(
         CensoredDistributions, ambiguities = false, persistent_tasks = false
