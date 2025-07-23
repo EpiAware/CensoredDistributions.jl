@@ -3,6 +3,7 @@ getting_started_pages = Any[
     "Frequently asked questions" => "getting-started/faq.md",
     "Tutorials" => [
         "Analytical CDF Solutions" => "getting-started/tutorials/analytical-primarycensored-cdfs.md",
+        "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md"
     ]
 ]
 
