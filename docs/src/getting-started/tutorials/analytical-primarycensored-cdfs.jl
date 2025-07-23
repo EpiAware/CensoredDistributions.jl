@@ -1,10 +1,21 @@
 ### A Pluto.jl notebook ###
-# v0.19.0
+# v0.20.13
 
 using Markdown
 using InteractiveUtils
 
-# ╔═╡ 00000000-0000-0000-0000-000000000001
+# ╔═╡ a1b2c3d4-e5f6-7890-abcd-ef1234567890
+begin
+    let
+        docs_dir = (dirname ∘ dirname ∘ dirname)(@__DIR__)
+        println(docs_dir)
+        using Pkg: Pkg
+        Pkg.activate(docs_dir)
+        Pkg.instantiate()
+    end
+end
+
+# ╔═╡ 5fd10670-c3b3-4e06-a7fa-3aa3a0ff3e54
 begin
     using CensoredDistributions
     using Distributions
@@ -13,9 +24,10 @@ begin
     using StatsPlots
     using DataFrames
     using Printf
+    using Integrals
 end
 
-# ╔═╡ 00000000-0000-0000-0000-000000000002
+# ╔═╡ be405547-68c6-4320-b38b-19982e0ffd11
 md"""
 # Analytical CDF Solutions for Primary Censored Distributions
 
@@ -30,7 +42,7 @@ Primary event censoring occurs when the exact time of an initiating event is unk
 CensoredDistributions.jl provides analytical solutions for certain distribution combinations, automatically using them when available for optimal performance.
 """
 
-# ╔═╡ 00000000-0000-0000-0000-000000000003
+# ╔═╡ fda88e76-732a-48d0-85c8-f354647896fc
 md"""
 ## Currently Supported Analytical Solutions
 
@@ -44,7 +56,7 @@ md"""
 These analytical solutions are based on the mathematical derivations implemented in the [primarycensored R package](https://primarycensored.epinowcast.org/), with detailed mathematical formulations available in their [analytical solutions vignette](https://primarycensored.epinowcast.org/articles/analytic-solutions.html).
 """
 
-# ╔═╡ 00000000-0000-0000-0000-000000000004
+# ╔═╡ 36e4b227-b48b-44d8-b667-12489034b4d2
 md"""
 ## Automatic Method Selection
 
@@ -55,7 +67,7 @@ CensoredDistributions.jl automatically selects the appropriate method:
 Let's see this in action with a Gamma distribution:
 """
 
-# ╔═╡ 00000000-0000-0000-0000-000000000005
+# ╔═╡ 7bf1f801-674d-451e-b876-21b9eb7a8993
 begin
     # Create a Gamma distribution for delays
     gamma_delay = Gamma(2.0, 3.0)
@@ -75,12 +87,12 @@ begin
     println("Forced numeric solver type: ", typeof(pc_gamma_numerical.method))
 end
 
-# ╔═╡ 00000000-0000-0000-0000-000000000006
+# ╔═╡ bbfa05f3-8ae1-4460-b423-b1ccff4ccb62
 md"""
 Let's verify both methods give the same results:
 """
 
-# ╔═╡ 00000000-0000-0000-0000-000000000006a
+# ╔═╡ 4d829367-ebd0-4d40-b0a9-dfeb45ad92fb
 begin
     x_compare = 0:0.5:10
     cdf_analytical_vals = cdf.(pc_gamma_analytical, x_compare)
@@ -94,21 +106,21 @@ begin
         label = "Numerical", linewidth = 2, linestyle = :dash, color = :red)
 end
 
-# ╔═╡ 00000000-0000-0000-0000-000000000007
+# ╔═╡ 566d0d82-ee6a-4fe2-8993-f9ff0db923ac
 md"""
 ## Performance Comparison
 
 Let's benchmark the performance difference between analytical and numerical methods:
 """
 
-# ╔═╡ 00000000-0000-0000-0000-000000000008
+# ╔═╡ 04fd9bf4-dad9-441c-8570-f4cdf211c9bf
 begin
     # Create distributions for benchmarking
     lognormal_delay = LogNormal(1.5, 0.75)
     weibull_delay = Weibull(2.0, 1.5)
 end
 
-# ╔═╡ 00000000-0000-0000-0000-000000000008a
+# ╔═╡ fb78413f-e1da-4816-88a0-e469a1bcb70b
 function benchmark_cdf_methods(
         dist, primary, name; x_values = [0.5, 1.0, 2.0, 5.0, 10.0, 20.0])
     # Create both versions
@@ -146,7 +158,7 @@ function benchmark_cdf_methods(
     )
 end
 
-# ╔═╡ 00000000-0000-0000-0000-000000000009
+# ╔═╡ 103c99ce-15ea-430a-b1fe-bc93a2339399
 # Run benchmarks for all supported distributions
 benchmark_results = [
     benchmark_cdf_methods(gamma_delay, primary_uniform, "Gamma"),
@@ -154,7 +166,7 @@ benchmark_results = [
     benchmark_cdf_methods(weibull_delay, primary_uniform, "Weibull")
 ]
 
-# ╔═╡ 00000000-0000-0000-0000-000000000010
+# ╔═╡ b5c22b5c-5d71-4856-a023-1a2740507eca
 # Create performance comparison plots
 begin
     # Summary statistics plot
@@ -227,14 +239,14 @@ begin
     plot(p1, p2, p3, layout = (3, 1), size = (700, 900))
 end
 
-# ╔═╡ 00000000-0000-0000-0000-000000000011
+# ╔═╡ ef5d0b02-4188-4c98-8ac5-59ea10f12e37
 md"""
 ## Accuracy Verification
 
 The analytical solutions maintain machine precision accuracy. Let's verify this:
 """
 
-# ╔═╡ 00000000-0000-0000-0000-000000000012
+# ╔═╡ 777728b6-a629-4841-abcb-70d1465ac7b5
 function compare_accuracy(dist, primary, name, x_range)
     d_analytical = primary_censored(dist, primary)
     d_numerical = primary_censored(dist, primary; force_numeric = true)
@@ -256,7 +268,7 @@ function compare_accuracy(dist, primary, name, x_range)
     )
 end
 
-# ╔═╡ 00000000-0000-0000-0000-000000000013
+# ╔═╡ cf91cabb-1f98-478f-a809-a9f483a0c54d
 begin
     x_test = range(0.1, 20, length = 100)
 
@@ -272,7 +284,7 @@ begin
     println("  Weibull: ", accuracy_weibull.max_error)
 end
 
-# ╔═╡ 00000000-0000-0000-0000-000000000014
+# ╔═╡ bc1fae07-e658-46cb-b0f5-80aa07d78d53
 # Plot CDF comparison
 begin
     p_cdf = plot(
@@ -310,39 +322,32 @@ begin
     plot(p_cdf, p_error, layout = (2, 1), size = (700, 600))
 end
 
-# ╔═╡ 00000000-0000-0000-0000-000000000015
+# ╔═╡ d93f474b-5a11-4a07-8374-0de6c5d1fa65
 md"""
 ## Exploring Available Methods
 
 You can use Julia's `methods` function to discover which distribution combinations have analytical solutions:
 """
 
-# ╔═╡ 00000000-0000-0000-0000-000000000016
+# ╔═╡ 78a3e849-caae-447f-bc64-4ec24c184fdf
 # Find all analytical CDF implementations
 analytical_methods = methods(CensoredDistributions.primarycensored_cdf,
     (Any, Any, Real, CensoredDistributions.AnalyticalSolver))
 
-# ╔═╡ 00000000-0000-0000-0000-000000000017
+# ╔═╡ 523eeb4e-b214-4139-bd02-4b78c83f7648
 md"""
 The above shows all methods defined for `primarycensored_cdf` with an `AnalyticalSolver`. Each method signature shows which distribution combinations have analytical solutions implemented.
-
-Currently implemented:
-- `primarycensored_cdf(::Gamma, ::Uniform, ::Real, ::AnalyticalSolver)`
-- `primarycensored_cdf(::LogNormal, ::Uniform, ::Real, ::AnalyticalSolver)`
-- `primarycensored_cdf(::Weibull, ::Uniform, ::Real, ::AnalyticalSolver)`
 """
 
-# ╔═╡ 00000000-0000-0000-0000-000000000018
+# ╔═╡ b7f8f0d0-ace2-4f6d-93f2-c91cde98854a
 md"""
 ## Custom Solver Options
 
-While analytical solutions provide optimal performance, you can customize the numerical solver when needed:
+You can also customise the numerical solver when needed:
 """
 
-# ╔═╡ 00000000-0000-0000-0000-000000000019
+# ╔═╡ 926c655e-b0d1-4dfa-834d-38e00c73ab47
 begin
-    using Integrals
-
     # Create an exponential distribution (no analytical solution available)
     exponential_delay = Exponential(2.0)
 
@@ -363,7 +368,22 @@ begin
     println("  Custom: ", typeof(pc_custom.method.solver))
 end
 
-# ╔═╡ 00000000-0000-0000-0000-000000000020
+# ╔═╡ 73ebcbf1-0f7e-45c5-876e-e48d9b7dfd25
+md"""
+
+## Implementing New Analytical Solutions
+
+If you have derived an analytical solution for a new distribution combination, you can extend the package by defining a new method for `primarycensored_cdf`. The key steps are:
+
+1. **Derive the mathematical formula** following the methodology in the [primarycensored R package vignette](https://primarycensored.epinowcast.org/articles/analytic-solutions.html)
+2. **Define a new method** for the specific distribution types making sure to define it for the `AnalyticalSolver` method.
+3. **Use log-space computations** with LogExpFunctions.jl for numerical stability
+4. **Test thoroughly** against numerical integration
+
+For detailed implementation guidance, see the existing implementations in the source code at `src/censoring/primarycensored_cdf.jl`.
+"""
+
+# ╔═╡ 2547c183-84cf-470c-8d85-14648247b8cc
 md"""
 ## Summary
 
@@ -375,8 +395,6 @@ The analytical CDF solutions in CensoredDistributions.jl provide:
 4. **Seamless integration**: Same API whether using analytical or numerical methods
 5. **Flexibility**: Can force numerical methods or use custom solvers when needed
 
-For a complete list of supported analytical solutions, see the table at the beginning of this tutorial.
-
 ### References
 
 - [primarycensored R package](https://primarycensored.epinowcast.org/): Reference implementation with mathematical derivations
@@ -384,50 +402,28 @@ For a complete list of supported analytical solutions, see the table at the begi
 - Park et al. (2024) and Cori et al. (2013): Original research papers
 """
 
-# ╔═╡ 00000000-0000-0000-0000-000000000021
-md"""
-## Advanced Topics
-
-### Implementing New Analytical Solutions
-
-If you have derived an analytical solution for a new distribution combination, you can extend the package by defining a new method for `primarycensored_cdf`. The key steps are:
-
-1. **Derive the mathematical formula** following the methodology in the [primarycensored R package vignette](https://primarycensored.epinowcast.org/articles/analytic-solutions.html)
-2. **Define a new method** for the specific distribution types
-3. **Use log-space computations** with LogExpFunctions.jl for numerical stability
-4. **Test thoroughly** against numerical integration
-
-For detailed implementation guidance, see the existing implementations in the source code at `src/censoring/primarycensored_cdf.jl`.
-"""
-
-# ╔═╡ 00000000-0000-0000-0000-000000000022
-md"""
-### Performance Tips
-
-1. **Default is optimal**: Just use `primary_censored(dist, uniform)` - analytical solutions are automatic
-2. **Check your distributions**: Use Gamma, LogNormal, or Weibull with Uniform primary for best performance
-3. **Batch operations**: Vectorize CDF evaluations for additional speedup
-4. **Custom solvers**: Only needed for special cases or when forcing numerical integration
-"""
-
 # ╔═╡ Cell order:
-# ╟─00000000-0000-0000-0000-000000000002
-# ╟─00000000-0000-0000-0000-000000000003
-# ╠═00000000-0000-0000-0000-000000000001
-# ╠═00000000-0000-0000-0000-000000000004
-# ╟─00000000-0000-0000-0000-000000000005
-# ╠═00000000-0000-0000-0000-000000000006
-# ╟─00000000-0000-0000-0000-000000000007
-# ╠═00000000-0000-0000-0000-000000000008
-# ╠═00000000-0000-0000-0000-000000000009
-# ╠═00000000-0000-0000-0000-000000000010
-# ╟─00000000-0000-0000-0000-000000000011
-# ╠═00000000-0000-0000-0000-000000000012
-# ╠═00000000-0000-0000-0000-000000000013
-# ╠═00000000-0000-0000-0000-000000000014
-# ╟─00000000-0000-0000-0000-000000000015
-# ╠═00000000-0000-0000-0000-000000000016
-# ╟─00000000-0000-0000-0000-000000000017
-# ╠═00000000-0000-0000-0000-000000000018
-# ╟─00000000-0000-0000-0000-000000000019
-# ╟─00000000-0000-0000-0000-000000000020
+# ╟─a1b2c3d4-e5f6-7890-abcd-ef1234567890
+# ╠═5fd10670-c3b3-4e06-a7fa-3aa3a0ff3e54
+# ╟─be405547-68c6-4320-b38b-19982e0ffd11
+# ╟─fda88e76-732a-48d0-85c8-f354647896fc
+# ╟─36e4b227-b48b-44d8-b667-12489034b4d2
+# ╠═7bf1f801-674d-451e-b876-21b9eb7a8993
+# ╟─bbfa05f3-8ae1-4460-b423-b1ccff4ccb62
+# ╠═4d829367-ebd0-4d40-b0a9-dfeb45ad92fb
+# ╟─566d0d82-ee6a-4fe2-8993-f9ff0db923ac
+# ╠═04fd9bf4-dad9-441c-8570-f4cdf211c9bf
+# ╠═fb78413f-e1da-4816-88a0-e469a1bcb70b
+# ╠═103c99ce-15ea-430a-b1fe-bc93a2339399
+# ╠═b5c22b5c-5d71-4856-a023-1a2740507eca
+# ╟─ef5d0b02-4188-4c98-8ac5-59ea10f12e37
+# ╠═777728b6-a629-4841-abcb-70d1465ac7b5
+# ╠═cf91cabb-1f98-478f-a809-a9f483a0c54d
+# ╠═bc1fae07-e658-46cb-b0f5-80aa07d78d53
+# ╟─d93f474b-5a11-4a07-8374-0de6c5d1fa65
+# ╠═78a3e849-caae-447f-bc64-4ec24c184fdf
+# ╟─523eeb4e-b214-4139-bd02-4b78c83f7648
+# ╟─b7f8f0d0-ace2-4f6d-93f2-c91cde98854a
+# ╠═926c655e-b0d1-4dfa-834d-38e00c73ab47
+# ╟─73ebcbf1-0f7e-45c5-876e-e48d9b7dfd25
+# ╟─2547c183-84cf-470c-8d85-14648247b8cc

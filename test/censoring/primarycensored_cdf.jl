@@ -259,3 +259,62 @@ end
         @test ccdf(d, 1000.0) ≈ 0.0
     end
 end
+
+@testitem "PrimaryCensored numerical integration bounds" begin
+    using CensoredDistributions
+    using Distributions
+    using Test
+
+    # Test 1: Standard case with distributions starting at 0
+    @testset "Standard distributions" begin
+        pc = CensoredDistributions.primary_censored(
+            Exponential(1.0), Uniform(0.0, 1.0); force_numeric = true)
+
+        # Should work for various x values
+        @test cdf(pc, 0.5) ≥ 0.0
+        @test cdf(pc, 1.0) ≥ cdf(pc, 0.5)
+        @test cdf(pc, 5.0) ≤ 1.0
+    end
+
+    # Test 2: Verify non-zero minimum support is rejected
+    @testset "Non-zero minimum support check" begin
+        # Uniform delay on [2, 5] should be rejected
+        delay_dist = Uniform(2.0, 5.0)
+        primary_event = Uniform(0.0, 1.0)
+
+        # Should throw an error for non-zero minimum
+        @test_throws ArgumentError CensoredDistributions.primary_censored(
+            delay_dist, primary_event)
+    end
+
+    # Test 3: Edge case with small x values
+    @testset "Small x values" begin
+        pc = CensoredDistributions.primary_censored(
+            Gamma(2.0, 1.0), Uniform(0.0, 2.0); force_numeric = true)
+
+        # Should handle small x gracefully
+        @test cdf(pc, 0.1) ≥ 0.0
+        @test cdf(pc, 0.5) ≥ cdf(pc, 0.1)
+
+        # Test that the integration bounds are valid internally
+        # This would have failed with the old bounds calculation
+        @test !isnan(cdf(pc, 0.5))
+        @test !isinf(cdf(pc, 0.5))
+    end
+
+    # Test 4: Compare with analytical solution where available
+    @testset "Numerical vs Analytical consistency" begin
+        # Use Gamma + Uniform which has analytical solution
+        delay_dist = Gamma(2.0, 3.0)
+        primary_event = Uniform(0.0, 1.0)
+
+        pc_analytical = CensoredDistributions.primary_censored(delay_dist, primary_event)
+        pc_numerical = CensoredDistributions.primary_censored(
+            delay_dist, primary_event; force_numeric = true)
+
+        x_values = [0.5, 1.0, 2.0, 5.0, 10.0]
+        for x in x_values
+            @test cdf(pc_analytical, x) ≈ cdf(pc_numerical, x) rtol=1e-6
+        end
+    end
+end

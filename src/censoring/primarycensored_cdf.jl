@@ -77,7 +77,7 @@ function primarycensored_cdf(
 
     # Compute integration bounds
     lower = max(x - maximum(primary_event), minimum(dist))
-    upper = max(x - minimum(primary_event), minimum(dist))
+    upper = x - minimum(primary_event)
 
     # Check if bounds are valid
     if upper <= lower || upper - lower ≈ 0.0
@@ -85,7 +85,7 @@ function primarycensored_cdf(
     end
 
     # Set up and solve the integral problem
-    prob = IntegralProblem(integrand, lower, upper, x)
+    prob = IntegralProblem(integrand, (lower, upper), x)
     result = solve(prob, method.solver)[1]
 
     return result
