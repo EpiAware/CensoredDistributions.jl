@@ -34,6 +34,7 @@ We will cover the mathematical formulation of the problem, demonstrate the usage
 using CensoredDistributions
 using Distributions
 using Random
+using Plots
 
 # Set the seed for reproducibility
 Random.seed!(123)
