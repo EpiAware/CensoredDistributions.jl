@@ -19,6 +19,11 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 
 `CensoredDistributions.jl` is a package for working with censored distributions. It extends the functionality of the [Distributions.jl](https://github.com/JuliaStats/Distributions.jl) package to support additional censored distribution and utilities for working with them.
 
+## Why CensoredDistributions.jl?
+
+- **Additional censoring types**: Distributions.jl supports left/right censoring and truncation, but not within interval censoring (when an event occurs in a window but it is not known precisely when) or primary event censoring (when the initial event of the pair that make up a delay distribution occurs within a time window).
+- **Epidemiological applications**: These are essential for estimating epidemiological delay distributions such as the incubation period where both the exposure time and symptom onset are observed with uncertainty.
+- **Extended functionality**: Provides weighted distributions and analytical solutions for common distribution combinations to improve efficiency.
 
 ## What can I do with CensoredDistributions.jl?
 
@@ -31,7 +36,7 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 
 ## Getting Started
 
-The following example demonstrates how to create a double interval censored distribution that accounts for both primary event censoring (when the initial event occurs within a time window) and secondary interval censoring (when observations are also only observed within a time window). This is particularly useful in epidemiological applications where both the exposure time and symptom onset are observed with uncertainty.
+The following example demonstrates how to create a double interval censored distribution:
 
 ```julia
 using CensoredDistributions, Distributions, Plots
