@@ -213,7 +213,7 @@ end
             d_analytical = primary_censored(dist, primary)
             d_numerical = primary_censored(dist, primary; force_numeric = true)
 
-            x = 5.0
+            x = mean(dist)
 
             # Time them to verify analytical is faster
             t_analytical = @elapsed for _ in 1:100
@@ -225,7 +225,7 @@ end
 
             # Analytical should be significantly faster
             speedup = t_numerical / t_analytical
-            @test speedup > 1.1 # At least 1.1x faster
+            @test speedup > 2
             @info "$(name) speedup: $(round(speedup, digits=1))x"
         end
     end
