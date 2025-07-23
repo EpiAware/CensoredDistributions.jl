@@ -8,7 +8,6 @@ getting_started_pages = Any[
 ]
 
 module_pages = [
-    "Overview" => "lib/index.md",
     "Public API" => "lib/public.md",
     "Internal API" => "lib/internals.md"
 ]
