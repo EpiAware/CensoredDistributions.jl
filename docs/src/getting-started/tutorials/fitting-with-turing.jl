@@ -234,8 +234,7 @@ Now we'll define and fit a model that accounts for the censoring process. This m
 
 # ╔═╡ 0a14bc09-7d1d-43b3-a7ff-5b09bca1924b
 md"""
-First we define our model.
-
+First we define our model. Aside from the use of the `double_interval_censored` function this model is the same as the naive model we used above.
 """
 
 # ╔═╡ 825227da-5788-4bbd-8546-2d8a30996aaa
