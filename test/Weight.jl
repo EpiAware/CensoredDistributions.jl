@@ -167,7 +167,7 @@ end
     using Distributions
     
     # Create a primary censored distribution
-    pc_dist = primarycensored(LogNormal(2, 0.5), Uniform(0, 1))
+    pc_dist = primary_censored(LogNormal(2, 0.5), Uniform(0, 1))
     w = 7.0
     wd = weight(pc_dist, w)
     

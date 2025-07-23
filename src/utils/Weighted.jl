@@ -132,8 +132,6 @@ weighted_dists = weight(dists, n_counts)
 
 # Calculate weighted log-likelihood
 total_loglik = sum(logpdf(weighted_dists, y_obs))
-
-
 ```
 """
 function weight(dists::AbstractVector{<:UnivariateDistribution}, weights::AbstractVector{<:Real})
@@ -201,4 +199,4 @@ end
 Base.rand(rng::AbstractRNG, d::Weighted) = rand(rng, d.dist)
 
 # Sampler method for efficient sampling
-Distributions.sampler(d::Weighted) = Weighted(sampler(d.dist), d.weights)
+Distributions.sampler(d::Weighted) = Weighted(sampler(d.dist), d.weight)

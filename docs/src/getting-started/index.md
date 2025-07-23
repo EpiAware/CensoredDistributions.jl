@@ -67,7 +67,7 @@ plot(x, pdf.(dist, x))
 Now we combine these two distributions to create a primary censored distribution:
 
 ```julia
-prim_dist = primarycensored(dist, primary_event)
+prim_dist = primary_censored(dist, primary_event)
 ```
 
 The primary event censored cumulative distribution function (CDF) is given by:
@@ -76,7 +76,7 @@ $$F_{\text{cens}}(q) = \int_{0}^{1} F(q - p) \cdot f_{\text{primary}}(p) \, dp$$
 
 where $F$ is the CDF of the delay distribution and $f_{\text{primary}}$ is the PDF of the primary event times.
 
-For theory explained in more detail, see the [primarycensored](https://primarycensored.epinowcast.org/dev/articles/primarycensored.html) documentation.
+For theory explained in more detail, see the [primary_censored](https://primary_censored.epinowcast.org/dev/articles/primary_censored.html) documentation.
 
 We can now generate a random sample from the primary distribution
 
@@ -126,7 +126,7 @@ plot!(x, cdf.(trunc_prim_dist, x), label="Truncated and primary censored")
 
 ## Secondary interval censoring
 
-We can now apply secondary interval censoring using the `discretise` function. We call this discretisation as rather than specifying an interval for the secondary event, we specify intervals to round to.
+We can now apply secondary interval censoring using the `interval_censored` function. This censors observations to fall within specified intervals.
 
 The secondary event censoring process rounds the truncated delays to the nearest secondary event window ($\text{swindow}$):
 
@@ -139,7 +139,7 @@ $$f_{\text{cens}}(d) = F_{\text{cens}}(d + \text{swindow}) - F_{\text{cens}}(d)$
 where $F_{\text{cens}}$ is the potentially right truncated primary event censored CDF and $\text{swindow}$ is the secondary event window.
 
 ```julia
-int_censored_dist = discretise(trunc_prim_dist, 1)
+int_censored_dist = interval_censored(trunc_prim_dist, 1)
 ```
 
 Again we can sample from the distribution.
@@ -155,18 +155,18 @@ x = 0:0.01:15
 plot(x, cdf.(dist, x), label="Uncensored")
 plot!(x, cdf.(prim_dist, x), label="Primary censored")
 plot!(x, cdf.(trunc_prim_dist, x), label="Truncated and primary censored")
-plot!(x, cdf.(int_censored_dist, x), label="Truncated, primary censored, and discretised")
+plot!(x, cdf.(int_censored_dist, x), label="Truncated, primary censored, and interval censored")
 ```
 
-Neither the primary censored nor the discretised distributions match the true distribution due to the censoring effects and truncation at the maximum observable delay, which biases both observed distributions towards shorter delays.
+Neither the primary censored nor the interval censored distributions match the true distribution due to the censoring effects and truncation at the maximum observable delay, which biases both observed distributions towards shorter delays.
 
-## Convenience Function: `doublecensored`
+## Convenience Function: `double_interval_censored`
 
-For common workflows involving the complete pipeline of primary censoring, truncation, and secondary event censoring, the package provides a convenient `doublecensored` function that applies all transformations in the correct order (primary censoring → truncation → discretisation):
+For common workflows involving the complete pipeline of primary censoring, truncation, and secondary interval censoring, the package provides a convenient `double_interval_censored` function that applies all transformations in the correct order (primary censoring → truncation → interval censoring):
 
 ```julia
 # This is equivalent to the step-by-step approach above
-double_censored_dist = doublecensored(Gamma(2, 1), Uniform(0, 1); upper=8, interval=2)
+double_censored_dist = double_interval_censored(Gamma(2, 1), Uniform(0, 1); upper=8, interval=2)
 ```
 
 As with all the other functions, we can sample from the distribution

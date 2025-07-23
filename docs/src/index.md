@@ -8,12 +8,12 @@
 
 ## What can I do with CensoredDistributions.jl?
 
-- Create distributions that are modified to account for primary event censoring, and within interval censoring.
-- Discretise continuous distributions to create discrete distributions.
-- Generate random samples from censored and discretised distributions
+- Create distributions that are modified to account for primary event censoring and interval censoring.
+- Apply interval censoring to continuous distributions (both regular and arbitrary intervals).
+- Generate random samples from censored distributions.
 - Calculate the probability density function (PDF) and cumulative distribution function (CDF) of censored distributions.
-- Calculate the PDF of discretised distributions.
-- Calculate the mean, variance, and other moments of censored and discretised distributions.
+- Calculate the PDF of interval-censored distributions.
+- Calculate the mean, variance, and other moments of censored distributions.
 
 ## What packages work well with CensoredDistributions.jl?
 
