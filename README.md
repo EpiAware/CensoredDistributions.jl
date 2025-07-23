@@ -31,7 +31,7 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 
 ## Getting Started
 
-The following example demonstrates how to create a double interval censored distribution that accounts for both primary event censoring (when the initial event occurs within a time window) and secondary interval censoring (when observations are rounded to discrete intervals). This is particularly useful in epidemiological applications where both the exposure time and symptom onset are observed with uncertainty.
+The following example demonstrates how to create a double interval censored distribution that accounts for both primary event censoring (when the initial event occurs within a time window) and secondary interval censoring (when observations are also only observed within a time window). This is particularly useful in epidemiological applications where both the exposure time and symptom onset are observed with uncertainty.
 
 ```julia
 using CensoredDistributions, Distributions, Plots
