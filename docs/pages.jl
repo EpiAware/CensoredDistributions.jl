@@ -13,9 +13,9 @@ module_pages = [
 ]
 
 dev_pages = [
-    "Overview" => "dev/index.md",
-    "Contributing" => "dev/contributing.md",
-    "Release Process" => "dev/release-process.md"
+    "Overview" => "developer/index.md",
+    "Contributing" => "developer/contributing.md",
+    "Release Process" => "developer/release-process.md"
 ]
 
 pages = [
