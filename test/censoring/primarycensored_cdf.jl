@@ -197,7 +197,6 @@ end
 
 @testitem "PrimaryCensored Analytical Performance" begin
     using Distributions
-    using BenchmarkTools
 
     # Test distributions
     test_cases = [
