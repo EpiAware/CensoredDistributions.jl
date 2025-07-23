@@ -2,12 +2,12 @@
 Create a primary event censored distribution.
 
 Models a process where a primary event occurs within a censoring window, followed by a delay.
-The primary event time is not observed directly but is known to fall within the censoring 
+The primary event time is not observed directly but is known to fall within the censoring
 distribution's support. The observed time is the sum of the primary event time and the delay.
 
 This is useful for modeling:
 - Infection-to-symptom onset times when infection time is uncertain
-- Exposure-to-outcome delays with uncertain exposure timing  
+- Exposure-to-outcome delays with uncertain exposure timing
 - Any process where the initiating event time has uncertainty
 
 # Arguments
@@ -22,7 +22,7 @@ A `PrimaryCensored` distribution representing the convolution of the censoring a
 using CensoredDistributions, Distributions
 
 # Incubation period (delay) with uncertain infection time (primary event)
-incubation = LogNormal(1.5, 0.75)  # Delay distribution  
+incubation = LogNormal(1.5, 0.75)  # Delay distribution
 infection_window = Uniform(0, 1)    # Daily infection window
 d = primary_censored(incubation, infection_window)
 
@@ -45,7 +45,7 @@ Primary event censored distribution.
 
 Represents the distribution of observed delays when the primary event time is subject to censoring.
 
-# Fields  
+# Fields
 - `dist`: Distribution of the delay from primary event to observation
 - `primary_event`: Distribution of the primary event time
 "

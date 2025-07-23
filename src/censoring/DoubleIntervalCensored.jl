@@ -1,7 +1,7 @@
 @doc raw"""
-    double_interval_censored(dist::UnivariateDistribution, primary_event::UnivariateDistribution; 
-                          lower::Union{Real, Nothing} = nothing, 
-                          upper::Union{Real, Nothing} = nothing, 
+    double_interval_censored(dist::UnivariateDistribution, primary_event::UnivariateDistribution;
+                          lower::Union{Real, Nothing} = nothing,
+                          upper::Union{Real, Nothing} = nothing,
                           interval::Union{Real, Nothing} = nothing)
 
 Create a distribution that combines primary interval censoring, optional truncation, and optional secondary interval censoring in the correct order.
@@ -49,7 +49,7 @@ samples = rand(dist4, 1000)
 This function implements the complete workflow for handling censored delay distributions as described in Park et al. (2024) and Charniga et al. (2024):
 
 1. **Primary censoring**: Accounts for uncertainty in the primary event timing
-2. **Truncation**: Handles observation windows and finite study periods  
+2. **Truncation**: Handles observation windows and finite study periods
 3. **Secondary censoring**: Models interval censoring effects (e.g., daily reporting)
 
 # References

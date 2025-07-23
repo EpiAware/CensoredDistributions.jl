@@ -52,7 +52,7 @@ using CensoredDistributions, Distributions
 d = interval_censored(Normal(5, 2), 1.0)
 rand(d, 10)  # Returns values like 4.0, 5.0, 6.0, etc.
 
-# Weekly intervals  
+# Weekly intervals
 d_weekly = interval_censored(Exponential(3), 7.0)
 ```
 "
@@ -68,7 +68,7 @@ the boundaries. For example, with `intervals=[0, 2, 5, 10]`, observations fall i
 [0,2), [2,5), or [5,10).
 
 # Arguments
-- `dist`: The underlying continuous distribution  
+- `dist`: The underlying continuous distribution
 - `intervals`: Vector of interval boundaries (must be sorted and strictly increasing)
 
 # Returns

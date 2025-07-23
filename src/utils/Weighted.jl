@@ -24,7 +24,7 @@ wd = weight(d, 10.0)  # Observation with weight/count of 10
     μ ~ Normal(0, 1)
     σ ~ truncated(Normal(0.5, 0.5); lower = 0)
     d = LogNormal(μ, σ)
-    
+
     # Instead of: Turing.@addlogprob! n * logpdf(d, y)
     # You can use:
     y ~ weight(d, n)
@@ -52,7 +52,7 @@ Create a weighted distribution where the log-probability is scaled by `w`.
 - `w`: The weight factor (must be non-negative)
 
 # Returns
-A `Weight` distribution that when used in Turing.jl will contribute `w * logpdf(dist, x)` to the 
+A `Weight` distribution that when used in Turing.jl will contribute `w * logpdf(dist, x)` to the
 log-probability.
 
 # Examples
@@ -65,7 +65,7 @@ n_count = 25  # Number of times this value was observed
     μ ~ Normal(2, 1)
     σ ~ Exponential(1)
     d = Normal(μ, σ)
-    
+
     y_obs ~ weight(d, n_count)
 end
 ```
@@ -96,7 +96,7 @@ n_counts = [25, 10, 15]  # Counts for each observation
     μ ~ Normal(2, 1)
     σ ~ Exponential(1)
     d = Normal(μ, σ)
-    
+
     y_obs ~ weight(d, n_counts)
 end
 ```

@@ -4,25 +4,25 @@ Welcome to the `CensoredDistributions` documentation! This section is designed t
 
 # Introduction
 
-Delay distributions play a crucial role in various fields, including epidemiology, reliability analysis, and survival analysis. These distributions describe the time between two events of interest, such as the incubation period of a disease or the time to failure of a component. 
+Delay distributions play a crucial role in various fields, including epidemiology, reliability analysis, and survival analysis. These distributions describe the time between two events of interest, such as the incubation period of a disease or the time to failure of a component.
 Accurately estimating and calculating these distributions is essential for understanding the underlying processes and making informed decisions.
 
 The estimation of delay distributions often faces the following challenges:
 
-- **Primary event within interval censoring**: The primary event (e.g., exposure to a pathogen or the start of a process) is often observed with some degree of interval censoring. This means that the exact time of the event is not known, but rather, it is known to have occurred within a certain time interval, commonly a day. 
+- **Primary event within interval censoring**: The primary event (e.g., exposure to a pathogen or the start of a process) is often observed with some degree of interval censoring. This means that the exact time of the event is not known, but rather, it is known to have occurred within a certain time interval, commonly a day.
 As a result, any distribution based on these primary events is a combination of the underlying true distribution and the censoring distribution.
 
-- **Truncation**: The observation of delay distributions is often conditioned on the occurrence of the secondary event. This leads to a truncation of the observed distribution, as delays longer than the observation time are not captured in the data. 
+- **Truncation**: The observation of delay distributions is often conditioned on the occurrence of the secondary event. This leads to a truncation of the observed distribution, as delays longer than the observation time are not captured in the data.
 Consequently, the observed distribution is a combination of the underlying true distribution, the censoring distribution, and the observation time.
 
-- **Secondary event within interval censoring**: The secondary event (e.g., symptom onset or the end of a process) is also frequently observed with within an interval. 
+- **Secondary event within interval censoring**: The secondary event (e.g., symptom onset or the end of a process) is also frequently observed with within an interval.
 This additional layer of censoring further complicates the estimation of the delay distribution.
 
 - **Double event within interval censoring** Both the primary and secondary events are censored so that we know they occurred in an interval but not precisely when.
 
 The `CensoredDistributions.jl` package aims to address these challenges by providing tools to manipulate primary censored delay distributions and to extend these distributions to account for both truncation and secondary event censoring. By accounting for the censoring and truncation present in the data, the package enables more accurate estimation and use of the underlying true distribution.
 
-In this quickstart, we will provide a quick introduction to the main functions and concepts in the `CensoredDistributions.jl` package. 
+In this quickstart, we will provide a quick introduction to the main functions and concepts in the `CensoredDistributions.jl` package.
 We will cover the mathematical formulation of the problem, demonstrate the usage of the key functions, and provide signposting on how to learn more.
 
 ## Packages used in this getting started guide
@@ -95,7 +95,7 @@ plot!(x, cdf.(prim_dist, x), label="Primary censored")
 
 ## Truncation
 
-Truncation is applied to ensure delays are within the specified range $[0, D]$, where $D$ is the maximum observable delay. 
+Truncation is applied to ensure delays are within the specified range $[0, D]$, where $D$ is the maximum observable delay.
 This step filters out delays longer than the observation time:
 
 $$t_{\text{truncated}} = \{t \mid 0 \leq t < D\}$$
@@ -106,7 +106,7 @@ $$F_{\text{cens,norm}}(q) = \frac{F_{\text{cens}}(q)}{F_{\text{cens}}(D)}$$
 
 We can apply truncation using the normal `truncated` function from `Distributions.jl`:
 
-```julia    
+```julia
 trunc_prim_dist = truncated(prim_dist, upper= 10)
 ```
 

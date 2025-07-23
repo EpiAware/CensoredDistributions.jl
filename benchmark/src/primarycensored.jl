@@ -1,5 +1,5 @@
 let
-    # Model specifically testing primarycensored distribution  
+    # Model specifically testing primarycensored distribution
     @model function primarycensored_model(y)
         # Simple priors for LogNormal parameters
         μ ~ Normal(1.0, 0.5)

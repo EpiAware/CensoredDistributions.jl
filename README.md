@@ -17,7 +17,7 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 
 ## What is CensoredDistributions.jl?
 
-`CensoredDistributions.jl` is a package for working with censored distributions. It extends the functionality of the [Distributions.jl](https://github.com/JuliaStats/Distributions.jl) package to support additional censored distribution and utilities for working with them.  
+`CensoredDistributions.jl` is a package for working with censored distributions. It extends the functionality of the [Distributions.jl](https://github.com/JuliaStats/Distributions.jl) package to support additional censored distribution and utilities for working with them.
 
 
 ## What can I do with CensoredDistributions.jl?

@@ -252,7 +252,7 @@ CensoredDistributions_mdl = CensoredDistributions_model(
 )
 
 # ╔═╡ 691e3d54-1a31-4686-a70d-711c2fc45dc1
-md" 
+md"
 Now we fit the unfixed model to recover the true parameters from the synthetic data we generated earlier. This demonstrates the package's ability to perform accurate parameter recovery when the censoring process is properly modelled.
 "
 
@@ -273,7 +273,7 @@ end
 
 # ╔═╡ c045caa6-a44d-4a54-b122-1e50b1e0fe75
 md"
-We see that the model has converged and the diagnostics look good. 
+We see that the model has converged and the diagnostics look good.
 We also see that the posterior means are near the true parameters and the 90% credible intervals include the true parameters.
 "
 
