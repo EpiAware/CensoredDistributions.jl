@@ -2,7 +2,7 @@
 
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://www.CensoredDistributions.epiaware.org/)
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://www.CensoredDistributions.epiaware.org/dev/)
-[![Test CensoredDistributions](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/test.yml/badge.svg)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/test.yml)
+[![Test](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/test.yaml/badge.svg)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/test.yaml)
 [![codecov](https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg)](https://codecov.io/gh/EpiAware/CensoredDistributions.jl)
 
 [![SciML Code Style](https://img.shields.io/static/v1?label=code%20style&message=SciML&color=9558b2&labelColor=389826)](https://github.com/SciML/SciMLStyle)
