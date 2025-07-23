@@ -53,17 +53,17 @@ plot!(x, pdf.(censored, x), label="Double Censored and right truncated", lw = 2)
 
 ## Where to learn more
 
-- Want to get started running code? Check out the [Getting Started Tutorials](https://www.primary_censored.epinowcast.org/dev/getting-started/).
-- Want to understand the API? Check out our [API Reference](https://www.primary_censored.epinowcast.org/dev/lib/public/).
+- Want to get started running code? Check out the [Getting Started Tutorials](https://www.CensoredDistributions.epiaware.org/getting-started/).
+- Want to understand the API? Check out our [API Reference](https://www.CensoredDistributions.epiaware.org/lib/public/).
 - Want to chat with someone about `CensoredDistributions`? Post on our [GitHub Discussions](https://github.com/EpiAware/CensoredDistributions.jl/discussions).
-- Want to contribute to `CensoredDistributions`? Check out our [Contributing guide](https://www.primary_censored.epinowcast.org/dev/contributing/).
+- Want to contribute to `CensoredDistributions`? Check out our [Developer Documentation](https://www.CensoredDistributions.epiaware.org/dev/dev/).
 - Want to see our code? Check out our [GitHub Repository](https://github.com/EpiAware/CensoredDistributions.jl/).
 
 ## Contributing
 
 We welcome contributions and new contributors!
 We particularly appreciate help on [identifying and identified issues](https://github.com/EpiAware/CensoredDistributions.jl/issues).
-Please check and add to the issues, and/or add a [pull request](https://github.com/EpiAware/CensoredDistributions.jl/pulls) and see our [contributing guide](https://www.CensoredDistributions.epiaware.org/contributing/) for more information.
+Please check and add to the issues, and/or add a [pull request](https://github.com/EpiAware/CensoredDistributions.jl/pulls) and see our [developer documentation](https://www.CensoredDistributions.epiaware.org/dev/dev/) for more information.
 
 ## Code of Conduct
 

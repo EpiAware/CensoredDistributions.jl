@@ -12,8 +12,15 @@ module_pages = [
     "Internal API" => "lib/internals.md"
 ]
 
+dev_pages = [
+    "Overview" => "dev/index.md",
+    "Contributing" => "dev/contributing.md",
+    "Release Process" => "dev/release-process.md"
+]
+
 pages = [
     "CensoredDistributions.jl: Primary event censored distributions" => "index.md",
     "Getting started" => getting_started_pages,
-    "Modules" => module_pages
+    "Modules" => module_pages,
+    "Development" => dev_pages
 ]
