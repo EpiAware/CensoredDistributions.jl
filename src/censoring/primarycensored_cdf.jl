@@ -76,7 +76,7 @@ function primarycensored_cdf(
     end
 
     # Compute integration bounds
-    lower = max(x - maximum(primary_event), minimum(dist))
+    lower = max(x - maximum(primary_event), max(minimum(dist), 1e-6))
     upper = x - minimum(primary_event)
 
     # Check if bounds are valid
