@@ -2,7 +2,8 @@
     double_interval_censored(dist::UnivariateDistribution, primary_event::UnivariateDistribution;
                           lower::Union{Real, Nothing} = nothing,
                           upper::Union{Real, Nothing} = nothing,
-                          interval::Union{Real, Nothing} = nothing)
+                          interval::Union{Real, Nothing} = nothing,
+                          force_numeric::Bool = false)
 
 Create a distribution that combines primary interval censoring, optional truncation, and optional secondary interval censoring in the correct order.
 
@@ -21,6 +22,7 @@ The order of operations ensures mathematical correctness, particularly that trun
 - `lower::Union{Real, Nothing} = nothing`: Lower truncation bound. If `nothing`, no lower truncation is applied.
 - `upper::Union{Real, Nothing} = nothing`: Upper truncation bound (e.g., observation time `D`). If `nothing`, no upper truncation is applied.
 - `interval::Union{Real, Nothing} = nothing`: Secondary censoring interval width (e.g., daily reporting). If `nothing`, no interval censoring is applied.
+- `force_numeric::Bool = false`: Force numerical integration for primary censoring even when analytical solutions exist.
 
 # Returns
 A composed distribution that can be used with all standard `Distributions.jl` methods (`rand`, `pdf`, `cdf`, etc.).
@@ -61,10 +63,11 @@ function double_interval_censored(
         primary_event::UnivariateDistribution;
         lower::Union{Real, Nothing} = nothing,
         upper::Union{Real, Nothing} = nothing,
-        interval::Union{Real, Nothing} = nothing
+        interval::Union{Real, Nothing} = nothing,
+        force_numeric::Bool = false
 )
     # Start with primary censoring (always applied)
-    result = primary_censored(dist, primary_event)
+    result = primary_censored(dist, primary_event; force_numeric = force_numeric)
 
     # Apply truncation if specified
     if !isnothing(lower) || !isnothing(upper)

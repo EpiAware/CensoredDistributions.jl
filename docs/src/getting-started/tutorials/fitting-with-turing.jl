@@ -244,7 +244,8 @@ First we define our model. Aside from the use of the `double_interval_censored` 
     dist = LogNormal(mu, sigma)
 
     pcens_dists = map(pws, Ds, sws) do pw, D, sw
-        double_interval_censored(dist, Uniform(0.0, pw); upper = D, interval = sw)
+        double_interval_censored(
+            dist, Uniform(0.0, pw); upper = D, interval = sw, force_numeric = true)
     end
 
     y ~ weight(pcens_dists, n)
