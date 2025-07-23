@@ -2,7 +2,7 @@ using Pkg: Pkg
 Pkg.instantiate()
 
 using Documenter
-using PrimaryCensored
+using CensoredDistributions
 using Pluto: Configuration.CompilerOptions
 using PlutoStaticHTML
 
@@ -14,13 +14,13 @@ build("getting-started")
 build("getting-started/tutorials")
 
 DocMeta.setdocmeta!(
-    PrimaryCensored, :DocTestSetup, :(using PrimaryCensored); recursive = true)
+    CensoredDistributions, :DocTestSetup, :(using CensoredDistributions); recursive = true)
 
-makedocs(; sitename = "PrimaryCensored.jl",
+makedocs(; sitename = "CensoredDistributions.jl",
     authors = "Samuel Brand, Sam Abbott, and contributors",
     clean = true, doctest = false, linkcheck = true,
     warnonly = [:docs_block, :missing_docs, :linkcheck, :autodocs_block],
-    modules = [PrimaryCensored],
+    modules = [CensoredDistributions],
     pages = pages,
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", nothing) == "true",
@@ -31,7 +31,7 @@ makedocs(; sitename = "PrimaryCensored.jl",
 )
 
 deploydocs(
-    repo = "github.com/EpiAware/PrimaryCensored.jl.git",
+    repo = "github.com/EpiAware/CensoredDistributions.jl.git",
     target = "build",
     push_preview = true
 )
