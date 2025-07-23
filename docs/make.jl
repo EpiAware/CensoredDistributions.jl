@@ -13,6 +13,18 @@ include("build.jl")
 build("getting-started")
 build("getting-started/tutorials")
 
+# Generate index.md from README.md
+open(joinpath(joinpath(@__DIR__, "src"), "index.md"), "w") do io
+    println(io, "```@meta")
+    println(io,
+        "EditURL = \"https://github.com/EpiAware/CensoredDistributions.jl/blob/main/README.md\"")
+    println(io, "```")
+
+    for line in eachline(joinpath(dirname(@__DIR__), "README.md"))
+        println(io, line)
+    end
+end
+
 DocMeta.setdocmeta!(
     CensoredDistributions, :DocTestSetup, :(using CensoredDistributions); recursive = true)
 

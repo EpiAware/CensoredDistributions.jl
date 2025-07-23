@@ -35,7 +35,7 @@ struct Weighted{D <: UnivariateDistribution, T <: Real} <:
        Distributions.UnivariateDistribution{Distributions.ValueSupport}
     dist::D
     weight::T
-    
+
     function Weighted(dist::D, weight::T) where {D <: UnivariateDistribution, T <: Real}
         weight >= 0 || throw(ArgumentError("Weight must be non-negative"))
         new{D, T}(dist, weight)
@@ -134,8 +134,10 @@ weighted_dists = weight(dists, n_counts)
 total_loglik = sum(logpdf(weighted_dists, y_obs))
 ```
 """
-function weight(dists::AbstractVector{<:UnivariateDistribution}, weights::AbstractVector{<:Real})
-    length(dists) == length(weights) || throw(ArgumentError("Number of distributions must equal number of weights"))
+function weight(
+        dists::AbstractVector{<:UnivariateDistribution}, weights::AbstractVector{<:Real})
+    length(dists) == length(weights) ||
+        throw(ArgumentError("Number of distributions must equal number of weights"))
     return product_distribution([Weighted(d, w) for (d, w) in zip(dists, weights)])
 end
 

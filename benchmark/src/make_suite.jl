@@ -24,19 +24,20 @@ suite = make_suite(model)
 results = run(suite)
 ```
 "
-function make_suite(model; adbackends = [
-    "ForwardDiff" => AutoForwardDiff(),
-    "ReverseDiff" => AutoReverseDiff(; compile=false),
-    "ReverseDiffCompiled" => AutoReverseDiff(; compile=true),
-    "Mooncake" => AutoMooncake(; config=nothing)
-])
+function make_suite(model;
+        adbackends = [
+            "ForwardDiff" => AutoForwardDiff(),
+            "ReverseDiff" => AutoReverseDiff(; compile = false),
+            "ReverseDiffCompiled" => AutoReverseDiff(; compile = true),
+            "Mooncake" => AutoMooncake(; config = nothing)
+        ])
     suite = BenchmarkTools.BenchmarkGroup()
-    
+
     for (backend_name, adtype) in adbackends
         suite[backend_name] = BenchmarkTools.@benchmarkable begin
             DynamicPPL.TestUtils.AD.run_ad($model, $adtype)
         end
     end
-    
+
     return suite
 end

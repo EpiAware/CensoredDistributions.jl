@@ -161,7 +161,8 @@ end
     # Samples should be discretized versions of the underlying distribution
     # Test by checking that sample mean is close to discretized mean
     continuous_samples = rand(MersenneTwister(123), d, n_samples)
-    discretized_samples = [CensoredDistributions.floor_to_interval(s, interval) for s in continuous_samples]
+    discretized_samples = [CensoredDistributions.floor_to_interval(s, interval)
+                           for s in continuous_samples]
     @test mean(samples) ≈ mean(discretized_samples) rtol=0.1
 end
 
@@ -171,7 +172,7 @@ end
 
     rng = MersenneTwister(456)
     d = Normal(5, 2)
-    
+
     # Test single interval case - should return lower bound
     ic_single = interval_censored(d, [2.0, 4.0])
     samples_single = rand(rng, ic_single, 100)
@@ -185,7 +186,7 @@ end
     # When sampling from intervals, we get the lower bound of the interval containing the sample
     unique_samples = unique(samples_multi)
     @test all([s in intervals for s in unique_samples])
-    
+
     # Roughly check distribution of samples across intervals
     # Most samples should be in middle interval [2.0, 5.0] for Normal(5, 2)
     count_middle = sum([s == 2.0 for s in samples_multi])
@@ -203,17 +204,17 @@ end
 
 @testitem "Test IntervalCensored find_interval_index helper" begin
     intervals = [0.0, 2.0, 5.0, 10.0]
-    
+
     # Test values in intervals
     @test CensoredDistributions.find_interval_index(1.0, intervals) == 1  # In [0, 2]
     @test CensoredDistributions.find_interval_index(3.0, intervals) == 2  # In [2, 5]
     @test CensoredDistributions.find_interval_index(7.0, intervals) == 3  # In [5, 10]
-    
+
     # Test boundary values
     @test CensoredDistributions.find_interval_index(0.0, intervals) == 1  # At 0
     @test CensoredDistributions.find_interval_index(2.0, intervals) == 2  # At 2
     @test CensoredDistributions.find_interval_index(5.0, intervals) == 3  # At 5
-    
+
     # Test outside intervals
     @test CensoredDistributions.find_interval_index(-1.0, intervals) == 0  # Before
     @test CensoredDistributions.find_interval_index(10.0, intervals) == 4  # After (at last boundary)

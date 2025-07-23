@@ -15,16 +15,18 @@ struct IntervalCensored{D <: UnivariateDistribution, T} <:
     dist::D
     "Either a scalar (regular intervals) or vector (arbitrary intervals)"
     intervals::T
-    
-    function IntervalCensored(dist::D, interval::Real) where D
+
+    function IntervalCensored(dist::D, interval::Real) where {D}
         interval > 0 || throw(ArgumentError("Interval width must be positive"))
         new{D, typeof(interval)}(dist, interval)
     end
-    
-    function IntervalCensored(dist::D, intervals::AbstractVector{<:Real}) where D
-        length(intervals) >= 2 || throw(ArgumentError("Must provide at least 2 interval boundaries"))
+
+    function IntervalCensored(dist::D, intervals::AbstractVector{<:Real}) where {D}
+        length(intervals) >= 2 ||
+            throw(ArgumentError("Must provide at least 2 interval boundaries"))
         issorted(intervals) || throw(ArgumentError("Interval boundaries must be sorted"))
-        all(diff(intervals) .> 0) || throw(ArgumentError("Interval boundaries must be strictly increasing"))
+        all(diff(intervals) .> 0) ||
+            throw(ArgumentError("Interval boundaries must be strictly increasing"))
         new{D, typeof(intervals)}(dist, intervals)
     end
 end
@@ -88,11 +90,11 @@ function interval_censored(dist::UnivariateDistribution, intervals::AbstractVect
 end
 
 # Helper function to determine if we have regular or arbitrary intervals
-is_regular_intervals(d::IntervalCensored{D, <:Real}) where D = true
-is_regular_intervals(d::IntervalCensored{D, <:AbstractVector}) where D = false
+is_regular_intervals(d::IntervalCensored{D, <:Real}) where {D} = true
+is_regular_intervals(d::IntervalCensored{D, <:AbstractVector}) where {D} = false
 
 # Get interval width for regular intervals
-interval_width(d::IntervalCensored{D, <:Real}) where D = d.intervals
+interval_width(d::IntervalCensored{D, <:Real}) where {D} = d.intervals
 
 # Floor value to interval
 function floor_to_interval(x::Real, interval::Real)
@@ -157,7 +159,7 @@ function Distributions.maximum(d::IntervalCensored)
     else
         # Find last interval that could contain values
         idx = find_interval_index(cont_max, d.intervals)
-        return idx < length(d.intervals) ? d.intervals[idx] : d.intervals[end-1]
+        return idx < length(d.intervals) ? d.intervals[idx] : d.intervals[end - 1]
     end
 end
 

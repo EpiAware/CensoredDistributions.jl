@@ -57,30 +57,30 @@ This function implements the complete workflow for handling censored delay distr
 - Charniga et al. (2024): "Best practices for estimating and reporting epidemiological delay distributions"
 """
 function double_interval_censored(
-    dist::UnivariateDistribution,
-    primary_event::UnivariateDistribution;
-    lower::Union{Real, Nothing} = nothing,
-    upper::Union{Real, Nothing} = nothing,
-    interval::Union{Real, Nothing} = nothing
+        dist::UnivariateDistribution,
+        primary_event::UnivariateDistribution;
+        lower::Union{Real, Nothing} = nothing,
+        upper::Union{Real, Nothing} = nothing,
+        interval::Union{Real, Nothing} = nothing
 )
     # Start with primary censoring (always applied)
     result = primary_censored(dist, primary_event)
-    
+
     # Apply truncation if specified
     if !isnothing(lower) || !isnothing(upper)
         if !isnothing(lower) && !isnothing(upper)
             result = truncated(result, lower, upper)
         elseif !isnothing(lower)
-            result = truncated(result; lower=lower)
+            result = truncated(result; lower = lower)
         elseif !isnothing(upper)
-            result = truncated(result; upper=upper)
+            result = truncated(result; upper = upper)
         end
     end
-    
+
     # Apply interval censoring if specified (must come after truncation)
     if !isnothing(interval)
         result = interval_censored(result, interval)
     end
-    
+
     return result
 end

@@ -15,5 +15,5 @@ module_pages = [
 pages = [
     "PrimaryCensored.jl: Primary event censored distributions" => "index.md",
     "Getting started" => getting_started_pages,
-    "Modules" => module_pages,
+    "Modules" => module_pages
 ]
