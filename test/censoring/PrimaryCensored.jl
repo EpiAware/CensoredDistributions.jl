@@ -10,6 +10,43 @@ end
     @test typeof(use_dist) <: CensoredDistributions.PrimaryCensored
 end
 
+@testitem "Test struct fields with new solver methods" begin
+    using Distributions
+    using Integrals
+
+    @testset "Default constructor (analytical solver)" begin
+        dist = Gamma(2.0, 3.0)
+        primary = Uniform(0.0, 1.0)
+        d = primary_censored(dist, primary)
+
+        @test d.dist === dist
+        @test d.primary_event === primary
+        @test d.method isa CensoredDistributions.AnalyticalSolver
+        @test d.method.solver isa QuadGKJL
+    end
+
+    @testset "Constructor with force_numeric" begin
+        dist = LogNormal(1.5, 0.75)
+        primary = Uniform(0.0, 1.0)
+        d = primary_censored(dist, primary; force_numeric = true)
+
+        @test d.dist === dist
+        @test d.primary_event === primary
+        @test d.method isa CensoredDistributions.NumericSolver
+        @test d.method.solver isa QuadGKJL
+    end
+
+    @testset "Constructor with custom solver" begin
+        dist = Weibull(2.0, 1.5)
+        primary = Uniform(0.0, 1.0)
+        custom_solver = HCubatureJL()
+        d = primary_censored(dist, primary; solver = custom_solver, force_numeric = false)
+
+        @test d.method isa CensoredDistributions.AnalyticalSolver
+        @test d.method.solver === custom_solver
+    end
+end
+
 @testitem "Test random generation" begin
     using Distributions
     use_dist = primary_censored(LogNormal(3.5, 1.5), Uniform(1, 2))

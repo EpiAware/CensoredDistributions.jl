@@ -2,6 +2,7 @@ getting_started_pages = Any[
     "Installation" => "getting-started/installation.md",
     "Frequently asked questions" => "getting-started/faq.md",
     "Tutorials" => [
+        "Analytical CDF Solutions" => "getting-started/tutorials/analytical-primarycensored-cdfs.md",
         "Fitting distributions with CensoredDistributions and Turing" => "getting-started/tutorials/fitting-with-Turing.md"
     ]
 ]

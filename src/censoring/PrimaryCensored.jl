@@ -13,6 +13,8 @@ This is useful for modeling:
 # Arguments
 - `dist`: Distribution of the delay from primary event to observation
 - `primary_event`: Distribution of the primary event time (typically Uniform(0, window))
+- `solver=QuadGKJL()`: Numerical integration solver for CDF computation
+- `force_numeric=false`: If true, always use numerical integration; if false, use analytical solutions when available
 
 # Returns
 A `PrimaryCensored` distribution representing the convolution of the censoring and delay distributions.
@@ -33,11 +35,20 @@ onsets = rand(d, 1000)
 x = 0:0.1:10
 cdf_original = cdf.(incubation, x)
 cdf_censored = cdf.(d, x)
+
+# Force numerical integration (useful for testing)
+d_numeric = primary_censored(incubation, infection_window; force_numeric=true)
 ```
 "
 function primary_censored(
-        dist::UnivariateDistribution, primary_event::UnivariateDistribution)
-    return PrimaryCensored(dist, primary_event)
+        dist::UnivariateDistribution, primary_event::UnivariateDistribution;
+        solver = QuadGKJL(), force_numeric = false)
+    method = if force_numeric
+        NumericSolver(solver)
+    else
+        AnalyticalSolver(solver)
+    end
+    return PrimaryCensored(dist, primary_event, method)
 end
 
 @doc raw"
@@ -48,18 +59,23 @@ Represents the distribution of observed delays when the primary event time is su
 # Fields
 - `dist`: Distribution of the delay from primary event to observation
 - `primary_event`: Distribution of the primary event time
+- `method`: Solver method for CDF computation (analytical or numeric)
 "
-struct PrimaryCensored{D1 <: UnivariateDistribution, D2 <: UnivariateDistribution} <:
+struct PrimaryCensored{
+    D1 <: UnivariateDistribution, D2 <: UnivariateDistribution, M <: SolverMethod} <:
        Distributions.UnivariateDistribution{Distributions.ValueSupport}
     "The delay distribution from primary event to observation."
     dist::D1
     "The primary event time distribution."
     primary_event::D2
+    "The solver method for CDF computation."
+    method::M
 
-    function PrimaryCensored(dist::D1, primary_event::D2) where {D1, D2}
+    function PrimaryCensored(
+            dist::D1, primary_event::D2, method::M) where {D1, D2, M <: SolverMethod}
         minimum(dist) == 0 ||
             throw(ArgumentError("Delay distribution must have minimum of zero"))
-        new{D1, D2}(dist, primary_event)
+        new{D1, D2, M}(dist, primary_event, method)
     end
 end
 
@@ -75,28 +91,11 @@ Distributions.maximum(d::PrimaryCensored) = maximum(d.dist)
 Distributions.insupport(d::PrimaryCensored, x::Real) = insupport(d.dist, x)
 
 function Distributions.cdf(d::PrimaryCensored, x::Real)
-    function f(u, x)
-        return exp(logcdf(d.dist, u) + logpdf(d.primary_event, x - u))
-    end
-
-    domain = (
-        max(x - maximum(d.primary_event), 0.0), max(x - minimum(d.primary_event), 0.0))
-
-    if domain[2] - domain[1] ≈ 0.0
-        return 0.0
-    end
-
-    prob = IntegralProblem(f, domain, x)
-    result = solve(prob, QuadGKJL())[1]
-    return result
+    primarycensored_cdf(d.dist, d.primary_event, x, d.method)
 end
 
 function Distributions.logcdf(d::PrimaryCensored, x::Real)
-    if x == -Inf
-        return -Inf
-    end
-    result = log(cdf(d, x))
-    return result
+    primarycensored_logcdf(d.dist, d.primary_event, x, d.method)
 end
 
 function Distributions.ccdf(d::PrimaryCensored, x::Real)
