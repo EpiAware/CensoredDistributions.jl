@@ -22,8 +22,9 @@ export IntervalCensored, PrimaryCensored, Weighted
 # Exported utilities
 export weight
 
-# Exported fitting functions
-export fit_double_interval_censored
+# Import and re-export fitting methods from Distributions.jl
+import Distributions: fit, fit_mle
+export fit, fit_mle
 
 include("docstrings.jl")
 
@@ -35,6 +36,4 @@ include("censoring/DoubleIntervalCensored.jl")
 include("utils/Weighted.jl")
 
 include("censoring/fit.jl")
-
-# Note: fit and fit_mle are extended from Distributions.jl, not exported here
 end

@@ -214,16 +214,13 @@
             interval_width = 0.3
             n_samples = 600
 
-            # Generate data
+            # Generate data (with force_numeric=true for fitting)
             true_double = double_interval_censored(true_delay, true_primary;
-                interval = interval_width)
+                interval = interval_width, force_numeric = true)
             data = rand(true_double, n_samples)
 
-            # Fit
-            fitted_double = fit_double_interval_censored(data;
-                delay_dist_type = LogNormal,
-                primary_dist_type = Uniform,
-                interval = interval_width)
+            # Fit using clean interface
+            fitted_double = fit_mle(true_double, data)
 
             # Extract fitted parameters
             fitted_delay_params = params(fitted_double.dist.dist)
@@ -249,18 +246,13 @@
             interval_width = 0.2
             n_samples = 400
 
-            data = rand(
-                double_interval_censored(true_delay, true_primary;
-                    interval = interval_width),
-                n_samples)
+            true_double = double_interval_censored(true_delay, true_primary;
+                interval = interval_width, force_numeric = true)
+            data = rand(true_double, n_samples)
             weights = rand(1:5, n_samples)
 
-            # Fit with weights
-            fitted_double = fit_double_interval_censored(data;
-                delay_dist_type = LogNormal,
-                primary_dist_type = Uniform,
-                interval = interval_width,
-                weights = weights)
+            # Fit with weights using clean interface
+            fitted_double = fit_mle(true_double, data; weights = weights)
 
             # Should return a valid distribution
             @test fitted_double isa IntervalCensored
@@ -274,18 +266,13 @@
             upper_bound = 5.0
             n_samples = 500
 
-            data = rand(
-                double_interval_censored(true_delay, true_primary;
-                    interval = interval_width,
-                    upper = upper_bound),
-                n_samples)
-
-            # Fit with truncation
-            fitted_double = fit_double_interval_censored(data;
-                delay_dist_type = LogNormal,
-                primary_dist_type = Uniform,
+            true_double = double_interval_censored(true_delay, true_primary;
                 interval = interval_width,
-                upper = upper_bound)
+                upper = upper_bound, force_numeric = true)
+            data = rand(true_double, n_samples)
+
+            # Fit with truncation using clean interface
+            fitted_double = fit_mle(true_double, data)
 
             @test fitted_double isa IntervalCensored
             # Data should be within bounds

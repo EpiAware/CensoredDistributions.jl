@@ -152,7 +152,7 @@ end
 
 # Parameter initialization functions
 
-function _get_default_init_params(::Type{Normal}, data, interval_spec)
+function _get_default_init_params(::Type{<:Normal}, data, interval_spec)
     # Convert interval left boundaries to approximate continuous values
     if isa(interval_spec, Real)
         # Regular intervals: data contains left boundaries, add half interval width for midpoint
@@ -177,7 +177,7 @@ function _get_default_init_params(::Type{Normal}, data, interval_spec)
     return [μ_init, σ_init]
 end
 
-function _get_default_init_params(::Type{Exponential}, data, interval_spec)
+function _get_default_init_params(::Type{<:Exponential}, data, interval_spec)
     # Convert interval left boundaries to approximate continuous values
     if isa(interval_spec, Real)
         # Regular intervals: data contains left boundaries, add half interval width for midpoint
@@ -205,44 +205,44 @@ end
 
 # Parameter transformation functions
 
-function _transform_to_unconstrained(::Type{Normal}, params)
+function _transform_to_unconstrained(::Type{<:Normal}, params)
     μ, σ = params
     return [μ, log(σ)]  # σ must be positive
 end
 
-function _transform_to_constrained(::Type{Normal}, unconstrained)
+function _transform_to_constrained(::Type{<:Normal}, unconstrained)
     μ, log_σ = unconstrained
     return [μ, exp(log_σ)]
 end
 
-function _transform_to_unconstrained(::Type{Exponential}, params)
+function _transform_to_unconstrained(::Type{<:Exponential}, params)
     θ, = params
     return [log(θ)]  # θ must be positive
 end
 
-function _transform_to_constrained(::Type{Exponential}, unconstrained)
+function _transform_to_constrained(::Type{<:Exponential}, unconstrained)
     log_θ, = unconstrained
     return [exp(log_θ)]
 end
 
-function _transform_to_unconstrained(::Type{LogNormal}, params)
+function _transform_to_unconstrained(::Type{<:LogNormal}, params)
     μ, σ = params
     return [μ, log(σ)]  # μ can be any real, σ must be positive
 end
 
-function _transform_to_constrained(::Type{LogNormal}, unconstrained)
+function _transform_to_constrained(::Type{<:LogNormal}, unconstrained)
     μ, log_σ = unconstrained
     return [μ, exp(log_σ)]
 end
 
-function _transform_to_unconstrained(::Type{Uniform}, params)
+function _transform_to_unconstrained(::Type{<:Uniform}, params)
     a, b = params
     # For Uniform(a,b), we transform to ensure a < b
     # We use log(b-a) to ensure positive width
     return [a, log(b - a)]
 end
 
-function _transform_to_constrained(::Type{Uniform}, unconstrained)
+function _transform_to_constrained(::Type{<:Uniform}, unconstrained)
     a, log_width = unconstrained
     width = exp(log_width)
     return [a, a + width]  # Ensure b = a + width > a
@@ -319,31 +319,31 @@ function Distributions.fit(::Type{Weighted}, data::AbstractVector{<:Real}; kwarg
     return fit_mle(Weighted, data; kwargs...)
 end
 
-# Fitting support for Double Interval Censored distributions (IntervalCensored{PrimaryCensored})
+# Fitting support for Double Interval Censored distributions
+# Only support force_numeric=true versions for numerical stability
 
 """
-    Distributions.fit_mle(::Type{IntervalCensored{PrimaryCensored{D,P,S}}}, data::AbstractVector{<:Real}; kwargs...)
+    Distributions.fit_mle(dist::IntervalCensored{<:PrimaryCensored}, data::AbstractVector{<:Real}; kwargs...)
 
-Fit a double interval censored distribution (IntervalCensored{PrimaryCensored}) to data using maximum likelihood estimation.
+Fit a double interval censored distribution to data using maximum likelihood estimation.
 
-This method handles the case where `double_interval_censored(delay_dist, primary_dist)` returns an
-`IntervalCensored{PrimaryCensored{...}, ...}` type. It simultaneously estimates parameters for both
-the delay distribution and primary event distribution.
+This method handles distributions created by `double_interval_censored(...; force_numeric=true)`
+that have numerical solvers. The method extracts all necessary information from the distribution
+object itself, providing a clean interface.
+
+**Note**: Only distributions with `force_numeric=true` are supported for fitting due to numerical
+stability requirements during optimization.
 
 # Arguments
+- `dist`: The distribution instance to fit (e.g., from `double_interval_censored(...; force_numeric=true)`)
 - `data`: Vector of observed interval-censored values (interval left boundaries)
-- `delay_dist_type`: Type of delay distribution (default: LogNormal)
-- `primary_dist_type`: Type of primary event distribution (default: Uniform)
 - `delay_init`: Initial parameters for delay distribution (optional)
 - `primary_init`: Initial parameters for primary distribution (optional)
-- `interval`: Interval width for secondary censoring
-- `upper`: Upper truncation bound (if applicable)
-- `lower`: Lower truncation bound (if applicable)
 - `weights`: Optional observation weights
 - `optimizer`: SciML optimizer (default: OptimizationOptimJL.BFGS())
 
 # Returns
-A fitted `IntervalCensored{PrimaryCensored{...}, ...}` distribution.
+A fitted distribution with the same structure as the input type.
 
 # Examples
 ```@example
@@ -352,115 +352,49 @@ using CensoredDistributions, Distributions
 # Generate synthetic double interval censored data
 true_delay = LogNormal(1.0, 0.8)
 true_primary = Uniform(0, 2)
-true_dist = double_interval_censored(true_delay, true_primary; interval=0.5)
+true_dist = double_interval_censored(true_delay, true_primary;
+    interval=0.5, force_numeric=true)  # force_numeric required!
 data = rand(true_dist, 1000)
 
-# Fit using standard Distributions.jl interface
-fitted_dist = fit_mle(typeof(true_dist), data;
-    delay_dist_type=LogNormal, primary_dist_type=Uniform)
+# Fit using clean interface
+fitted_dist = fit_mle(true_dist, data)
 ```
 """
-function Distributions.fit_mle(::Type{IntervalCensored{PrimaryCensored{D, P, S}}},
+function Distributions.fit_mle(dist::IntervalCensored{<:PrimaryCensored},
         data::AbstractVector{<:Real};
-        delay_dist_type = D,
-        primary_dist_type = P,
-        delay_init = nothing,
-        primary_init = nothing,
-        interval = 1.0,
-        upper = nothing,
-        lower = nothing,
-        weights = nothing,
-        optimizer = OptimizationOptimJL.BFGS()) where {D, P, S}
-    return fit_double_interval_censored(data;
-        delay_dist_type = delay_dist_type,
-        primary_dist_type = primary_dist_type,
-        delay_init = delay_init,
-        primary_init = primary_init,
-        interval = interval,
-        upper = upper,
-        lower = lower,
-        weights = weights,
-        optimizer = optimizer)
-end
-
-# Generic method for IntervalCensored{PrimaryCensored} types when type parameters aren't known
-function Distributions.fit_mle(::Type{<:IntervalCensored{<:PrimaryCensored}},
-        data::AbstractVector{<:Real}; kwargs...)
-    return fit_double_interval_censored(data; kwargs...)
-end
-
-"""
-    fit_double_interval_censored(data::AbstractVector{<:Real};
-                                delay_dist_type=LogNormal, primary_dist_type=Uniform,
-                                interval, upper=nothing, lower=nothing,
-                                delay_init=nothing, primary_init=nothing,
-                                optimizer=OptimizationOptimJL.BFGS())
-
-Fit a double interval censored distribution to data using maximum likelihood estimation.
-
-This function simultaneously estimates parameters for both the delay distribution and
-primary event distribution from observations that underwent both primary event censoring
-and interval censoring.
-
-# Arguments
-- `data`: Vector of observed interval-censored values (interval left boundaries)
-- `delay_dist_type`: Type of delay distribution (default: LogNormal)
-- `primary_dist_type`: Type of primary event distribution (default: Uniform)
-- `interval`: Interval width for secondary censoring
-- `upper`: Upper truncation bound (if applicable)
-- `lower`: Lower truncation bound (if applicable)
-- `delay_init`: Initial parameters for delay distribution (optional)
-- `primary_init`: Initial parameters for primary distribution (optional)
-- `optimizer`: SciML optimizer (default: OptimizationOptimJL.BFGS())
-
-# Returns
-A fitted double interval censored distribution (via `double_interval_censored`).
-
-# Examples
-```@example
-using CensoredDistributions, Distributions
-
-# Generate synthetic double interval censored data
-true_delay = LogNormal(1.0, 0.8)
-true_primary = Uniform(0, 2)
-true_dist = double_interval_censored(true_delay, true_primary; interval=0.5)
-data = rand(true_dist, 1000)
-
-# Fit the model
-fitted_dist = fit_double_interval_censored(data; interval=0.5)
-
-# Compare parameters
-println("True delay: ", params(true_delay))
-println("Fitted delay: ", params(fitted_dist.dist.dist))  # Note: nested structure
-```
-"""
-function fit_double_interval_censored(data::AbstractVector{<:Real};
-        delay_dist_type = LogNormal,
-        primary_dist_type = Uniform,
-        interval = 1.0,
-        upper = nothing,
-        lower = nothing,
         delay_init = nothing,
         primary_init = nothing,
         weights = nothing,
         optimizer = OptimizationOptimJL.BFGS())
 
+    # Runtime solver type checking
+    if !(dist.dist.method isa CensoredDistributions.NumericSolver)
+        throw(ArgumentError(
+            "Fitting is only supported for distributions with force_numeric=true. " *
+            "Please create your distribution with double_interval_censored(...; force_numeric=true)."))
+    end
+
     # Input validation
     _validate_data(data)
     _validate_weights(weights, data)
 
+    # Extract types and parameters from the distribution object
+    primary_censored = dist.dist
+    D = typeof(primary_censored.dist)
+    P = typeof(primary_censored.primary_event)
+    interval_spec = dist.boundaries
+
     # Default parameter initialization
     if delay_init === nothing
-        delay_init = _get_default_init_params_double(delay_dist_type, data, interval)
+        delay_init = _get_default_init_params_double(D, data, interval_spec)
     end
-
     if primary_init === nothing
-        primary_init = _get_default_init_params_double(primary_dist_type, data, interval)
+        primary_init = _get_default_init_params_double(P, data, interval_spec)
     end
 
     # Transform to unconstrained space
-    delay_unconstrained = _transform_to_unconstrained(delay_dist_type, delay_init)
-    primary_unconstrained = _transform_to_unconstrained(primary_dist_type, primary_init)
+    delay_unconstrained = _transform_to_unconstrained(D, delay_init)
+    primary_unconstrained = _transform_to_unconstrained(P, primary_init)
     x0 = vcat(delay_unconstrained, primary_unconstrained)
 
     # Parameter organization
@@ -470,11 +404,9 @@ function fit_double_interval_censored(data::AbstractVector{<:Real};
     # Set up optimization parameters
     optimization_params = (
         data = data,
-        delay_dist_type = delay_dist_type,
-        primary_dist_type = primary_dist_type,
-        interval = interval,
-        upper = upper,
-        lower = lower,
+        delay_dist_type = D,
+        primary_dist_type = P,
+        interval_spec = interval_spec,
         n_delay_params = n_delay_params,
         n_primary_params = n_primary_params,
         weights = weights
@@ -495,9 +427,7 @@ function fit_double_interval_censored(data::AbstractVector{<:Real};
 
             # Create double interval censored distribution with numerical methods
             double_dist = double_interval_censored(delay_dist, primary_dist;
-                interval = p.interval,
-                upper = p.upper,
-                lower = p.lower,
+                interval = p.interval_spec,
                 force_numeric = true)
 
             # Compute negative log-likelihood (with optional weights)
@@ -522,24 +452,173 @@ function fit_double_interval_censored(data::AbstractVector{<:Real};
 
     # Extract fitted parameters
     fitted_delay_params = _transform_to_constrained(
-        delay_dist_type, result.u[1:n_delay_params])
+        D, result.u[1:n_delay_params])
     fitted_primary_params = _transform_to_constrained(
-        primary_dist_type, result.u[(n_delay_params + 1):end])
+        P, result.u[(n_delay_params + 1):end])
 
     # Create fitted distributions
-    fitted_delay = delay_dist_type(fitted_delay_params...)
-    fitted_primary = primary_dist_type(fitted_primary_params...)
+    fitted_delay = D(fitted_delay_params...)
+    fitted_primary = P(fitted_primary_params...)
 
     # Return fitted double interval censored distribution with numerical methods
     return double_interval_censored(fitted_delay, fitted_primary;
-        interval = interval,
-        upper = upper,
-        lower = lower,
+        interval = interval_spec,
+        force_numeric = true)
+end
+
+"""
+    Distributions.fit_mle(dist::IntervalCensored{<:Truncated{<:PrimaryCensored}}, data::AbstractVector{<:Real}; kwargs...)
+
+Fit a truncated double interval censored distribution to data using maximum likelihood estimation.
+
+This method handles distributions created by `double_interval_censored(...; force_numeric=true, upper=...)`
+with truncation bounds. The method extracts all necessary information from the distribution object.
+
+**Note**: Only distributions with `force_numeric=true` are supported for fitting.
+
+# Arguments
+- `dist`: The distribution instance to fit
+- `data`: Vector of observed interval-censored values (interval left boundaries)
+- `delay_init`: Initial parameters for delay distribution (optional)
+- `primary_init`: Initial parameters for primary distribution (optional)
+- `weights`: Optional observation weights
+- `optimizer`: SciML optimizer (default: OptimizationOptimJL.BFGS())
+
+# Returns
+A fitted distribution with the same structure as the input.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+# Generate synthetic truncated double interval censored data
+true_delay = LogNormal(1.0, 0.8)
+true_primary = Uniform(0, 2)
+true_dist = double_interval_censored(true_delay, true_primary;
+    interval=0.5, upper=10.0, force_numeric=true)
+data = rand(true_dist, 1000)
+
+# Fit using clean interface
+fitted_dist = fit_mle(true_dist, data)
+```
+"""
+function Distributions.fit_mle(dist::IntervalCensored{<:Truncated{<:PrimaryCensored}},
+        data::AbstractVector{<:Real};
+        delay_init = nothing,
+        primary_init = nothing,
+        weights = nothing,
+        optimizer = OptimizationOptimJL.BFGS())
+
+    # Runtime solver type checking
+    if !(dist.dist.untruncated.method isa CensoredDistributions.NumericSolver)
+        throw(ArgumentError(
+            "Fitting is only supported for distributions with force_numeric=true. " *
+            "Please create your distribution with double_interval_censored(...; force_numeric=true)."))
+    end
+
+    # Input validation
+    _validate_data(data)
+    _validate_weights(weights, data)
+
+    # Extract types and parameters from the distribution object
+    truncated_dist = dist.dist
+    primary_censored = truncated_dist.untruncated
+    D = typeof(primary_censored.dist)
+    P = typeof(primary_censored.primary_event)
+    interval_spec = dist.boundaries
+    lower_bound = truncated_dist.lower
+    upper_bound = truncated_dist.upper
+
+    # Default parameter initialization
+    if delay_init === nothing
+        delay_init = _get_default_init_params_double(D, data, interval_spec)
+    end
+    if primary_init === nothing
+        primary_init = _get_default_init_params_double(P, data, interval_spec)
+    end
+
+    # Transform to unconstrained space
+    delay_unconstrained = _transform_to_unconstrained(D, delay_init)
+    primary_unconstrained = _transform_to_unconstrained(P, primary_init)
+    x0 = vcat(delay_unconstrained, primary_unconstrained)
+
+    # Parameter organization
+    n_delay_params = length(delay_init)
+    n_primary_params = length(primary_init)
+
+    # Set up optimization parameters
+    optimization_params = (
+        data = data,
+        delay_dist_type = D,
+        primary_dist_type = P,
+        interval_spec = interval_spec,
+        lower_bound = lower_bound,
+        upper_bound = upper_bound,
+        n_delay_params = n_delay_params,
+        n_primary_params = n_primary_params,
+        weights = weights
+    )
+
+    # Define objective function (negative log-likelihood)
+    function objective(x, p)
+        try
+            # Extract and transform parameters
+            delay_params = _transform_to_constrained(
+                p.delay_dist_type, x[1:p.n_delay_params])
+            primary_params = _transform_to_constrained(
+                p.primary_dist_type, x[(p.n_delay_params + 1):end])
+
+            # Create component distributions
+            delay_dist = p.delay_dist_type(delay_params...)
+            primary_dist = p.primary_dist_type(primary_params...)
+
+            # Create double interval censored distribution with numerical methods
+            double_dist = double_interval_censored(delay_dist, primary_dist;
+                interval = p.interval_spec,
+                lower = p.lower_bound,
+                upper = p.upper_bound,
+                force_numeric = true)
+
+            # Compute negative log-likelihood (with optional weights)
+            if p.weights === nothing
+                loglik = sum(logpdf(double_dist, datum) for datum in p.data)
+            else
+                loglik = sum(w * logpdf(double_dist, datum)
+                for (w, datum) in zip(p.weights, p.data))
+            end
+            return -loglik
+
+        catch e
+            # Return large value for invalid parameters
+            return 1e10
+        end
+    end
+
+    # Set up and solve optimization problem
+    optfun = OptimizationFunction(objective, Optimization.AutoForwardDiff())
+    optprob = OptimizationProblem(optfun, x0, optimization_params)
+    result = solve(optprob, optimizer)
+
+    # Extract fitted parameters
+    fitted_delay_params = _transform_to_constrained(
+        D, result.u[1:n_delay_params])
+    fitted_primary_params = _transform_to_constrained(
+        P, result.u[(n_delay_params + 1):end])
+
+    # Create fitted distributions
+    fitted_delay = D(fitted_delay_params...)
+    fitted_primary = P(fitted_primary_params...)
+
+    # Return fitted double interval censored distribution with numerical methods
+    return double_interval_censored(fitted_delay, fitted_primary;
+        interval = interval_spec,
+        lower = lower_bound,
+        upper = upper_bound,
         force_numeric = true)
 end
 
 # Helper function for double censored parameter initialization
-function _get_default_init_params_double(::Type{LogNormal}, data, interval)
+function _get_default_init_params_double(::Type{<:LogNormal}, data, interval)
     # For LogNormal, work backwards from interval data
     # Convert interval boundaries to approximate continuous values
     continuous_approx = data .+ (interval / 2)
@@ -552,14 +631,14 @@ function _get_default_init_params_double(::Type{LogNormal}, data, interval)
     return [mean(log_data), std(log_data)]
 end
 
-function _get_default_init_params_double(::Type{Uniform}, data, interval)
+function _get_default_init_params_double(::Type{<:Uniform}, data, interval)
     # For primary event Uniform, use conservative bounds based on data range
     continuous_approx = data .+ (interval / 2)
     data_range = maximum(continuous_approx) - minimum(continuous_approx)
     return [0.0, max(data_range * 0.3, 1.0)]  # Conservative primary event window, minimum 1.0
 end
 
-function _get_default_init_params(::Type{Uniform}, data, interval_spec)
+function _get_default_init_params(::Type{<:Uniform}, data, interval_spec)
     # For Uniform distribution, estimate bounds from data
     if isa(interval_spec, Real)
         continuous_approx = data .+ (interval_spec / 2)
@@ -586,4 +665,15 @@ end
 
 function _get_default_init_params_double(dist_type, data, interval)
     throw(ArgumentError("Default initialization not implemented for double censored $(dist_type). Please provide initial parameters."))
+end
+
+# Add fit() methods as convenience wrappers
+function Distributions.fit(dist::IntervalCensored{<:PrimaryCensored},
+        data::AbstractVector{<:Real}; kwargs...)
+    return fit_mle(dist, data; kwargs...)
+end
+
+function Distributions.fit(dist::IntervalCensored{<:Truncated{<:PrimaryCensored}},
+        data::AbstractVector{<:Real}; kwargs...)
+    return fit_mle(dist, data; kwargs...)
 end

@@ -87,11 +87,8 @@ Now let's fit the double interval censored model to recover the underlying param
 begin
     println("\n=== Parameter Recovery via MLE ===")
 
-    # Fit the double interval censored distribution
-    fitted_dist = fit_double_interval_censored(observed_data;
-        delay_dist_type = LogNormal,
-        primary_dist_type = Uniform,
-        interval = interval_width)
+    # Fit the double interval censored distribution using clean interface
+    fitted_dist = fit_mle(true_dist, observed_data)
 
     # Extract fitted parameters (note the nested structure)
     fitted_delay_params = params(fitted_dist.dist.dist)  # DoubleInterval -> Primary -> Delay
@@ -140,18 +137,11 @@ begin
     println("  Total weighted observations: $total_weighted_obs")
     println("  Weight range: $(minimum(observation_counts))-$(maximum(observation_counts))")
 
-    # Fit with observation weights
-    fitted_weighted = fit_double_interval_censored(unique_observations;
-        delay_dist_type = LogNormal,
-        primary_dist_type = Uniform,
-        interval = interval_width,
-        weights = observation_counts)
+    # Fit with observation weights using clean interface
+    fitted_weighted = fit_mle(true_dist, unique_observations; weights = observation_counts)
 
     # Compare unweighted vs weighted fitting
-    fitted_unweighted = fit_double_interval_censored(unique_observations;
-        delay_dist_type = LogNormal,
-        primary_dist_type = Uniform,
-        interval = interval_width)
+    fitted_unweighted = fit_mle(true_dist, unique_observations)
 
     weighted_delay_params = params(fitted_weighted.dist.dist)
     unweighted_delay_params = params(fitted_unweighted.dist.dist)
@@ -210,7 +200,7 @@ end
 md"""
 ## Interval Censored Fitting: Simplified Case
 
-While double interval censoring is the comprehensive approach, you can also fit interval censored distributions directly. This is essentially what `fit_double_interval_censored` calls internally when you don't have primary event uncertainty:
+While double interval censoring is the comprehensive approach, you can also fit interval censored distributions directly. Both use the same clean `fit_mle` interface, but interval censoring is simpler when you don't have primary event uncertainty:
 """
 
 # ╔═╡ daebfcd0-ef01-89no-pqrs-tuvwxyzabcde
@@ -234,13 +224,11 @@ begin
 
     println("  Fitted: μ=$(round(interval_params[1], digits=3)), σ=$(round(interval_params[2], digits=3))")
 
-    # Compare with using double_interval_censored (should be similar)
-    # Note: We use a degenerate primary event (point mass at 0)
-    fitted_via_double = fit_double_interval_censored(pure_data;
-        delay_dist_type = Normal,
-        primary_dist_type = Uniform,
-        interval = pure_interval_width,
-        primary_init = [0.0, 0.001])  # Very narrow primary window
+    # Compare with double_interval_censored using a degenerate primary event (nearly point mass at 0)
+    degenerate_primary = Uniform(0.0, 0.001)  # Very narrow primary window
+    double_dist = double_interval_censored(pure_underlying, degenerate_primary;
+        interval = pure_interval_width, force_numeric = true)
+    fitted_via_double = fit_mle(double_dist, pure_data)
 
     double_params = params(fitted_via_double.dist.dist)
     println("  Via double: μ=$(round(double_params[1], digits=3)), σ=$(round(double_params[2], digits=3))")
@@ -281,12 +269,8 @@ begin
     println("  Max observation time: $max_observation_time")
     println("  Observed range: [$(round(minimum(truncated_data), digits=2)), $(round(maximum(truncated_data), digits=2))]")
 
-    # Fit with truncation constraint
-    fitted_truncated = fit_double_interval_censored(truncated_data;
-        delay_dist_type = LogNormal,
-        primary_dist_type = Uniform,
-        interval = study_interval,
-        upper = max_observation_time)
+    # Fit with truncation constraint using clean interface
+    fitted_truncated = fit_mle(truncated_dist, truncated_data)
 
     trunc_delay_params = params(fitted_truncated.dist.dist)
     trunc_primary_params = params(fitted_truncated.dist.primary_event)
@@ -328,11 +312,8 @@ begin
             perf_delay, perf_primary; interval = perf_interval, force_numeric = true)
         test_data = rand(test_dist, n)
 
-        # Fit
-        fitted = fit_double_interval_censored(test_data;
-            delay_dist_type = LogNormal,
-            primary_dist_type = Uniform,
-            interval = perf_interval)
+        # Fit using clean interface
+        fitted = fit_mle(test_dist, test_data)
 
         # Calculate errors
         fitted_delay = params(fitted.dist.dist)
@@ -432,7 +413,7 @@ CensoredDistributions.jl provides state-of-the-art MLE fitting for censored dist
 ✅ **Proper Distributions.jl integration** enabling ecosystem compatibility
 ✅ **SciML optimization** with automatic differentiation for robust, fast fitting
 
-The `fit_double_interval_censored` function is the recommended entry point for most applications, with interval censored fitting available as a simpler alternative when primary event uncertainty is not a concern.
+The clean `fit_mle` interface with `double_interval_censored` distributions is the recommended approach for most applications, with direct interval censored fitting available as a simpler alternative when primary event uncertainty is not a concern.
 """
 
 # ╔═╡ Cell order:
