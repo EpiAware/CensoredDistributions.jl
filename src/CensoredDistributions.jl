@@ -34,7 +34,7 @@ include("censoring/DoubleIntervalCensored.jl")
 
 include("utils/Weighted.jl")
 
-include("fitting.jl")
+include("censoring/fit.jl")
 
 # Note: fit and fit_mle are extended from Distributions.jl, not exported here
 end

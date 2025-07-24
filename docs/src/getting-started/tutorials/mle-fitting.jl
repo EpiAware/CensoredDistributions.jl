@@ -70,9 +70,9 @@ begin
     println("  Reporting interval: $interval_width days")
     println("  Sample size: $n_observations")
 
-    # Generate realistic censored data
+    # Generate realistic censored data (using numerical methods for stability)
     true_dist = double_interval_censored(
-        true_delay, true_primary; interval = interval_width)
+        true_delay, true_primary; interval = interval_width, force_numeric = true)
     observed_data = rand(true_dist, n_observations)
 
     println("  Data range: [$(round(minimum(observed_data), digits=2)), $(round(maximum(observed_data), digits=2))]")
@@ -268,10 +268,11 @@ begin
     study_interval = 0.8
     max_observation_time = 10.0  # Study cutoff
 
-    # Generate truncated data
+    # Generate truncated data (using numerical methods for stability)
     truncated_dist = double_interval_censored(study_delay, study_primary;
         interval = study_interval,
-        upper = max_observation_time)
+        upper = max_observation_time,
+        force_numeric = true)
     truncated_data = rand(truncated_dist, 500)
 
     println("Truncated Study Scenario:")
@@ -322,9 +323,9 @@ begin
     println("------------|---------------|---------------|----------------")
 
     for n in sample_sizes
-        # Generate data
+        # Generate data (using numerical methods for stability)
         test_dist = double_interval_censored(
-            perf_delay, perf_primary; interval = perf_interval)
+            perf_delay, perf_primary; interval = perf_interval, force_numeric = true)
         test_data = rand(test_dist, n)
 
         # Fit

@@ -319,7 +319,75 @@ function Distributions.fit(::Type{Weighted}, data::AbstractVector{<:Real}; kwarg
     return fit_mle(Weighted, data; kwargs...)
 end
 
-# Fitting support for Double Interval Censored distributions
+# Fitting support for Double Interval Censored distributions (IntervalCensored{PrimaryCensored})
+
+"""
+    Distributions.fit_mle(::Type{IntervalCensored{PrimaryCensored{D,P,S}}}, data::AbstractVector{<:Real}; kwargs...)
+
+Fit a double interval censored distribution (IntervalCensored{PrimaryCensored}) to data using maximum likelihood estimation.
+
+This method handles the case where `double_interval_censored(delay_dist, primary_dist)` returns an
+`IntervalCensored{PrimaryCensored{...}, ...}` type. It simultaneously estimates parameters for both
+the delay distribution and primary event distribution.
+
+# Arguments
+- `data`: Vector of observed interval-censored values (interval left boundaries)
+- `delay_dist_type`: Type of delay distribution (default: LogNormal)
+- `primary_dist_type`: Type of primary event distribution (default: Uniform)
+- `delay_init`: Initial parameters for delay distribution (optional)
+- `primary_init`: Initial parameters for primary distribution (optional)
+- `interval`: Interval width for secondary censoring
+- `upper`: Upper truncation bound (if applicable)
+- `lower`: Lower truncation bound (if applicable)
+- `weights`: Optional observation weights
+- `optimizer`: SciML optimizer (default: OptimizationOptimJL.BFGS())
+
+# Returns
+A fitted `IntervalCensored{PrimaryCensored{...}, ...}` distribution.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+# Generate synthetic double interval censored data
+true_delay = LogNormal(1.0, 0.8)
+true_primary = Uniform(0, 2)
+true_dist = double_interval_censored(true_delay, true_primary; interval=0.5)
+data = rand(true_dist, 1000)
+
+# Fit using standard Distributions.jl interface
+fitted_dist = fit_mle(typeof(true_dist), data;
+    delay_dist_type=LogNormal, primary_dist_type=Uniform)
+```
+"""
+function Distributions.fit_mle(::Type{IntervalCensored{PrimaryCensored{D, P, S}}},
+        data::AbstractVector{<:Real};
+        delay_dist_type = D,
+        primary_dist_type = P,
+        delay_init = nothing,
+        primary_init = nothing,
+        interval = 1.0,
+        upper = nothing,
+        lower = nothing,
+        weights = nothing,
+        optimizer = OptimizationOptimJL.BFGS()) where {D, P, S}
+    return fit_double_interval_censored(data;
+        delay_dist_type = delay_dist_type,
+        primary_dist_type = primary_dist_type,
+        delay_init = delay_init,
+        primary_init = primary_init,
+        interval = interval,
+        upper = upper,
+        lower = lower,
+        weights = weights,
+        optimizer = optimizer)
+end
+
+# Generic method for IntervalCensored{PrimaryCensored} types when type parameters aren't known
+function Distributions.fit_mle(::Type{<:IntervalCensored{<:PrimaryCensored}},
+        data::AbstractVector{<:Real}; kwargs...)
+    return fit_double_interval_censored(data; kwargs...)
+end
 
 """
     fit_double_interval_censored(data::AbstractVector{<:Real};
@@ -425,11 +493,12 @@ function fit_double_interval_censored(data::AbstractVector{<:Real};
             delay_dist = p.delay_dist_type(delay_params...)
             primary_dist = p.primary_dist_type(primary_params...)
 
-            # Create double interval censored distribution
+            # Create double interval censored distribution with numerical methods
             double_dist = double_interval_censored(delay_dist, primary_dist;
                 interval = p.interval,
                 upper = p.upper,
-                lower = p.lower)
+                lower = p.lower,
+                force_numeric = true)
 
             # Compute negative log-likelihood (with optional weights)
             if p.weights === nothing
@@ -461,11 +530,12 @@ function fit_double_interval_censored(data::AbstractVector{<:Real};
     fitted_delay = delay_dist_type(fitted_delay_params...)
     fitted_primary = primary_dist_type(fitted_primary_params...)
 
-    # Return fitted double interval censored distribution
+    # Return fitted double interval censored distribution with numerical methods
     return double_interval_censored(fitted_delay, fitted_primary;
         interval = interval,
         upper = upper,
-        lower = lower)
+        lower = lower,
+        force_numeric = true)
 end
 
 # Helper function for double censored parameter initialization
