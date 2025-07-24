@@ -3,15 +3,28 @@ Pkg.instantiate()
 
 using Documenter
 using CensoredDistributions
-using Pluto: Configuration.CompilerOptions
-using PlutoStaticHTML
 
-include("changelog.jl")
-include("pages.jl")
-include("build.jl")
+# Check for skip notebooks option
+skip_notebooks = "--skip-notebooks" in ARGS ||
+                 get(ENV, "SKIP_NOTEBOOKS", "false") == "true"
 
-build("getting-started")
-build("getting-started/tutorials")
+if !skip_notebooks
+    using Pluto: Configuration.CompilerOptions
+    using PlutoStaticHTML
+
+    include("changelog.jl")
+    include("pages.jl")
+    include("build.jl")
+
+    println("Building Pluto notebooks (this may take several minutes)...")
+    build("getting-started")
+    build("getting-started/tutorials")
+    println("✓ Notebook processing complete")
+else
+    println("⚠ Skipping Pluto notebook processing (--skip-notebooks or SKIP_NOTEBOOKS=true)")
+    include("changelog.jl")
+    include("pages.jl")
+end
 
 # Generate index.md from README.md
 open(joinpath(joinpath(@__DIR__, "src"), "index.md"), "w") do io

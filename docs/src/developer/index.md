@@ -10,6 +10,8 @@ New to contributing? Start here:
 - **[Contributing Guide](@ref contributing)**: How to contribute code, documentation, and issues
 - **[Release Process](@ref release-process)**: How we manage releases and versioning
 
+For general Julia development setup, see [Getting Started with Julia](@ref julia) in the Getting Started section.
+
 ---
 
 *For users looking to get started with the package, see the [Getting Started](@ref getting-started) section.*

@@ -5,6 +5,7 @@ getting_started_pages = Any[
         "Analytical CDF Solutions" => "getting-started/tutorials/analytical-primarycensored-cdfs.md",
         "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md"
     ],
+    "Julia" => "getting-started/julia.md",
     "FAQ" => "getting-started/faq.md"
 ]
 
@@ -16,6 +17,7 @@ module_pages = [
 dev_pages = [
     "Overview" => "developer/index.md",
     "Contributing" => "developer/contributing.md",
+    "Developer FAQ" => "developer/faq.md",
     "Release Process" => "developer/release-process.md"
 ]
 

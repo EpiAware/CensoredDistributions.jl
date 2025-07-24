@@ -13,6 +13,7 @@ docs/src/index.md
 # Generated tutorial markdown files from Pluto notebooks
 docs/src/getting-started/tutorials/*.md
 dev/
+build/
 # Data
 *.csv
 *.tsv

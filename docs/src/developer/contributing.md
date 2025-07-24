@@ -1,67 +1,189 @@
 # [Contributing](@id contributing)
 
-This page details the some of the guidelines that should be followed when contributing to this package. It is adapted from `Documenter.jl`.
+This page details the guidelines that should be followed when contributing to CensoredDistributions.jl.
 
-## Branches
+## Getting Started
 
-Are used for developing features. Once a feature is ready to be released, it is merged into the `main` branch and then a new release is automatically created.
+Before contributing, please:
+1. Read the [Getting Started with Julia](@ref julia) guide if you're new to Julia development
+2. Check out the [developer documentation](@ref developer) for advanced workflows
+3. Review the project structure and development commands below
+
+## Project Structure
+
+CensoredDistributions.jl uses multiple environments for different purposes:
+
+```
+CensoredDistributions.jl/
+├── Project.toml           # Main package environment
+├── test/
+│   ├── Project.toml       # Test environment with test dependencies
+│   ├── runtests.jl        # Main test entry point
+│   ├── censoring/         # Feature-specific tests
+│   └── package/           # Quality tests (Aqua, DocTest, etc.)
+├── docs/
+│   ├── Project.toml       # Documentation environment
+│   ├── make.jl           # Documentation build script
+│   ├── pages.jl          # Documentation structure
+│   └── src/              # Documentation source files
+└── benchmark/
+    ├── Project.toml       # Benchmark environment
+    └── runbenchmarks.jl   # Benchmark suite
+```
+
+## Development Commands
+
+### Running Tests
+
+```bash
+# Full test suite (recommended for CI and final checks)
+julia --project=. -e 'using Pkg; Pkg.test()'
+
+# Run tests directly (faster during development)
+julia --project=test test/runtests.jl
+
+# Skip quality tests for faster development iteration
+julia --project=test test/runtests.jl skip_quality
+```
+
+### Building Documentation
+
+```bash
+# Build complete documentation (includes Pluto notebook conversion)
+julia --project=docs docs/make.jl
+```
+
+### Running Benchmarks
+
+```bash
+# Execute benchmark suite
+julia --project=benchmark benchmark/runbenchmarks.jl
+```
+
+## Testing Strategy
+
+### Test Organisation
+
+- **Unit tests**: Located in `test/censoring/` for each distribution type
+- **Integration tests**: Test interactions between components
+- **Quality tests**: Located in `test/package/` including:
+  - Aqua.jl for code quality
+  - DocTest.jl for documentation examples
+  - Code formatting and linting checks
+
+### Test Environment
+
+The test environment (`test/Project.toml`) includes:
+- Test-specific dependencies (TestItemRunner.jl, Test.jl)
+- The main package in development mode
+- Quality assurance tools
+
+Use `skip_quality` argument during development to bypass slow quality checks:
+```bash
+julia --project=test test/runtests.jl skip_quality
+```
+
+## Documentation
+
+### Pluto Notebooks
+
+The tutorials use [Pluto.jl](https://plutojl.org/) notebooks located in `docs/src/getting-started/tutorials/`.
+These are converted to markdown during the documentation build.
+
+#### Working with Pluto notebooks
+
+1. **Start Pluto**: Use the provided script `docs/pluto-scripts.sh` or:
+   ```bash
+   julia --project=docs -e 'using Pluto; Pluto.run()'
+   ```
+
+2. **Environment setup**: Notebooks should use the docs environment and develop the local package:
+   ```julia
+   # In notebook setup cell
+   let
+       docs_dir = (dirname ∘ dirname ∘ dirname)(@__DIR__)
+       using Pkg: Pkg
+       Pkg.activate(docs_dir)
+       Pkg.develop(PackageSpec(path=dirname(docs_dir)))
+       Pkg.instantiate()
+   end
+   ```
+
+3. **Adding new notebooks**:
+   - Add the notebook file to `docs/src/getting-started/tutorials/`
+   - Add build call in `docs/make.jl`
+   - Add the generated `.md` file to `docs/pages.jl`
+
+### Documentation Structure
+
+- `docs/src/getting-started/`: User-facing documentation
+- `docs/src/lib/`: API documentation (auto-generated)
+- `docs/src/developer/`: Developer and contributor documentation
+
+## Branches and Workflow
+
+- **Feature branches**: Create feature branches for new development
+- **Main branch**: Features are merged into `main` when ready
+- **Releases**: Automatic releases are created when versions are tagged
 
 ## Style Guide
 
-Follow the style of the surrounding text when making changes. When adding new features please try to stick to the following points whenever applicable. This project follows the
-[SciML style guide](https://github.com/SciML/SciMLStyle).
+This project follows the [SciML style guide](https://github.com/SciML/SciMLStyle).
 
-## Tests
+Key points:
+- Use descriptive variable names
+- Follow Julia naming conventions (snake_case for variables, CamelCase for types)
+- Write docstrings for exported functions
+- Keep lines under 80 characters where possible
+- Use consistent indentation (4 spaces)
 
-### Unit tests
+## Code Quality
 
-As is conventional for Julia packages, unit tests are located at `test/*.jl` with the entrypoint
-`test/runtests.jl`.
+### Pre-commit Checklist
 
-### End to end testing
+Before submitting a pull request:
 
-Tests that build example package docs from source and inspect the results (end to end tests) are
-located in `/test/examples`. The main entry points are `test/examples/make.jl` for building and
-`test/examples/test.jl` for doing some basic checks on the generated outputs.
+1. **Run full tests**:
+   ```bash
+   julia --project=. -e 'using Pkg; Pkg.test()'
+   ```
 
-## Pluto usage in showcase documentation
+2. **Build documentation**:
+   ```bash
+   julia --project=docs docs/make.jl
+   ```
 
-Some of the showcase examples in `PrimaryCensored/docs/src/showcase` use [`Pluto.jl`](https://plutojl.org/) notebooks for the underlying computation. The output of the notebooks is rendered into HTML for inclusion in the documentation in two steps:
-1. [`PlutoStaticHTML.jl`](https://github.com/rikhuijzer/PlutoStaticHTML.jl) converts the notebook with output into a machine-readable `.md` format.
-2. [`Documenter.jl`](https://github.com/JuliaDocs/Documenter.jl) renders the `.md` file into HTML for inclusion in the documentation during the build process.
+3. **Check formatting**: The project uses automatic formatting tools
 
-For other examples of using `Pluto` to generate documentation see the examples shown [here](https://plutostatichtml.huijzer.xyz/stable/#Documenter.jl).
+### Quality Tools
 
-### Running Pluto notebooks from `PrimaryCensored` locally
+The project includes several quality assurance tools:
+- **Aqua.jl**: Checks for common package issues
+- **JET.jl**: Static analysis for type stability (available in developer environment)
+- **DocTest.jl**: Ensures documentation examples work
 
-To run the `Pluto.jl` scripts in the `PrimaryCensored` documentation directly from the source code you can do these steps:
+## Adding New Features
 
-1. Install [`Pluto.jl`](https://plutojl.org/) locally. We recommend using the version of `Pluto` that is pinned in the `Project.toml` file defining the documentation environment.
-2. Clone the `PrimaryCensored` repository.
-3. Start `Pluto.jl` either from REPL (see the `Pluto.jl` documentation) or from the command line with the shell script `PrimaryCensored/docs/pluto-scripts.sh`.
-4. From the `Pluto.jl` interface, navigate to the `Pluto.jl` script you want to run.
+1. **Write tests first**: Add tests in appropriate `test/` subdirectory
+2. **Implement feature**: Add implementation in `src/`
+3. **Document feature**: Add docstrings and update documentation if needed
+4. **Test thoroughly**: Run full test suite
+5. **Update changelog**: Add entry describing the change
 
-### Contributing to Pluto notebooks in `PrimaryCensored` documentation
+## Advanced Development Resources
 
-#### Modifying an existing Pluto notebook
-Committing changes to the `Pluto.jl` notebooks in the `EpiAware` documentation is the same as committing changes to any other part of the repository. However, please note that we expect the following features for the environment management of the notebooks:
+For advanced Julia development techniques beyond this project:
 
-1. Use the environment determined by the `Project.toml` file in the `PrimaryCensored/docs` directory. If you want extra packages, add them to this environment.
-2. Use the version of `PrimaryCensored` that is used in these notebooks to be the version of `PrimaryCensored` on the branch being pull requested into `main`. To do this use the `Pkg.develop` function.
+- **[Julia Performance Tips](https://docs.julialang.org/en/v1/manual/performance-tips/)**: Official performance optimization guide
+- **[JET.jl](https://github.com/aviatesk/JET.jl)**: Static analysis for type stability and optimization
+- **[ProfileView.jl](https://github.com/timholy/ProfileView.jl)**: Visual profiling for performance analysis
+- **[PkgTemplates.jl](https://github.com/JuliaCI/PkgTemplates.jl)**: Best practices for Julia package structure
 
-To do this you can use the following code snippet in the Pluto notebook:
+## Getting Help
 
-```julia
-# Determine the relative path to the `EpiAware/docs` directory
-docs_dir = dirname(dirname(dirname(dirname(@__DIR__))))
-# Determine the relative path to the `EpiAware` package directory
-pkg_dir = dirname(docs_dir)
+- **Questions**: Open a GitHub discussion
+- **Bugs**: File a GitHub issue with minimal reproducible example
+- **Feature requests**: Open a GitHub issue with rationale and use case
+- **General Julia help**: See [Julia Discourse](https://discourse.julialang.org/) or [Julia Slack](https://julialang.org/slack/)
 
-using Pkg: Pkg
-Pkg.activate(docs_dir)
-Pkg.develop(; path = pkg_dir)
-Pkg.instantiate()
-```
-
-#### Adding a new Pluto notebook
-Adding a new `Pluto.jl` notebook to the `PrimaryCensored` documentation is the same as adding any other file to the repository. However, in addition to following the guidelines for modifying an [existing notebook](#modifying-an-existing-pluto-notebook), please note that the new notebook is added to the set of notebook builds using `build` in the `PrimaryCensored/docs/make.jl` file. This will generate an `.md` of the same name as the notebook which can be rendered when `makedocs` is run. For this document to be added to the overall documentation the path to the `.md` file must be added to the `Pages` array defined in `PrimaryCensored/docs/pages.jl`.
+Thank you for contributing to CensoredDistributions.jl!
