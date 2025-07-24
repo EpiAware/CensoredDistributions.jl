@@ -1,4 +1,4 @@
-# Developer Documentation
+# [Developer Documentation](@id developer)
 
 Welcome to the CensoredDistributions.jl developer documentation.
 This section contains guides and resources for contributors and maintainers.

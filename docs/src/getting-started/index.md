@@ -192,7 +192,12 @@ In addition to these main functions, the package also includes:
 
 ## Learning more
 
-For more information on the package and its integration with other packages, see the [tutorials](@ref tutorials).
+### [Tutorials](@id tutorials)
+
+For more information on the package and its integration with other packages, see the tutorials in this getting started section:
+
+- **[Analytical CDF Solutions](tutorials/analytical-primarycensored-cdfs.md)**: Understanding analytical solutions for common distribution pairs
+- **[Fitting with Turing.jl](tutorials/fitting-with-turing.md)**: Bayesian inference with censored distributions
 
 ### Methodological Background
 
