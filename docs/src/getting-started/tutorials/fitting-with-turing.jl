@@ -244,7 +244,7 @@ First we define our model. Aside from the use of the `double_interval_censored` 
 
     pcens_dists = map(pws, Ds, sws) do pw, D, sw
         double_interval_censored(
-            dist, Uniform(0.0, pw); upper = D, interval = sw, force_numeric = true)
+            dist, Uniform(0.0, pw); upper = D, interval = sw)
     end
 
     y ~ weight(pcens_dists, n)
@@ -292,7 +292,7 @@ We also see that the posterior means are near the true parameters and the 90% cr
 
 # ╔═╡ Cell order:
 # ╟─30511a27-984e-40b7-9b1e-34bc87cb8d56
-# ╠═bb9c75db-6638-48fe-afcb-e78c4bcc057d
+# ╟─bb9c75db-6638-48fe-afcb-e78c4bcc057d
 # ╠═3690c122-d630-4fd0-aaf2-aea9226df086
 # ╟─c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
 # ╠═b4409687-7bee-4028-824d-03b209aee68d
