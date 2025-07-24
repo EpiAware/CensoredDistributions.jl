@@ -88,7 +88,7 @@ begin
     println("\n=== Parameter Recovery via MLE ===")
 
     # Fit the double interval censored distribution using clean interface
-    fitted_dist = fit_mle(true_dist, observed_data)
+    fitted_dist = fit(true_dist, observed_data)
 
     # Extract fitted parameters (note the nested structure)
     fitted_delay_params = params(fitted_dist.dist.dist)  # DoubleInterval -> Primary -> Delay
@@ -138,10 +138,10 @@ begin
     println("  Weight range: $(minimum(observation_counts))-$(maximum(observation_counts))")
 
     # Fit with observation weights using clean interface
-    fitted_weighted = fit_mle(true_dist, unique_observations; weights = observation_counts)
+    fitted_weighted = fit(true_dist, unique_observations; weights = observation_counts)
 
     # Compare unweighted vs weighted fitting
-    fitted_unweighted = fit_mle(true_dist, unique_observations)
+    fitted_unweighted = fit(true_dist, unique_observations)
 
     weighted_delay_params = params(fitted_weighted.dist.dist)
     unweighted_delay_params = params(fitted_unweighted.dist.dist)
@@ -180,7 +180,7 @@ begin
     weight_values = [1.0, 2.5, 5.0, 10.0]
 
     for weight_val in weight_values
-        fitted_weighted_dist = fit_mle(Weighted, normal_data; weight_value = weight_val)
+        fitted_weighted_dist = fit(Weighted, normal_data; weight_value = weight_val)
         fitted_params = params(fitted_weighted_dist.dist)
 
         println("  Weight $weight_val: μ=$(round(fitted_params[1], digits=3)), σ=$(round(fitted_params[2], digits=3))")
@@ -219,7 +219,7 @@ begin
     println("  Sample size: $(length(pure_data))")
 
     # Fit using IntervalCensored directly
-    fitted_interval = fit_mle(IntervalCensored, pure_data; interval = pure_interval_width)
+    fitted_interval = fit(IntervalCensored, pure_data; interval = pure_interval_width)
     interval_params = params(fitted_interval.dist)
 
     println("  Fitted: μ=$(round(interval_params[1], digits=3)), σ=$(round(interval_params[2], digits=3))")
@@ -228,7 +228,7 @@ begin
     degenerate_primary = Uniform(0.0, 0.001)  # Very narrow primary window
     double_dist = double_interval_censored(pure_underlying, degenerate_primary;
         interval = pure_interval_width, force_numeric = true)
-    fitted_via_double = fit_mle(double_dist, pure_data)
+    fitted_via_double = fit(double_dist, pure_data)
 
     double_params = params(fitted_via_double.dist.dist)
     println("  Via double: μ=$(round(double_params[1], digits=3)), σ=$(round(double_params[2], digits=3))")
@@ -270,7 +270,7 @@ begin
     println("  Observed range: [$(round(minimum(truncated_data), digits=2)), $(round(maximum(truncated_data), digits=2))]")
 
     # Fit with truncation constraint using clean interface
-    fitted_truncated = fit_mle(truncated_dist, truncated_data)
+    fitted_truncated = fit(truncated_dist, truncated_data)
 
     trunc_delay_params = params(fitted_truncated.dist.dist)
     trunc_primary_params = params(fitted_truncated.dist.primary_event)
@@ -313,7 +313,7 @@ begin
         test_data = rand(test_dist, n)
 
         # Fit using clean interface
-        fitted = fit_mle(test_dist, test_data)
+        fitted = fit(test_dist, test_data)
 
         # Calculate errors
         fitted_delay = params(fitted.dist.dist)
@@ -380,7 +380,7 @@ md"""
 Based on this tutorial, here are the key recommendations for MLE fitting with CensoredDistributions.jl:
 
 ### 1. **Use Double Interval Censoring by Default**
-- `fit_double_interval_censored()` handles the most realistic epidemiological scenarios
+- `double_interval_censored()` with the `fit()` interface handles the most realistic epidemiological scenarios
 - Includes both primary event uncertainty and observation interval effects
 - Can degrade gracefully to simpler cases when needed
 
@@ -413,7 +413,7 @@ CensoredDistributions.jl provides state-of-the-art MLE fitting for censored dist
 ✅ **Proper Distributions.jl integration** enabling ecosystem compatibility
 ✅ **SciML optimization** with automatic differentiation for robust, fast fitting
 
-The clean `fit_mle` interface with `double_interval_censored` distributions is the recommended approach for most applications, with direct interval censored fitting available as a simpler alternative when primary event uncertainty is not a concern.
+The clean `fit` interface with `double_interval_censored` distributions is the recommended approach for most applications, with direct interval censored fitting available as a simpler alternative when primary event uncertainty is not a concern.
 """
 
 # ╔═╡ Cell order:
