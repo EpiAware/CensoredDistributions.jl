@@ -16,8 +16,14 @@ export primary_censored, interval_censored, double_interval_censored
 # Export underlying primarycensored_cdf method for user extension
 export primarycensored_cdf
 
+# Exported distribution types (needed for fitting)
+export IntervalCensored, PrimaryCensored, Weighted
+
 # Exported utilities
 export weight
+
+# Exported fitting functions
+export fit_double_interval_censored
 
 include("docstrings.jl")
 

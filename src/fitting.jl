@@ -235,6 +235,19 @@ function _transform_to_constrained(::Type{LogNormal}, unconstrained)
     return [μ, exp(log_σ)]
 end
 
+function _transform_to_unconstrained(::Type{Uniform}, params)
+    a, b = params
+    # For Uniform(a,b), we transform to ensure a < b
+    # We use log(b-a) to ensure positive width
+    return [a, log(b - a)]
+end
+
+function _transform_to_constrained(::Type{Uniform}, unconstrained)
+    a, log_width = unconstrained
+    width = exp(log_width)
+    return [a, a + width]  # Ensure b = a + width > a
+end
+
 function _transform_to_unconstrained(dist_type, params)
     throw(ArgumentError("Parameter transformation not implemented for $(dist_type)."))
 end
@@ -473,7 +486,32 @@ function _get_default_init_params_double(::Type{Uniform}, data, interval)
     # For primary event Uniform, use conservative bounds based on data range
     continuous_approx = data .+ (interval / 2)
     data_range = maximum(continuous_approx) - minimum(continuous_approx)
-    return [0.0, data_range * 0.3]  # Conservative primary event window
+    return [0.0, max(data_range * 0.3, 1.0)]  # Conservative primary event window, minimum 1.0
+end
+
+function _get_default_init_params(::Type{Uniform}, data, interval_spec)
+    # For Uniform distribution, estimate bounds from data
+    if isa(interval_spec, Real)
+        continuous_approx = data .+ (interval_spec / 2)
+    else
+        # Handle arbitrary intervals
+        continuous_approx = similar(data)
+        for (i, left_boundary) in enumerate(data)
+            idx = findfirst(x -> x == left_boundary, interval_spec[1:(end - 1)])
+            if idx !== nothing
+                continuous_approx[i] = (interval_spec[idx] + interval_spec[idx + 1]) / 2
+            else
+                continuous_approx[i] = left_boundary + 0.5
+            end
+        end
+    end
+
+    # Use data range with some padding
+    min_val = minimum(continuous_approx)
+    max_val = maximum(continuous_approx)
+    padding = (max_val - min_val) * 0.1
+
+    return [min_val - padding, max_val + padding]
 end
 
 function _get_default_init_params_double(dist_type, data, interval)
