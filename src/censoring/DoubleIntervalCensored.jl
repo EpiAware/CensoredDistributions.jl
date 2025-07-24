@@ -28,7 +28,7 @@ The order of operations ensures mathematical correctness, particularly that trun
 A composed distribution that can be used with all standard `Distributions.jl` methods (`rand`, `pdf`, `cdf`, etc.).
 
 # Examples
-```julia
+```@example
 using Distributions
 
 # Basic primary censoring only

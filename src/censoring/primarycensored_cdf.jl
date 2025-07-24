@@ -6,7 +6,7 @@ Abstract type for solver methods used in CDF computation.
 Subtypes determine whether analytical solutions are preferred or
 numerical integration is forced.
 "
-abstract type SolverMethod end
+abstract type AbstractSolverMethod end
 
 @doc raw"
 Solver that attempts analytical solutions when available, falling back to numerical integration.
@@ -14,7 +14,7 @@ Solver that attempts analytical solutions when available, falling back to numeri
 Stores a numerical integration solver for use when no analytical solution exists
 for a given distribution pair.
 "
-struct AnalyticalSolver{S} <: SolverMethod
+struct AnalyticalSolver{S} <: AbstractSolverMethod
     solver::S  # Fallback solver for when no analytical solution exists
 end
 
@@ -24,7 +24,7 @@ Solver that always uses numerical integration.
 Forces numerical computation even when analytical solutions are available,
 useful for testing and validation.
 "
-struct NumericSolver{S} <: SolverMethod
+struct NumericSolver{S} <: AbstractSolverMethod
     solver::S
 end
 
@@ -32,22 +32,44 @@ end
 Compute the CDF of a primary event censored distribution.
 
 Dispatches to either analytical or numerical implementation based on the solver method.
-Analytical solutions are available for:
-- Gamma delay with Uniform primary
-- LogNormal delay with Uniform primary
-- Weibull delay with Uniform primary
+Analytical solutions are available for specific distribution pairs with Uniform primary events.
+Use `methods(primarycensored_cdf)` to see all available analytical implementations.
 
-For other distribution pairs, numerical integration is used.
+For distribution pairs without analytical solutions, numerical integration is used automatically
+when called with an `AnalyticalSolver`. Use `NumericSolver` to force numerical integration
+even when analytical solutions exist (useful for testing and validation).
+
+# Arguments
+- `dist`: The delay distribution from primary event to observation
+- `primary_event`: The primary event time distribution
+- `x`: Evaluation point for the CDF
+- `method`: Solver method (`AnalyticalSolver` or `NumericSolver`)
+
+# Returns
+The cumulative probability P(X ≤ x) where X is the observed delay time.
 "
 function primarycensored_cdf(
         dist::D1, primary_event::D2,
         x::Real,
-        method::SolverMethod
+        method::AbstractSolverMethod
 ) where {D1 <: UnivariateDistribution, D2 <: UnivariateDistribution}
     error("primarycensored_cdf not implemented for method type $(typeof(method))")
 end
 
-# Generic fallback for AnalyticalSolver - by default calls numerical
+@doc raw"
+Generic fallback implementation for AnalyticalSolver.
+
+When no specific analytical solution is available for a distribution pair,
+this method falls back to numerical integration using the solver stored
+in the AnalyticalSolver.
+
+Specific analytical implementations exist for:
+- Gamma delay with Uniform primary event
+- LogNormal delay with Uniform primary event
+- Weibull delay with Uniform primary event
+
+For all other distribution pairs, numerical integration is used automatically.
+"
 function primarycensored_cdf(
         dist::D1, primary_event::D2,
         x::Real,
@@ -57,7 +79,19 @@ function primarycensored_cdf(
     primarycensored_cdf(dist, primary_event, x, NumericSolver(method.solver))
 end
 
-# Numerical CDF implementation
+@doc raw"
+Numerical CDF implementation for primary event censored distributions.
+
+Computes the CDF using numerical integration when no analytical solution is available.
+The integral computed is:
+```math
+F_{S+}(x) = \int_{max(x-u_{max}, s_{min})}^{x-u_{min}} F_S(u) f_U(x-u) du
+```
+where F_S is the delay distribution CDF, f_U is the primary event distribution PDF,
+u_min and u_max are the primary event bounds, and s_min is the delay minimum.
+
+Handles edge cases and uses the solver stored in the NumericSolver method.
+"
 function primarycensored_cdf(
         dist::D1, primary_event::D2,
         x::Real,
@@ -315,7 +349,7 @@ Computes log(CDF) with appropriate handling for edge cases where CDF = 0.
 function primarycensored_logcdf(
         dist::D1, primary_event::D2,
         x::Real,
-        method::SolverMethod
+        method::AbstractSolverMethod
 ) where {D1 <: UnivariateDistribution, D2 <: UnivariateDistribution}
     if x <= minimum(dist)
         return -Inf

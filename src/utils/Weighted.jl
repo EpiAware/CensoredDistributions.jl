@@ -12,7 +12,7 @@ delegate directly to the underlying distribution.
 - `weight::T`: The weight factor (must be non-negative)
 
 # Examples
-```julia
+```@example
 using CensoredDistributions, Distributions, Turing
 
 # Single weighted observation
@@ -56,7 +56,7 @@ A `Weight` distribution that when used in Turing.jl will contribute `w * logpdf(
 log-probability.
 
 # Examples
-```julia
+```@example
 # For aggregated count data
 y_obs = 3.5  # Observed value
 n_count = 25  # Number of times this value was observed
@@ -88,7 +88,7 @@ Create a product distribution of weighted distributions, each with a different w
 A `Product` distribution of `Weighted` distributions suitable for vectorized observations.
 
 # Examples
-```julia
+```@example
 y_obs = [3.5, 4.2, 3.8]  # Observed values
 n_counts = [25, 10, 15]  # Counts for each observation
 
@@ -119,7 +119,7 @@ Create a product distribution of weighted distributions, where each distribution
 A `Product` distribution of `Weighted` distributions suitable for vectorized observations with different distributions.
 
 # Examples
-```julia
+```@example
 using CensoredDistributions, Distributions
 
 y_obs = [3.5, 4.2, 3.8]  # Observed values

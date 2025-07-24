@@ -20,7 +20,7 @@ This is useful for modeling:
 A `PrimaryCensored` distribution representing the convolution of the censoring and delay distributions.
 
 # Examples
-```julia
+```@example
 using CensoredDistributions, Distributions
 
 # Incubation period (delay) with uncertain infection time (primary event)
@@ -62,7 +62,7 @@ Represents the distribution of observed delays when the primary event time is su
 - `method`: Solver method for CDF computation (analytical or numeric)
 "
 struct PrimaryCensored{
-    D1 <: UnivariateDistribution, D2 <: UnivariateDistribution, M <: SolverMethod} <:
+    D1 <: UnivariateDistribution, D2 <: UnivariateDistribution, M <: AbstractSolverMethod} <:
        Distributions.UnivariateDistribution{Distributions.ValueSupport}
     "The delay distribution from primary event to observation."
     dist::D1
@@ -72,7 +72,8 @@ struct PrimaryCensored{
     method::M
 
     function PrimaryCensored(
-            dist::D1, primary_event::D2, method::M) where {D1, D2, M <: SolverMethod}
+            dist::D1, primary_event::D2, method::M) where {
+            D1, D2, M <: AbstractSolverMethod}
         minimum(dist) == 0 ||
             throw(ArgumentError("Delay distribution must have minimum of zero"))
         new{D1, D2, M}(dist, primary_event, method)

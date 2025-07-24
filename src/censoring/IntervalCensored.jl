@@ -46,7 +46,7 @@ starting from 0. For example, with `interval=1`, observations fall into [0,1), [
 An `IntervalCensored` distribution
 
 # Examples
-```julia
+```@example
 using CensoredDistributions, Distributions
 
 # Daily reporting intervals
@@ -76,7 +76,7 @@ the boundaries. For example, with `boundaries=[0, 2, 5, 10]`, observations fall 
 An `IntervalCensored` distribution
 
 # Examples
-```julia
+```@example
 using CensoredDistributions, Distributions
 
 # Age groups: 0-18, 18-65, 65+
