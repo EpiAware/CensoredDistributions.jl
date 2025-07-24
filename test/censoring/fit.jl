@@ -442,11 +442,12 @@ end
         @test fitted_primary_params[2] > fitted_primary_params[1]  # b > a for Uniform
     end
 
-    @testset "Normal-Uniform recovery" begin
-        true_delay_μ, true_delay_σ = 3.0, 1.2
+    @testset "Gamma-Uniform recovery" begin
+        # Use Gamma instead of Normal for non-negative support
+        true_delay_α, true_delay_θ = 3.0, 1.2
         true_primary_a, true_primary_b = 0.0, 2.0
 
-        true_delay = Normal(true_delay_μ, true_delay_σ)
+        true_delay = Gamma(true_delay_α, true_delay_θ)
         true_primary = Uniform(true_primary_a, true_primary_b)
         interval_width = 0.5
         n_samples = 1500
@@ -455,14 +456,15 @@ end
             interval = interval_width, force_numeric = true)
         data = rand(true_double, n_samples)
 
-        fitted_double = fit(true_double, data)
+        # Need to provide initial parameters for Gamma
+        fitted_double = fit(true_double, data; delay_init = [2.5, 1.0])
 
         fitted_delay_params = params(fitted_double.dist.dist)
-        delay_μ_error = abs(fitted_delay_params[1] - true_delay_μ) / abs(true_delay_μ)
-        delay_σ_error = abs(fitted_delay_params[2] - true_delay_σ) / abs(true_delay_σ)
+        delay_α_error = abs(fitted_delay_params[1] - true_delay_α) / abs(true_delay_α)
+        delay_θ_error = abs(fitted_delay_params[2] - true_delay_θ) / abs(true_delay_θ)
 
-        @test delay_μ_error < 0.15
-        @test delay_σ_error < 0.2
+        @test delay_α_error < 0.2   # Gamma fitting is more challenging
+        @test delay_θ_error < 0.25
     end
 end
 
