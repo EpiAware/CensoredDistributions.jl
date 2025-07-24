@@ -7,6 +7,8 @@ using Random
 using Integrals
 using LogExpFunctions
 using SpecialFunctions
+using Optimization
+using OptimizationOptimJL
 
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
@@ -25,4 +27,8 @@ include("censoring/IntervalCensored.jl")
 include("censoring/DoubleIntervalCensored.jl")
 
 include("utils/Weighted.jl")
+
+include("fitting.jl")
+
+# Note: fit and fit_mle are extended from Distributions.jl, not exported here
 end
