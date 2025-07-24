@@ -21,7 +21,12 @@ open(joinpath(joinpath(@__DIR__, "src"), "index.md"), "w") do io
     println(io, "```")
 
     for line in eachline(joinpath(dirname(@__DIR__), "README.md"))
-        println(io, line)
+        # Replace ```julia with ```@example readme
+        if startswith(line, "```julia")
+            println(io, "```@example readme")
+        else
+            println(io, line)
+        end
     end
 end
 

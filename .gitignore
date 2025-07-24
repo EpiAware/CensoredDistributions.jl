@@ -8,6 +8,10 @@
 docs/build
 !docs/lib/*
 docs/src/checklist_files
+# Generated from README.md
+docs/src/index.md
+# Generated tutorial markdown files from Pluto notebooks
+docs/src/getting-started/tutorials/*.md
 dev/
 # Data
 *.csv

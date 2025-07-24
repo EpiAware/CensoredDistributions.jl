@@ -8,7 +8,6 @@ using InteractiveUtils
 begin
     let
         docs_dir = (dirname ∘ dirname ∘ dirname)(@__DIR__)
-        println(docs_dir)
         using Pkg: Pkg
         Pkg.activate(docs_dir)
         Pkg.instantiate()

@@ -1,11 +1,11 @@
 getting_started_pages = Any[
     "Overview" => "getting-started/index.md",
     "Installation" => "getting-started/installation.md",
-    "Frequently asked questions" => "getting-started/faq.md",
     "Tutorials" => [
         "Analytical CDF Solutions" => "getting-started/tutorials/analytical-primarycensored-cdfs.md",
         "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md"
-    ]
+    ],
+    "FAQ" => "getting-started/faq.md"
 ]
 
 module_pages = [

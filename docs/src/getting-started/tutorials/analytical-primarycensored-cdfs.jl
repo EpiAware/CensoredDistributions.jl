@@ -82,10 +82,19 @@ begin
     pc_gamma_numerical = primary_censored(
         gamma_delay, primary_uniform; force_numeric = true)
 
-    # Check the solver types
-    println("Default solver type: ", typeof(pc_gamma_analytical.method))
-    println("Forced numeric solver type: ", typeof(pc_gamma_numerical.method))
+    # Store solver types for display
+    solver_types = (
+        analytical = typeof(pc_gamma_analytical.method),
+        numerical = typeof(pc_gamma_numerical.method)
+    )
 end
+
+# ╔═╡ a1b2c3d4-5e6f-7890-abcd-ef1234567890
+md"""
+**Default solver type:** $(solver_types.analytical)
+
+**Forced numeric solver type:** $(solver_types.numerical)
+"""
 
 # ╔═╡ bbfa05f3-8ae1-4460-b423-b1ccff4ccb62
 md"""
@@ -277,12 +286,21 @@ begin
         lognormal_delay, primary_uniform, "LogNormal", x_test)
     accuracy_weibull = compare_accuracy(weibull_delay, primary_uniform, "Weibull", x_test)
 
-    # Print maximum errors
-    println("Maximum absolute errors:")
-    println("  Gamma: ", accuracy_gamma.max_error)
-    println("  LogNormal: ", accuracy_lognormal.max_error)
-    println("  Weibull: ", accuracy_weibull.max_error)
+    # Store accuracy results for display
+    max_errors = (
+        gamma = accuracy_gamma.max_error,
+        lognormal = accuracy_lognormal.max_error,
+        weibull = accuracy_weibull.max_error
+    )
 end
+
+# ╔═╡ b2c3d4e5-6f7a-8901-bcde-f23456789012
+md"""
+**Maximum absolute errors:**
+- Gamma: $(max_errors.gamma)
+- LogNormal: $(max_errors.lognormal)
+- Weibull: $(max_errors.weibull)
+"""
 
 # ╔═╡ bc1fae07-e658-46cb-b0f5-80aa07d78d53
 # Plot CDF comparison
@@ -363,10 +381,19 @@ begin
     pc_gamma_custom = primary_censored(gamma_delay, primary_uniform;
         solver = HCubatureJL())
 
-    println("Solvers are stored in the method field:")
-    println("  Default: ", typeof(pc_default.method.solver))
-    println("  Custom: ", typeof(pc_custom.method.solver))
+    # Store solver information for display
+    solver_info = (
+        default = typeof(pc_default.method.solver),
+        custom = typeof(pc_custom.method.solver)
+    )
 end
+
+# ╔═╡ c3d4e5f6-7a8b-9012-cdef-345678901234
+md"""
+**Solvers are stored in the method field:**
+- Default: $(solver_info.default)
+- Custom: $(solver_info.custom)
+"""
 
 # ╔═╡ 73ebcbf1-0f7e-45c5-876e-e48d9b7dfd25
 md"""
