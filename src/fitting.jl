@@ -34,7 +34,7 @@ from interval-censored observations.
 A fitted `IntervalCensored` distribution with estimated parameters.
 
 # Examples
-```julia
+```@example
 using CensoredDistributions, Distributions
 
 # Generate synthetic interval-censored data
@@ -266,7 +266,7 @@ so this fits the underlying distribution and then wraps it with the specified we
 A fitted `Weighted` distribution wrapping the underlying fitted distribution.
 
 # Examples
-```julia
+```@example
 using CensoredDistributions, Distributions
 
 # Generate synthetic data
@@ -336,7 +336,7 @@ and interval censoring.
 A fitted double interval censored distribution (via `double_interval_censored`).
 
 # Examples
-```julia
+```@example
 using CensoredDistributions, Distributions
 
 # Generate synthetic double interval censored data
