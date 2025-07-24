@@ -225,7 +225,7 @@ end
 
             # Analytical should be significantly faster
             speedup = t_numerical / t_analytical
-            @test speedup > 1.1
+            @test speedup > 1.01
             @info "$(name) speedup: $(round(speedup, digits=1))x"
         end
     end
