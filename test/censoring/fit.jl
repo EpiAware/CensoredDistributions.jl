@@ -330,7 +330,7 @@ end
 
             # Should throw for unsupported distribution without init params
             @test_throws ArgumentError fit_mle(IntervalCensored, data;
-                dist_type = Gamma, interval = 1.0)
+                dist_type = Beta, interval = 1.0)
         end
 
         @testset "Small sample behavior" begin
