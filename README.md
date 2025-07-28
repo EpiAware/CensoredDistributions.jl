@@ -54,22 +54,21 @@ plot(x, pdf.(original, x), label = "Original Gamma", lw = 2)
 plot!(x, pdf.(censored, x), label="Double Censored and right truncated", lw = 2)
 ```
 
-### Fitting Censored Distributions
-
-You can fit censored distributions to data using maximum likelihood estimation:
+You can fit censored distributions to data using maximum likelihood estimation (as well as using other methods via `Turing.jl`) via an optional extension:
 
 ```julia
+using Optimization
+
 # Generate synthetic data from the censored distribution
 data = rand(censored, 1000)
 
 # Fit the distribution to recover original parameters
 template_dist = double_interval_censored(Gamma(1, 1), Uniform(0, 1); upper = 15, interval = 1)
 fitted_dist = fit(template_dist, data)
-
-# Check parameter recovery
-println("Original parameters: ", params(original))
-println("Fitted parameters: ", params(fitted_dist.dist.dist))
+params(fitted_dist)
 ```
+
+Here we see that the fitted distribution is very close to the original distribution.
 
 ## What packages work well with CensoredDistributions.jl?
 
