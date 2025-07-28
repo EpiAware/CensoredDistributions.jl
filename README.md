@@ -57,14 +57,16 @@ plot!(x, pdf.(censored, x), label="Double Censored and right truncated", lw = 2)
 You can fit censored distributions to data using maximum likelihood estimation (as well as using other methods via `Turing.jl`) via an optional extension:
 
 ```julia
+# First install the optimization extension dependencies
+using Pkg; Pkg.add(["Optimization", "OptimizationOptimJL"])
 using Optimization
 
 # Generate synthetic data from the censored distribution
 data = rand(censored, 1000)
 
 # Fit the distribution to recover original parameters
-template_dist = double_interval_censored(Gamma(1, 1), Uniform(0, 1); upper = 15, interval = 1)
-fitted_dist = fit(template_dist, data)
+guess_censored = double_interval_censored(Gamma(1, 1), Uniform(0, 1); upper = 15, interval = 1)
+fitted_dist = fit(guess_censored, data)
 params(fitted_dist)
 ```
 
