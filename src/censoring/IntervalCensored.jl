@@ -185,7 +185,14 @@ function Distributions.pdf(d::IntervalCensored, x::Real)
 end
 
 function Distributions.logpdf(d::IntervalCensored, x::Real)
-    return log(pdf(d, x))
+    pdf_val = pdf(d, x)
+    
+    # Safe log computation - return -Inf if pdf_val is 0 or negative
+    if pdf_val <= 0.0
+        return -Inf
+    else
+        return log(pdf_val)
+    end
 end
 
 function Distributions.cdf(d::IntervalCensored, x::Real)
@@ -207,7 +214,14 @@ function Distributions.cdf(d::IntervalCensored, x::Real)
 end
 
 function Distributions.logcdf(d::IntervalCensored, x::Real)
-    return log(cdf(d, x))
+    cdf_val = cdf(d, x)
+    
+    # Safe log computation - return -Inf if cdf_val is 0 or negative
+    if cdf_val <= 0.0
+        return -Inf
+    else
+        return log(cdf_val)
+    end
 end
 
 function Distributions.ccdf(d::IntervalCensored, x::Real)
@@ -215,7 +229,14 @@ function Distributions.ccdf(d::IntervalCensored, x::Real)
 end
 
 function Distributions.logccdf(d::IntervalCensored, x::Real)
-    return log(ccdf(d, x))
+    ccdf_val = ccdf(d, x)
+
+    # Safe log computation - return -Inf if ccdf_val is 0 or negative
+    if ccdf_val <= 0.0
+        return -Inf
+    else
+        return log(ccdf_val)
+    end
 end
 
 #### Sampling

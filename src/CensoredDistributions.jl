@@ -7,8 +7,6 @@ using Random
 using Integrals
 using LogExpFunctions
 using SpecialFunctions
-using Optimization
-using OptimizationOptimJL
 
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
@@ -19,12 +17,12 @@ export primarycensored_cdf
 # Exported distribution types (needed for fitting)
 export IntervalCensored, PrimaryCensored, Weighted
 
+# Note: Fitting functionality (fit, fit_mle) is provided by the OptimizationExt 
+# extension when Optimization.jl is loaded. This uses Bijectors.jl for 
+# mathematically correct parameter transformations.
+
 # Exported utilities
 export weight
-
-# Import and re-export fitting methods from Distributions.jl
-import Distributions: fit, fit_mle
-export fit, fit_mle
 
 include("docstrings.jl")
 
@@ -35,5 +33,4 @@ include("censoring/DoubleIntervalCensored.jl")
 
 include("utils/Weighted.jl")
 
-include("censoring/fit.jl")
 end

@@ -357,7 +357,13 @@ function primarycensored_logcdf(
         return 0.0
     end
 
-    # Compute CDF and take log
+    # Compute CDF and take log with safe handling
     cdf_val = primarycensored_cdf(dist, primary_event, x, method)
-    return log(cdf_val)
+
+    # Safe log computation - return -Inf if cdf_val is 0 or negative
+    if cdf_val <= 0.0
+        return -Inf
+    else
+        return log(cdf_val)
+    end
 end

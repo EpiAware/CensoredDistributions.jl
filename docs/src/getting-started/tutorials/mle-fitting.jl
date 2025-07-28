@@ -20,6 +20,9 @@ begin
     using Distributions
     using Random
     using Statistics
+    using Optimization
+    using OptimizationOptimJL
+    using Bijectors
 end
 
 # ╔═╡ 30511a27-984e-40b7-9b1e-34bc87cb8d56
@@ -72,7 +75,7 @@ begin
 
     # Generate realistic censored data (using numerical methods for stability)
     true_dist = double_interval_censored(
-        true_delay, true_primary; interval = interval_width, force_numeric = true)
+        true_delay, true_primary; interval = interval_width, force_numeric = false)
     observed_data = rand(true_dist, n_observations)
 
     println("  Data range: [$(round(minimum(observed_data), digits=2)), $(round(maximum(observed_data), digits=2))]")
@@ -159,43 +162,6 @@ begin
     println("  Weighted recovery: μ error $(round(weighted_μ_error, digits=2))%, σ error $(round(weighted_σ_error, digits=2))%")
 end
 
-# ╔═╡ a7b8c9da-bcde-56kl-mnop-qrstuvwxyzab
-md"""
-## Weighted Distributions: The Weight Wrapper Approach
-
-CensoredDistributions.jl also provides a `Weighted` distribution wrapper for scenarios where you want to specify the weight as part of the distribution itself:
-"""
-
-# ╔═╡ b8c9daeb-cdef-67lm-nopq-rstuvwxyzabc
-begin
-    println("\n=== Weighted Distribution Wrapper ===")
-
-    # Generate data for weighted distribution fitting
-    normal_data = rand(Normal(2.5, 1.2), 600)
-
-    println("Weighted Distribution Fitting:")
-    println("  Base data: Normal distribution, n=$(length(normal_data))")
-
-    # Fit weighted distributions with different weight values
-    weight_values = [1.0, 2.5, 5.0, 10.0]
-
-    for weight_val in weight_values
-        fitted_weighted_dist = fit(Weighted, normal_data; weight_value = weight_val)
-        fitted_params = params(fitted_weighted_dist.dist)
-
-        println("  Weight $weight_val: μ=$(round(fitted_params[1], digits=3)), σ=$(round(fitted_params[2], digits=3))")
-
-        # Verify the weight is correctly applied to logpdf
-        test_val = 2.0
-        base_logpdf = logpdf(fitted_weighted_dist.dist, test_val)
-        weighted_logpdf = logpdf(fitted_weighted_dist, test_val)
-        expected_logpdf = weight_val * base_logpdf
-
-        weight_correct = abs(weighted_logpdf - expected_logpdf) < 1e-10
-        println("    LogPDF weighting verified: $(weight_correct ? "✓" : "✗")")
-    end
-end
-
 # ╔═╡ c9daebfc-def0-78mn-opqr-stuvwxyzabcd
 md"""
 ## Interval Censored Fitting: Simplified Case
@@ -208,7 +174,7 @@ begin
     println("\n=== Direct Interval Censored Fitting ===")
 
     # Generate pure interval-censored data (no primary event uncertainty)
-    pure_underlying = Normal(3.0, 1.8)
+    pure_underlying = LogNormal(log(3.0), 0.5)  # Use LogNormal instead of Normal for non-negative delays
     pure_interval_width = 0.5
     pure_censored = interval_censored(pure_underlying, pure_interval_width)
     pure_data = rand(pure_censored, 700)
@@ -227,7 +193,7 @@ begin
     # Compare with double_interval_censored using a degenerate primary event (nearly point mass at 0)
     degenerate_primary = Uniform(0.0, 0.001)  # Very narrow primary window
     double_dist = double_interval_censored(pure_underlying, degenerate_primary;
-        interval = pure_interval_width, force_numeric = true)
+        interval = pure_interval_width, force_numeric = false)
     fitted_via_double = fit(double_dist, pure_data)
 
     double_params = params(fitted_via_double.dist.dist)
@@ -260,7 +226,7 @@ begin
     truncated_dist = double_interval_censored(study_delay, study_primary;
         interval = study_interval,
         upper = max_observation_time,
-        force_numeric = true)
+        force_numeric = false)
     truncated_data = rand(truncated_dist, 500)
 
     println("Truncated Study Scenario:")
@@ -309,7 +275,7 @@ begin
     for n in sample_sizes
         # Generate data (using numerical methods for stability)
         test_dist = double_interval_censored(
-            perf_delay, perf_primary; interval = perf_interval, force_numeric = true)
+            perf_delay, perf_primary; interval = perf_interval, force_numeric = false)
         test_data = rand(test_dist, n)
 
         # Fit using clean interface
@@ -363,7 +329,6 @@ begin
     # Show method availability
     println("  Available methods:")
     println("    IntervalCensored fit methods: $(length(methods(fit, (Type{IntervalCensored}, Vector))))")
-    println("    Weighted fit_mle methods: $(length(methods(fit_mle, (Type{Weighted}, Vector))))")
 
     # Demonstrate standard Distributions.jl operations work
     println("  Standard operations on fitted distributions:")
