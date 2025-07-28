@@ -36,6 +36,7 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 - Calculate the probability density function (PDF) and cumulative distribution function (CDF) of censored distributions.
 - Calculate the PDF of interval-censored distributions.
 - Calculate the mean, variance, and other moments of censored distributions.
+- Fit censored distributions using MLE methods and Bayesian inference with Turing.jl.
 
 ## Getting Started
 
