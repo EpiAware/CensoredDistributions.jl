@@ -189,7 +189,7 @@ end
     Distributions.fit_mle(dist::IntervalCensored{<:PrimaryCensored},
                          data::AbstractVector{<:Real};
                          intervals=nothing, lowers=nothing, uppers=nothing,
-                         delay_init=nothing, primary_init=nothing,
+                         delay_init=nothing,
                          primary_dists=nothing,
                          weights=nothing, optimizer=OptimizationOptimJL.BFGS())
 
@@ -206,7 +206,6 @@ Uses the distribution types from `dist` for dispatch, eliminating manual type sp
 - `lowers`: Lower bounds - can be scalar or vector (optional)
 - `uppers`: Upper bounds - can be scalar or vector (optional)
 - `delay_init`: Initial parameters for delay distribution (optional, defaults from dist)
-- `primary_init`: Initial parameters for primary distribution (optional, defaults from dist)
 - `primary_dists`: Vector of primary event distributions for heterogeneous fitting (optional, parameters extracted automatically)
 - `weights`: Optional observation weights
 - `optimizer`: SciML optimizer (default: OptimizationOptimJL.BFGS())
@@ -235,7 +234,6 @@ function Distributions.fit_mle(
         lowers::Union{Nothing, Real, AbstractVector{<:Real}} = nothing,
         uppers::Union{Nothing, Real, AbstractVector{<:Real}} = nothing,
         delay_init::Union{Nothing, AbstractVector{<:Real}} = nothing,
-        primary_init::Union{Nothing, AbstractVector{<:Real}} = nothing,
         # Support for heterogeneous primary events
         primary_dists::Union{Nothing, AbstractVector{<:UnivariateDistribution}} = nothing,
         weights::Union{Nothing, AbstractVector{<:Real}} = nothing,
@@ -288,9 +286,7 @@ function Distributions.fit_mle(
         if delay_init === nothing
             delay_init = collect(params(dist.dist.dist))  # Get delay distribution params
         end
-        if primary_init === nothing
-            primary_init = collect(params(dist.dist.primary_event))  # Get primary distribution params
-        end
+        primary_init = collect(params(dist.dist.primary_event))  # Always get from template dist
 
         # Combine parameters and create combined bijector
         combined_params = vcat(delay_init, primary_init)
@@ -348,7 +344,8 @@ function Distributions.fit_mle(
         data::AbstractVector{<:Real};
         intervals::Union{Nothing, Real, AbstractVector{<:Real}} = nothing,
         delay_init::Union{Nothing, AbstractVector{<:Real}} = nothing,
-        primary_init::Union{Nothing, AbstractVector{<:Real}} = nothing,
+        # Support for heterogeneous primary events
+        primary_dists::Union{Nothing, AbstractVector{<:UnivariateDistribution}} = nothing,
         weights::Union{Nothing, AbstractVector{<:Real}} = nothing,
         optimizer = OptimizationOptimJL.BFGS()
 ) where {D <: ContinuousUnivariateDistribution, P <: ContinuousUnivariateDistribution}
@@ -365,56 +362,90 @@ function Distributions.fit_mle(
     lower_bound = truncated_dist.lower
     upper_bound = truncated_dist.upper
 
-    # Default parameter initialization from input distribution
-    if delay_init === nothing
-        delay_init = collect(params(truncated_dist.untruncated.dist))
-    end
-    if primary_init === nothing
-        primary_init = collect(params(truncated_dist.untruncated.primary_event))
-    end
+    # Handle heterogeneous primary distributions case (same pattern as non-truncated)
+    if primary_dists !== nothing
+        # Validate that primary_dists length matches data length
+        length(primary_dists) == length(data) ||
+            throw(ArgumentError("primary_dists length must match data length"))
 
-    # Combine parameters and create combined bijector
-    combined_params = vcat(delay_init, primary_init)
-    delay_bijector = _get_bijector(D, delay_init)
-    primary_bijector = _get_bijector(P, primary_init)
-    # Create parameter ranges for Stacked bijector
-    n_delay = length(delay_init)
-    n_primary = length(primary_init)
-    delay_range = 1:n_delay
-    primary_range = (n_delay + 1):(n_delay + n_primary)
+        # Default delay parameter initialization from input distribution
+        if delay_init === nothing
+            delay_init = collect(params(truncated_dist.untruncated.dist))
+        end
 
-    combined_bijector = Stacked([delay_bijector, primary_bijector],
-        [delay_range, primary_range])
+        # Create bijector only for delay parameters (primary parameters come from provided distributions)
+        delay_bijector = _get_bijector(D, delay_init)
 
-    # Create distribution constructor using dispatch
-    function dist_constructor(params)
+        # Create distribution constructor using heterogeneous dispatch
+        function heterogeneous_truncated_dist_constructor(params)
+            delay_params = params  # Only delay parameters to optimize
+            force_numeric = dist.dist.untruncated.method isa NumericSolver
+            return _dist_constructor(typeof(dist), delay_params, primary_dists,
+                interval_spec, force_numeric, lower_bound, upper_bound)
+        end
+
+        # Optimize using the generic function
+        fitted_params = _optimize_censored_distribution(
+            data, delay_init, heterogeneous_truncated_dist_constructor,
+            delay_bijector, weights, optimizer
+        )
+
+        # Return fitted distribution with heterogeneous primary distributions
+        force_numeric = dist.dist.untruncated.method isa NumericSolver
+        return _dist_constructor(typeof(dist), fitted_params, primary_dists,
+            interval_spec, force_numeric, lower_bound, upper_bound)
+    else
+        # Homogeneous case (original logic)
+        # Default parameter initialization from input distribution
+        if delay_init === nothing
+            delay_init = collect(params(truncated_dist.untruncated.dist))
+        end
+        primary_init = collect(params(truncated_dist.untruncated.primary_event))  # Always get from template dist
+
+        # Combine parameters and create combined bijector
+        combined_params = vcat(delay_init, primary_init)
+        delay_bijector = _get_bijector(D, delay_init)
+        primary_bijector = _get_bijector(P, primary_init)
+        # Create parameter ranges for Stacked bijector
         n_delay = length(delay_init)
-        delay_params = params[1:n_delay]
-        primary_params = params[(n_delay + 1):end]
+        n_primary = length(primary_init)
+        delay_range = 1:n_delay
+        primary_range = (n_delay + 1):(n_delay + n_primary)
 
+        combined_bijector = Stacked([delay_bijector, primary_bijector],
+            [delay_range, primary_range])
+
+        # Create distribution constructor using dispatch
+        function homogeneous_truncated_dist_constructor(params)
+            n_delay = length(delay_init)
+            delay_params = params[1:n_delay]
+            primary_params = params[(n_delay + 1):end]
+
+            force_numeric = dist.dist.untruncated.method isa NumericSolver
+            return _dist_constructor(
+                IntervalCensored{PrimaryCensored{D, P}, typeof(interval_spec)},
+                delay_params, primary_params, interval_spec, force_numeric,
+                lower_bound, upper_bound)
+        end
+
+        # Optimize using the generic function
+        fitted_params = _optimize_censored_distribution(
+            data, combined_params, homogeneous_truncated_dist_constructor,
+            combined_bijector, weights, optimizer
+        )
+
+        # Extract fitted parameters and create final distribution
+        n_delay = length(delay_init)
+        fitted_delay_params = fitted_params[1:n_delay]
+        fitted_primary_params = fitted_params[(n_delay + 1):end]
+
+        # Return fitted distribution
         force_numeric = dist.dist.untruncated.method isa NumericSolver
         return _dist_constructor(
             IntervalCensored{PrimaryCensored{D, P}, typeof(interval_spec)},
-            delay_params, primary_params, interval_spec, force_numeric,
+            fitted_delay_params, fitted_primary_params, interval_spec, force_numeric,
             lower_bound, upper_bound)
     end
-
-    # Optimize using the generic function
-    fitted_params = _optimize_censored_distribution(
-        data, combined_params, dist_constructor, combined_bijector, weights, optimizer
-    )
-
-    # Extract fitted parameters and create final distribution
-    n_delay = length(delay_init)
-    fitted_delay_params = fitted_params[1:n_delay]
-    fitted_primary_params = fitted_params[(n_delay + 1):end]
-
-    # Return fitted distribution
-    force_numeric = dist.dist.untruncated.method isa NumericSolver
-    return _dist_constructor(
-        IntervalCensored{PrimaryCensored{D, P}, typeof(interval_spec)},
-        fitted_delay_params, fitted_primary_params, interval_spec, force_numeric,
-        lower_bound, upper_bound)
 end
 
 # Convenience wrappers for fit()
