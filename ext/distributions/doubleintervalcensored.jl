@@ -166,10 +166,10 @@ function _dist_constructor(
 ) where {T <: IntervalCensored}
     delay_dist_type = T.parameters[1].parameters[1] # Extract delay distribution type from IntervalCensored{PrimaryCensored{D, P}}
     delay_dist = delay_dist_type(delay_params...)
-    
+
     # Handle scalar interval case - broadcast to match primary_dists length
     intervals_vec = intervals isa Real ? fill(intervals, length(primary_dists)) : intervals
-    
+
     # Handle bounds
     lowers_vec = lowers === nothing ? fill(nothing, length(primary_dists)) :
                  (lowers isa AbstractVector ? lowers : fill(lowers, length(primary_dists)))
@@ -177,11 +177,10 @@ function _dist_constructor(
                  (uppers isa AbstractVector ? uppers : fill(uppers, length(primary_dists)))
 
     # Create individual distributions with heterogeneous primary events
-    individual_dists = [
-        double_interval_censored(delay_dist, primary_dist; 
-            interval = int, lower = low, upper = upp, force_numeric = force_numeric)
-        for (primary_dist, int, low, upp) in zip(primary_dists, intervals_vec, lowers_vec, uppers_vec)
-    ]
+    individual_dists = [double_interval_censored(delay_dist, primary_dist;
+                            interval = int, lower = low, upper = upp, force_numeric = force_numeric)
+                        for (primary_dist, int, low, upp) in
+                            zip(primary_dists, intervals_vec, lowers_vec, uppers_vec)]
 
     return product_distribution(individual_dists)
 end
@@ -255,30 +254,30 @@ function Distributions.fit_mle(
     # Handle heterogeneous primary distributions case
     if primary_dists !== nothing
         # Validate that primary_dists length matches data length
-        length(primary_dists) == length(data) || 
+        length(primary_dists) == length(data) ||
             throw(ArgumentError("primary_dists length must match data length"))
-        
+
         # Default delay parameter initialization from input distribution
         if delay_init === nothing
             delay_init = collect(params(dist.dist.dist))
         end
-        
+
         # Create bijector only for delay parameters (primary parameters come from provided distributions)
         delay_bijector = _get_bijector(D, delay_init)
-        
+
         # Create distribution constructor using heterogeneous dispatch
-        function dist_constructor(params)
+        function heterogeneous_dist_constructor(params)
             delay_params = params  # Only delay parameters to optimize
             force_numeric = dist.dist.method isa NumericSolver
             return _dist_constructor(typeof(dist), delay_params, primary_dists,
                 interval_spec, force_numeric, lowers, uppers)
         end
-        
+
         # Optimize using the generic function
         fitted_params = _optimize_censored_distribution(
-            data, delay_init, dist_constructor, delay_bijector, weights, optimizer
+            data, delay_init, heterogeneous_dist_constructor, delay_bijector, weights, optimizer
         )
-        
+
         # Return fitted distribution with heterogeneous primary distributions
         force_numeric = dist.dist.method isa NumericSolver
         return _dist_constructor(typeof(dist), fitted_params, primary_dists,
@@ -307,7 +306,7 @@ function Distributions.fit_mle(
             [delay_range, primary_range])
 
         # Create distribution constructor using dispatch
-        function dist_constructor(params)
+        function homogeneous_dist_constructor(params)
             n_delay = length(delay_init)
             delay_params = params[1:n_delay]
             primary_params = params[(n_delay + 1):end]
@@ -319,7 +318,8 @@ function Distributions.fit_mle(
 
         # Optimize using the generic function
         fitted_params = _optimize_censored_distribution(
-            data, combined_params, dist_constructor, combined_bijector, weights, optimizer
+            data, combined_params, homogeneous_dist_constructor,
+            combined_bijector, weights, optimizer
         )
 
         # Extract fitted parameters and create final distribution
@@ -433,4 +433,3 @@ function Distributions.fit(
 )
     return fit_mle(dist, data; kwargs...)
 end
-

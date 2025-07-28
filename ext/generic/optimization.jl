@@ -39,16 +39,16 @@ function _optimize_censored_distribution(
 )
     # Transform to unconstrained space
     initial_unconstrained = bijector(initial_params)
-    
+
     # Define objective function (negative log-likelihood)
     function objective(x, p)
         try
             # Transform back to constrained space
             constrained_params = inverse(p.bijector)(x)
-            
+
             # Construct distribution from parameters
             dist = p.dist_constructor(constrained_params)
-            
+
             # Compute negative log-likelihood
             if p.weights === nothing
                 loglik = sum(logpdf(dist, datum) for datum in p.data)
@@ -57,10 +57,10 @@ function _optimize_censored_distribution(
                     w * logpdf(dist, datum) for (w, datum) in zip(p.weights, p.data)
                 )
             end
-            
+
             # Add log absolute determinant of Jacobian for proper transformation
             log_abs_det_jac = logabsdetjac(p.bijector, constrained_params)
-            
+
             return -(loglik + log_abs_det_jac)
         catch e
             # Return large value for invalid parameters
@@ -89,7 +89,7 @@ function _optimize_censored_distribution(
 
     # Transform result back to constrained space
     fitted_params = inverse(bijector)(result.u)
-    
+
     return fitted_params
 end
 
@@ -107,30 +107,5 @@ function _validate_weights(weights, data)
             throw(ArgumentError("All weights must be non-negative"))
         all(isfinite, weights) || throw(ArgumentError("All weights must be finite"))
         sum(weights) > 0 || throw(ArgumentError("At least one weight must be positive"))
-    end
-end
-
-# Utility function for converting interval-censored data to continuous approximation
-"""
-Convert interval-censored data to approximate continuous values for initialization.
-"""
-function _interval_to_continuous_approx(data, interval_spec)
-    if isa(interval_spec, Real)
-        # Regular intervals: data contains left boundaries, add half interval width
-        return data .+ (interval_spec / 2)
-    else
-        # Arbitrary intervals: find midpoints
-        continuous_approx = similar(data)
-        for (i, left_boundary) in enumerate(data)
-            # Find which interval this boundary corresponds to
-            idx = findfirst(x -> x == left_boundary, interval_spec[1:(end - 1)])
-            if idx !== nothing
-                continuous_approx[i] = (interval_spec[idx] + interval_spec[idx + 1]) / 2
-            else
-                # Fallback: assume midpoint
-                continuous_approx[i] = left_boundary + 0.5
-            end
-        end
-        return continuous_approx
     end
 end

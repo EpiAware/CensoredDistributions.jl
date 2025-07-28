@@ -31,6 +31,7 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 
 - Create distributions that are modified to account for primary event censoring and interval censoring.
 - Apply interval censoring to continuous distributions (both regular and arbitrary intervals).
+- Fit censored distributions using MLE methods and Bayesian inference with Turing.jl.
 - Generate random samples from censored distributions.
 - Calculate the probability density function (PDF) and cumulative distribution function (CDF) of censored distributions.
 - Calculate the PDF of interval-censored distributions.

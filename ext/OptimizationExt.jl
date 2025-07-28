@@ -21,7 +21,6 @@ using CensoredDistributions: IntervalCensored, PrimaryCensored,
 # Include the generic infrastructure
 include("generic/optimization.jl")
 include("generic/bijectors.jl")
-include("generic/initialization.jl")
 
 # Include distribution-specific fitting methods
 include("distributions/intervalcensored.jl")
