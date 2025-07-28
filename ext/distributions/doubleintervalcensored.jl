@@ -263,17 +263,13 @@ function Distributions.fit_mle(
         # Create bijector only for delay parameters (primary parameters come from provided distributions)
         delay_bijector = _get_bijector(D, delay_init)
 
-        # Create distribution constructor using heterogeneous dispatch
-        function heterogeneous_dist_constructor(params)
-            delay_params = params  # Only delay parameters to optimize
-            force_numeric = dist.dist.method isa NumericSolver
-            return _dist_constructor(typeof(dist), delay_params, primary_dists,
-                interval_spec, force_numeric, lowers, uppers)
-        end
+        # Create distribution constructor using dispatch - no closures needed
+        dist_constructor = params -> _dist_constructor(typeof(dist), params, primary_dists,
+            interval_spec, dist.dist.method isa NumericSolver, lowers, uppers)
 
         # Optimize using the generic function
         fitted_params = _optimize_censored_distribution(
-            data, delay_init, heterogeneous_dist_constructor, delay_bijector, weights, optimizer
+            data, delay_init, dist_constructor, delay_bijector, weights, optimizer
         )
 
         # Return fitted distribution with heterogeneous primary distributions
@@ -301,20 +297,18 @@ function Distributions.fit_mle(
         combined_bijector = Stacked([delay_bijector, primary_bijector],
             [delay_range, primary_range])
 
-        # Create distribution constructor using dispatch
-        function homogeneous_dist_constructor(params)
-            n_delay = length(delay_init)
+        # Create distribution constructor using dispatch - no closures needed
+        n_delay = length(delay_init)
+        dist_constructor = params -> begin
             delay_params = params[1:n_delay]
             primary_params = params[(n_delay + 1):end]
-
-            force_numeric = dist.dist.method isa NumericSolver
             return _dist_constructor(typeof(dist), delay_params, primary_params,
-                interval_spec, force_numeric, lowers, uppers)
+                interval_spec, dist.dist.method isa NumericSolver, lowers, uppers)
         end
 
         # Optimize using the generic function
         fitted_params = _optimize_censored_distribution(
-            data, combined_params, homogeneous_dist_constructor,
+            data, combined_params, dist_constructor,
             combined_bijector, weights, optimizer
         )
 
@@ -376,18 +370,13 @@ function Distributions.fit_mle(
         # Create bijector only for delay parameters (primary parameters come from provided distributions)
         delay_bijector = _get_bijector(D, delay_init)
 
-        # Create distribution constructor using heterogeneous dispatch
-        function heterogeneous_truncated_dist_constructor(params)
-            delay_params = params  # Only delay parameters to optimize
-            force_numeric = dist.dist.untruncated.method isa NumericSolver
-            return _dist_constructor(typeof(dist), delay_params, primary_dists,
-                interval_spec, force_numeric, lower_bound, upper_bound)
-        end
+        # Create distribution constructor using dispatch - no closures needed
+        dist_constructor = params -> _dist_constructor(typeof(dist), params, primary_dists,
+            interval_spec, dist.dist.untruncated.method isa NumericSolver, lower_bound, upper_bound)
 
         # Optimize using the generic function
         fitted_params = _optimize_censored_distribution(
-            data, delay_init, heterogeneous_truncated_dist_constructor,
-            delay_bijector, weights, optimizer
+            data, delay_init, dist_constructor, delay_bijector, weights, optimizer
         )
 
         # Return fitted distribution with heterogeneous primary distributions
@@ -415,22 +404,21 @@ function Distributions.fit_mle(
         combined_bijector = Stacked([delay_bijector, primary_bijector],
             [delay_range, primary_range])
 
-        # Create distribution constructor using dispatch
-        function homogeneous_truncated_dist_constructor(params)
-            n_delay = length(delay_init)
+        # Create distribution constructor using dispatch - no closures needed
+        n_delay = length(delay_init)
+        dist_constructor = params -> begin
             delay_params = params[1:n_delay]
             primary_params = params[(n_delay + 1):end]
-
-            force_numeric = dist.dist.untruncated.method isa NumericSolver
             return _dist_constructor(
                 IntervalCensored{PrimaryCensored{D, P}, typeof(interval_spec)},
-                delay_params, primary_params, interval_spec, force_numeric,
+                delay_params, primary_params, interval_spec,
+                dist.dist.untruncated.method isa NumericSolver,
                 lower_bound, upper_bound)
         end
 
         # Optimize using the generic function
         fitted_params = _optimize_censored_distribution(
-            data, combined_params, homogeneous_truncated_dist_constructor,
+            data, combined_params, dist_constructor,
             combined_bijector, weights, optimizer
         )
 
