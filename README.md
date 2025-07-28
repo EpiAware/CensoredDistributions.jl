@@ -24,7 +24,8 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 ## Why CensoredDistributions.jl?
 
 - **Primary event censoring**: Model delay distributions where the initial event occurs within a time window (e.g., exposure periods in epidemiology).
-- **Double interval censoring**: Required for discretising continuous distributions into intervals (e.g., daily reporting) whilst accounting for both primary event and observation uncertainty.
+- **Interval censoring**: Bin continuous distributions into discrete intervals (e.g., daily reporting) when exact values are unobserved.
+- **Double interval censoring**: Combines both primary event and interval censoring for complex observation processes.
 - **Distribution fitting**: Extends Distributions.jl's `fit` support with MLE fitting for primary censored and interval censored distributions (potentially truncated), plus Turing.jl integration for Bayesian inference.
 - **Analytical solutions**: Provides analytical solutions where possible with numerical fallbacks for efficiency.
 
