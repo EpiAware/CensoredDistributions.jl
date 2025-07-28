@@ -134,17 +134,17 @@ function Distributions.logpdf(d::PrimaryCensored, x::Real)
         # Forward difference at minimum
         logcdf_upper = logcdf(d, x + h)
         logcdf_x = logcdf(d, x)
-        return log(exp(logcdf_upper) - exp(logcdf_x)) - log(h)
+        return logsubexp(logcdf_upper, logcdf_x) - log(h)
     elseif x_upper == maximum(d)
         # Backward difference at maximum
         logcdf_x = logcdf(d, x)
         logcdf_lower = logcdf(d, x - h)
-        return log(exp(logcdf_x) - exp(logcdf_lower)) - log(h)
+        return logsubexp(logcdf_x, logcdf_lower) - log(h)
     else
         # Central difference for interior points
         logcdf_upper = logcdf(d, x_upper)
         logcdf_lower = logcdf(d, x_lower)
-        return log(exp(logcdf_upper) - exp(logcdf_lower)) - log(x_upper - x_lower)
+        return logsubexp(logcdf_upper, logcdf_lower) - log(x_upper - x_lower)
     end
 end
 
