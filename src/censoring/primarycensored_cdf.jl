@@ -351,19 +351,14 @@ function primarycensored_logcdf(
         x::Real,
         method::AbstractSolverMethod
 ) where {D1 <: UnivariateDistribution, D2 <: UnivariateDistribution}
+    # Check support first for type stability
     if x <= minimum(dist)
         return -Inf
     elseif x == Inf
         return 0.0
     end
 
-    # Compute CDF and take log with safe handling
+    # Compute CDF and take log directly for type stability
     cdf_val = primarycensored_cdf(dist, primary_event, x, method)
-
-    # Safe log computation - return -Inf if cdf_val is 0 or negative
-    if cdf_val <= 0.0
-        return -Inf
-    else
-        return log(cdf_val)
-    end
+    return log(cdf_val)
 end

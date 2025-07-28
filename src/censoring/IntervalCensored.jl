@@ -185,14 +185,13 @@ function Distributions.pdf(d::IntervalCensored, x::Real)
 end
 
 function Distributions.logpdf(d::IntervalCensored, x::Real)
-    pdf_val = pdf(d, x)
-    
-    # Safe log computation - return -Inf if pdf_val is 0 or negative
-    if pdf_val <= 0.0
+    # Check support first for type stability
+    if !insupport(d, x)
         return -Inf
-    else
-        return log(pdf_val)
     end
+
+    pdf_val = pdf(d, x)
+    return log(pdf_val)
 end
 
 function Distributions.cdf(d::IntervalCensored, x::Real)
@@ -214,14 +213,15 @@ function Distributions.cdf(d::IntervalCensored, x::Real)
 end
 
 function Distributions.logcdf(d::IntervalCensored, x::Real)
-    cdf_val = cdf(d, x)
-    
-    # Safe log computation - return -Inf if cdf_val is 0 or negative
-    if cdf_val <= 0.0
+    # Check support first for type stability - if x is below the minimum
+    if x < minimum(d.dist)
         return -Inf
-    else
-        return log(cdf_val)
+    elseif x >= maximum(d.dist)
+        return 0.0
     end
+
+    cdf_val = cdf(d, x)
+    return log(cdf_val)
 end
 
 function Distributions.ccdf(d::IntervalCensored, x::Real)
@@ -229,14 +229,15 @@ function Distributions.ccdf(d::IntervalCensored, x::Real)
 end
 
 function Distributions.logccdf(d::IntervalCensored, x::Real)
-    ccdf_val = ccdf(d, x)
-
-    # Safe log computation - return -Inf if ccdf_val is 0 or negative
-    if ccdf_val <= 0.0
+    # Check support first for type stability - if x is above the maximum
+    if x >= maximum(d.dist)
         return -Inf
-    else
-        return log(ccdf_val)
+    elseif x < minimum(d.dist)
+        return 0.0
     end
+
+    ccdf_val = ccdf(d, x)
+    return log(ccdf_val)
 end
 
 #### Sampling

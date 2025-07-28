@@ -105,8 +105,13 @@ function Distributions.ccdf(d::PrimaryCensored, x::Real)
 end
 
 function Distributions.logccdf(d::PrimaryCensored, x::Real)
-    result = log(ccdf(d, x))
-    return result
+    # Check support first for type stability
+    if !insupport(d, x)
+        return 0.0  # log(1) when x is outside support
+    end
+
+    ccdf_val = ccdf(d, x)
+    return log(ccdf_val)
 end
 
 #### PDF using numerical differentiation of CDF
