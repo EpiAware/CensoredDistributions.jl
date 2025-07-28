@@ -5,11 +5,6 @@ This file provides the core optimization infrastructure that is shared across
 all censored distribution types.
 """
 
-using Bijectors
-using Optimization
-using OptimizationOptimJL
-using Statistics
-
 # Internal generic optimization function
 """
     _optimize_censored_distribution(data, initial_params, dist_constructor,
