@@ -9,7 +9,8 @@
     manual_dist = primary_censored(delay_dist, primary_event_dist)
 
     # Convenience function approach
-    convenience_dist = double_interval_censored(delay_dist, primary_event_dist)
+    convenience_dist = double_interval_censored(
+        delay_dist; primary_event = primary_event_dist)
 
     # Test they produce same type and structure
     @test typeof(manual_dist) == typeof(convenience_dist)
@@ -30,7 +31,7 @@ end
 
     # Convenience function approach
     convenience_dist = double_interval_censored(
-        delay_dist, primary_event_dist; upper = upper_bound)
+        delay_dist; primary_event = primary_event_dist, upper = upper_bound)
 
     # Test they produce same type
     @test typeof(manual_dist) == typeof(convenience_dist)
@@ -54,7 +55,7 @@ end
 
     # Convenience function approach
     convenience_dist = double_interval_censored(
-        delay_dist, primary_event_dist; interval = interval_width)
+        delay_dist; primary_event = primary_event_dist, interval = interval_width)
 
     # Test they produce same type
     @test typeof(manual_dist) == typeof(convenience_dist)
@@ -75,8 +76,8 @@ end
                        d -> interval_censored(d, interval_width)
 
     # Convenience function approach
-    convenience_dist = double_interval_censored(delay_dist, primary_event_dist;
-        upper = upper_bound, interval = interval_width)
+    convenience_dist = double_interval_censored(delay_dist;
+        primary_event = primary_event_dist, upper = upper_bound, interval = interval_width)
 
     # Test they produce same type
     @test typeof(manual_dist) == typeof(convenience_dist)
@@ -96,8 +97,8 @@ end
                   d -> truncated(d, lower_bound, upper_bound)
 
     # Convenience function approach
-    convenience_dist = double_interval_censored(delay_dist, primary_event_dist;
-        lower = lower_bound, upper = upper_bound)
+    convenience_dist = double_interval_censored(delay_dist;
+        primary_event = primary_event_dist, lower = lower_bound, upper = upper_bound)
 
     # Test they produce same type and bounds
     @test typeof(manual_dist) == typeof(convenience_dist)
@@ -113,20 +114,23 @@ end
     uniform_primary = Uniform(0, 1)
 
     # Primary only -> PrimaryCensored
-    @test isa(double_interval_censored(gamma_dist, uniform_primary),
+    @test isa(double_interval_censored(gamma_dist; primary_event = uniform_primary),
         CensoredDistributions.PrimaryCensored)
 
     # Primary + truncation -> Truncated{PrimaryCensored}
-    @test isa(double_interval_censored(gamma_dist, uniform_primary; upper = 5),
+    @test isa(
+        double_interval_censored(gamma_dist; primary_event = uniform_primary, upper = 5),
         Truncated)
 
     # Primary + interval censoring -> IntervalCensored{PrimaryCensored}
-    @test isa(double_interval_censored(gamma_dist, uniform_primary; interval = 0.5),
+    @test isa(
+        double_interval_censored(
+            gamma_dist; primary_event = uniform_primary, interval = 0.5),
         CensoredDistributions.IntervalCensored)
 
     # Full pipeline -> IntervalCensored{Truncated{PrimaryCensored}}
     full_dist = double_interval_censored(
-        gamma_dist, uniform_primary; upper = 5, interval = 0.5)
+        gamma_dist; primary_event = uniform_primary, upper = 5, interval = 0.5)
     @test isa(full_dist, CensoredDistributions.IntervalCensored)
 end
 
@@ -137,8 +141,8 @@ end
     gamma_dist = Gamma(2, 1)
     uniform_primary = Uniform(0, 1)
 
-    dist1 = double_interval_censored(gamma_dist, uniform_primary)
-    dist2 = double_interval_censored(gamma_dist, uniform_primary;
+    dist1 = double_interval_censored(gamma_dist; primary_event = uniform_primary)
+    dist2 = double_interval_censored(gamma_dist; primary_event = uniform_primary,
         lower = nothing, upper = nothing, interval = nothing)
 
     @test typeof(dist1) == typeof(dist2)

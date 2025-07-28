@@ -1,5 +1,6 @@
 @doc raw"""
-    double_interval_censored(dist::UnivariateDistribution, primary_event::UnivariateDistribution;
+    double_interval_censored(dist::UnivariateDistribution;
+                          primary_event::UnivariateDistribution = Uniform(0, 1),
                           lower::Union{Real, Nothing} = nothing,
                           upper::Union{Real, Nothing} = nothing,
                           interval::Union{Real, Nothing} = nothing,
@@ -16,9 +17,9 @@ The order of operations ensures mathematical correctness, particularly that trun
 
 # Arguments
 - `dist::UnivariateDistribution`: The delay distribution from primary event to observation
-- `primary_event::UnivariateDistribution`: The primary event time distribution
 
 # Keyword Arguments
+- `primary_event::UnivariateDistribution = Uniform(0, 1)`: The primary event time distribution. Defaults to uniform distribution over [0, 1].
 - `lower::Union{Real, Nothing} = nothing`: Lower truncation bound. If `nothing`, no lower truncation is applied.
 - `upper::Union{Real, Nothing} = nothing`: Upper truncation bound (e.g., observation time `D`). If `nothing`, no upper truncation is applied.
 - `interval::Union{Real, Nothing} = nothing`: Secondary censoring interval width (e.g., daily reporting). If `nothing`, no interval censoring is applied.
@@ -31,17 +32,20 @@ A composed distribution that can be used with all standard `Distributions.jl` me
 ```@example
 using Distributions
 
-# Basic primary censoring only
-dist1 = double_interval_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
+# Basic primary censoring only (uses default Uniform(0, 1))
+dist1 = double_interval_censored(LogNormal(1.5, 0.75))
 
 # Primary censoring + truncation
-dist2 = double_interval_censored(LogNormal(1.5, 0.75), Uniform(0, 1); upper=10)
+dist2 = double_interval_censored(LogNormal(1.5, 0.75); upper=10)
 
 # Primary censoring + secondary interval censoring
-dist3 = double_interval_censored(LogNormal(1.5, 0.75), Uniform(0, 1); interval=1)
+dist3 = double_interval_censored(LogNormal(1.5, 0.75); interval=1)
 
 # Full double interval censoring with truncation
-dist4 = double_interval_censored(LogNormal(1.5, 0.75), Uniform(0, 1); upper=10, interval=1)
+dist4 = double_interval_censored(LogNormal(1.5, 0.75); upper=10, interval=1)
+
+# Custom primary event distribution
+dist5 = double_interval_censored(LogNormal(1.5, 0.75); primary_event=Uniform(0, 2))
 
 # Sample from any of these distributions
 samples = rand(dist4, 1000)
@@ -59,8 +63,8 @@ This function implements the complete workflow for handling censored delay distr
 - Charniga et al. (2024): "Best practices for estimating and reporting epidemiological delay distributions"
 """
 function double_interval_censored(
-        dist::UnivariateDistribution,
-        primary_event::UnivariateDistribution;
+        dist::UnivariateDistribution;
+        primary_event::UnivariateDistribution = Uniform(0, 1),
         lower::Union{Real, Nothing} = nothing,
         upper::Union{Real, Nothing} = nothing,
         interval::Union{Real, Nothing} = nothing,

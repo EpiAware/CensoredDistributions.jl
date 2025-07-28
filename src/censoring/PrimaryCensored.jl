@@ -63,7 +63,7 @@ Represents the distribution of observed delays when the primary event time is su
 "
 struct PrimaryCensored{
     D1 <: UnivariateDistribution, D2 <: UnivariateDistribution, M <: AbstractSolverMethod} <:
-       Distributions.UnivariateDistribution{Distributions.ValueSupport}
+       Distributions.UnivariateDistribution{Distributions.Continuous}
     "The delay distribution from primary event to observation."
     dist::D1
     "The primary event time distribution."

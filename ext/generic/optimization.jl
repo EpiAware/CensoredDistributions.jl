@@ -72,14 +72,27 @@ function _optimize_censored_distribution(
     )
 
     # Set up and solve optimization problem
-    optfun = OptimizationFunction(objective, Optimization.AutoForwardDiff())
+    # Use finite differences instead of ForwardDiff due to AD compatibility issues
+    # with special functions in censored distribution calculations (e.g., incomplete gamma)
+    optfun = OptimizationFunction(objective, Optimization.AutoFiniteDiff())
     optprob = OptimizationProblem(optfun, initial_unconstrained, optimization_params)
 
     result = solve(optprob, optimizer)
 
-    # Check if optimization succeeded
+    # Check if optimization succeeded and produced meaningful results
     if !SciMLBase.successful_retcode(result.retcode)
-        @warn "Optimization did not converge successfully. Retcode: $(result.retcode)"
+        error("Optimization failed to converge. Retcode: $(result.retcode). " *
+              "This indicates the fitting was unsuccessful. " *
+              "Try different initial parameters, a different optimizer, " *
+              "or verify that your data is compatible with the distribution.")
+    end
+
+    # Check for infinite objective values (indicates likelihood calculation issues)
+    if !isfinite(result.objective)
+        @warn "Optimization resulted in infinite objective value ($(result.objective)). " *
+              "This typically indicates parameter transformation issues or data incompatibility. " *
+              "Returning initial parameters. Try different initial parameters or check data compatibility."
+        return initial_params
     end
 
     # Transform result back to constrained space

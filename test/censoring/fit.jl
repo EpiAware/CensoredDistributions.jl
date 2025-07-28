@@ -23,7 +23,7 @@
 
             # Create template distribution for dispatch
             template_dist = interval_censored(Normal(0.0, 1.0), interval_width)
-            
+
             # Test fit_mle
             fitted_dist = fit_mle(template_dist, data; intervals = interval_width)
             fitted_params = params(fitted_dist.dist)
@@ -57,7 +57,7 @@
 
             # Create template distribution for dispatch
             template_dist = interval_censored(Exponential(1.0), interval_width)
-            
+
             # Fit
             fitted_dist = fit_mle(template_dist, data; intervals = interval_width)
             fitted_params = params(fitted_dist.dist)
@@ -82,7 +82,7 @@
 
             # Create template distribution for dispatch
             template_dist = interval_censored(Normal(0.0, 1.0), boundaries)
-            
+
             # Fit
             fitted_dist = fit_mle(template_dist, data; intervals = boundaries)
             fitted_params = params(fitted_dist.dist)
@@ -108,7 +108,7 @@
 
             # Create template distribution for dispatch
             template_dist = interval_censored(Normal(0.0, 1.0), interval_width)
-            
+
             # Fit with and without weights
             unweighted_fit = fit_mle(template_dist, unique_data; intervals = interval_width)
             weighted_fit = fit_mle(template_dist, unique_data;
@@ -137,7 +137,7 @@
 
             # Create template distribution for dispatch
             template_dist = interval_censored(Normal(0.0, 1.0), interval_width)
-            
+
             # Test with custom initial parameters
             custom_init = [1.5, 0.8]  # Different from true values
             fitted_dist = fit_mle(template_dist, data;
@@ -253,7 +253,7 @@ end
         @testset "Input validation" begin
             # Create template distribution for validation tests
             template_dist = interval_censored(Normal(0.0, 1.0), 1.0)
-            
+
             # Empty data
             @test_throws ArgumentError fit_mle(template_dist, Float64[]; intervals = 1.0)
 
@@ -561,7 +561,7 @@ end
 
         # Generate heterogeneous intervals per observation
         intervals_vec = rand([0.5, 1.0, 1.5], n_samples)
-        
+
         # Generate data with template distribution
         template_dist = double_interval_censored(true_delay, true_primary;
             interval = 1.0, force_numeric = true)
@@ -624,10 +624,11 @@ end
         data = [1.0, 2.0, 3.0]
         intervals_wrong_length = [1.0, 1.0]  # Wrong length
 
-        template_dist = double_interval_censored(LogNormal(1.0, 0.5), Uniform(0.0, 1.0);
+        template_dist = double_interval_censored(LogNormal(1.0, 0.5);
             interval = 1.0, force_numeric = true)
 
-        @test_throws BoundsError fit_mle(template_dist, data; intervals = intervals_wrong_length)
+        @test_throws BoundsError fit_mle(
+            template_dist, data; intervals = intervals_wrong_length)
 
         # Test negative intervals
         intervals_bad = [-1.0, 1.0, 1.0]  # Negative interval
@@ -636,7 +637,7 @@ end
 
     @testset "Product distribution fit() convenience wrapper" begin
         # Test the convenience fit() method
-        template_dist = double_interval_censored(LogNormal(1.2, 0.6), Uniform(0.0, 1.0);
+        template_dist = double_interval_censored(LogNormal(1.2, 0.6);
             interval = 1.0, force_numeric = true)
 
         # Simple data for quick test

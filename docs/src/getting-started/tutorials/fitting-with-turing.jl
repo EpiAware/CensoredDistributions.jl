@@ -103,7 +103,8 @@ md"Using the `true_dist` and the sampled event times we can sample directly from
 
 # ╔═╡ f4ed78df-cdbb-4534-890a-fb346dd65f33
 samples = map(pwindows, swindows, obs_times) do pw, sw, ot
-    rand(double_interval_censored(true_dist, Uniform(0.0, pw); upper = ot, interval = sw))
+    rand(double_interval_censored(
+        true_dist; primary_event = Uniform(0.0, pw), upper = ot, interval = sw))
 end
 
 # ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
@@ -244,7 +245,7 @@ First we define our model. Aside from the use of the `double_interval_censored` 
 
     pcens_dists = map(pws, Ds, sws) do pw, D, sw
         double_interval_censored(
-            dist, Uniform(0.0, pw); upper = D, interval = sw)
+            dist; primary_event = Uniform(0.0, pw), upper = D, interval = sw)
     end
 
     y ~ weight(pcens_dists, n)
@@ -266,7 +267,7 @@ CensoredDistributions_mdl = CensoredDistributions_model(
 
 # ╔═╡ 691e3d54-1a31-4686-a70d-711c2fc45dc1
 md"
-Now we fit the model to recover the true parameters from the synthetic data we generated earlier. This demonstrates the package's ability to perform accurate parameter recovery when the censoring process is properly modelled.
+Now we fit the model (*Note: `Turing.jl` supports a wide range of fitting methods but here we use the No-U-turn sampler*) to recover the true parameters from the synthetic data we generated earlier. This demonstrates the package's ability to perform accurate parameter recovery when the censoring process is properly modelled.
 "
 
 # ╔═╡ b5cd8b13-e3db-4ed1-80ce-e3ac1c57932c

@@ -46,28 +46,25 @@ using CensoredDistributions, Distributions, Plots
 
 # Create a censored distribution accounting for primary and secondary censoring
 original = Gamma(2, 3)
-censored = double_interval_censored(original, Uniform(0, 1); upper = 15, interval = 1)
+censored = double_interval_censored(original; upper = 15, interval = 1)
 
 # Compare the distributions
 x = 0:0.01:20
-plot(x, pdf.(original, x), label = "Original Gamma", lw = 2)
+plot(x, pdf.(original, x), label = "]Original Gamma", lw = 2)
 plot!(x, pdf.(censored, x), label="Double Censored and right truncated", lw = 2)
 ```
 
-You can fit censored distributions to data using maximum likelihood estimation (as well as using other methods via `Turing.jl`) via an optional extension:
+You can fit censored distributions to data using maximum likelihood estimation (as well as using other methods via `Turing.jl`) via an optional extension. To access this functionality, you need to add the following packages:
 
 ```julia
-# First install the optimization extension dependencies
-using Pkg; Pkg.add(["Optimization", "OptimizationOptimJL"])
-using Optimization
-
+using Optimization, OptimizationOptimJL, Bijectors
 # Generate synthetic data from the censored distribution
 data = rand(censored, 1000)
 
 # Fit the distribution to recover original parameters
-guess_censored = double_interval_censored(Gamma(1, 1), Uniform(0, 1); upper = 15, interval = 1)
+guess_censored = double_interval_censored(Gamma(1, 1); upper = 15, interval = 1)
 fitted_dist = fit(guess_censored, data)
-params(fitted_dist)
+Distributions.params(fitted_dist)
 ```
 
 Here we see that the fitted distribution is very close to the original distribution.

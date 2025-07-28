@@ -34,15 +34,18 @@ function _dist_constructor(
 
     D = pc_type.parameters[1] # Delay distribution type
     P = pc_type.parameters[2] # Primary distribution type
+    # Note: pc_type.parameters[3] is the solver method type
 
     delay_dist = D(delay_params...)
     primary_dist = P(primary_params...)
 
     if lower === nothing && upper === nothing
         return double_interval_censored(
-            delay_dist, primary_dist; interval = interval, force_numeric = force_numeric)
+            delay_dist; primary_event = primary_dist, interval = interval,
+            force_numeric = force_numeric)
     else
-        return double_interval_censored(delay_dist, primary_dist; interval = interval,
+        return double_interval_censored(
+            delay_dist; primary_event = primary_dist, interval = interval,
             lower = lower, upper = upper, force_numeric = force_numeric)
     end
 end
@@ -63,9 +66,11 @@ function _dist_constructor(
 
     if lower === nothing && upper === nothing
         return double_interval_censored(
-            delay_dist, primary_dist; interval = interval, force_numeric = force_numeric)
+            delay_dist; primary_event = primary_dist, interval = interval,
+            force_numeric = force_numeric)
     else
-        return double_interval_censored(delay_dist, primary_dist; interval = interval,
+        return double_interval_censored(
+            delay_dist; primary_event = primary_dist, interval = interval,
             lower = lower, upper = upper, force_numeric = force_numeric)
     end
 end
@@ -98,13 +103,14 @@ function _dist_constructor(
 
     D = pc_type.parameters[1] # Delay distribution type
     P = pc_type.parameters[2] # Primary distribution type
+    # Note: pc_type.parameters[3] is the solver method type
 
     delay_dist = D(delay_params...)
     primary_dist = P(primary_params...)
 
     individual_dists = if lowers === nothing && uppers === nothing
         [double_interval_censored(
-             delay_dist, primary_dist; interval = int, force_numeric = force_numeric)
+             delay_dist; primary_event = primary_dist, interval = int, force_numeric = force_numeric)
          for int in intervals]
     else
         # Handle vector of bounds
@@ -113,7 +119,7 @@ function _dist_constructor(
         uppers_vec = uppers === nothing ? fill(nothing, length(intervals)) :
                      (uppers isa AbstractVector ? uppers : fill(uppers, length(intervals)))
 
-        [double_interval_censored(delay_dist, primary_dist; interval = int,
+        [double_interval_censored(delay_dist; primary_event = primary_dist, interval = int,
              lower = low, upper = upp, force_numeric = force_numeric)
          for (int, low, upp) in zip(intervals, lowers_vec, uppers_vec)]
     end
@@ -137,7 +143,7 @@ function _dist_constructor(
 
     individual_dists = if lowers === nothing && uppers === nothing
         [double_interval_censored(
-             delay_dist, primary_dist; interval = int, force_numeric = force_numeric)
+             delay_dist; primary_event = primary_dist, interval = int, force_numeric = force_numeric)
          for int in intervals]
     else
         # Handle vector of bounds
@@ -146,7 +152,7 @@ function _dist_constructor(
         uppers_vec = uppers === nothing ? fill(nothing, length(intervals)) :
                      (uppers isa AbstractVector ? uppers : fill(uppers, length(intervals)))
 
-        [double_interval_censored(delay_dist, primary_dist; interval = int,
+        [double_interval_censored(delay_dist; primary_event = primary_dist, interval = int,
              lower = low, upper = upp, force_numeric = force_numeric)
          for (int, low, upp) in zip(intervals, lowers_vec, uppers_vec)]
     end
@@ -177,7 +183,7 @@ function _dist_constructor(
                  (uppers isa AbstractVector ? uppers : fill(uppers, length(primary_dists)))
 
     # Create individual distributions with heterogeneous primary events
-    individual_dists = [double_interval_censored(delay_dist, primary_dist;
+    individual_dists = [double_interval_censored(delay_dist; primary_event = primary_dist,
                             interval = int, lower = low, upper = upp, force_numeric = force_numeric)
                         for (primary_dist, int, low, upp) in
                             zip(primary_dists, intervals_vec, lowers_vec, uppers_vec)]
@@ -216,7 +222,7 @@ A fitted distribution with the same structure as the input type.
 # Examples
 ```julia
 # Fit with template distribution
-template_dist = double_interval_censored(LogNormal(0, 1), Uniform(0, 7); interval=1.0, force_numeric=true)
+template_dist = double_interval_censored(LogNormal(0, 1); interval=1.0)
 fitted_dist = fit_mle(template_dist, data)
 
 # Fit with heterogeneous intervals
@@ -282,44 +288,28 @@ function Distributions.fit_mle(
         if delay_init === nothing
             delay_init = collect(params(dist.dist.dist))  # Get delay distribution params
         end
-        primary_init = collect(params(dist.dist.primary_event))  # Always get from template dist
+        primary_dist_params = collect(params(dist.dist.primary_event))
 
-        # Combine parameters and create combined bijector
-        combined_params = vcat(delay_init, primary_init)
+        # Fit only delay parameters - primary distribution is part of model specification
+        # Primary event distribution defines the model structure, not parameters to estimate
+
+        # Only optimize delay parameters
         delay_bijector = _get_bijector(D, delay_init)
-        primary_bijector = _get_bijector(P, primary_init)
-        # Create parameter ranges for Stacked bijector
-        n_delay = length(delay_init)
-        n_primary = length(primary_init)
-        delay_range = 1:n_delay
-        primary_range = (n_delay + 1):(n_delay + n_primary)
 
-        combined_bijector = Stacked([delay_bijector, primary_bijector],
-            [delay_range, primary_range])
-
-        # Create distribution constructor using dispatch - no closures needed
-        n_delay = length(delay_init)
+        # Create distribution constructor that uses specified primary distribution
         dist_constructor = params -> begin
-            delay_params = params[1:n_delay]
-            primary_params = params[(n_delay + 1):end]
-            return _dist_constructor(typeof(dist), delay_params, primary_params,
+            return _dist_constructor(typeof(dist), params, primary_dist_params,
                 interval_spec, dist.dist.method isa NumericSolver, lowers, uppers)
         end
 
-        # Optimize using the generic function
-        fitted_params = _optimize_censored_distribution(
-            data, combined_params, dist_constructor,
-            combined_bijector, weights, optimizer
+        # Optimize only delay parameters
+        fitted_delay_params = _optimize_censored_distribution(
+            data, delay_init, dist_constructor, delay_bijector, weights, optimizer
         )
 
-        # Extract fitted parameters and create final distribution
-        n_delay = length(delay_init)
-        fitted_delay_params = fitted_params[1:n_delay]
-        fitted_primary_params = fitted_params[(n_delay + 1):end]
-
-        # Return fitted distribution
+        # Return fitted distribution with specified primary distribution
         force_numeric = dist.dist.method isa NumericSolver
-        return _dist_constructor(typeof(dist), fitted_delay_params, fitted_primary_params,
+        return _dist_constructor(typeof(dist), fitted_delay_params, primary_dist_params,
             interval_spec, force_numeric, lowers, uppers)
     end
 end
@@ -334,7 +324,7 @@ Fit a truncated double interval censored distribution to data.
 Uses the distribution types from `dist` for dispatch.
 """
 function Distributions.fit_mle(
-        dist::IntervalCensored{<:Truncated{<:PrimaryCensored{D, P}}},
+        dist::IntervalCensored{<:Truncated{<:PrimaryCensored{D, P, M}}},
         data::AbstractVector{<:Real};
         intervals::Union{Nothing, Real, AbstractVector{<:Real}} = nothing,
         delay_init::Union{Nothing, AbstractVector{<:Real}} = nothing,
@@ -342,7 +332,8 @@ function Distributions.fit_mle(
         primary_dists::Union{Nothing, AbstractVector{<:UnivariateDistribution}} = nothing,
         weights::Union{Nothing, AbstractVector{<:Real}} = nothing,
         optimizer = OptimizationOptimJL.BFGS()
-) where {D <: ContinuousUnivariateDistribution, P <: ContinuousUnivariateDistribution}
+) where {D <: ContinuousUnivariateDistribution, P <: ContinuousUnivariateDistribution,
+        M <: CensoredDistributions.AbstractSolverMethod}
 
     # Solver types are supported for fitting - both analytical and numerical
 
@@ -389,66 +380,50 @@ function Distributions.fit_mle(
         if delay_init === nothing
             delay_init = collect(params(truncated_dist.untruncated.dist))
         end
-        primary_init = collect(params(truncated_dist.untruncated.primary_event))  # Always get from template dist
+        primary_dist_params = collect(params(truncated_dist.untruncated.primary_event))
 
-        # Combine parameters and create combined bijector
-        combined_params = vcat(delay_init, primary_init)
+        # Fit only delay parameters - primary distribution is part of model specification
+        # Primary event distribution defines the model structure, not parameters to estimate
+
+        # Only optimize delay parameters
         delay_bijector = _get_bijector(D, delay_init)
-        primary_bijector = _get_bijector(P, primary_init)
-        # Create parameter ranges for Stacked bijector
-        n_delay = length(delay_init)
-        n_primary = length(primary_init)
-        delay_range = 1:n_delay
-        primary_range = (n_delay + 1):(n_delay + n_primary)
 
-        combined_bijector = Stacked([delay_bijector, primary_bijector],
-            [delay_range, primary_range])
-
-        # Create distribution constructor using dispatch - no closures needed
-        n_delay = length(delay_init)
+        # Create distribution constructor that uses specified primary distribution
         dist_constructor = params -> begin
-            delay_params = params[1:n_delay]
-            primary_params = params[(n_delay + 1):end]
             return _dist_constructor(
-                IntervalCensored{PrimaryCensored{D, P}, typeof(interval_spec)},
-                delay_params, primary_params, interval_spec,
+                IntervalCensored{PrimaryCensored{D, P, M}, typeof(interval_spec)},
+                params, primary_dist_params, interval_spec,
                 dist.dist.untruncated.method isa NumericSolver,
                 lower_bound, upper_bound)
         end
 
-        # Optimize using the generic function
-        fitted_params = _optimize_censored_distribution(
-            data, combined_params, dist_constructor,
-            combined_bijector, weights, optimizer
+        # Optimize only delay parameters
+        fitted_delay_params = _optimize_censored_distribution(
+            data, delay_init, dist_constructor, delay_bijector, weights, optimizer
         )
 
-        # Extract fitted parameters and create final distribution
-        n_delay = length(delay_init)
-        fitted_delay_params = fitted_params[1:n_delay]
-        fitted_primary_params = fitted_params[(n_delay + 1):end]
-
-        # Return fitted distribution
+        # Return fitted distribution with specified primary distribution
         force_numeric = dist.dist.untruncated.method isa NumericSolver
         return _dist_constructor(
-            IntervalCensored{PrimaryCensored{D, P}, typeof(interval_spec)},
-            fitted_delay_params, fitted_primary_params, interval_spec, force_numeric,
+            IntervalCensored{PrimaryCensored{D, P, M}, typeof(interval_spec)},
+            fitted_delay_params, primary_dist_params, interval_spec, force_numeric,
             lower_bound, upper_bound)
     end
 end
 
 # Convenience wrappers for fit()
 function Distributions.fit(
-        dist::IntervalCensored{<:PrimaryCensored},
+        dist::IntervalCensored{<:PrimaryCensored, T},
         data::AbstractVector{<:Real};
         kwargs...
-)
+) where {T <: Real}
     return fit_mle(dist, data; kwargs...)
 end
 
 function Distributions.fit(
-        dist::IntervalCensored{<:Truncated{<:PrimaryCensored}},
+        dist::IntervalCensored{<:Truncated{<:PrimaryCensored}, T},
         data::AbstractVector{<:Real};
         kwargs...
-)
+) where {T <: Real}
     return fit_mle(dist, data; kwargs...)
 end
