@@ -59,24 +59,16 @@ plot!(x, pdf.(censored, x), label="Double Censored and right truncated", lw = 2)
 You can fit censored distributions to data using maximum likelihood estimation:
 
 ```julia
-using CensoredDistributions, Distributions
+# Generate synthetic data from the censored distribution
+data = rand(censored, 1000)
 
-# Generate synthetic epidemiological data
-true_delay = LogNormal(1.6, 0.8)  # Incubation period distribution
-true_primary = Uniform(0, 2.0)    # Uncertain infection time window
-true_dist = double_interval_censored(true_delay, true_primary; interval=1.0)
-observed_data = rand(true_dist, 500)
+# Fit the distribution to recover original parameters
+template_dist = double_interval_censored(Gamma(1, 1), Uniform(0, 1); upper = 15, interval = 1)
+fitted_dist = fit(template_dist, data)
 
-# Fit the distribution to observed data
-template_dist = double_interval_censored(LogNormal(1.0, 1.0), Uniform(0, 1); interval=1.0)
-fitted_dist = fit(template_dist, observed_data)
-
-# Extract fitted parameters
-fitted_delay_params = params(fitted_dist.dist.dist)        # (μ, σ) for LogNormal
-fitted_primary_params = params(fitted_dist.dist.primary_event)  # (a, b) for Uniform
-
-println("True delay parameters: ", params(true_delay))
-println("Fitted delay parameters: ", fitted_delay_params)
+# Check parameter recovery
+println("Original parameters: ", params(original))
+println("Fitted parameters: ", params(fitted_dist.dist.dist))
 ```
 
 ## What packages work well with CensoredDistributions.jl?
