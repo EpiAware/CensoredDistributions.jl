@@ -41,11 +41,11 @@ end
     p = params(ic)
     @test p == (params(d)..., interval)
 
-    # Test insupport
-    @test insupport(ic, 0.0) == true  # 0.0 is a multiple of 0.5
+    # Test insupport - checks underlying distribution support
+    @test insupport(ic, 0.0) == true  # In LogNormal support
     @test insupport(ic, 0.5) == true
     @test insupport(ic, 1.0) == true
-    @test insupport(ic, 0.3) == false  # Not a multiple of 0.5
+    @test insupport(ic, 0.3) == true  # In LogNormal support
     @test insupport(ic, -1.0) == false  # Negative, not in LogNormal support
 end
 
@@ -64,13 +64,13 @@ end
     p = params(ic)
     @test p == (params(d)..., intervals)
 
-    # Test insupport - only interval boundaries are in support
-    @test insupport(ic, 0.0) == true
+    # Test insupport - checks underlying distribution support
+    @test insupport(ic, 0.0) == true  # In Normal support
     @test insupport(ic, 2.0) == true
     @test insupport(ic, 5.0) == true
     @test insupport(ic, 10.0) == true
-    @test insupport(ic, 1.0) == false  # Not a boundary
-    @test insupport(ic, 3.0) == false  # Not a boundary
+    @test insupport(ic, 1.0) == true  # In Normal support
+    @test insupport(ic, 3.0) == true  # In Normal support
 end
 
 @testitem "Test IntervalCensored pdf/cdf - regular intervals" begin
@@ -229,7 +229,7 @@ end
     @test insupport(ic, -2.0) == true
     @test insupport(ic, 1.0) == true
     @test insupport(ic, 4.0) == true  # Boundary is in support
-    @test insupport(ic, 0.0) == false  # Not a boundary
+    @test insupport(ic, 0.0) == true  # In Normal support
 
     # Test interval bounds computation
     lower, upper = CensoredDistributions.get_interval_bounds(ic, -3.0)  # In [-5,-2) interval
