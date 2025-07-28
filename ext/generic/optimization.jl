@@ -21,8 +21,13 @@ bijectors for parameter transformations.
 - `weights`: Optional observation weights
 - `optimizer`: SciML optimizer to use
 
+# Keyword Arguments
+- `return_fit_object`: If true, returns (fitted_params, optimization_result). If false, returns fitted_params only.
+- `autodiff`: Automatic differentiation method for optimization (default: Optimization.AutoForwardDiff())
+
 # Returns
-- Optimization result with fitted parameters in constrained space
+- If `return_fit_object=false`: Vector of optimized parameters in constrained space
+- If `return_fit_object=true`: Tuple of (fitted_params, optimization_result)
 """
 function _optimize_censored_distribution(
         data::AbstractVector{<:Real},
@@ -30,7 +35,9 @@ function _optimize_censored_distribution(
         dist_constructor::Function,
         bijector,
         weights::Union{Nothing, AbstractVector{<:Real}} = nothing,
-        optimizer = OptimizationOptimJL.BFGS()
+        optimizer = OptimizationOptimJL.LBFGS();
+        return_fit_object::Bool = false,
+        autodiff = Optimization.AutoForwardDiff()
 )
     # Transform to unconstrained space
     initial_unconstrained = bijector(initial_params)
@@ -72,9 +79,8 @@ function _optimize_censored_distribution(
     )
 
     # Set up and solve optimization problem
-    # Use finite differences instead of ForwardDiff due to AD compatibility issues
-    # with special functions in censored distribution calculations (e.g., incomplete gamma)
-    optfun = OptimizationFunction(objective, Optimization.AutoFiniteDiff())
+    # Create optimization function with specified autodiff method
+    optfun = OptimizationFunction(objective, autodiff)
     optprob = OptimizationProblem(optfun, initial_unconstrained, optimization_params)
 
     result = solve(optprob, optimizer)
@@ -92,13 +98,13 @@ function _optimize_censored_distribution(
         @warn "Optimization resulted in infinite objective value ($(result.objective)). " *
               "This typically indicates parameter transformation issues or data incompatibility. " *
               "Returning initial parameters. Try different initial parameters or check data compatibility."
-        return initial_params
+        return return_fit_object ? (initial_params, result) : initial_params
     end
 
     # Transform result back to constrained space
     fitted_params = inverse(bijector)(result.u)
 
-    return fitted_params
+    return return_fit_object ? (fitted_params, result) : fitted_params
 end
 
 # Input validation functions

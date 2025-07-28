@@ -299,9 +299,11 @@ function primarycensored_cdf(
         end
         x = (t / λ)^k
         a = 1 + 1/k
-        # gamma_inc(a, x) returns (lower, upper) incomplete gamma functions
-        lower_inc, _ = gamma_inc(a, x)
-        return gamma(a) * lower_inc
+        # Use AD-compatible confluent hypergeometric function instead of gamma_inc
+        # γ(a,z) = z^a/a * M(a, a+1, -z) where M is the confluent hypergeometric function
+        # See: https://github.com/JuliaMath/HypergeometricFunctions.jl/issues/50#issuecomment-1397363491
+        # This avoids gamma_inc which causes AD issues
+        return x^a / a * HypergeometricFunctions.M(a, a + 1, -x)
     end
 
     # Compute g values
@@ -359,6 +361,21 @@ function primarycensored_logcdf(
     end
 
     # Compute CDF and take log directly for type stability
-    cdf_val = primarycensored_cdf(dist, primary_event, x, method)
-    return log(cdf_val)
+    try
+        cdf_val = primarycensored_cdf(dist, primary_event, x, method)
+
+        # Handle numerical precision issues where cdf_val might be slightly negative
+        if cdf_val <= 0
+            return -Inf
+        end
+
+        return log(cdf_val)
+    catch e
+        # If analytical solution fails (e.g., domain error), return -Inf log probability
+        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
+            return -Inf
+        else
+            rethrow(e)
+        end
+    end
 end

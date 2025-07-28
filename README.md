@@ -63,11 +63,11 @@ data = rand(censored, 1000)
 
 # Fit the distribution to recover original parameters
 guess_censored = double_interval_censored(Gamma(1, 1); upper = 15, interval = 1)
-fitted_dist = fit(guess_censored, data)
+fitted_dist = fit(guess_censored, data; autodiff = Optimization.AutoFiniteDiff())
 Distributions.params(fitted_dist)
 ```
 
-Here we see that the fitted distribution is very close to the original distribution.
+Here we see that the fitted distribution is close to the original distribution.
 
 ## What packages work well with CensoredDistributions.jl?
 

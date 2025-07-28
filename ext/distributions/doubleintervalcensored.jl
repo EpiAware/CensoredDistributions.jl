@@ -197,7 +197,7 @@ end
                          intervals=nothing, lowers=nothing, uppers=nothing,
                          delay_init=nothing,
                          primary_dists=nothing,
-                         weights=nothing, optimizer=OptimizationOptimJL.BFGS())
+                         weights=nothing, optimizer=OptimizationOptimJL.LBFGS())
 
 Fit a double interval censored distribution to data using maximum likelihood estimation.
 Uses the distribution types from `dist` for dispatch, eliminating manual type specification.
@@ -214,7 +214,7 @@ Uses the distribution types from `dist` for dispatch, eliminating manual type sp
 - `delay_init`: Initial parameters for delay distribution (optional, defaults from dist)
 - `primary_dists`: Vector of primary event distributions for heterogeneous fitting (optional, parameters extracted automatically)
 - `weights`: Optional observation weights
-- `optimizer`: SciML optimizer (default: OptimizationOptimJL.BFGS())
+- `optimizer`: SciML optimizer (default: OptimizationOptimJL.LBFGS())
 
 # Returns
 A fitted distribution with the same structure as the input type.
@@ -243,7 +243,9 @@ function Distributions.fit_mle(
         # Support for heterogeneous primary events
         primary_dists::Union{Nothing, AbstractVector{<:UnivariateDistribution}} = nothing,
         weights::Union{Nothing, AbstractVector{<:Real}} = nothing,
-        optimizer = OptimizationOptimJL.BFGS()
+        optimizer = OptimizationOptimJL.LBFGS(),
+        return_fit_object::Bool = false,
+        autodiff = Optimization.AutoForwardDiff()
 ) where {D <: ContinuousUnivariateDistribution, P <: ContinuousUnivariateDistribution}
 
     # Solver types are supported for fitting - both analytical and numerical
@@ -274,14 +276,23 @@ function Distributions.fit_mle(
             interval_spec, dist.dist.method isa NumericSolver, lowers, uppers)
 
         # Optimize using the generic function
-        fitted_params = _optimize_censored_distribution(
-            data, delay_init, dist_constructor, delay_bijector, weights, optimizer
+        result = _optimize_censored_distribution(
+            data, delay_init, dist_constructor, delay_bijector, weights, optimizer;
+            return_fit_object = return_fit_object, autodiff = autodiff
         )
 
-        # Return fitted distribution with heterogeneous primary distributions
+        # Handle return format
         force_numeric = dist.dist.method isa NumericSolver
-        return _dist_constructor(typeof(dist), fitted_params, primary_dists,
-            interval_spec, force_numeric, lowers, uppers)
+        if return_fit_object
+            fitted_params, fit_object = result
+            fitted_dist = _dist_constructor(typeof(dist), fitted_params, primary_dists,
+                interval_spec, force_numeric, lowers, uppers)
+            return (fitted_dist, fit_object)
+        else
+            fitted_params = result
+            return _dist_constructor(typeof(dist), fitted_params, primary_dists,
+                interval_spec, force_numeric, lowers, uppers)
+        end
     else
         # Homogeneous case (original logic)
         # Default parameter initialization from input distribution
@@ -318,7 +329,7 @@ end
     Distributions.fit_mle(dist::IntervalCensored{<:Truncated{<:PrimaryCensored}},
                          data::AbstractVector{<:Real};
                          intervals=nothing, delay_init=nothing, primary_init=nothing,
-                         weights=nothing, optimizer=OptimizationOptimJL.BFGS())
+                         weights=nothing, optimizer=OptimizationOptimJL.LBFGS())
 
 Fit a truncated double interval censored distribution to data.
 Uses the distribution types from `dist` for dispatch.
@@ -331,7 +342,9 @@ function Distributions.fit_mle(
         # Support for heterogeneous primary events
         primary_dists::Union{Nothing, AbstractVector{<:UnivariateDistribution}} = nothing,
         weights::Union{Nothing, AbstractVector{<:Real}} = nothing,
-        optimizer = OptimizationOptimJL.BFGS()
+        optimizer = OptimizationOptimJL.LBFGS(),
+        return_fit_object::Bool = false,
+        autodiff = Optimization.AutoForwardDiff()
 ) where {D <: ContinuousUnivariateDistribution, P <: ContinuousUnivariateDistribution,
         M <: CensoredDistributions.AbstractSolverMethod}
 
@@ -366,14 +379,24 @@ function Distributions.fit_mle(
             interval_spec, dist.dist.untruncated.method isa NumericSolver, lower_bound, upper_bound)
 
         # Optimize using the generic function
-        fitted_params = _optimize_censored_distribution(
-            data, delay_init, dist_constructor, delay_bijector, weights, optimizer
+        result = _optimize_censored_distribution(
+            data, delay_init, dist_constructor, delay_bijector, weights, optimizer;
+            return_fit_object = return_fit_object, autodiff = autodiff
         )
 
-        # Return fitted distribution with heterogeneous primary distributions
-        force_numeric = dist.dist.untruncated.method isa NumericSolver
-        return _dist_constructor(typeof(dist), fitted_params, primary_dists,
-            interval_spec, force_numeric, lower_bound, upper_bound)
+        # Handle return format
+        if return_fit_object
+            fitted_params, fit_object = result
+            force_numeric = dist.dist.untruncated.method isa NumericSolver
+            fitted_dist = _dist_constructor(typeof(dist), fitted_params, primary_dists,
+                interval_spec, force_numeric, lower_bound, upper_bound)
+            return (fitted_dist, fit_object)
+        else
+            fitted_params = result
+            force_numeric = dist.dist.untruncated.method isa NumericSolver
+            return _dist_constructor(typeof(dist), fitted_params, primary_dists,
+                interval_spec, force_numeric, lower_bound, upper_bound)
+        end
     else
         # Homogeneous case (original logic)
         # Default parameter initialization from input distribution
@@ -398,16 +421,28 @@ function Distributions.fit_mle(
         end
 
         # Optimize only delay parameters
-        fitted_delay_params = _optimize_censored_distribution(
-            data, delay_init, dist_constructor, delay_bijector, weights, optimizer
+        result = _optimize_censored_distribution(
+            data, delay_init, dist_constructor, delay_bijector, weights, optimizer;
+            return_fit_object = return_fit_object, autodiff = autodiff
         )
 
-        # Return fitted distribution with specified primary distribution
-        force_numeric = dist.dist.untruncated.method isa NumericSolver
-        return _dist_constructor(
-            IntervalCensored{PrimaryCensored{D, P, M}, typeof(interval_spec)},
-            fitted_delay_params, primary_dist_params, interval_spec, force_numeric,
-            lower_bound, upper_bound)
+        # Handle return format
+        if return_fit_object
+            fitted_delay_params, fit_object = result
+            force_numeric = dist.dist.untruncated.method isa NumericSolver
+            fitted_dist = _dist_constructor(
+                IntervalCensored{PrimaryCensored{D, P, M}, typeof(interval_spec)},
+                fitted_delay_params, primary_dist_params, interval_spec, force_numeric,
+                lower_bound, upper_bound)
+            return (fitted_dist, fit_object)
+        else
+            fitted_delay_params = result
+            force_numeric = dist.dist.untruncated.method isa NumericSolver
+            return _dist_constructor(
+                IntervalCensored{PrimaryCensored{D, P, M}, typeof(interval_spec)},
+                fitted_delay_params, primary_dist_params, interval_spec, force_numeric,
+                lower_bound, upper_bound)
+        end
     end
 end
 

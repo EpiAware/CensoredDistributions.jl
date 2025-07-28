@@ -52,7 +52,7 @@ end
     Distributions.fit_mle(dist::IntervalCensored,
                          data::AbstractVector{<:Real};
                          intervals=nothing, init_params=nothing,
-                         weights=nothing, optimizer=OptimizationOptimJL.BFGS())
+                         weights=nothing, optimizer=OptimizationOptimJL.LBFGS())
 
 Fit an interval-censored distribution to data using maximum likelihood estimation.
 Uses the distribution type from `dist` for dispatch, eliminating the need for `dist_type`.
@@ -67,7 +67,7 @@ Uses the distribution type from `dist` for dispatch, eliminating the need for `d
   - `AbstractVector{<:AbstractVector{<:Real}}`: heterogeneous intervals per observation
 - `init_params`: Initial parameters for underlying distribution (optional)
 - `weights`: Optional weights for observations
-- `optimizer`: SciML optimizer (default: OptimizationOptimJL.BFGS())
+- `optimizer`: SciML optimizer (default: OptimizationOptimJL.LBFGS())
 
 # Returns
 A fitted `IntervalCensored` distribution with estimated parameters.
@@ -92,7 +92,9 @@ function Distributions.fit_mle(
             AbstractVector{<:AbstractVector{<:Real}}} = nothing,
         init_params::Union{Nothing, AbstractVector{<:Real}} = nothing,
         weights::Union{Nothing, AbstractVector{<:Real}} = nothing,
-        optimizer = OptimizationOptimJL.BFGS()
+        optimizer = OptimizationOptimJL.LBFGS(),
+        return_fit_object::Bool = false,
+        autodiff = Optimization.AutoForwardDiff()
 ) where {D <: ContinuousUnivariateDistribution, T}
     # Input validation
     _validate_data(data)
@@ -113,12 +115,20 @@ function Distributions.fit_mle(
     dist_constructor = params -> _dist_constructor(typeof(dist), params, interval_spec)
 
     # Optimize using the generic function
-    fitted_params = _optimize_censored_distribution(
-        data, init_params, dist_constructor, bijector, weights, optimizer
+    result = _optimize_censored_distribution(
+        data, init_params, dist_constructor, bijector, weights, optimizer;
+        return_fit_object = return_fit_object, autodiff = autodiff
     )
 
-    # Create fitted distribution
-    return _dist_constructor(typeof(dist), fitted_params, interval_spec)
+    # Handle return format
+    if return_fit_object
+        fitted_params, fit_object = result
+        fitted_dist = _dist_constructor(typeof(dist), fitted_params, interval_spec)
+        return (fitted_dist, fit_object)
+    else
+        fitted_params = result
+        return _dist_constructor(typeof(dist), fitted_params, interval_spec)
+    end
 end
 
 # Convenience wrapper for fit()
