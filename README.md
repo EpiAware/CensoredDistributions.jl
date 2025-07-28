@@ -11,7 +11,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-*Censored event tools for Distributions.jl*
+*Additional censored event tools for Distributions.jl*
 
 **Websites**: [Organization Website](https://www.epiaware.org/) | [Documentation](https://www.CensoredDistributions.epiaware.org/)
 
@@ -23,9 +23,10 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 
 ## Why CensoredDistributions.jl?
 
-- **Additional censoring types**: Distributions.jl supports left/right censoring and truncation, but not within interval censoring (when an event occurs in a window but it is not known precisely when) or primary event censoring (when the initial event of the pair that make up a delay distribution occurs within a time window).
-- **Epidemiological applications**: These are essential for estimating epidemiological delay distributions such as the incubation period where both the exposure time and symptom onset are observed with uncertainty.
-- **Extended functionality**: Provides weighted distributions and analytical solutions for common distribution combinations to improve efficiency.
+- **Primary event censoring**: Model delay distributions where the initial event occurs within a time window (e.g., exposure periods in epidemiology).
+- **Double interval censoring**: Required for discretising continuous distributions into intervals (e.g., daily reporting) whilst accounting for both primary event and observation uncertainty.
+- **Distribution fitting**: Extends Distributions.jl's `fit` support with MLE fitting for primary censored and interval censored distributions (potentially truncated), plus Turing.jl integration for Bayesian inference.
+- **Analytical solutions**: Provides analytical solutions where possible with numerical fallbacks for efficiency.
 
 ## What can I do with CensoredDistributions.jl?
 
