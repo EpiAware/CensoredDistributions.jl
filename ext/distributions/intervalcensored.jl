@@ -7,52 +7,51 @@ using Bijectors
 # Internal specialised constructor functions using multiple dispatch
 
 # Single interval - creates one distribution
-_dist_constructor(
-    ::Type{IntervalCensored{D, T}}, 
-    params::AbstractVector{<:Real}, 
-    interval::Real
-) where {D <: ContinuousUnivariateDistribution, T <: Real} = begin
+function _dist_constructor(
+        ::Type{IntervalCensored{D, T}},
+        params::AbstractVector{<:Real},
+        interval::Real
+) where {D <: ContinuousUnivariateDistribution, T <: Real}
     underlying_dist = D(params...)
     return interval_censored(underlying_dist, interval)
 end
 
 # Vector of intervals - creates product distribution
-_dist_constructor(
-    ::Type{IntervalCensored{D, T}}, 
-    params::AbstractVector{<:Real}, 
-    intervals::AbstractVector{<:Real}
-) where {D <: ContinuousUnivariateDistribution, T <: Real} = begin
+function _dist_constructor(
+        ::Type{IntervalCensored{D, T}},
+        params::AbstractVector{<:Real},
+        intervals::AbstractVector{<:Real}
+) where {D <: ContinuousUnivariateDistribution, T <: Real}
     underlying_dist = D(params...)
     individual_dists = [interval_censored(underlying_dist, int) for int in intervals]
     return product_distribution(individual_dists)
 end
 
 # Single boundary vector - creates one distribution
-_dist_constructor(
-    ::Type{IntervalCensored{D, T}}, 
-    params::AbstractVector{<:Real}, 
-    boundaries::AbstractVector{<:Real}
-) where {D <: ContinuousUnivariateDistribution, T <: AbstractVector} = begin
+function _dist_constructor(
+        ::Type{IntervalCensored{D, T}},
+        params::AbstractVector{<:Real},
+        boundaries::AbstractVector{<:Real}
+) where {D <: ContinuousUnivariateDistribution, T <: AbstractVector}
     underlying_dist = D(params...)
     return interval_censored(underlying_dist, boundaries)
 end
 
 # Vector of boundary vectors - creates product distribution
-_dist_constructor(
-    ::Type{IntervalCensored{D, T}}, 
-    params::AbstractVector{<:Real}, 
-    boundaries::AbstractVector{<:AbstractVector{<:Real}}
-) where {D <: ContinuousUnivariateDistribution, T <: AbstractVector} = begin
+function _dist_constructor(
+        ::Type{IntervalCensored{D, T}},
+        params::AbstractVector{<:Real},
+        boundaries::AbstractVector{<:AbstractVector{<:Real}}
+) where {D <: ContinuousUnivariateDistribution, T <: AbstractVector}
     underlying_dist = D(params...)
     individual_dists = [interval_censored(underlying_dist, bound) for bound in boundaries]
     return product_distribution(individual_dists)
 end
 
-
 """
     Distributions.fit_mle(dist::IntervalCensored,
                          data::AbstractVector{<:Real};
-                         intervals=nothing, init_params=nothing, 
+                         intervals=nothing, init_params=nothing,
                          weights=nothing, optimizer=OptimizationOptimJL.BFGS())
 
 Fit an interval-censored distribution to data using maximum likelihood estimation.
@@ -89,7 +88,8 @@ fitted_dist = fit_mle(template_dist, data; intervals=[1.0, 2.0, 1.5, 1.0])
 function Distributions.fit_mle(
         dist::IntervalCensored{D, T},
         data::AbstractVector{<:Real};
-        intervals::Union{Nothing, Real, AbstractVector{<:Real}, AbstractVector{<:AbstractVector{<:Real}}} = nothing,
+        intervals::Union{Nothing, Real, AbstractVector{<:Real},
+            AbstractVector{<:AbstractVector{<:Real}}} = nothing,
         init_params::Union{Nothing, AbstractVector{<:Real}} = nothing,
         weights::Union{Nothing, AbstractVector{<:Real}} = nothing,
         optimizer = OptimizationOptimJL.BFGS()
@@ -100,7 +100,7 @@ function Distributions.fit_mle(
 
     # Determine interval structure
     interval_spec = intervals === nothing ? dist.boundaries : intervals
-    
+
     # Initialize parameters if not provided - get defaults from input distribution
     if init_params === nothing
         init_params = collect(params(dist.dist))  # Get params from the input distribution
@@ -121,4 +121,11 @@ function Distributions.fit_mle(
     return _dist_constructor(typeof(dist), fitted_params, interval_spec)
 end
 
-
+# Convenience wrapper for fit()
+function Distributions.fit(
+        dist::IntervalCensored{D, T},
+        data::AbstractVector{<:Real};
+        kwargs...
+) where {D <: ContinuousUnivariateDistribution, T <: Real}
+    return fit_mle(dist, data; kwargs...)
+end
