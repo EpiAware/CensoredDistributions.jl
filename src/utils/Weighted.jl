@@ -145,10 +145,10 @@ end
 
 # Basic properties
 Base.eltype(::Type{<:Weighted{D, T}}) where {D, T} = promote_type(eltype(D), T)
-Distributions.minimum(d::Weighted) = minimum(d.dist)
-Distributions.maximum(d::Weighted) = maximum(d.dist)
-Distributions.insupport(d::Weighted, x::Real) = insupport(d.dist, x)
-Distributions.params(d::Weighted) = (params(d.dist)..., d.weight)
+Distributions.minimum(d::Weighted) = minimum(get_dist(d))
+Distributions.maximum(d::Weighted) = maximum(get_dist(d))
+Distributions.insupport(d::Weighted, x::Real) = insupport(get_dist(d), x)
+Distributions.params(d::Weighted) = (params(get_dist(d))..., d.weight)
 
 # Probability functions
 @doc raw"""
@@ -159,7 +159,7 @@ Returns the probability density/mass at `x` from the underlying distribution (un
 The PDF is not affected by weights as weights only apply to log-likelihood contributions.
 """
 function Distributions.pdf(d::Weighted, x::Real)
-    return pdf(d.dist, x)
+    return pdf(get_dist(d), x)
 end
 
 @doc raw"""
@@ -172,33 +172,33 @@ Returns `weight * logpdf(dist, x)`.
 function Distributions.logpdf(d::Weighted, x::Real)
     # If weight is zero, return -Inf to avoid 0 * -Inf = NaN
     d.weight == 0 && return -Inf
-    return d.weight * logpdf(d.dist, x)
+    return d.weight * logpdf(get_dist(d), x)
 end
 
 # CDF-based methods - delegate to underlying distribution
 function Distributions.cdf(d::Weighted, x::Real)
-    return cdf(d.dist, x)
+    return cdf(get_dist(d), x)
 end
 
 function Distributions.logcdf(d::Weighted, x::Real)
-    return logcdf(d.dist, x)
+    return logcdf(get_dist(d), x)
 end
 
 function Distributions.ccdf(d::Weighted, x::Real)
-    return ccdf(d.dist, x)
+    return ccdf(get_dist(d), x)
 end
 
 function Distributions.logccdf(d::Weighted, x::Real)
-    return logccdf(d.dist, x)
+    return logccdf(get_dist(d), x)
 end
 
 # Quantile function
 function Distributions.quantile(d::Weighted, p::Real)
-    return quantile(d.dist, p)
+    return quantile(get_dist(d), p)
 end
 
 # Sampling - delegates to underlying distribution
-Base.rand(rng::AbstractRNG, d::Weighted) = rand(rng, d.dist)
+Base.rand(rng::AbstractRNG, d::Weighted) = rand(rng, get_dist(d))
 
 # Sampler method for efficient sampling
-Distributions.sampler(d::Weighted) = Weighted(sampler(d.dist), d.weight)
+Distributions.sampler(d::Weighted) = Weighted(sampler(get_dist(d)), d.weight)

@@ -122,22 +122,22 @@ struct PrimaryCensored{
 end
 
 function Distributions.params(d::PrimaryCensored)
-    d0params = params(d.dist)
+    d0params = params(get_dist(d))
     d1params = params(d.primary_event)
     return (d0params..., d1params...)
 end
 
 Base.eltype(::Type{<:PrimaryCensored{D}}) where {D} = promote_type(eltype(D), eltype(D))
-Distributions.minimum(d::PrimaryCensored) = minimum(d.dist)
-Distributions.maximum(d::PrimaryCensored) = maximum(d.dist)
-Distributions.insupport(d::PrimaryCensored, x::Real) = insupport(d.dist, x)
+Distributions.minimum(d::PrimaryCensored) = minimum(get_dist(d))
+Distributions.maximum(d::PrimaryCensored) = maximum(get_dist(d))
+Distributions.insupport(d::PrimaryCensored, x::Real) = insupport(get_dist(d), x)
 
 function Distributions.cdf(d::PrimaryCensored, x::Real)
-    primarycensored_cdf(d.dist, d.primary_event, x, d.method)
+    primarycensored_cdf(get_dist(d), d.primary_event, x, d.method)
 end
 
 function Distributions.logcdf(d::PrimaryCensored, x::Real)
-    primarycensored_logcdf(d.dist, d.primary_event, x, d.method)
+    primarycensored_logcdf(get_dist(d), d.primary_event, x, d.method)
 end
 
 function Distributions.ccdf(d::PrimaryCensored, x::Real)
@@ -205,7 +205,7 @@ end
 #### Sampling
 
 function Base.rand(rng::AbstractRNG, d::PrimaryCensored)
-    rand(rng, d.dist) + rand(rng, d.primary_event)
+    rand(rng, get_dist(d)) + rand(rng, d.primary_event)
 end
 
 function Base.rand(
