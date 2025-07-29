@@ -33,7 +33,7 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 - Calculate the probability density function (PDF) and cumulative distribution function (CDF) of censored event distributions.
 - Calculate the PDF of interval-censored distributions.
 - Calculate the mean, variance, and other moments of censored event distributions.
-- Fit censored event distributions using MLE methods and Bayesian inference with Turing.jl.
+- Fit censored event distributions using Turing.jl for both Bayesian inference and MLE methods.
 
 ## Getting Started
 
@@ -52,20 +52,36 @@ plot(x, pdf.(original, x), label = "Original Gamma", lw = 2)
 plot!(x, pdf.(censored, x), label="Double Censored and right truncated", lw = 2)
 ```
 
-You can fit censored distributions to data using maximum likelihood estimation (as well as using other methods via `Turing.jl`) via an optional extension. To access this functionality, you need to add the following packages:
+You can fit censored distributions to data using Turing.jl for both Bayesian inference and MLE methods:
 
 ```julia
-using Optimization, OptimizationOptimJL, Bijectors
+using Turing, CensoredDistributions
+
 # Generate synthetic data from the censored distribution
 data = rand(censored, 1000)
 
-# Fit the distribution to recover original parameters
-guess_censored = double_interval_censored(Gamma(1.5, 1); upper = 15, interval = 1)
-fitted_dist = fit(guess_censored, data)
-Distributions.params(fitted_dist)
-```
+# Define a Turing model for fitting
+@model function fit_censored_model(data)
+    # Priors for Gamma parameters
+    α ~ truncated(Normal(2, 1), 0, Inf)
+    θ ~ truncated(Normal(3, 1), 0, Inf)
 
-Here we see that the fitted distribution is close to the original distribution.
+    # Create the censored distribution
+    censored_dist = double_interval_censored(Gamma(α, θ); upper = 15, interval = 1)
+
+    # Likelihood
+    for i in eachindex(data)
+        data[i] ~ censored_dist
+    end
+end
+
+# Fit using MLE
+model = fit_censored_model(data)
+mle_result = optimize(model, MLE())
+
+# Or fit using MCMC for Bayesian inference
+chain = sample(model, NUTS(), 1000)
+```
 
 ## What packages work well with CensoredDistributions.jl?
 
