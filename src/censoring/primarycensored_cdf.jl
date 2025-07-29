@@ -260,15 +260,15 @@ function primarycensored_cdf(
     # Compute the analytical CDF matching the Stan implementation
     if q > 0
         # Use log-space computation for numerical stability
-        log_term1 = (μ + 0.5 * σ^2) + log(ΔF_shifted)
-        log_term2 = log(t - pwindow) + log(ΔF)
-        log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
+        log_term1 = (μ + 0.5 * σ^2) + NaNMath.log(ΔF_shifted)
+        log_term2 = NaNMath.log(t - pwindow) + NaNMath.log(ΔF)
+        log_diff = logsubexp(log_term1, log_term2) - NaNMath.log(pwindow)
         F_Splus = F_t - exp(log_diff)
     else
         # When q = 0, use log_sum_exp
-        log_term1 = (μ + 0.5 * σ^2) + log(ΔF_shifted)
-        log_term2 = log(pwindow - t) + log(ΔF)
-        log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
+        log_term1 = (μ + 0.5 * σ^2) + NaNMath.log(ΔF_shifted)
+        log_term2 = NaNMath.log(pwindow - t) + NaNMath.log(ΔF)
+        log_sum = logaddexp(log_term1, log_term2) - NaNMath.log(pwindow)
         F_Splus = F_t - exp(log_sum)
     end
 
@@ -341,15 +341,15 @@ function primarycensored_cdf(
 
     if q > 0
         # Use log-space computation for numerical stability
-        log_term1 = log(λ) + log(Δg)
-        log_term2 = log(t - pwindow) + log(ΔF)
-        log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
+        log_term1 = NaNMath.log(λ) + NaNMath.log(Δg)
+        log_term2 = NaNMath.log(t - pwindow) + NaNMath.log(ΔF)
+        log_diff = logsubexp(log_term1, log_term2) - NaNMath.log(pwindow)
         F_Splus = F_t - exp(log_diff)
     else
         # When q = 0, use log_sum_exp
-        log_term1 = log(λ) + log(Δg)
-        log_term2 = log(pwindow - t) + log(ΔF)
-        log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
+        log_term1 = NaNMath.log(λ) + NaNMath.log(Δg)
+        log_term2 = NaNMath.log(pwindow - t) + NaNMath.log(ΔF)
+        log_sum = logaddexp(log_term1, log_term2) - NaNMath.log(pwindow)
         F_Splus = F_t - exp(log_sum)
     end
 
@@ -386,7 +386,7 @@ function primarycensored_logcdf(
             return -Inf
         end
 
-        return log(cdf_val)
+        return NaNMath.log(cdf_val)
     catch e
         # If analytical solution fails (e.g., domain error), return -Inf log probability
         if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
