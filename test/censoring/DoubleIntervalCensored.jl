@@ -363,35 +363,50 @@ end
     base_dist = LogNormal(0.5, 1.0)
     primary = Uniform(0, 1)
 
-    # Configuration 1: Just primary censoring
-    d1 = double_interval_censored(base_dist; primary_event = primary)
+    @testset "Configuration comparisons" begin
+        # Configuration 1: Just primary censoring
+        d1 = double_interval_censored(base_dist; primary_event = primary)
 
-    # Configuration 2: Primary + very large truncation (should be similar to d1)
-    d2 = double_interval_censored(base_dist; primary_event = primary, upper = 1e6)
+        # Configuration 2: Primary + very large truncation (should be similar to d1)
+        d2 = double_interval_censored(base_dist; primary_event = primary, upper = 1e6)
 
-    # Configuration 3: Primary + very fine interval censoring (should approximate d1)
-    d3 = double_interval_censored(base_dist; primary_event = primary, interval = 1e-6)
+        # Configuration 3: Primary + very fine interval censoring (should approximate d1)
+        d3 = double_interval_censored(base_dist; primary_event = primary, interval = 1e-6)
 
-    # Check that they give similar results for values well within support
-    test_vals = [0.5, 1.0, 2.0, 3.0]
-    for x in test_vals
-        logpdf1 = logpdf(d1, x)
-        logpdf2 = logpdf(d2, x)
-        logpdf3 = logpdf(d3, x)
+        @testset "Config 1 vs Config 2 (large truncation)" begin
+            # Check that they give similar results for values well within support
+            test_vals = [0.5, 1.0, 2.0, 3.0]
+            for x in test_vals
+                logpdf1 = logpdf(d1, x)
+                logpdf2 = logpdf(d2, x)
 
-        # All should be finite and reasonable
-        @test isfinite(logpdf1) || logpdf1 == -Inf
-        @test isfinite(logpdf2) || logpdf2 == -Inf
-        @test isfinite(logpdf3) || logpdf3 == -Inf
+                # All should be finite and reasonable
+                @test isfinite(logpdf1) || logpdf1 == -Inf
+                @test isfinite(logpdf2) || logpdf2 == -Inf
 
-        # d1 and d2 should be very similar (large upper bound shouldn't matter)
-        if isfinite(logpdf1) && isfinite(logpdf2)
-            @test logpdf1 ≈ logpdf2 rtol=1e-10
+                # d1 and d2 should be very similar (large upper bound shouldn't matter)
+                if isfinite(logpdf1) && isfinite(logpdf2)
+                    @test logpdf1 ≈ logpdf2 rtol=1e-10
+                end
+            end
         end
 
-        # d1 and d3 should be approximately similar (fine discretization)
-        if isfinite(logpdf1) && isfinite(logpdf3)
-            @test logpdf1 ≈ logpdf3 rtol=1e-3  # Allow more tolerance due to discretization
+        @testset "Config 1 vs Config 3 (fine discretization)" begin
+            # Check that they give similar results for values well within support
+            test_vals = [0.5, 1.0, 2.0, 3.0]
+            for x in test_vals
+                logpdf1 = logpdf(d1, x)
+                logpdf3 = logpdf(d3, x)
+
+                # All should be finite and reasonable
+                @test isfinite(logpdf1) || logpdf1 == -Inf
+                @test isfinite(logpdf3) || logpdf3 == -Inf
+
+                # d1 and d3 should be approximately similar (fine discretization)
+                if isfinite(logpdf1) && isfinite(logpdf3)
+                    @test logpdf1 ≈ logpdf3 rtol=1e-3  # Allow more tolerance due to discretization
+                end
+            end
         end
     end
 end

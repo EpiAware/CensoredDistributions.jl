@@ -135,41 +135,51 @@ end
     ]
 
     for (dist, primary) in test_distributions
-        d = primary_censored(dist, primary)
+        @testset "$(typeof(dist)) + $(typeof(primary))" begin
+            d = primary_censored(dist, primary)
 
-        # Test out-of-support values return -Inf
-        @test logpdf(d, -1.0) == -Inf  # Negative value (outside support)
-        @test logpdf(d, -100.0) == -Inf  # Large negative value
-
-        # Test extreme input values
-        @test logpdf(d, 0.0) ≠ NaN  # Should handle zero
-        @test logpdf(d, 1e-10) ≠ NaN  # Very small positive value
-        @test logpdf(d, 1e10) ≠ NaN  # Very large value
-
-        # Test that logpdf is finite for values in support
-        test_values = [0.1, 0.5, 1.0, 2.0, 5.0]
-        for x in test_values
-            if insupport(d, x)
-                logpdf_val = logpdf(d, x)
-                @test logpdf_val ≠ NaN
-                @test logpdf_val > -Inf || logpdf_val == -Inf  # Either finite or -Inf
+            @testset "Out-of-support handling" begin
+                # Test out-of-support values return -Inf
+                @test logpdf(d, -1.0) == -Inf  # Negative value (outside support)
+                @test logpdf(d, -100.0) == -Inf  # Large negative value
             end
-        end
 
-        # Test edge cases near distribution boundaries
-        min_val = minimum(d)
-        max_val = maximum(d)
+            @testset "Extreme value handling" begin
+                # Test extreme input values
+                @test logpdf(d, 0.0) ≠ NaN  # Should handle zero
+                @test logpdf(d, 1e-10) ≠ NaN  # Very small positive value
+                @test logpdf(d, 1e10) ≠ NaN  # Very large value
+            end
 
-        if isfinite(min_val)
-            @test logpdf(d, min_val - 1e-10) == -Inf  # Just outside minimum
-            logpdf_min = logpdf(d, min_val)
-            @test logpdf_min ≠ NaN  # At minimum should be well-defined
-        end
+            @testset "In-support values" begin
+                # Test that logpdf is finite for values in support
+                test_values = [0.1, 0.5, 1.0, 2.0, 5.0]
+                for x in test_values
+                    if insupport(d, x)
+                        logpdf_val = logpdf(d, x)
+                        @test logpdf_val ≠ NaN
+                        @test logpdf_val > -Inf || logpdf_val == -Inf  # Either finite or -Inf
+                    end
+                end
+            end
 
-        if isfinite(max_val)
-            @test logpdf(d, max_val + 1e-10) == -Inf  # Just outside maximum
-            logpdf_max = logpdf(d, max_val)
-            @test logpdf_max ≠ NaN  # At maximum should be well-defined
+            @testset "Boundary conditions" begin
+                # Test edge cases near distribution boundaries
+                min_val = minimum(d)
+                max_val = maximum(d)
+
+                if isfinite(min_val)
+                    @test logpdf(d, min_val - 1e-10) == -Inf  # Just outside minimum
+                    logpdf_min = logpdf(d, min_val)
+                    @test logpdf_min ≠ NaN  # At minimum should be well-defined
+                end
+
+                if isfinite(max_val)
+                    @test logpdf(d, max_val + 1e-10) == -Inf  # Just outside maximum
+                    logpdf_max = logpdf(d, max_val)
+                    @test logpdf_max ≠ NaN  # At maximum should be well-defined
+                end
+            end
         end
     end
 end

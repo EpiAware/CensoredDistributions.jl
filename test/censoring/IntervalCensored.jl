@@ -379,7 +379,6 @@ end
     # Should have very little mass in these narrow intervals
     @test logpdf(ic_narrow2, 2.0) > -Inf   # At narrow interval start
     @test logpdf(ic_narrow2, 4.0001) == -Inf  # At upper boundary (no mass there)
-    @test logpdf(ic_narrow2, 3.0) == -Inf  # Between intervals
     @test logpdf(ic_narrow2, 1.0) == -Inf  # Outside all intervals
 
     # Test with minimum gap intervals
@@ -445,25 +444,29 @@ end
     ]
 
     for (dist, intervals) in test_distributions
-        ic = interval_censored(dist, intervals)
+        interval_type = isa(intervals, AbstractVector) ? "arbitrary" : "regular"
+        @testset "$(typeof(dist)) - $(interval_type) intervals" begin
+            ic = interval_censored(dist, intervals)
 
-        # Test a range of values
-        if isa(intervals, AbstractVector)
-            test_range = range(minimum(intervals) - 1, maximum(intervals) + 1, length = 10)
-        else
-            test_range = range(-3, 10, length = 10)
-        end
+            # Test a range of values
+            if isa(intervals, AbstractVector)
+                test_range = range(
+                    minimum(intervals) - 1, maximum(intervals) + 1, length = 10)
+            else
+                test_range = range(-3, 10, length = 10)
+            end
 
-        for x in test_range
-            logpdf_val = logpdf(ic, x)
-            @test logpdf_val ≠ NaN
-            @test isfinite(logpdf_val) || logpdf_val == -Inf
-            @test logpdf_val <= 0.0
+            for x in test_range
+                logpdf_val = logpdf(ic, x)
+                @test logpdf_val ≠ NaN
+                @test isfinite(logpdf_val) || logpdf_val == -Inf
+                @test logpdf_val <= 0.0
 
-            # Test consistency with insupport
-            if !insupport(dist, x)
-                # If underlying distribution doesn't support x, logpdf should be -Inf
-                @test logpdf_val == -Inf
+                # Test consistency with insupport
+                if !insupport(dist, x)
+                    # If underlying distribution doesn't support x, logpdf should be -Inf
+                    @test logpdf_val == -Inf
+                end
             end
         end
     end

@@ -93,7 +93,7 @@ pwindows = rand(1:2, n)
 swindows = rand(1:2, n)
 
 # ╔═╡ 6465e51b-8d71-4c85-ba40-e6d230aa53b1
-obs_times = rand(8:10, n)
+obs_times = rand(8:12, n)
 
 # ╔═╡ b5598cc7-ddd1-4d90-af9b-110a518416ac
 md"### Simulate from the double censored distribution for each individual"
@@ -239,7 +239,7 @@ First we define our model. Aside from the use of the `double_interval_censored` 
 
 # ╔═╡ 825227da-5788-4bbd-8546-2d8a30996aaa
 @model function CensoredDistributions_model(y, n, pws, sws, Ds)
-    mu ~ Normal(1.0, 1.0)
+    mu ~ Normal(1.0, 2.0)
     sigma ~ truncated(Normal(0.5, 0.5); lower = 0.0)
     dist = LogNormal(mu, sigma)
 
