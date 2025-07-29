@@ -240,7 +240,6 @@ function Distributions.fit_mle(
         lowers::Union{Nothing, Real, AbstractVector{<:Real}} = nothing,
         uppers::Union{Nothing, Real, AbstractVector{<:Real}} = nothing,
         delay_init::Union{Nothing, AbstractVector{<:Real}} = nothing,
-        # Support for heterogeneous primary events
         primary_dists::Union{Nothing, AbstractVector{<:UnivariateDistribution}} = nothing,
         weights::Union{Nothing, AbstractVector{<:Real}} = nothing,
         optimizer = OptimizationOptimJL.LBFGS(),
@@ -305,7 +304,7 @@ function Distributions.fit_mle(
         # Primary event distribution defines the model structure, not parameters to estimate
 
         # Only optimize delay parameters
-        delay_bijector = _get_bijector(D, delay_init)
+        delay_bijector = CensoredDistributions._get_bijector(D, delay_init)
 
         # Create distribution constructor that uses specified primary distribution
         dist_constructor = params -> begin
@@ -372,7 +371,7 @@ function Distributions.fit_mle(
         end
 
         # Create bijector only for delay parameters (primary parameters come from provided distributions)
-        delay_bijector = _get_bijector(D, delay_init)
+        delay_bijector = CensoredDistributions._get_bijector(D, delay_init)
 
         # Create distribution constructor using dispatch - no closures needed
         dist_constructor = params -> _dist_constructor(typeof(dist), params, primary_dists,
@@ -409,7 +408,7 @@ function Distributions.fit_mle(
         # Primary event distribution defines the model structure, not parameters to estimate
 
         # Only optimize delay parameters
-        delay_bijector = _get_bijector(D, delay_init)
+        delay_bijector = CensoredDistributions._get_bijector(D, delay_init)
 
         # Create distribution constructor that uses specified primary distribution
         dist_constructor = params -> begin

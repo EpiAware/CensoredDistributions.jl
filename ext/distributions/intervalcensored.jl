@@ -109,7 +109,7 @@ function Distributions.fit_mle(
     end
 
     # Get bijector for the distribution type using DistributionsAD if available
-    bijector = _get_bijector(D, init_params)
+    bijector = CensoredDistributions._get_bijector(D, init_params)
 
     # Create distribution constructor using dispatch - handles product distribution internally
     dist_constructor = params -> _dist_constructor(typeof(dist), params, interval_spec)

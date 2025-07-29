@@ -13,6 +13,8 @@ This is useful for modeling:
 # Arguments
 - `dist`: Distribution of the delay from primary event to observation
 - `primary_event`: Distribution of the primary event time (typically Uniform(0, window))
+
+# Keyword Arguments
 - `solver=QuadGKJL()`: Numerical integration solver for CDF computation
 - `force_numeric=false`: If true, always use numerical integration; if false, use analytical solutions when available
 
@@ -49,6 +51,45 @@ function primary_censored(
         AnalyticalSolver(solver)
     end
     return PrimaryCensored(dist, primary_event, method)
+end
+
+@doc raw"
+Create a primary event censored distribution with keyword arguments.
+
+This is a convenience version of `primary_censored` that uses keyword arguments for consistency
+with `double_interval_censored`. The primary event distribution defaults to `Uniform(0, 1)`.
+
+# Arguments
+- `dist`: Distribution of the delay from primary event to observation
+
+# Keyword Arguments
+- `primary_event=Uniform(0, 1)`: Distribution of the primary event time
+- `solver=QuadGKJL()`: Numerical integration solver for CDF computation
+- `force_numeric=false`: If true, always use numerical integration; if false, use analytical solutions when available
+
+# Returns
+A `PrimaryCensored` distribution representing the convolution of the censoring and delay distributions.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+# Using default Uniform(0, 1) primary event
+d1 = primary_censored(LogNormal(1.5, 0.75))
+
+# Custom primary event distribution
+d2 = primary_censored(LogNormal(1.5, 0.75); primary_event=Uniform(0, 2))
+
+# All distributions are equivalent to the positional argument version
+d3 = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
+```
+"
+function primary_censored(
+        dist::UnivariateDistribution;
+        primary_event::UnivariateDistribution = Uniform(0, 1),
+        solver = QuadGKJL(), force_numeric = false)
+    return primary_censored(
+        dist, primary_event; solver = solver, force_numeric = force_numeric)
 end
 
 @doc raw"

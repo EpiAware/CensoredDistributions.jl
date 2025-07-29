@@ -3,6 +3,6 @@
         using JuliaFormatter
         using CensoredDistributions
         @test JuliaFormatter.format(
-            CensoredDistributions, verbose = true, overwrite = false)
+            CensoredDistributions; verbose = true, overwrite = false)
     end
 end

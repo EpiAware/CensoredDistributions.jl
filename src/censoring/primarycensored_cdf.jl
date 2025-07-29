@@ -322,6 +322,10 @@ function primarycensored_cdf(
     end
 
     # Compute the analytical CDF matching the Stan implementation
+    # Handle numerical precision issues where Δg or ΔF might be slightly negative
+    Δg = max(Δg, 0.0)
+    ΔF = max(ΔF, 0.0)
+
     if q > 0
         # Use log-space computation for numerical stability
         log_term1 = log(λ) + log(Δg)

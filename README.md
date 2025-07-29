@@ -50,7 +50,7 @@ censored = double_interval_censored(original; upper = 15, interval = 1)
 
 # Compare the distributions
 x = 0:0.01:20
-plot(x, pdf.(original, x), label = "]Original Gamma", lw = 2)
+plot(x, pdf.(original, x), label = "Original Gamma", lw = 2)
 plot!(x, pdf.(censored, x), label="Double Censored and right truncated", lw = 2)
 ```
 
@@ -63,7 +63,7 @@ data = rand(censored, 1000)
 
 # Fit the distribution to recover original parameters
 guess_censored = double_interval_censored(Gamma(1, 1); upper = 15, interval = 1)
-fitted_dist = fit(guess_censored, data; autodiff = Optimization.AutoFiniteDiff())
+fitted_dist = fit(guess_censored, data)
 Distributions.params(fitted_dist)
 ```
 

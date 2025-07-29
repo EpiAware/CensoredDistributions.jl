@@ -116,7 +116,7 @@ end
 function _validate_weights(weights, data)
     if weights !== nothing
         length(weights) == length(data) ||
-            throw(ArgumentError("Weights must have same length as data"))
+            throw(DimensionMismatch("Weights must have same length as data"))
         all(w -> w >= 0, weights) ||
             throw(ArgumentError("All weights must be non-negative"))
         all(isfinite, weights) || throw(ArgumentError("All weights must be finite"))

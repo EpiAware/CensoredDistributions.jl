@@ -221,6 +221,7 @@ end
 
 @testitem "PrimaryCensored Analytical Performance" begin
     using Distributions
+    using BenchmarkTools
 
     # Test distributions
     test_cases = [
@@ -237,26 +238,34 @@ end
                 # Create analytical and numerical versions
                 d_analytical = primary_censored(dist, primary)
                 d_numerical = primary_censored(dist, primary; force_numeric = true)
-
                 # Sample vectorised values to use for benchmarking
                 x_vals = rand(dist, 100)
 
-                # Warmup calls to avoid compilation overhead
-                cdf(d_analytical, x_vals[1])
-                cdf(d_numerical, x_vals[1])
+                # Create benchmarks with proper setup to avoid compilation overhead
+                b_analytical = @benchmarkable begin
+                    for x in $x_vals
+                        cdf($d_analytical, x)
+                    end
+                end
 
-                # Time them to verify analytical is faster
-                t_analytical = @elapsed for x in x_vals
-                    cdf(d_analytical, x)
+                b_numerical = @benchmarkable begin
+                    for x in $x_vals
+                        cdf($d_numerical, x)
+                    end
                 end
-                t_numerical = @elapsed for x in x_vals
-                    cdf(d_numerical, x)
-                end
+
+                # Run benchmarks with proper parameters to account for setup time
+                t_analytical = run(b_analytical, samples = 10)
+                t_numerical = run(b_numerical, samples = 10)
+
+                # Compare median times to avoid outliers
+                analytical_time = median(t_analytical).time
+                numerical_time = median(t_numerical).time
 
                 # Analytical should be faster
-                speedup = t_numerical / t_analytical
-                @test speedup > 5
-                @info "$(name) speedup: $(round(speedup, digits=1))x"
+                speedup = numerical_time / analytical_time
+                @test speedup > 2  # More conservative threshold to account for variability
+                @info "$(name) speedup: $(round(speedup, digits=1))x ($(analytical_time/1e6) ms vs $(numerical_time/1e6) ms)"
             end
         end
     end

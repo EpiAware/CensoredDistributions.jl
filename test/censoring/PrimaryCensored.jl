@@ -10,41 +10,45 @@ end
     @test typeof(use_dist) <: CensoredDistributions.PrimaryCensored
 end
 
-@testitem "Test struct fields with new solver methods" begin
+@testitem "Default constructor (analytical solver)" begin
     using Distributions
     using Integrals
 
-    @testset "Default constructor (analytical solver)" begin
-        dist = Gamma(2.0, 3.0)
-        primary = Uniform(0.0, 1.0)
-        d = primary_censored(dist, primary)
+    dist = Gamma(2.0, 3.0)
+    primary = Uniform(0.0, 1.0)
+    d = primary_censored(dist, primary)
 
-        @test d.dist === dist
-        @test d.primary_event === primary
-        @test d.method isa CensoredDistributions.AnalyticalSolver
-        @test d.method.solver isa QuadGKJL
-    end
+    @test d.dist === dist
+    @test d.primary_event === primary
+    @test d.method isa CensoredDistributions.AnalyticalSolver
+    @test d.method.solver isa QuadGKJL
+end
 
-    @testset "Constructor with force_numeric" begin
-        dist = LogNormal(1.5, 0.75)
-        primary = Uniform(0.0, 1.0)
-        d = primary_censored(dist, primary; force_numeric = true)
+@testitem "Constructor with force_numeric" begin
+    using Distributions
+    using Integrals
 
-        @test d.dist === dist
-        @test d.primary_event === primary
-        @test d.method isa CensoredDistributions.NumericSolver
-        @test d.method.solver isa QuadGKJL
-    end
+    dist = LogNormal(1.5, 0.75)
+    primary = Uniform(0.0, 1.0)
+    d = primary_censored(dist, primary; force_numeric = true)
 
-    @testset "Constructor with custom solver" begin
-        dist = Weibull(2.0, 1.5)
-        primary = Uniform(0.0, 1.0)
-        custom_solver = HCubatureJL()
-        d = primary_censored(dist, primary; solver = custom_solver, force_numeric = false)
+    @test d.dist === dist
+    @test d.primary_event === primary
+    @test d.method isa CensoredDistributions.NumericSolver
+    @test d.method.solver isa QuadGKJL
+end
 
-        @test d.method isa CensoredDistributions.AnalyticalSolver
-        @test d.method.solver === custom_solver
-    end
+@testitem "Constructor with custom solver" begin
+    using Distributions
+    using Integrals
+
+    dist = Weibull(2.0, 1.5)
+    primary = Uniform(0.0, 1.0)
+    custom_solver = HCubatureJL()
+    d = primary_censored(dist, primary; solver = custom_solver, force_numeric = false)
+
+    @test d.method isa CensoredDistributions.AnalyticalSolver
+    @test d.method.solver === custom_solver
 end
 
 @testitem "Test random generation" begin
@@ -68,28 +72,29 @@ end
     @test extracted_params[3] ≈ 1.0
 end
 
-@testitem "Test cdf method" begin
+@testitem "CDF constructor and end point" begin
     using Distributions
-    @testset "Constructor and end point" begin
-        use_dist = primary_censored(LogNormal(3.5, 1.5), Uniform(1, 2))
-        @test cdf(use_dist, 1e8) ≈ 1.0
-        @test logcdf(use_dist, -Inf) ≈ -Inf
-    end
 
-    @testset "Check CDF function against known Exp(1) with uniform censor on primary" begin
-        dist = Exponential(1.0)
-        use_dist = primary_censored(dist, Uniform(0, 1))
-        # Analytical solution for the pmf of observation in [0,1], [1,2], ...
-        expected_pmf_uncond = [exp(-1)
-                               [(1 - exp(-1)) * (exp(1) - 1) * exp(-s) for s in 1:9]]
-        # Analytical solution for the cdf
-        expected_cdf = [0.0; cumsum(expected_pmf_uncond)]
-        # Calculated cdf
-        calc_cdf = map(0:10) do t
-            cdf(use_dist, t)
-        end
-        @test expected_cdf ≈ calc_cdf
+    use_dist = primary_censored(LogNormal(3.5, 1.5), Uniform(1, 2))
+    @test cdf(use_dist, 1e8) ≈ 1.0
+    @test logcdf(use_dist, -Inf) ≈ -Inf
+end
+
+@testitem "CDF against known Exponential analytical solution" begin
+    using Distributions
+
+    dist = Exponential(1.0)
+    use_dist = primary_censored(dist, Uniform(0, 1))
+    # Analytical solution for the pmf of observation in [0,1], [1,2], ...
+    expected_pmf_uncond = [exp(-1)
+                           [(1 - exp(-1)) * (exp(1) - 1) * exp(-s) for s in 1:9]]
+    # Analytical solution for the cdf
+    expected_cdf = [0.0; cumsum(expected_pmf_uncond)]
+    # Calculated cdf
+    calc_cdf = map(0:10) do t
+        cdf(use_dist, t)
     end
+    @test expected_cdf ≈ calc_cdf
 end
 
 @testitem "Test ccdf" begin
@@ -98,4 +103,23 @@ end
     @test ccdf(use_dist, 1e8) ≈ 0.0
     @test ccdf(use_dist, 0.0) ≈ 1
     @test logccdf(use_dist, 0.0) ≈ 0.0
+end
+
+@testitem "Keyword argument constructor" begin
+    using Distributions
+
+    dist = LogNormal(1.5, 0.75)
+    primary = Uniform(0, 2)
+
+    # Test keyword version returns correct PrimaryCensored struct
+    d_kw = primary_censored(dist; primary_event = primary)
+    @test typeof(d_kw) <: CensoredDistributions.PrimaryCensored
+    @test d_kw.dist === dist
+    @test d_kw.primary_event === primary
+
+    # Test default primary_event
+    d_default = primary_censored(dist)
+    @test typeof(d_default) <: CensoredDistributions.PrimaryCensored
+    @test d_default.dist === dist
+    @test d_default.primary_event == Uniform(0, 1)
 end
