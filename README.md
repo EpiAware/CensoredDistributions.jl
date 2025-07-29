@@ -82,7 +82,7 @@ model = double_censored_model(values, weights)
 
 # Fit using MCMC for Bayesian inference
 chain = sample(model, NUTS(), MCMCThreads(), 1000, 2; progress = false)
-summarystats(chain)
+summarize(chain)
 ```
 
 ## What packages work well with CensoredDistributions.jl?

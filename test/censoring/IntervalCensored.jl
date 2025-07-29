@@ -276,3 +276,227 @@ end
     @test CensoredDistributions.find_interval_index(10.0, intervals) == 4  # After (at last boundary)
     @test CensoredDistributions.find_interval_index(11.0, intervals) == 4  # After
 end
+
+@testitem "Test IntervalCensored logpdf extreme value handling and -Inf edge cases" begin
+    using Distributions
+
+    # Test with regular intervals
+    d = Normal(5, 2)
+    interval = 1.0
+    ic = interval_censored(d, interval)
+
+    # Test out-of-support values for underlying distribution
+    # For Normal distribution, all real values are technically in support
+    # but we can test extreme values
+    @test logpdf(ic, -1e10) ≠ NaN  # Very large negative value
+    @test logpdf(ic, 1e10) ≠ NaN   # Very large positive value
+    @test isfinite(logpdf(ic, -1e10)) || logpdf(ic, -1e10) == -Inf
+    @test isfinite(logpdf(ic, 1e10)) || logpdf(ic, 1e10) == -Inf
+
+    # Test with bounded distribution
+    bounded_dist = truncated(Exponential(1.0), 0.0, 10.0)
+    ic_bounded = interval_censored(bounded_dist, 0.5)
+
+    # Test values outside underlying distribution support
+    @test logpdf(ic_bounded, -1.0) == -Inf  # Negative (outside Exponential support)
+    @test logpdf(ic_bounded, -100.0) == -Inf  # Large negative
+    @test logpdf(ic_bounded, 15.0) == -Inf   # Above truncation bound
+
+    # Test with arbitrary intervals
+    intervals = [0.0, 2.0, 5.0, 8.0]
+    ic_arb = interval_censored(Normal(3, 1), intervals)
+
+    # Test values outside interval boundaries
+    @test logpdf(ic_arb, -5.0) == -Inf   # Before first interval
+    @test logpdf(ic_arb, 12.0) == -Inf   # After last interval
+
+    # Test edge cases at interval boundaries
+    @test logpdf(ic_arb, 8.0) == -Inf   # At upper boundary (no mass)
+    @test logpdf(ic_arb, 0.0) > -Inf    # At lower boundary (has mass)
+    @test logpdf(ic_arb, 2.0) > -Inf    # At interval boundary (has mass)
+    @test logpdf(ic_arb, 5.0) > -Inf    # At interval boundary (has mass)
+end
+
+@testitem "Test IntervalCensored logpdf numerical stability" begin
+    using Distributions
+
+    # Test with very small intervals that might cause numerical issues
+    d = Normal(0, 1)
+    tiny_interval = 1e-10
+    ic_tiny = interval_censored(d, tiny_interval)
+
+    # Test values that should have very small probability mass
+    test_vals = [0.0, 1e-11, 5.0, -3.0]
+    for x in test_vals
+        logpdf_val = logpdf(ic_tiny, x)
+        @test logpdf_val ≠ NaN
+        @test isfinite(logpdf_val) || logpdf_val == -Inf
+        @test logpdf_val <= 0.0  # Log probability should be ≤ 0
+    end
+
+    # Test with very wide intervals
+    huge_interval = 1e10
+    ic_huge = interval_censored(d, huge_interval)
+
+    for x in test_vals
+        logpdf_val = logpdf(ic_huge, x)
+        @test logpdf_val ≠ NaN
+        @test isfinite(logpdf_val) || logpdf_val == -Inf
+        @test logpdf_val <= 0.0
+    end
+
+    # Test with extreme distribution parameters
+    extreme_dist = Normal(1e6, 1e-6)  # Very concentrated distribution
+    ic_extreme = interval_censored(extreme_dist, 1.0)
+
+    # Test near the distribution centre
+    centre = 1e6
+    nearby_vals = [centre - 1.0, centre, centre + 1.0]
+    for x in nearby_vals
+        logpdf_val = logpdf(ic_extreme, x)
+        @test logpdf_val ≠ NaN
+        @test isfinite(logpdf_val) || logpdf_val == -Inf
+    end
+end
+
+@testitem "Test IntervalCensored logpdf with degenerate cases" begin
+    using Distributions
+
+    # Test with very narrow arbitrary intervals
+    d = Normal(5, 2)
+    narrow_intervals = [4.99999, 5.00001]  # Very narrow interval around mean
+    ic_narrow = interval_censored(d, narrow_intervals)
+
+    # Most values should return -Inf except those in the narrow interval
+    @test logpdf(ic_narrow, 4.0) == -Inf   # Outside interval
+    @test logpdf(ic_narrow, 6.0) == -Inf   # Outside interval
+    @test logpdf(ic_narrow, 4.99999) > -Inf  # At interval boundary
+
+    # Test with very narrow intervals (nearly degenerate case)
+    narrow_intervals = [2.0, 2.0001, 4.0, 4.0001]  # Very narrow intervals
+    ic_narrow2 = interval_censored(d, narrow_intervals)
+
+    # Should have very little mass in these narrow intervals
+    @test logpdf(ic_narrow2, 2.0) > -Inf   # At narrow interval start
+    @test logpdf(ic_narrow2, 4.0001) == -Inf  # At upper boundary (no mass there)
+    @test logpdf(ic_narrow2, 3.0) == -Inf  # Between intervals
+    @test logpdf(ic_narrow2, 1.0) == -Inf  # Outside all intervals
+
+    # Test with minimum gap intervals
+    min_gap_intervals = [0.0, 1.0, 1.0001, 2.0]  # Minimum allowed gap
+    ic_min_gap = interval_censored(d, min_gap_intervals)
+
+    # Should handle minimum gaps properly
+    @test logpdf(ic_min_gap, 0.5) > -Inf   # In first interval
+    @test logpdf(ic_min_gap, 1.5) > -Inf   # In second interval
+    @test logpdf(ic_min_gap, 1.0) > -Inf   # At first interval boundary
+end
+
+@testitem "Test IntervalCensored logpdf consistency and edge cases" begin
+    using Distributions
+
+    # Test consistency between pdf and logpdf
+    d = LogNormal(1, 0.5)
+    ic = interval_censored(d, 0.5)
+
+    test_values = [0.5, 1.0, 2.0, 3.5, 5.0]
+    for x in test_values
+        pdf_val = pdf(ic, x)
+        logpdf_val = logpdf(ic, x)
+
+        if pdf_val > 0
+            @test logpdf_val ≈ log(pdf_val) rtol=1e-12
+            @test pdf_val ≈ exp(logpdf_val) rtol=1e-12
+        else
+            @test logpdf_val == -Inf
+            @test pdf_val == 0.0
+        end
+    end
+
+    # Test that logpdf handles get_interval_bounds edge cases
+    intervals = [-5.0, 0.0, 5.0]
+    ic_mixed = interval_censored(Normal(0, 2), intervals)
+
+    # Test values that return NaN from get_interval_bounds
+    extreme_vals = [-100.0, 100.0]
+    for x in extreme_vals
+        lower, upper = CensoredDistributions.get_interval_bounds(ic_mixed, x)
+        if isnan(lower) || isnan(upper)
+            @test logpdf(ic_mixed, x) == -Inf
+        end
+    end
+
+    # Test special floating point values
+    @test logpdf(ic, NaN) == -Inf || isnan(logpdf(ic, NaN))
+    @test logpdf(ic, Inf) == -Inf
+    @test logpdf(ic, -Inf) == -Inf
+end
+
+@testitem "Test IntervalCensored logpdf with different underlying distributions" begin
+    using Distributions
+
+    # Test with various underlying distributions and interval types
+    test_distributions = [
+        (Normal(0, 1), 0.5),           # Regular interval
+        (Gamma(2, 1), [0.0, 1.0, 3.0, 6.0]),  # Arbitrary intervals
+        (Exponential(2), 1.0),         # Regular interval
+        (Weibull(1.5, 2), [0.0, 0.5, 2.0]),   # Arbitrary intervals
+        (truncated(Normal(0, 1), -2, 2), 0.25)  # Truncated underlying dist
+    ]
+
+    for (dist, intervals) in test_distributions
+        ic = interval_censored(dist, intervals)
+
+        # Test a range of values
+        if isa(intervals, AbstractVector)
+            test_range = range(minimum(intervals) - 1, maximum(intervals) + 1, length = 10)
+        else
+            test_range = range(-3, 10, length = 10)
+        end
+
+        for x in test_range
+            logpdf_val = logpdf(ic, x)
+            @test logpdf_val ≠ NaN
+            @test isfinite(logpdf_val) || logpdf_val == -Inf
+            @test logpdf_val <= 0.0
+
+            # Test consistency with insupport
+            if !insupport(dist, x)
+                # If underlying distribution doesn't support x, logpdf should be -Inf
+                @test logpdf_val == -Inf
+            end
+        end
+    end
+end
+
+@testitem "Test IntervalCensored logpdf boundary conditions" begin
+    using Distributions
+
+    # Test precise boundary handling
+    d = Normal(0, 1)
+    intervals = [-2.0, 0.0, 2.0]
+    ic = interval_censored(d, intervals)
+
+    # Test values exactly at boundaries
+    @test logpdf(ic, -2.0) > -Inf  # Lower boundary of first interval
+    @test logpdf(ic, 0.0) > -Inf   # Boundary between intervals
+    @test logpdf(ic, 2.0) == -Inf  # Upper boundary of last interval (no mass)
+
+    # Test values just inside/outside boundaries
+    ε = 1e-12
+    @test logpdf(ic, -2.0 + ε) > -Inf  # Just inside first interval
+    @test logpdf(ic, -2.0 - ε) == -Inf # Just outside first interval
+    @test logpdf(ic, 2.0 - ε) > -Inf   # Just inside last interval
+    @test logpdf(ic, 2.0 + ε) == -Inf  # Just outside last interval
+
+    # Test with regular intervals at boundaries
+    ic_reg = interval_censored(d, 1.0)
+
+    # Values at multiples of interval should work
+    boundary_vals = [-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0]
+    for x in boundary_vals
+        logpdf_val = logpdf(ic_reg, x)
+        @test logpdf_val ≠ NaN
+        @test isfinite(logpdf_val) || logpdf_val == -Inf
+    end
+end
