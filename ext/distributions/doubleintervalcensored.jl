@@ -4,6 +4,41 @@ MLE fitting for double interval censored distributions (IntervalCensored{<:Prima
 
 using Bijectors
 
+# Dispatch-based helper functions to extract delay distribution type
+function _get_delay_type(::Type{IntervalCensored{
+        PrimaryCensored{D, P, M}, T}}) where {D, P, M, T}
+    D
+end
+function _get_delay_type(::Type{IntervalCensored{
+        Truncated{PrimaryCensored{D, P, M}, S, Tl, Tu, V},
+        T}}) where {D, P, M, S, Tl, Tu, V, T}
+    D
+end
+
+# Dispatch-based helper functions to extract primary distribution parameters
+function _get_primary_params(dist::IntervalCensored{<:PrimaryCensored})
+    collect(params(dist.dist.primary_event))
+end
+function _get_primary_params(dist::IntervalCensored{<:Truncated{<:PrimaryCensored}})
+    collect(params(dist.dist.untruncated.primary_event))
+end
+
+# Dispatch-based helper functions to get delay initialization parameters
+function _get_delay_init_params(dist::IntervalCensored{<:PrimaryCensored})
+    collect(params(dist.dist.dist))
+end
+function _get_delay_init_params(dist::IntervalCensored{<:Truncated{<:PrimaryCensored}})
+    collect(params(dist.dist.untruncated.dist))
+end
+
+# Dispatch-based helper functions to check if solver is numeric
+function _is_numeric_solver(dist::IntervalCensored{<:PrimaryCensored})
+    dist.dist.method isa NumericSolver
+end
+function _is_numeric_solver(dist::IntervalCensored{<:Truncated{<:PrimaryCensored}})
+    dist.dist.untruncated.method isa NumericSolver
+end
+
 # Internal specialised constructor functions using multiple dispatch for double interval censored
 
 # Generic fallback method for any PrimaryCensored type
@@ -247,8 +282,6 @@ function Distributions.fit_mle(
         autodiff = Optimization.AutoForwardDiff()
 ) where {D <: ContinuousUnivariateDistribution, P <: ContinuousUnivariateDistribution}
 
-    # Solver types are supported for fitting - both analytical and numerical
-
     # Input validation
     _validate_data(data)
     _validate_weights(weights, data)
@@ -256,72 +289,11 @@ function Distributions.fit_mle(
     # Determine interval structure
     interval_spec = intervals === nothing ? dist.boundaries : intervals
 
-    # Handle heterogeneous primary distributions case
-    if primary_dists !== nothing
-        # Validate that primary_dists length matches data length
-        length(primary_dists) == length(data) ||
-            throw(ArgumentError("primary_dists length must match data length"))
-
-        # Default delay parameter initialization from input distribution
-        if delay_init === nothing
-            delay_init = collect(params(dist.dist.dist))
-        end
-
-        # Create bijector only for delay parameters (primary parameters come from provided distributions)
-        delay_bijector = _get_bijector(D, delay_init)
-
-        # Create distribution constructor using dispatch - no closures needed
-        dist_constructor = params -> _dist_constructor(typeof(dist), params, primary_dists,
-            interval_spec, dist.dist.method isa NumericSolver, lowers, uppers)
-
-        # Optimize using the generic function
-        result = _optimize_censored_distribution(
-            data, delay_init, dist_constructor, delay_bijector, weights, optimizer;
-            return_fit_object = return_fit_object, autodiff = autodiff
-        )
-
-        # Handle return format
-        force_numeric = dist.dist.method isa NumericSolver
-        if return_fit_object
-            fitted_params, fit_object = result
-            fitted_dist = _dist_constructor(typeof(dist), fitted_params, primary_dists,
-                interval_spec, force_numeric, lowers, uppers)
-            return (fitted_dist, fit_object)
-        else
-            fitted_params = result
-            return _dist_constructor(typeof(dist), fitted_params, primary_dists,
-                interval_spec, force_numeric, lowers, uppers)
-        end
-    else
-        # Homogeneous case (original logic)
-        # Default parameter initialization from input distribution
-        if delay_init === nothing
-            delay_init = collect(params(dist.dist.dist))  # Get delay distribution params
-        end
-        primary_dist_params = collect(params(dist.dist.primary_event))
-
-        # Fit only delay parameters - primary distribution is part of model specification
-        # Primary event distribution defines the model structure, not parameters to estimate
-
-        # Only optimize delay parameters
-        delay_bijector = CensoredDistributions._get_bijector(D, delay_init)
-
-        # Create distribution constructor that uses specified primary distribution
-        dist_constructor = params -> begin
-            return _dist_constructor(typeof(dist), params, primary_dist_params,
-                interval_spec, dist.dist.method isa NumericSolver, lowers, uppers)
-        end
-
-        # Optimize only delay parameters
-        fitted_delay_params = _optimize_censored_distribution(
-            data, delay_init, dist_constructor, delay_bijector, weights, optimizer
-        )
-
-        # Return fitted distribution with specified primary distribution
-        force_numeric = dist.dist.method isa NumericSolver
-        return _dist_constructor(typeof(dist), fitted_delay_params, primary_dist_params,
-            interval_spec, force_numeric, lowers, uppers)
-    end
+    # Use helper function (lowers/uppers act as truncation bounds)
+    return _fit_double_interval_censored_helper(
+        dist, data, delay_init, primary_dists, interval_spec, weights, optimizer,
+        return_fit_object, autodiff, lowers, uppers
+    )
 end
 
 """
@@ -347,8 +319,6 @@ function Distributions.fit_mle(
 ) where {D <: ContinuousUnivariateDistribution, P <: ContinuousUnivariateDistribution,
         M <: CensoredDistributions.AbstractSolverMethod}
 
-    # Solver types are supported for fitting - both analytical and numerical
-
     # Input validation
     _validate_data(data)
     _validate_weights(weights, data)
@@ -359,90 +329,75 @@ function Distributions.fit_mle(
     lower_bound = truncated_dist.lower
     upper_bound = truncated_dist.upper
 
-    # Handle heterogeneous primary distributions case (same pattern as non-truncated)
+    # Use helper function with truncation bounds
+    return _fit_double_interval_censored_helper(
+        dist, data, delay_init, primary_dists, interval_spec, weights, optimizer,
+        return_fit_object, autodiff, lower_bound, upper_bound
+    )
+end
+
+# Helper function to reduce code duplication in fit methods
+"""
+    _fit_double_interval_censored_helper(dist, data, delay_init, primary_dists,
+                                        interval_spec, weights, optimizer,
+                                        return_fit_object, autodiff,
+                                        lower_bound=nothing, upper_bound=nothing)
+
+Internal helper function that centralizes the common fitting logic for both
+heterogeneous and homogeneous cases, and both truncated and non-truncated distributions.
+Uses dispatch-based helper functions for clean type extraction.
+"""
+function _fit_double_interval_censored_helper(
+        dist, data, delay_init, primary_dists, interval_spec, weights, optimizer,
+        return_fit_object, autodiff, lower_bound = nothing, upper_bound = nothing
+)
+    # Initialize delay parameters if not provided using dispatch
+    if delay_init === nothing
+        delay_init = _get_delay_init_params(dist)
+    end
+
+    # Get delay distribution type using dispatch
+    D = _get_delay_type(typeof(dist))
+
+    # Create bijector for delay parameters
+    delay_bijector = _get_bijector(D, delay_init)
+
+    # Get numeric solver flag using dispatch
+    force_numeric = _is_numeric_solver(dist)
+
+    # Handle heterogeneous vs homogeneous cases
     if primary_dists !== nothing
-        # Validate that primary_dists length matches data length
+        # Heterogeneous case - validate input
         length(primary_dists) == length(data) ||
             throw(ArgumentError("primary_dists length must match data length"))
 
-        # Default delay parameter initialization from input distribution
-        if delay_init === nothing
-            delay_init = collect(params(truncated_dist.untruncated.dist))
-        end
-
-        # Create bijector only for delay parameters (primary parameters come from provided distributions)
-        delay_bijector = CensoredDistributions._get_bijector(D, delay_init)
-
-        # Create distribution constructor using dispatch - no closures needed
+        # Distribution constructor and result args for heterogeneous case
         dist_constructor = params -> _dist_constructor(typeof(dist), params, primary_dists,
-            interval_spec, dist.dist.untruncated.method isa NumericSolver, lower_bound, upper_bound)
-
-        # Optimize using the generic function
-        result = _optimize_censored_distribution(
-            data, delay_init, dist_constructor, delay_bijector, weights, optimizer;
-            return_fit_object = return_fit_object, autodiff = autodiff
-        )
-
-        # Handle return format
-        if return_fit_object
-            fitted_params, fit_object = result
-            force_numeric = dist.dist.untruncated.method isa NumericSolver
-            fitted_dist = _dist_constructor(typeof(dist), fitted_params, primary_dists,
-                interval_spec, force_numeric, lower_bound, upper_bound)
-            return (fitted_dist, fit_object)
-        else
-            fitted_params = result
-            force_numeric = dist.dist.untruncated.method isa NumericSolver
-            return _dist_constructor(typeof(dist), fitted_params, primary_dists,
-                interval_spec, force_numeric, lower_bound, upper_bound)
-        end
+            interval_spec, force_numeric, lower_bound, upper_bound)
+        result_args = (
+            primary_dists, interval_spec, force_numeric, lower_bound, upper_bound)
     else
-        # Homogeneous case (original logic)
-        # Default parameter initialization from input distribution
-        if delay_init === nothing
-            delay_init = collect(params(truncated_dist.untruncated.dist))
-        end
-        primary_dist_params = collect(params(truncated_dist.untruncated.primary_event))
+        # Homogeneous case - get primary distribution parameters using dispatch
+        primary_params = _get_primary_params(dist)
 
-        # Fit only delay parameters - primary distribution is part of model specification
-        # Primary event distribution defines the model structure, not parameters to estimate
-
-        # Only optimize delay parameters
-        delay_bijector = CensoredDistributions._get_bijector(D, delay_init)
-
-        # Create distribution constructor that uses specified primary distribution
-        dist_constructor = params -> begin
-            return _dist_constructor(
-                IntervalCensored{PrimaryCensored{D, P, M}, typeof(interval_spec)},
-                params, primary_dist_params, interval_spec,
-                dist.dist.untruncated.method isa NumericSolver,
-                lower_bound, upper_bound)
-        end
-
-        # Optimize only delay parameters
-        result = _optimize_censored_distribution(
-            data, delay_init, dist_constructor, delay_bijector, weights, optimizer;
-            return_fit_object = return_fit_object, autodiff = autodiff
-        )
-
-        # Handle return format
-        if return_fit_object
-            fitted_delay_params, fit_object = result
-            force_numeric = dist.dist.untruncated.method isa NumericSolver
-            fitted_dist = _dist_constructor(
-                IntervalCensored{PrimaryCensored{D, P, M}, typeof(interval_spec)},
-                fitted_delay_params, primary_dist_params, interval_spec, force_numeric,
-                lower_bound, upper_bound)
-            return (fitted_dist, fit_object)
-        else
-            fitted_delay_params = result
-            force_numeric = dist.dist.untruncated.method isa NumericSolver
-            return _dist_constructor(
-                IntervalCensored{PrimaryCensored{D, P, M}, typeof(interval_spec)},
-                fitted_delay_params, primary_dist_params, interval_spec, force_numeric,
-                lower_bound, upper_bound)
-        end
+        # Distribution constructor and result args for homogeneous case
+        dist_constructor = params -> _dist_constructor(
+            typeof(dist), params, primary_params,
+            interval_spec, force_numeric, lower_bound, upper_bound)
+        result_args = (
+            primary_params, interval_spec, force_numeric, lower_bound, upper_bound)
     end
+
+    # Optimize using the generic function
+    fitted_params,
+    optimization_result = _optimize_censored_distribution(
+        data, delay_init, dist_constructor, delay_bijector, weights, optimizer;
+        autodiff = autodiff
+    )
+
+    # Handle return format using external function
+    return _handle_fit_result(fitted_params, optimization_result, return_fit_object,
+        (params, args...) -> _dist_constructor(typeof(dist), params, args...), result_args...)
 end
 
 # Convenience wrappers for fit()

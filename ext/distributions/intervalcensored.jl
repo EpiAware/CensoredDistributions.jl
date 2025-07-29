@@ -109,26 +109,22 @@ function Distributions.fit_mle(
     end
 
     # Get bijector for the distribution type using DistributionsAD if available
-    bijector = CensoredDistributions._get_bijector(D, init_params)
+    bijector = _get_bijector(D, init_params)
 
     # Create distribution constructor using dispatch - handles product distribution internally
     dist_constructor = params -> _dist_constructor(typeof(dist), params, interval_spec)
 
     # Optimize using the generic function
-    result = _optimize_censored_distribution(
+    fitted_params,
+    optimization_result = _optimize_censored_distribution(
         data, init_params, dist_constructor, bijector, weights, optimizer;
-        return_fit_object = return_fit_object, autodiff = autodiff
+        autodiff = autodiff
     )
 
-    # Handle return format
-    if return_fit_object
-        fitted_params, fit_object = result
-        fitted_dist = _dist_constructor(typeof(dist), fitted_params, interval_spec)
-        return (fitted_dist, fit_object)
-    else
-        fitted_params = result
-        return _dist_constructor(typeof(dist), fitted_params, interval_spec)
-    end
+    # Handle return format using external function
+    return _handle_fit_result(fitted_params, optimization_result, return_fit_object,
+        (params, args...) -> _dist_constructor(typeof(dist), params, args...),
+        interval_spec)
 end
 
 # Convenience wrapper for fit()

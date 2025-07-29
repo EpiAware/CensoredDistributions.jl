@@ -60,7 +60,7 @@ using Optimization, OptimizationOptimJL, Bijectors
 data = rand(censored, 1000)
 
 # Fit the distribution to recover original parameters
-guess_censored = double_interval_censored(Gamma(1, 1); upper = 15, interval = 1)
+guess_censored = double_interval_censored(Gamma(1.5, 1); upper = 15, interval = 1)
 fitted_dist = fit(guess_censored, data)
 Distributions.params(fitted_dist)
 ```

@@ -19,8 +19,8 @@ using CensoredDistributions: IntervalCensored, PrimaryCensored,
                              NumericSolver, AnalyticalSolver
 
 # Include the generic infrastructure
-include("generic/optimization.jl")
 include("generic/bijectors.jl")
+include("generic/optimization.jl")
 
 # Include distribution-specific fitting methods
 include("distributions/intervalcensored.jl")

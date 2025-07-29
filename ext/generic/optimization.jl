@@ -5,6 +5,36 @@ This file provides the core optimization infrastructure that is shared across
 all censored distribution types.
 """
 
+"""
+    _handle_fit_result(fitted_params, optimization_result, return_fit_object,
+                      dist_constructor_func, additional_args...)
+
+External function to handle fit result formatting across different fit functions.
+This centralizes the logic for returning either just the fitted distribution or
+a tuple with the optimization result.
+
+# Arguments
+- `fitted_params`: The optimized parameters
+- `optimization_result`: The full optimization result object
+- `return_fit_object`: Boolean flag for return format
+- `dist_constructor_func`: Function to construct the fitted distribution
+- `additional_args...`: Additional arguments passed to the distribution constructor
+
+# Returns
+- If `return_fit_object=false`: The fitted distribution
+- If `return_fit_object=true`: Tuple of (fitted_distribution, optimization_result)
+"""
+function _handle_fit_result(
+        fitted_params::AbstractVector{<:Real},
+        optimization_result,
+        return_fit_object::Bool,
+        dist_constructor_func::Function,
+        additional_args...
+)
+    fitted_dist = dist_constructor_func(fitted_params, additional_args...)
+    return return_fit_object ? (fitted_dist, optimization_result) : fitted_dist
+end
+
 # Internal generic optimization function
 """
     _optimize_censored_distribution(data, initial_params, dist_constructor,
@@ -22,12 +52,10 @@ bijectors for parameter transformations.
 - `optimizer`: SciML optimizer to use
 
 # Keyword Arguments
-- `return_fit_object`: If true, returns (fitted_params, optimization_result). If false, returns fitted_params only.
 - `autodiff`: Automatic differentiation method for optimization (default: Optimization.AutoForwardDiff())
 
 # Returns
-- If `return_fit_object=false`: Vector of optimized parameters in constrained space
-- If `return_fit_object=true`: Tuple of (fitted_params, optimization_result)
+Vector of optimized parameters in constrained space and the optimization result as a tuple
 """
 function _optimize_censored_distribution(
         data::AbstractVector{<:Real},
@@ -36,7 +64,6 @@ function _optimize_censored_distribution(
         bijector,
         weights::Union{Nothing, AbstractVector{<:Real}} = nothing,
         optimizer = OptimizationOptimJL.LBFGS();
-        return_fit_object::Bool = false,
         autodiff = Optimization.AutoForwardDiff()
 )
     # Transform to unconstrained space
@@ -98,13 +125,13 @@ function _optimize_censored_distribution(
         @warn "Optimization resulted in infinite objective value ($(result.objective)). " *
               "This typically indicates parameter transformation issues or data incompatibility. " *
               "Returning initial parameters. Try different initial parameters or check data compatibility."
-        return return_fit_object ? (initial_params, result) : initial_params
+        return (initial_params, result)
     end
 
     # Transform result back to constrained space
     fitted_params = inverse(bijector)(result.u)
 
-    return return_fit_object ? (fitted_params, result) : fitted_params
+    return (fitted_params, result)
 end
 
 # Input validation functions
