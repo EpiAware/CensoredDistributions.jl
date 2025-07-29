@@ -73,10 +73,8 @@ weights = [count(==(val), data) for val in unique_values]
     # Create the censored distribution
     censored_dist = double_interval_censored(Gamma(α, θ); upper = 15, interval = 1)
 
-    # Weighted likelihood using CensoredDistributions.weight
-    for (val, w) in zip(values, weights)
-        val ~ weight(censored_dist, w)
-    end
+    # Vectorized weighted likelihood
+    values ~ weight(censored_dist, weights)
 end
 
 # Fit using MLE or other methods
