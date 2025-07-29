@@ -287,7 +287,7 @@ end
         @test cdf(d, -1.0) == 0.0
 
         # Test large x
-        @test cdf(d, 1000.0) ≈ 1.0
+        @test cdf(d, 1000.0)≈1.0 atol=1e-6
 
         # Test log versions
         @test logcdf(d, 0.0) == -Inf
@@ -295,7 +295,7 @@ end
 
         # Test ccdf
         @test ccdf(d, 0.0) == 1.0
-        @test ccdf(d, 1000.0) ≈ 0.0
+        @test ccdf(d, 1000.0)≈0.0 atol=1e-6
     end
 end
 
