@@ -167,7 +167,7 @@ For common workflows involving the complete pipeline of primary censoring, trunc
 
 ```julia
 # This is equivalent to the step-by-step approach above
-double_censored_dist = double_interval_censored(Gamma(2, 1), Uniform(0, 1); upper=8, interval=2)
+double_censored_dist = double_interval_censored(Gamma(2, 1); upper=8, interval=2)
 ```
 
 As with all the other functions, we can sample from the distribution

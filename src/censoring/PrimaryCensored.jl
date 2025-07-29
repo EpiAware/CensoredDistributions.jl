@@ -13,6 +13,8 @@ This is useful for modeling:
 # Arguments
 - `dist`: Distribution of the delay from primary event to observation
 - `primary_event`: Distribution of the primary event time (typically Uniform(0, window))
+
+# Keyword Arguments
 - `solver=QuadGKJL()`: Numerical integration solver for CDF computation
 - `force_numeric=false`: If true, always use numerical integration; if false, use analytical solutions when available
 
@@ -52,6 +54,45 @@ function primary_censored(
 end
 
 @doc raw"
+Create a primary event censored distribution with keyword arguments.
+
+This is a convenience version of `primary_censored` that uses keyword arguments for consistency
+with `double_interval_censored`. The primary event distribution defaults to `Uniform(0, 1)`.
+
+# Arguments
+- `dist`: Distribution of the delay from primary event to observation
+
+# Keyword Arguments
+- `primary_event=Uniform(0, 1)`: Distribution of the primary event time
+- `solver=QuadGKJL()`: Numerical integration solver for CDF computation
+- `force_numeric=false`: If true, always use numerical integration; if false, use analytical solutions when available
+
+# Returns
+A `PrimaryCensored` distribution representing the convolution of the censoring and delay distributions.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+# Using default Uniform(0, 1) primary event
+d1 = primary_censored(LogNormal(1.5, 0.75))
+
+# Custom primary event distribution
+d2 = primary_censored(LogNormal(1.5, 0.75); primary_event=Uniform(0, 2))
+
+# All distributions are equivalent to the positional argument version
+d3 = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
+```
+"
+function primary_censored(
+        dist::UnivariateDistribution;
+        primary_event::UnivariateDistribution = Uniform(0, 1),
+        solver = QuadGKJL(), force_numeric = false)
+    return primary_censored(
+        dist, primary_event; solver = solver, force_numeric = force_numeric)
+end
+
+@doc raw"
 Primary event censored distribution.
 
 Represents the distribution of observed delays when the primary event time is subject to censoring.
@@ -63,7 +104,7 @@ Represents the distribution of observed delays when the primary event time is su
 "
 struct PrimaryCensored{
     D1 <: UnivariateDistribution, D2 <: UnivariateDistribution, M <: AbstractSolverMethod} <:
-       Distributions.UnivariateDistribution{Distributions.ValueSupport}
+       Distributions.UnivariateDistribution{Distributions.Continuous}
     "The delay distribution from primary event to observation."
     dist::D1
     "The primary event time distribution."
@@ -105,8 +146,60 @@ function Distributions.ccdf(d::PrimaryCensored, x::Real)
 end
 
 function Distributions.logccdf(d::PrimaryCensored, x::Real)
-    result = log(ccdf(d, x))
-    return result
+    # Use log1mexp for numerical stability: log(1 - exp(logcdf))
+    logcdf_val = logcdf(d, x)
+
+    # Handle edge cases
+    if logcdf_val == -Inf
+        return 0.0  # log(1) when CDF = 0
+    elseif logcdf_val >= 0.0
+        return -Inf  # log(0) when CDF = 1
+    end
+
+    return log1mexp(logcdf_val)
+end
+
+#### PDF using numerical differentiation of CDF
+function Distributions.pdf(d::PrimaryCensored, x::Real)
+    return exp(logpdf(d, x))
+end
+
+function Distributions.logpdf(d::PrimaryCensored, x::Real)
+    try
+        if !insupport(d, x)
+            return -Inf
+        end
+
+        # Use central difference for numerical differentiation
+        h = 1e-8  # Small step size for differentiation
+        x_lower = max(x - h/2, minimum(d))
+        x_upper = min(x + h/2, maximum(d))
+
+        # Handle edge cases where we can't center the difference
+        if x_lower == minimum(d)
+            # Forward difference at minimum
+            logcdf_upper = logcdf(d, x + h)
+            logcdf_x = logcdf(d, x)
+            return logsubexp(logcdf_upper, logcdf_x) - log(h)
+        elseif x_upper == maximum(d)
+            # Backward difference at maximum
+            logcdf_x = logcdf(d, x)
+            logcdf_lower = logcdf(d, x - h)
+            return logsubexp(logcdf_x, logcdf_lower) - log(h)
+        else
+            # Central difference for interior points
+            logcdf_upper = logcdf(d, x_upper)
+            logcdf_lower = logcdf(d, x_lower)
+            return logsubexp(logcdf_upper, logcdf_lower) - log(x_upper - x_lower)
+        end
+    catch e
+        # If numerical differentiation fails (e.g., domain error in logsubexp), return -Inf
+        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
+            return -Inf
+        else
+            rethrow(e)
+        end
+    end
 end
 
 #### Sampling

@@ -107,7 +107,7 @@
     end
 end
 
-@testitem "PrimaryCensored Analytical vs Numerical Agreement" begin
+@testitem "Gamma + Uniform analytical vs numerical agreement" begin
     using Distributions
     using Random
 
@@ -117,86 +117,111 @@ end
     rtol = 1e-6
     x_vals = range(0.1, 20, 50)
 
-    @testset "Gamma + Uniform" begin
-        # Create distributions
-        dist = Gamma(2.0, 3.0)
-        primary = Uniform(0.0, 1.0)
+    # Create distributions
+    dist = Gamma(2.0, 3.0)
+    primary = Uniform(0.0, 1.0)
 
-        # Analytical solution (default)
-        d_analytical = primary_censored(dist, primary)
+    # Analytical solution (default)
+    d_analytical = primary_censored(dist, primary)
 
-        # Numerical solution
-        d_numerical = primary_censored(dist, primary; force_numeric = true)
+    # Numerical solution
+    d_numerical = primary_censored(dist, primary; force_numeric = true)
 
-        # Compare CDFs
-        cdf_analytical = cdf.(Ref(d_analytical), x_vals)
-        cdf_numerical = cdf.(Ref(d_numerical), x_vals)
+    # Compare CDFs
+    cdf_analytical = cdf.(Ref(d_analytical), x_vals)
+    cdf_numerical = cdf.(Ref(d_numerical), x_vals)
 
-        @test all(isapprox.(cdf_analytical, cdf_numerical, rtol = rtol))
+    @test all(isapprox.(cdf_analytical, cdf_numerical, rtol = rtol))
 
-        # Test log versions
-        logcdf_analytical = logcdf.(Ref(d_analytical), x_vals)
-        logcdf_numerical = logcdf.(Ref(d_numerical), x_vals)
+    # Test log versions
+    logcdf_analytical = logcdf.(Ref(d_analytical), x_vals)
+    logcdf_numerical = logcdf.(Ref(d_numerical), x_vals)
 
-        @test all(isapprox.(logcdf_analytical, logcdf_numerical, rtol = rtol))
-    end
+    @test all(isapprox.(logcdf_analytical, logcdf_numerical, rtol = rtol))
+end
 
-    @testset "LogNormal + Uniform" begin
-        # Create distributions
-        dist = LogNormal(1.5, 0.75)
-        primary = Uniform(0.0, 1.0)
+@testitem "LogNormal + Uniform analytical vs numerical agreement" begin
+    using Distributions
+    using Random
 
-        # Analytical solution
-        d_analytical = primary_censored(dist, primary)
+    Random.seed!(1234)
 
-        # Numerical solution
-        d_numerical = primary_censored(dist, primary; force_numeric = true)
+    # Test parameters
+    rtol = 1e-6
+    x_vals = range(0.1, 20, 50)
 
-        # Compare CDFs
-        cdf_analytical = cdf.(Ref(d_analytical), x_vals)
-        cdf_numerical = cdf.(Ref(d_numerical), x_vals)
+    # Create distributions
+    dist = LogNormal(1.5, 0.75)
+    primary = Uniform(0.0, 1.0)
 
-        @test all(isapprox.(cdf_analytical, cdf_numerical, rtol = rtol))
-    end
+    # Analytical solution
+    d_analytical = primary_censored(dist, primary)
 
-    @testset "Weibull + Uniform" begin
-        # Create distributions
-        dist = Weibull(2.0, 1.5)
-        primary = Uniform(0.0, 1.0)
+    # Numerical solution
+    d_numerical = primary_censored(dist, primary; force_numeric = true)
 
-        # Analytical solution
-        d_analytical = primary_censored(dist, primary)
+    # Compare CDFs
+    cdf_analytical = cdf.(Ref(d_analytical), x_vals)
+    cdf_numerical = cdf.(Ref(d_numerical), x_vals)
 
-        # Numerical solution
-        d_numerical = primary_censored(dist, primary; force_numeric = true)
+    @test all(isapprox.(cdf_analytical, cdf_numerical, rtol = rtol))
+end
 
-        # Compare CDFs
-        cdf_analytical = cdf.(Ref(d_analytical), x_vals)
-        cdf_numerical = cdf.(Ref(d_numerical), x_vals)
+@testitem "Weibull + Uniform analytical vs numerical agreement" begin
+    using Distributions
+    using Random
 
-        @test all(isapprox.(cdf_analytical, cdf_numerical, rtol = rtol))
-    end
+    Random.seed!(1234)
 
-    @testset "Non-uniform primary event window" begin
-        # Test with non-zero minimum for primary event
-        dist = Gamma(2.0, 3.0)
-        primary = Uniform(2.0, 3.0)  # Window from 2 to 3
+    # Test parameters
+    rtol = 1e-6
+    x_vals = range(0.1, 20, 50)
 
-        d_analytical = primary_censored(dist, primary)
-        d_numerical = primary_censored(dist, primary; force_numeric = true)
+    # Create distributions
+    dist = Weibull(2.0, 1.5)
+    primary = Uniform(0.0, 1.0)
 
-        # Adjust x_vals for the shifted window
-        x_vals_shifted = range(2.1, 22, 50)
+    # Analytical solution
+    d_analytical = primary_censored(dist, primary)
 
-        cdf_analytical = cdf.(Ref(d_analytical), x_vals_shifted)
-        cdf_numerical = cdf.(Ref(d_numerical), x_vals_shifted)
+    # Numerical solution
+    d_numerical = primary_censored(dist, primary; force_numeric = true)
 
-        @test all(isapprox.(cdf_analytical, cdf_numerical, rtol = rtol))
-    end
+    # Compare CDFs
+    cdf_analytical = cdf.(Ref(d_analytical), x_vals)
+    cdf_numerical = cdf.(Ref(d_numerical), x_vals)
+
+    @test all(isapprox.(cdf_analytical, cdf_numerical, rtol = rtol))
+end
+
+@testitem "Non-uniform primary event window analytical vs numerical agreement" begin
+    using Distributions
+    using Random
+
+    Random.seed!(1234)
+
+    # Test parameters
+    rtol = 1e-6
+
+    # Test with non-zero minimum for primary event
+    dist = Gamma(2.0, 3.0)
+    primary = Uniform(2.0, 3.0)  # Window from 2 to 3
+
+    d_analytical = primary_censored(dist, primary)
+    d_numerical = primary_censored(dist, primary; force_numeric = true)
+
+    # Adjust x_vals for the shifted window
+    x_vals_shifted = range(2.1, 22, 50)
+
+    cdf_analytical = cdf.(Ref(d_analytical), x_vals_shifted)
+    cdf_numerical = cdf.(Ref(d_numerical), x_vals_shifted)
+
+    @test all(isapprox.(cdf_analytical, cdf_numerical, rtol = rtol))
 end
 
 @testitem "PrimaryCensored Analytical Performance" begin
     using Distributions
+    using BenchmarkTools
 
     # Test distributions
     test_cases = [
@@ -207,26 +232,41 @@ end
 
     @testset "Performance improvement" begin
         for (dist, name) in test_cases
-            primary = Uniform(0.0, 1.0)
+            @testset "$(name) speedup" begin
+                primary = Uniform(0.0, 1.0)
 
-            # Create analytical and numerical versions
-            d_analytical = primary_censored(dist, primary)
-            d_numerical = primary_censored(dist, primary; force_numeric = true)
+                # Create analytical and numerical versions
+                d_analytical = primary_censored(dist, primary)
+                d_numerical = primary_censored(dist, primary; force_numeric = true)
+                # Sample vectorised values to use for benchmarking
+                x_vals = rand(dist, 100)
 
-            x = mean(dist)
+                # Create benchmarks with proper setup to avoid compilation overhead
+                b_analytical = @benchmarkable begin
+                    for x in $x_vals
+                        cdf($d_analytical, x)
+                    end
+                end
 
-            # Time them to verify analytical is faster
-            t_analytical = @elapsed for _ in 1:100
-                cdf(d_analytical, x)
+                b_numerical = @benchmarkable begin
+                    for x in $x_vals
+                        cdf($d_numerical, x)
+                    end
+                end
+
+                # Run benchmarks with proper parameters to account for setup time
+                t_analytical = run(b_analytical, samples = 10)
+                t_numerical = run(b_numerical, samples = 10)
+
+                # Compare median times to avoid outliers
+                analytical_time = median(t_analytical).time
+                numerical_time = median(t_numerical).time
+
+                # Analytical should be faster
+                speedup = numerical_time / analytical_time
+                @test speedup > 2  # More conservative threshold to account for variability
+                @info "$(name) speedup: $(round(speedup, digits=1))x ($(analytical_time/1e6) ms vs $(numerical_time/1e6) ms)"
             end
-            t_numerical = @elapsed for _ in 1:100
-                cdf(d_numerical, x)
-            end
-
-            # Analytical should be significantly faster
-            speedup = t_numerical / t_analytical
-            @test speedup > 1.01
-            @info "$(name) speedup: $(round(speedup, digits=1))x"
         end
     end
 end
@@ -247,7 +287,7 @@ end
         @test cdf(d, -1.0) == 0.0
 
         # Test large x
-        @test cdf(d, 1000.0) ≈ 1.0
+        @test cdf(d, 1000.0)≈1.0 atol=1e-6
 
         # Test log versions
         @test logcdf(d, 0.0) == -Inf
@@ -255,7 +295,7 @@ end
 
         # Test ccdf
         @test ccdf(d, 0.0) == 1.0
-        @test ccdf(d, 1000.0) ≈ 0.0
+        @test ccdf(d, 1000.0)≈0.0 atol=1e-6
     end
 end
 

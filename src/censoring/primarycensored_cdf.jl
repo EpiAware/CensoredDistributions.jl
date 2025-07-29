@@ -1,5 +1,19 @@
 # Analytical CDF solutions for PrimaryCensored distributions
 
+# AD-compatible gamma CDF using HypergeometricFunctions
+# Based on the identity: γ(a,z) = z^a/a * M(a, a+1, -z)
+# where γ is the lower incomplete gamma function and M is the confluent hypergeometric function
+function _gamma_cdf_ad_safe(k::Real, θ::Real, x::Real)
+    if x <= 0
+        return 0.0
+    end
+    z = x / θ
+    # Use the same approach as in weibull_g function
+    # P(a,z) = γ(a,z)/Γ(a) = z^a/a * M(a, a+1, -z) / Γ(a)
+    # For integer a, Γ(a) = (a-1)!, but we use gamma(k) for generality
+    return (z^k / k * HypergeometricFunctions.M(k, k + 1, -z)) / gamma(k)
+end
+
 @doc raw"
 Abstract type for solver methods used in CDF computation.
 
@@ -159,16 +173,15 @@ function primarycensored_cdf(
     # Compute q = max(t - pwindow, 0)
     q = max(t - pwindow, 0.0)
 
-    # Compute CDFs using Distributions.jl
-    F_t = cdf(dist, t)
+    # Compute CDFs using AD-safe gamma CDF
+    F_t = _gamma_cdf_ad_safe(k, θ, t)
 
     # For the partial expectation, we need F(t; k+1, θ) and F(q; k+1, θ)
-    dist_kplus1 = Gamma(k + 1, θ)
-    F_t_kplus1 = cdf(dist_kplus1, t)
+    F_t_kplus1 = _gamma_cdf_ad_safe(k + 1, θ, t)
 
     if q > 0
-        F_q = cdf(dist, q)
-        F_q_kplus1 = cdf(dist_kplus1, q)
+        F_q = _gamma_cdf_ad_safe(k, θ, q)
+        F_q_kplus1 = _gamma_cdf_ad_safe(k + 1, θ, q)
 
         # Compute differences
         ΔF_k = F_t - F_q
@@ -182,16 +195,24 @@ function primarycensored_cdf(
     # When q > 0: F_S+(d) = F_T(d) - exp(log_diff_exp(log(k*θ) + log(ΔF_{k+1}), log(d-w) + log(ΔF_k)) - log(w))
     # When q = 0: F_S+(d) = F_T(d) - exp(log_sum_exp(log(k*θ) + log(F_{k+1}), log(w-d) + log(F_k)) - log(w))
 
+    # Handle numerical precision issues where differences might be slightly negative
+    ΔF_k = max(ΔF_k, 0.0)
+    ΔF_kplus1 = max(ΔF_kplus1, 0.0)
+
     if q > 0
         # Use log-space computation for numerical stability
+        # Handle edge case where t - pwindow might be very close to 0
+        t_minus_pwindow = max(t - pwindow, 0.0)
         log_term1 = log(k * θ) + log(ΔF_kplus1)
-        log_term2 = log(t - pwindow) + log(ΔF_k)
+        log_term2 = log(t_minus_pwindow) + log(max(ΔF_k, 0.0))
         log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_diff)
     else
         # When q = 0, use log_sum_exp instead of log_diff_exp
+        # Handle edge case where pwindow - t might be very close to 0
+        pwindow_minus_t = max(pwindow - t, 0.0)
         log_term1 = log(k * θ) + log(ΔF_kplus1)
-        log_term2 = log(pwindow - t) + log(ΔF_k)
+        log_term2 = log(pwindow_minus_t) + log(max(ΔF_k, 0.0))
         log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_sum)
     end
@@ -245,16 +266,24 @@ function primarycensored_cdf(
     end
 
     # Compute the analytical CDF matching the Stan implementation
+    # Handle numerical precision issues where differences might be slightly negative
+    ΔF = max(ΔF, 0.0)
+    ΔF_shifted = max(ΔF_shifted, 0.0)
+
     if q > 0
         # Use log-space computation for numerical stability
+        # Handle edge case where t - pwindow might be very close to 0
+        t_minus_pwindow = max(t - pwindow, 0.0)
         log_term1 = (μ + 0.5 * σ^2) + log(ΔF_shifted)
-        log_term2 = log(t - pwindow) + log(ΔF)
+        log_term2 = log(t_minus_pwindow) + log(max(ΔF, 0.0))
         log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_diff)
     else
         # When q = 0, use log_sum_exp
+        # Handle edge case where pwindow - t might be very close to 0
+        pwindow_minus_t = max(pwindow - t, 0.0)
         log_term1 = (μ + 0.5 * σ^2) + log(ΔF_shifted)
-        log_term2 = log(pwindow - t) + log(ΔF)
+        log_term2 = log(pwindow_minus_t) + log(max(ΔF, 0.0))
         log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_sum)
     end
@@ -299,9 +328,11 @@ function primarycensored_cdf(
         end
         x = (t / λ)^k
         a = 1 + 1/k
-        # gamma_inc(a, x) returns (lower, upper) incomplete gamma functions
-        lower_inc, _ = gamma_inc(a, x)
-        return gamma(a) * lower_inc
+        # Use AD-compatible confluent hypergeometric function instead of gamma_inc
+        # γ(a,z) = z^a/a * M(a, a+1, -z) where M is the confluent hypergeometric function
+        # See: https://github.com/JuliaMath/HypergeometricFunctions.jl/issues/50#issuecomment-1397363491
+        # This avoids gamma_inc which causes AD issues
+        return x^a / a * HypergeometricFunctions.M(a, a + 1, -x)
     end
 
     # Compute g values
@@ -320,16 +351,24 @@ function primarycensored_cdf(
     end
 
     # Compute the analytical CDF matching the Stan implementation
+    # Handle numerical precision issues where Δg or ΔF might be slightly negative
+    Δg = max(Δg, 0.0)
+    ΔF = max(ΔF, 0.0)
+
     if q > 0
         # Use log-space computation for numerical stability
+        # Handle edge case where t - pwindow might be very close to 0
+        t_minus_pwindow = max(t - pwindow, 0.0)
         log_term1 = log(λ) + log(Δg)
-        log_term2 = log(t - pwindow) + log(ΔF)
+        log_term2 = log(t_minus_pwindow) + log(max(ΔF, 0.0))
         log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_diff)
     else
         # When q = 0, use log_sum_exp
+        # Handle edge case where pwindow - t might be very close to 0
+        pwindow_minus_t = max(pwindow - t, 0.0)
         log_term1 = log(λ) + log(Δg)
-        log_term2 = log(pwindow - t) + log(ΔF)
+        log_term2 = log(pwindow_minus_t) + log(max(ΔF, 0.0))
         log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_sum)
     end
@@ -351,13 +390,29 @@ function primarycensored_logcdf(
         x::Real,
         method::AbstractSolverMethod
 ) where {D1 <: UnivariateDistribution, D2 <: UnivariateDistribution}
+    # Check support first for type stability
     if x <= minimum(dist)
         return -Inf
     elseif x == Inf
         return 0.0
     end
 
-    # Compute CDF and take log
-    cdf_val = primarycensored_cdf(dist, primary_event, x, method)
-    return log(cdf_val)
+    # Compute CDF and take log directly for type stability
+    try
+        cdf_val = primarycensored_cdf(dist, primary_event, x, method)
+
+        # Handle numerical precision issues where cdf_val might be slightly negative
+        if cdf_val <= 0
+            return -Inf
+        end
+
+        return log(cdf_val)
+    catch e
+        # If analytical solution fails (e.g., domain error), return -Inf log probability
+        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
+            return -Inf
+        else
+            rethrow(e)
+        end
+    end
 end

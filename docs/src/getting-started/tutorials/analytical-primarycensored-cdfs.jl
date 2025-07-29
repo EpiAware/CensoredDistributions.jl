@@ -89,13 +89,6 @@ begin
     )
 end
 
-# ╔═╡ a1b2c3d4-5e6f-7890-abcd-ef1234567890
-md"""
-**Default solver type:** $(solver_types.analytical)
-
-**Forced numeric solver type:** $(solver_types.numerical)
-"""
-
 # ╔═╡ bbfa05f3-8ae1-4460-b423-b1ccff4ccb62
 md"""
 Let's verify both methods give the same results:
@@ -294,14 +287,6 @@ begin
     )
 end
 
-# ╔═╡ b2c3d4e5-6f7a-8901-bcde-f23456789012
-md"""
-**Maximum absolute errors:**
-- Gamma: $(max_errors.gamma)
-- LogNormal: $(max_errors.lognormal)
-- Weibull: $(max_errors.weibull)
-"""
-
 # ╔═╡ bc1fae07-e658-46cb-b0f5-80aa07d78d53
 # Plot CDF comparison
 begin
@@ -388,13 +373,6 @@ begin
     )
 end
 
-# ╔═╡ c3d4e5f6-7a8b-9012-cdef-345678901234
-md"""
-**Solvers are stored in the method field:**
-- Default: $(solver_info.default)
-- Custom: $(solver_info.custom)
-"""
-
 # ╔═╡ 73ebcbf1-0f7e-45c5-876e-e48d9b7dfd25
 md"""
 
@@ -429,6 +407,28 @@ The analytical CDF solutions in CensoredDistributions.jl provide:
 - Park et al. (2024) and Cori et al. (2013): Original research papers
 """
 
+# ╔═╡ b2c3d4e5-6f7a-8901-bcde-f23456789012
+md"""
+**Maximum absolute errors:**
+- Gamma: $(max_errors.gamma)
+- LogNormal: $(max_errors.lognormal)
+- Weibull: $(max_errors.weibull)
+"""
+
+# ╔═╡ a1b2c3d4-5e6f-7890-abcd-ef1234567890
+md"""
+**Default solver type:** $(solver_types.analytical)
+
+**Forced numeric solver type:** $(solver_types.numerical)
+"""
+
+# ╔═╡ c3d4e5f6-7a8b-9012-cdef-345678901234
+md"""
+**Solvers are stored in the method field:**
+- Default: $(solver_info.default)
+- Custom: $(solver_info.custom)
+"""
+
 # ╔═╡ Cell order:
 # ╟─a1b2c3d4-e5f6-7890-abcd-ef1234567890
 # ╠═5fd10670-c3b3-4e06-a7fa-3aa3a0ff3e54
@@ -454,3 +454,6 @@ The analytical CDF solutions in CensoredDistributions.jl provide:
 # ╠═926c655e-b0d1-4dfa-834d-38e00c73ab47
 # ╟─73ebcbf1-0f7e-45c5-876e-e48d9b7dfd25
 # ╟─2547c183-84cf-470c-8d85-14648247b8cc
+# ╠═b2c3d4e5-6f7a-8901-bcde-f23456789012
+# ╠═a1b2c3d4-5e6f-7890-abcd-ef1234567890
+# ╠═c3d4e5f6-7a8b-9012-cdef-345678901234

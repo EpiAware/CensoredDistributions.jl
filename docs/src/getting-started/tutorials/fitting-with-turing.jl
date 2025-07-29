@@ -93,7 +93,7 @@ pwindows = rand(1:2, n)
 swindows = rand(1:2, n)
 
 # ╔═╡ 6465e51b-8d71-4c85-ba40-e6d230aa53b1
-obs_times = rand(8:10, n)
+obs_times = rand(8:12, n)
 
 # ╔═╡ b5598cc7-ddd1-4d90-af9b-110a518416ac
 md"### Simulate from the double censored distribution for each individual"
@@ -103,7 +103,8 @@ md"Using the `true_dist` and the sampled event times we can sample directly from
 
 # ╔═╡ f4ed78df-cdbb-4534-890a-fb346dd65f33
 samples = map(pwindows, swindows, obs_times) do pw, sw, ot
-    rand(double_interval_censored(true_dist, Uniform(0.0, pw); upper = ot, interval = sw))
+    rand(double_interval_censored(
+        true_dist; primary_event = Uniform(0.0, pw), upper = ot, interval = sw))
 end
 
 # ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
@@ -238,13 +239,13 @@ First we define our model. Aside from the use of the `double_interval_censored` 
 
 # ╔═╡ 825227da-5788-4bbd-8546-2d8a30996aaa
 @model function CensoredDistributions_model(y, n, pws, sws, Ds)
-    mu ~ Normal(1.0, 1.0)
+    mu ~ Normal(1.0, 2.0)
     sigma ~ truncated(Normal(0.5, 0.5); lower = 0.0)
     dist = LogNormal(mu, sigma)
 
     pcens_dists = map(pws, Ds, sws) do pw, D, sw
         double_interval_censored(
-            dist, Uniform(0.0, pw); upper = D, interval = sw, force_numeric = true)
+            dist; primary_event = Uniform(0.0, pw), upper = D, interval = sw)
     end
 
     y ~ weight(pcens_dists, n)
@@ -266,7 +267,7 @@ CensoredDistributions_mdl = CensoredDistributions_model(
 
 # ╔═╡ 691e3d54-1a31-4686-a70d-711c2fc45dc1
 md"
-Now we fit the model to recover the true parameters from the synthetic data we generated earlier. This demonstrates the package's ability to perform accurate parameter recovery when the censoring process is properly modelled.
+Now we fit the model (*Note: `Turing.jl` supports a wide range of fitting methods but here we use the No-U-turn sampler*) to recover the true parameters from the synthetic data we generated earlier. This demonstrates the package's ability to perform accurate parameter recovery when the censoring process is properly modelled.
 "
 
 # ╔═╡ b5cd8b13-e3db-4ed1-80ce-e3ac1c57932c
@@ -292,7 +293,7 @@ We also see that the posterior means are near the true parameters and the 90% cr
 
 # ╔═╡ Cell order:
 # ╟─30511a27-984e-40b7-9b1e-34bc87cb8d56
-# ╠═bb9c75db-6638-48fe-afcb-e78c4bcc057d
+# ╟─bb9c75db-6638-48fe-afcb-e78c4bcc057d
 # ╠═3690c122-d630-4fd0-aaf2-aea9226df086
 # ╟─c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
 # ╠═b4409687-7bee-4028-824d-03b209aee68d
