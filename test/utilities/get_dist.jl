@@ -392,3 +392,204 @@ end
         end
     end
 end
+
+@testitem "Test get_dist_recursive with single wrapper distributions" begin
+    using Distributions
+
+    # Test that single-wrapped distributions behave same as get_dist
+    delay = LogNormal(1.5, 0.75)
+    primary = Uniform(0, 1)
+    pc = primary_censored(delay, primary)
+
+    @test get_dist_recursive(pc) === get_dist(pc)
+    @test get_dist_recursive(pc) === delay
+
+    # Test with IntervalCensored
+    continuous = Normal(5, 2)
+    ic = interval_censored(continuous, 1.0)
+
+    @test get_dist_recursive(ic) === get_dist(ic)
+    @test get_dist_recursive(ic) === continuous
+
+    # Test with Weighted
+    base = Gamma(2.0, 3.0)
+    wd = weight(base, 2.5)
+
+    @test get_dist_recursive(wd) === get_dist(wd)
+    @test get_dist_recursive(wd) === base
+
+    # Test with base distribution (should return unchanged)
+    d = Normal(0, 1)
+    @test get_dist_recursive(d) === d
+    @test get_dist_recursive(d) === get_dist(d)
+end
+
+@testitem "Test get_dist_recursive with nested wrapper distributions" begin
+    using Distributions
+
+    # Test deeply nested: Weighted{IntervalCensored{Normal}}
+    base = Normal(5, 2)
+    ic = interval_censored(base, 1.0)
+    wd = weight(ic, 3.0)
+
+    @test get_dist_recursive(wd) === base
+    @test get_dist_recursive(wd) isa Normal
+    @test params(get_dist_recursive(wd)) == params(base)
+
+    # Test: Weighted{PrimaryCensored{LogNormal}}
+    delay = LogNormal(1.0, 0.5)
+    pc = primary_censored(delay, Uniform(0, 1))
+    wd_pc = weight(pc, 1.5)
+
+    @test get_dist_recursive(wd_pc) === delay
+    @test get_dist_recursive(wd_pc) isa LogNormal
+
+    # Test: IntervalCensored{Weighted{Gamma}}
+    base_gamma = Gamma(2.0, 1.5)
+    wd_gamma = weight(base_gamma, 2.0)
+    ic_wd = interval_censored(wd_gamma, 0.5)
+
+    @test get_dist_recursive(ic_wd) === base_gamma
+    @test get_dist_recursive(ic_wd) isa Gamma
+
+    # Test triple nesting: IntervalCensored{Weighted{PrimaryCensored{Exponential}}}
+    base_exp = Exponential(2.0)
+    pc_exp = primary_censored(base_exp, Uniform(0, 1))
+    wd_pc_exp = weight(pc_exp, 1.8)
+    ic_wd_pc = interval_censored(wd_pc_exp, 0.8)
+
+    @test get_dist_recursive(ic_wd_pc) === base_exp
+    @test get_dist_recursive(ic_wd_pc) isa Exponential
+    @test params(get_dist_recursive(ic_wd_pc)) == params(base_exp)
+end
+
+@testitem "Test get_dist_recursive with Product distributions" begin
+    using Distributions
+
+    # Test Product with base distributions
+    components = [Normal(0, 1), Exponential(1), Gamma(2, 1)]
+    pd = product_distribution(components)
+
+    recursive_result = get_dist_recursive(pd)
+    @test recursive_result isa Vector
+    @test length(recursive_result) == 3
+    @test recursive_result[1] === components[1]
+    @test recursive_result[2] === components[2]
+    @test recursive_result[3] === components[3]
+
+    # Test Product with wrapped distributions
+    base1 = Normal(1, 2)
+    base2 = Exponential(0.5)
+    wd1 = weight(base1, 2.0)
+    wd2 = weight(base2, 1.5)
+
+    wrapped_components = [wd1, wd2]
+    pd_wrapped = product_distribution(wrapped_components)
+
+    recursive_wrapped = get_dist_recursive(pd_wrapped)
+    @test recursive_wrapped isa Vector
+    @test length(recursive_wrapped) == 2
+    @test recursive_wrapped[1] === base1
+    @test recursive_wrapped[2] === base2
+
+    # Test Product with deeply nested wrappers
+    deeply_nested = [
+        weight(interval_censored(Normal(0, 1), 1.0), 2.0),
+        interval_censored(weight(Exponential(1), 1.5), 0.5)
+    ]
+    pd_deep = product_distribution(deeply_nested)
+
+    recursive_deep = get_dist_recursive(pd_deep)
+    @test recursive_deep isa Vector
+    @test length(recursive_deep) == 2
+    @test recursive_deep[1] isa Normal
+    @test recursive_deep[2] isa Exponential
+end
+
+@testitem "Test get_dist_recursive with truncated distributions" begin
+    using Distributions
+
+    # Test that truncated distributions stop recursion (fallback method)
+    trunc_normal = truncated(Normal(0, 1), -2, 2)
+    @test get_dist_recursive(trunc_normal) === trunc_normal
+
+    # Test nested with truncated: Weighted{Truncated{Normal}}
+    wd_trunc = weight(trunc_normal, 2.5)
+    @test get_dist_recursive(wd_trunc) === trunc_normal
+    @test get_dist_recursive(wd_trunc) isa Truncated
+
+    # Test: IntervalCensored{Truncated{LogNormal}}
+    trunc_lognormal = truncated(LogNormal(0, 1), 0.1, 10)
+    ic_trunc = interval_censored(trunc_lognormal, 0.5)
+    @test get_dist_recursive(ic_trunc) === trunc_lognormal
+    @test get_dist_recursive(ic_trunc) isa Truncated
+
+    # Test PrimaryCensored with truncated delay stops at truncated
+    trunc_delay = truncated(Gamma(2, 1), 0, 5)
+    pc_trunc = primary_censored(trunc_delay, Uniform(0, 1))
+    @test get_dist_recursive(pc_trunc) === trunc_delay
+    @test get_dist_recursive(pc_trunc) isa Truncated
+end
+
+@testitem "Test get_dist_recursive type consistency and performance" begin
+    using Distributions
+
+    # Test that recursive version returns same type as base for simple cases
+    base = Normal(0, 1)
+    wd = weight(base, 2.0)
+    @test typeof(get_dist_recursive(wd)) === typeof(base)
+
+    # Test with nested wrappers
+    ic = interval_censored(base, 1.0)
+    wd_ic = weight(ic, 1.5)
+    @test typeof(get_dist_recursive(wd_ic)) === typeof(base)
+
+    # Test with PrimaryCensored
+    delay = LogNormal(1.5, 0.75)
+    pc = primary_censored(delay, Uniform(0, 1))
+    @test typeof(get_dist_recursive(pc)) === typeof(delay)
+
+    # Test that repeated calls are consistent
+    nested = weight(interval_censored(Normal(2, 3), 0.8), 2.2)
+    result1 = get_dist_recursive(nested)
+    result2 = get_dist_recursive(nested)
+    @test result1 === result2
+
+    # Test that results are identical to expected
+    @test get_dist_recursive(wd) === base
+    @test get_dist_recursive(wd_ic) === base
+    @test get_dist_recursive(pc) === delay
+end
+
+@testitem "Test get_dist_recursive integration with distribution interface" begin
+    using Distributions
+    using Random
+
+    Random.seed!(456)
+
+    # Test that recursively extracted distributions work with standard methods
+    base = Gamma(2.5, 1.5)
+    nested = weight(interval_censored(base, 0.5), 3.0)
+    extracted = get_dist_recursive(nested)
+
+    @test extracted === base
+    @test mean(extracted) == mean(base)
+    @test var(extracted) == var(base)
+    @test pdf(extracted, 2.0) == pdf(base, 2.0)
+    @test cdf(extracted, 2.0) == cdf(base, 2.0)
+
+    # Test sampling from recursively extracted distribution
+    samples = rand(extracted, 50)
+    @test length(samples) == 50
+    @test all(s -> s > 0, samples)  # Gamma is positive
+
+    # Test with Product distributions
+    components = [Normal(1, 2), Exponential(1.5)]
+    wrapped_components = [weight(components[1], 2.0), weight(components[2], 1.5)]
+    pd = product_distribution(wrapped_components)
+
+    recursive_components = get_dist_recursive(pd)
+    @test length(recursive_components) == 2
+    @test mean(recursive_components[1]) == mean(components[1])
+    @test mean(recursive_components[2]) == mean(components[2])
+end

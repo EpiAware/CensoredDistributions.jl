@@ -97,3 +97,58 @@ returns a vector of distributions rather than a single distribution.
 function get_dist(d::Product)
     return d.v
 end
+
+@doc raw"""
+    get_dist_recursive(d)
+
+Recursively extract the underlying distribution from nested wrapper types.
+
+This function keeps applying `get_dist` until it reaches a distribution that
+doesn't have a specialised method, meaning no further unwrapping is possible.
+This is useful for deeply nested distributions like
+`IntervalCensored{Truncated{PrimaryCensored{...}}}`.
+
+# Arguments
+- `d`: A distribution or nested wrapped distribution
+
+# Returns
+The deeply underlying distribution after all unwrapping is complete.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+# Single wrapper - same as get_dist
+delay = LogNormal(1.5, 0.75)
+window = Uniform(0, 1)
+pc = primary_censored(delay, window)
+get_dist_recursive(pc) == delay  # true
+
+# Nested wrappers
+continuous = Normal(5, 2)
+ic = interval_censored(continuous, 1.0)
+weighted = weight(ic, 2.0)
+get_dist_recursive(weighted) == continuous  # true
+
+# Base distribution - returns unchanged
+d = Normal(0, 1)
+get_dist_recursive(d) == d  # true
+```
+
+# Note
+For `Product` distributions, this function applies recursive extraction
+to each component, potentially returning mixed types of underlying distributions.
+"""
+function get_dist_recursive(d)
+    next = get_dist(d)
+    # If get_dist returns the same object, we've reached the end
+    if next === d
+        return d
+    end
+    # For Product distributions, recursively unwrap components
+    if next isa AbstractVector
+        return [get_dist_recursive(component) for component in next]
+    end
+    # Otherwise, recursively unwrap the next level
+    return get_dist_recursive(next)
+end

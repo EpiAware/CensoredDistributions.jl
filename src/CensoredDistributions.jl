@@ -16,7 +16,7 @@ export primary_censored, interval_censored, double_interval_censored
 export primarycensored_cdf
 
 # Exported utilities
-export weight, get_dist
+export weight, get_dist, get_dist_recursive
 
 include("docstrings.jl")
 
@@ -26,6 +26,6 @@ include("censoring/IntervalCensored.jl")
 include("censoring/DoubleIntervalCensored.jl")
 
 include("utils/Weighted.jl")
-include("utils/GetDist.jl")
+include("utils/get_dist.jl")
 
 end
