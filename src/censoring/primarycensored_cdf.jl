@@ -195,17 +195,25 @@ function primarycensored_cdf(
     # When q > 0: F_S+(d) = F_T(d) - exp(log_diff_exp(log(k*θ) + log(ΔF_{k+1}), log(d-w) + log(ΔF_k)) - log(w))
     # When q = 0: F_S+(d) = F_T(d) - exp(log_sum_exp(log(k*θ) + log(F_{k+1}), log(w-d) + log(F_k)) - log(w))
 
+    # Handle numerical precision issues where differences might be slightly negative
+    ΔF_k = max(ΔF_k, 0.0)
+    ΔF_kplus1 = max(ΔF_kplus1, 0.0)
+
     if q > 0
         # Use log-space computation for numerical stability
-        log_term1 = NaNMath.log(k * θ) + NaNMath.log(ΔF_kplus1)
-        log_term2 = NaNMath.log(t - pwindow) + NaNMath.log(ΔF_k)
-        log_diff = logsubexp(log_term1, log_term2) - NaNMath.log(pwindow)
+        # Handle edge case where t - pwindow might be very close to 0
+        t_minus_pwindow = max(t - pwindow, 1e-16)
+        log_term1 = log(k * θ) + log(ΔF_kplus1)
+        log_term2 = log(t_minus_pwindow) + log(max(ΔF_k, 1e-16))
+        log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_diff)
     else
         # When q = 0, use log_sum_exp instead of log_diff_exp
-        log_term1 = NaNMath.log(k * θ) + NaNMath.log(ΔF_kplus1)
-        log_term2 = NaNMath.log(pwindow - t) + NaNMath.log(ΔF_k)
-        log_sum = logaddexp(log_term1, log_term2) - NaNMath.log(pwindow)
+        # Handle edge case where pwindow - t might be very close to 0
+        pwindow_minus_t = max(pwindow - t, 1e-16)
+        log_term1 = log(k * θ) + log(ΔF_kplus1)
+        log_term2 = log(pwindow_minus_t) + log(max(ΔF_k, 1e-16))
+        log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_sum)
     end
 
@@ -258,17 +266,25 @@ function primarycensored_cdf(
     end
 
     # Compute the analytical CDF matching the Stan implementation
+    # Handle numerical precision issues where differences might be slightly negative
+    ΔF = max(ΔF, 0.0)
+    ΔF_shifted = max(ΔF_shifted, 0.0)
+
     if q > 0
         # Use log-space computation for numerical stability
-        log_term1 = (μ + 0.5 * σ^2) + NaNMath.log(ΔF_shifted)
-        log_term2 = NaNMath.log(t - pwindow) + NaNMath.log(ΔF)
-        log_diff = logsubexp(log_term1, log_term2) - NaNMath.log(pwindow)
+        # Handle edge case where t - pwindow might be very close to 0
+        t_minus_pwindow = max(t - pwindow, 1e-16)
+        log_term1 = (μ + 0.5 * σ^2) + log(ΔF_shifted)
+        log_term2 = log(t_minus_pwindow) + log(max(ΔF, 1e-16))
+        log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_diff)
     else
         # When q = 0, use log_sum_exp
-        log_term1 = (μ + 0.5 * σ^2) + NaNMath.log(ΔF_shifted)
-        log_term2 = NaNMath.log(pwindow - t) + NaNMath.log(ΔF)
-        log_sum = logaddexp(log_term1, log_term2) - NaNMath.log(pwindow)
+        # Handle edge case where pwindow - t might be very close to 0
+        pwindow_minus_t = max(pwindow - t, 1e-16)
+        log_term1 = (μ + 0.5 * σ^2) + log(ΔF_shifted)
+        log_term2 = log(pwindow_minus_t) + log(max(ΔF, 1e-16))
+        log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_sum)
     end
 
@@ -341,15 +357,19 @@ function primarycensored_cdf(
 
     if q > 0
         # Use log-space computation for numerical stability
-        log_term1 = NaNMath.log(λ) + NaNMath.log(Δg)
-        log_term2 = NaNMath.log(t - pwindow) + NaNMath.log(ΔF)
-        log_diff = logsubexp(log_term1, log_term2) - NaNMath.log(pwindow)
+        # Handle edge case where t - pwindow might be very close to 0
+        t_minus_pwindow = max(t - pwindow, 1e-16)
+        log_term1 = log(λ) + log(Δg)
+        log_term2 = log(t_minus_pwindow) + log(max(ΔF, 1e-16))
+        log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_diff)
     else
         # When q = 0, use log_sum_exp
-        log_term1 = NaNMath.log(λ) + NaNMath.log(Δg)
-        log_term2 = NaNMath.log(pwindow - t) + NaNMath.log(ΔF)
-        log_sum = logaddexp(log_term1, log_term2) - NaNMath.log(pwindow)
+        # Handle edge case where pwindow - t might be very close to 0
+        pwindow_minus_t = max(pwindow - t, 1e-16)
+        log_term1 = log(λ) + log(Δg)
+        log_term2 = log(pwindow_minus_t) + log(max(ΔF, 1e-16))
+        log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_sum)
     end
 
@@ -386,7 +406,7 @@ function primarycensored_logcdf(
             return -Inf
         end
 
-        return NaNMath.log(cdf_val)
+        return log(cdf_val)
     catch e
         # If analytical solution fails (e.g., domain error), return -Inf log probability
         if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
