@@ -61,8 +61,8 @@ using Turing
 data = rand(censored, 1000)
 
 # Get counts of unique values for weighted likelihood
-unique_values = unique(data)
-weights = [count(==(val), data) for val in unique_values]
+values = unique(data)
+weights = [count(==(val), data) for val in values]
 
 # Define a Turing model for fitting with weighted likelihood
 @model function double_censored_model(values, weights)
@@ -78,7 +78,7 @@ weights = [count(==(val), data) for val in unique_values]
 end
 
 # Fit using MLE or other methods
-model = double_censored_model(unique_values, weights)
+model = double_censored_model(values, weights)
 
 # Fit using MCMC for Bayesian inference
 chain = sample(model, NUTS(), MCMCThreads(), 1000, 2; progress = false)
