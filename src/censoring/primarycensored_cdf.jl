@@ -202,17 +202,17 @@ function primarycensored_cdf(
     if q > 0
         # Use log-space computation for numerical stability
         # Handle edge case where t - pwindow might be very close to 0
-        t_minus_pwindow = max(t - pwindow, 1e-16)
+        t_minus_pwindow = max(t - pwindow, 0.0)
         log_term1 = log(k * θ) + log(ΔF_kplus1)
-        log_term2 = log(t_minus_pwindow) + log(max(ΔF_k, 1e-16))
+        log_term2 = log(t_minus_pwindow) + log(max(ΔF_k, 0.0))
         log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_diff)
     else
         # When q = 0, use log_sum_exp instead of log_diff_exp
         # Handle edge case where pwindow - t might be very close to 0
-        pwindow_minus_t = max(pwindow - t, 1e-16)
+        pwindow_minus_t = max(pwindow - t, 0.0)
         log_term1 = log(k * θ) + log(ΔF_kplus1)
-        log_term2 = log(pwindow_minus_t) + log(max(ΔF_k, 1e-16))
+        log_term2 = log(pwindow_minus_t) + log(max(ΔF_k, 0.0))
         log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_sum)
     end
@@ -273,17 +273,17 @@ function primarycensored_cdf(
     if q > 0
         # Use log-space computation for numerical stability
         # Handle edge case where t - pwindow might be very close to 0
-        t_minus_pwindow = max(t - pwindow, 1e-16)
+        t_minus_pwindow = max(t - pwindow, 0.0)
         log_term1 = (μ + 0.5 * σ^2) + log(ΔF_shifted)
-        log_term2 = log(t_minus_pwindow) + log(max(ΔF, 1e-16))
+        log_term2 = log(t_minus_pwindow) + log(max(ΔF, 0.0))
         log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_diff)
     else
         # When q = 0, use log_sum_exp
         # Handle edge case where pwindow - t might be very close to 0
-        pwindow_minus_t = max(pwindow - t, 1e-16)
+        pwindow_minus_t = max(pwindow - t, 0.0)
         log_term1 = (μ + 0.5 * σ^2) + log(ΔF_shifted)
-        log_term2 = log(pwindow_minus_t) + log(max(ΔF, 1e-16))
+        log_term2 = log(pwindow_minus_t) + log(max(ΔF, 0.0))
         log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_sum)
     end
@@ -358,17 +358,17 @@ function primarycensored_cdf(
     if q > 0
         # Use log-space computation for numerical stability
         # Handle edge case where t - pwindow might be very close to 0
-        t_minus_pwindow = max(t - pwindow, 1e-16)
+        t_minus_pwindow = max(t - pwindow, 0.0)
         log_term1 = log(λ) + log(Δg)
-        log_term2 = log(t_minus_pwindow) + log(max(ΔF, 1e-16))
+        log_term2 = log(t_minus_pwindow) + log(max(ΔF, 0.0))
         log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_diff)
     else
         # When q = 0, use log_sum_exp
         # Handle edge case where pwindow - t might be very close to 0
-        pwindow_minus_t = max(pwindow - t, 1e-16)
+        pwindow_minus_t = max(pwindow - t, 0.0)
         log_term1 = log(λ) + log(Δg)
-        log_term2 = log(pwindow_minus_t) + log(max(ΔF, 1e-16))
+        log_term2 = log(pwindow_minus_t) + log(max(ΔF, 0.0))
         log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
         F_Splus = F_t - exp(log_sum)
     end
