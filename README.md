@@ -52,16 +52,16 @@ plot(x, pdf.(original, x), label = "Original Gamma", lw = 2)
 plot!(x, pdf.(censored, x), label="Double Censored and right truncated", lw = 2)
 ```
 
-You can fit censored distributions to data using Turing.jl for both Bayesian inference and MLE methods:
+You can fit censored distributions to data using Turing.jl for both Bayesian inference and MLE methods, as well as other optimization-based approaches:
 
 ```julia
-using Turing, CensoredDistributions
+using Turing, StatsPlots
 
 # Generate synthetic data from the censored distribution
 data = rand(censored, 1000)
 
 # Define a Turing model for fitting
-@model function fit_censored_model(data)
+@model function fit_double_censored_model(data)
     # Priors for Gamma parameters
     α ~ truncated(Normal(2, 1), 0, Inf)
     θ ~ truncated(Normal(3, 1), 0, Inf)
@@ -69,18 +69,19 @@ data = rand(censored, 1000)
     # Create the censored distribution
     censored_dist = double_interval_censored(Gamma(α, θ); upper = 15, interval = 1)
 
-    # Likelihood
-    for i in eachindex(data)
-        data[i] ~ censored_dist
-    end
+    # Vectorised likelihood
+    data ~ filldist(censored_dist, length(data))
 end
 
-# Fit using MLE
-model = fit_censored_model(data)
+# Fit using MLE or other methods
+model = fit_double_censored_model(data)
 mle_result = optimize(model, MLE())
 
 # Or fit using MCMC for Bayesian inference
 chain = sample(model, NUTS(), 1000)
+
+# Visualize the results with pairsplot
+pairsplot(chain)
 ```
 
 ## What packages work well with CensoredDistributions.jl?
