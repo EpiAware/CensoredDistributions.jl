@@ -15,7 +15,7 @@
 
 **Websites**: [Organization Website](https://www.epiaware.org/) | [Documentation](https://www.CensoredDistributions.epiaware.org/)
 
-	@@ -23,19 +23,22 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
+CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shields.io/github/stars/EpiAware/CensoredDistributions.jl?style=social)
 
 ## Why CensoredDistributions.jl?
 
@@ -29,7 +29,6 @@
 
 - Create distributions that are modified to account for primary event censoring and interval censoring.
 - Apply interval censoring to continuous distributions (both regular and arbitrary intervals).
-- Fit censored distributions using MLE methods and Bayesian inference with Turing.jl.
 - Generate random samples from censored distributions.
 - Calculate the probability density function (PDF) and cumulative distribution function (CDF) of censored event distributions.
 - Calculate the PDF of interval-censored distributions.
