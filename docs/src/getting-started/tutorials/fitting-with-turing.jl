@@ -105,7 +105,7 @@ md"Using the `true_dist` and the sampled event times we can sample directly from
 samples = map(pwindows, swindows, obs_times) do pw, sw, ot
     rand(double_interval_censored(
         true_dist; primary_event = Uniform(0.0, pw), upper = ot, interval = sw))
-end;
+end
 
 # ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
 md"Create a dataframe with the data we just generated aggregated to unique combinations and count occurrences.
