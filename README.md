@@ -77,9 +77,9 @@ weights = counts_df.count
     # Create the censored distribution
     censored_dist = double_interval_censored(Gamma(α, θ); upper = 15, interval = 1)
 
-    # Weighted likelihood
+    # Weighted likelihood using CensoredDistributions.weight
     for (val, w) in zip(values, weights)
-        Turing.@addlogprob!(w * logpdf(censored_dist, val))
+        val ~ weight(censored_dist, w)
     end
 end
 
