@@ -61,8 +61,7 @@ using Turing, DataFramesMeta, DataFrames
 data = rand(censored, 1000)
 
 # Use DataFramesMeta to get counts and create weighted likelihood
-df = DataFrame(value = data)
-counts_df = @chain df begin
+counts_df = @chain DataFrame(value = data) begin
     @by(:value, :count = length(:value))
 end
 
