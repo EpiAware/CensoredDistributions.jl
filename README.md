@@ -11,21 +11,19 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-*Censored event tools for Distributions.jl*
+*Additional censored event tools for Distributions.jl*
 
 **Websites**: [Organization Website](https://www.epiaware.org/) | [Documentation](https://www.CensoredDistributions.epiaware.org/)
 
-CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shields.io/github/stars/EpiAware/CensoredDistributions.jl?style=social)
-
-## What is CensoredDistributions.jl?
-
-`CensoredDistributions.jl` is a package for working with censored distributions. It extends the functionality of the [Distributions.jl](https://github.com/JuliaStats/Distributions.jl) package to support additional censored distribution and utilities for working with them.
+	@@ -23,19 +23,22 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 
 ## Why CensoredDistributions.jl?
 
-- **Additional censoring types**: Distributions.jl supports left/right censoring and truncation, but not within interval censoring (when an event occurs in a window but it is not known precisely when) or primary event censoring (when the initial event of the pair that make up a delay distribution occurs within a time window).
-- **Epidemiological applications**: These are essential for estimating epidemiological delay distributions such as the incubation period where both the exposure time and symptom onset are observed with uncertainty.
-- **Extended functionality**: Provides weighted distributions and analytical solutions for common distribution combinations to improve efficiency.
+- **Primary event censoring**: Model delay distributions where the initial event occurs within a time window (e.g., exposure periods in epidemiology).
+- **Interval censoring**: Bin continuous distributions into discrete intervals (e.g., daily reporting) when exact values are unobserved.
+- **Double interval censoring**: Combines both primary event and interval censoring for complex observation processes.
+- **Distribution fitting**: Extends Distributions.jl's `fit` support with MLE fitting for primary censored and interval censored distributions (potentially truncated), plus Turing.jl integration for Bayesian inference.
+- **Analytical solutions**: Provides analytical solutions where possible with numerical fallbacks for efficiency.
 
 ## What can I do with CensoredDistributions.jl?
 
@@ -33,9 +31,10 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 - Apply interval censoring to continuous distributions (both regular and arbitrary intervals).
 - Fit censored distributions using MLE methods and Bayesian inference with Turing.jl.
 - Generate random samples from censored distributions.
-- Calculate the probability density function (PDF) and cumulative distribution function (CDF) of censored distributions.
+- Calculate the probability density function (PDF) and cumulative distribution function (CDF) of censored event distributions.
 - Calculate the PDF of interval-censored distributions.
-- Calculate the mean, variance, and other moments of censored distributions.
+- Calculate the mean, variance, and other moments of censored event distributions.
+- Fit censored event distributions using MLE methods and Bayesian inference with Turing.jl.
 
 ## Getting Started
 
