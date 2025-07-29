@@ -6,6 +6,7 @@ using Distributions
 using Random
 using Integrals
 using LogExpFunctions
+using NaNMath
 using SpecialFunctions
 using HypergeometricFunctions
 

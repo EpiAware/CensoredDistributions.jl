@@ -1,5 +1,19 @@
 # Analytical CDF solutions for PrimaryCensored distributions
 
+# AD-compatible gamma CDF using HypergeometricFunctions
+# Based on the identity: γ(a,z) = z^a/a * M(a, a+1, -z)
+# where γ is the lower incomplete gamma function and M is the confluent hypergeometric function
+function _gamma_cdf_ad_safe(k::Real, θ::Real, x::Real)
+    if x <= 0
+        return 0.0
+    end
+    z = x / θ
+    # Use the same approach as in weibull_g function
+    # P(a,z) = γ(a,z)/Γ(a) = z^a/a * M(a, a+1, -z) / Γ(a)
+    # For integer a, Γ(a) = (a-1)!, but we use gamma(k) for generality
+    return (z^k / k * HypergeometricFunctions.M(k, k + 1, -z)) / gamma(k)
+end
+
 @doc raw"
 Abstract type for solver methods used in CDF computation.
 
@@ -159,16 +173,15 @@ function primarycensored_cdf(
     # Compute q = max(t - pwindow, 0)
     q = max(t - pwindow, 0.0)
 
-    # Compute CDFs using Distributions.jl
-    F_t = cdf(dist, t)
+    # Compute CDFs using AD-safe gamma CDF
+    F_t = _gamma_cdf_ad_safe(k, θ, t)
 
     # For the partial expectation, we need F(t; k+1, θ) and F(q; k+1, θ)
-    dist_kplus1 = Gamma(k + 1, θ)
-    F_t_kplus1 = cdf(dist_kplus1, t)
+    F_t_kplus1 = _gamma_cdf_ad_safe(k + 1, θ, t)
 
     if q > 0
-        F_q = cdf(dist, q)
-        F_q_kplus1 = cdf(dist_kplus1, q)
+        F_q = _gamma_cdf_ad_safe(k, θ, q)
+        F_q_kplus1 = _gamma_cdf_ad_safe(k + 1, θ, q)
 
         # Compute differences
         ΔF_k = F_t - F_q
@@ -184,15 +197,15 @@ function primarycensored_cdf(
 
     if q > 0
         # Use log-space computation for numerical stability
-        log_term1 = log(k * θ) + log(ΔF_kplus1)
-        log_term2 = log(t - pwindow) + log(ΔF_k)
-        log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
+        log_term1 = NaNMath.log(k * θ) + NaNMath.log(ΔF_kplus1)
+        log_term2 = NaNMath.log(t - pwindow) + NaNMath.log(ΔF_k)
+        log_diff = logsubexp(log_term1, log_term2) - NaNMath.log(pwindow)
         F_Splus = F_t - exp(log_diff)
     else
         # When q = 0, use log_sum_exp instead of log_diff_exp
-        log_term1 = log(k * θ) + log(ΔF_kplus1)
-        log_term2 = log(pwindow - t) + log(ΔF_k)
-        log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
+        log_term1 = NaNMath.log(k * θ) + NaNMath.log(ΔF_kplus1)
+        log_term2 = NaNMath.log(pwindow - t) + NaNMath.log(ΔF_k)
+        log_sum = logaddexp(log_term1, log_term2) - NaNMath.log(pwindow)
         F_Splus = F_t - exp(log_sum)
     end
 
