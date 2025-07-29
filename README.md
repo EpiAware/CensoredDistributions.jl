@@ -55,18 +55,14 @@ plot!(x, pdf.(censored, x), label="Double Censored and right truncated", lw = 2)
 You can fit censored distributions to data using Turing.jl for both Bayesian inference and MLE methods, as well as other optimization-based approaches:
 
 ```julia
-using Turing, DataFramesMeta, DataFrames
+using Turing
 
 # Generate synthetic data from the censored distribution
 data = rand(censored, 1000)
 
-# Use DataFramesMeta to get counts and create weighted likelihood
-counts_df = @chain DataFrame(value = data) begin
-    @by(:value, :count = length(:value))
-end
-
-unique_values = counts_df.value
-weights = counts_df.count
+# Get counts of unique values for weighted likelihood
+unique_values = unique(data)
+weights = [count(==(val), data) for val in unique_values]
 
 # Define a Turing model for fitting with weighted likelihood
 @model function double_censored_model(values, weights)
