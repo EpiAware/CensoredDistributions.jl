@@ -36,6 +36,10 @@ get_dist(ic) == continuous  # true
 wd = weight(Normal(0, 1), 2.5)
 get_dist(wd) isa Normal  # true
 
+# Truncated distribution
+trunc_dist = truncated(Normal(0, 1), -2, 2)
+get_dist(trunc_dist) isa Normal  # true
+
 # Product distribution (returns vector of component distributions)
 pd = product_distribution([Normal(0, 1), Exponential(1)])
 components = get_dist(pd)
@@ -79,6 +83,33 @@ Returns the base distribution before weighting was applied.
 """
 function get_dist(d::Weighted)
     return d.dist
+end
+
+@doc raw"""
+    get_dist(d::Truncated)
+
+Extract the untruncated distribution from a truncated distribution.
+
+Returns the underlying continuous distribution before truncation bounds
+were applied.
+
+# Examples
+```@example
+using Distributions
+
+# Extract Normal from truncated Normal
+base = Normal(0, 1)
+trunc_dist = truncated(base, -2, 2)
+get_dist(trunc_dist) === base  # true
+
+# Works with any truncated distribution
+gamma_base = Gamma(2, 1)
+trunc_gamma = truncated(gamma_base, 0.1, 5.0)
+get_dist(trunc_gamma) === gamma_base  # true
+```
+"""
+function get_dist(d::Truncated)
+    return d.untruncated
 end
 
 @doc raw"""
@@ -130,6 +161,12 @@ ic = interval_censored(continuous, 1.0)
 weighted = weight(ic, 2.0)
 get_dist_recursive(weighted) == continuous  # true
 
+# Truncated nested wrappers
+base = Normal(0, 1)
+trunc_dist = truncated(base, -2, 2)
+weighted_trunc = weight(trunc_dist, 2.0)
+get_dist_recursive(weighted_trunc) == base  # true
+
 # Base distribution - returns unchanged
 d = Normal(0, 1)
 get_dist_recursive(d) == d  # true
@@ -137,7 +174,8 @@ get_dist_recursive(d) == d  # true
 
 # Note
 For `Product` distributions, this function applies recursive extraction
-to each component, potentially returning mixed types of underlying distributions.
+to each component, potentially returning mixed types of underlying
+distributions.
 """
 function get_dist_recursive(d)
     next = get_dist(d)
