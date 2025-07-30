@@ -1,29 +1,60 @@
 # [Getting started](@id getting-started)
 
-Welcome to the `CensoredDistributions` documentation! This section is designed to help you get started with the package. It includes a quickstart guide, frequently asked questions (FAQ) section, and tutorials that will help you get started with `CensoredDistributions` for specific tasks. See the sidebar for the list of topics.
+Welcome to the `CensoredDistributions` documentation!
+This section is designed to help you get started with the package.
+It includes a quickstart guide, frequently asked questions (FAQ) section,
+and tutorials that will help you get started with `CensoredDistributions`
+for specific tasks.
+See the sidebar for the list of topics.
 
 # Introduction
 
-Delay distributions play a crucial role in various fields, including epidemiology, reliability analysis, and survival analysis. These distributions describe the time between two events of interest, such as the incubation period of a disease or the time to failure of a component.
-Accurately estimating and calculating these distributions is essential for understanding the underlying processes and making informed decisions.
+Delay distributions play a crucial role in various fields, including
+epidemiology, reliability analysis, and survival analysis.
+These distributions describe the time between two events of interest, such as
+the incubation period of a disease or the time to failure of a component.
+Accurately estimating and calculating these distributions is essential for
+understanding the underlying processes and making informed decisions.
 
 The estimation of delay distributions often faces the following challenges:
 
-- **Primary event within interval censoring**: The primary event (e.g., exposure to a pathogen or the start of a process) is often observed with some degree of interval censoring. This means that the exact time of the event is not known, but rather, it is known to have occurred within a certain time interval, commonly a day.
-As a result, any distribution based on these primary events is a combination of the underlying true distribution and the censoring distribution.
+- **Primary event within interval censoring**: The primary event (e.g.,
+  exposure to a pathogen or the start of a process) is often observed with
+  some degree of interval censoring.
+  This means that the exact time of the event is not known, but rather, it is
+  known to have occurred within a certain time interval, commonly a day.
+  As a result, any distribution based on these primary events is a combination
+  of the underlying true distribution and the censoring distribution.
 
-- **Truncation**: The observation of delay distributions is often conditioned on the occurrence of the secondary event. This leads to a truncation of the observed distribution, as delays longer than the observation time are not captured in the data.
-Consequently, the observed distribution is a combination of the underlying true distribution, the censoring distribution, and the observation time.
+- **Truncation**: The observation of delay distributions is often conditioned
+  on the occurrence of the secondary event.
+  This leads to a truncation of the observed distribution, as delays longer
+  than the observation time are not captured in the data.
+  Consequently, the observed distribution is a combination of the underlying
+  true distribution, the censoring distribution, and the observation time.
 
-- **Secondary event within interval censoring**: The secondary event (e.g., symptom onset or the end of a process) is also frequently observed with within an interval.
-This additional layer of censoring further complicates the estimation of the delay distribution.
+- **Secondary event within interval censoring**: The secondary event (e.g.,
+  symptom onset or the end of a process) is also frequently observed with
+  within an interval.
+  This additional layer of censoring further complicates the estimation of the
+  delay distribution.
 
-- **Double event within interval censoring** Both the primary and secondary events are censored so that we know they occurred in an interval but not precisely when.
+- **Double event within interval censoring** Both the primary and secondary
+  events are censored so that we know they occurred in an interval but not
+  precisely when.
 
-The `CensoredDistributions.jl` package aims to address these challenges by providing tools to manipulate primary censored delay distributions and to extend these distributions to account for both truncation and secondary event censoring. By accounting for the censoring and truncation present in the data, the package enables more accurate estimation and use of the underlying true distribution.
+The `CensoredDistributions.jl` package aims to address these challenges by
+providing tools to manipulate primary censored delay distributions and to
+extend these distributions to account for both truncation and secondary event
+censoring.
+By accounting for the censoring and truncation present in the data, the
+package enables more accurate estimation and use of the underlying true
+distribution.
 
-In this quickstart, we will provide a quick introduction to the main functions and concepts in the `CensoredDistributions.jl` package.
-We will cover the mathematical formulation of the problem, demonstrate the usage of the key functions, and provide signposting on how to learn more.
+In this quickstart, we will provide a quick introduction to the main functions
+and concepts in the `CensoredDistributions.jl` package.
+We will cover the mathematical formulation of the problem, demonstrate the
+usage of the key functions, and provide signposting on how to learn more.
 
 ## Packages used in this getting started guide
 

@@ -1,13 +1,19 @@
 # [Getting Started with Julia](@id julia)
 
-This guide helps you set up Julia for working effectively with CensoredDistributions.jl, whether you're using the package for analysis or contributing to its development. It's aimed at people familiar with other technical computing languages (R, Python, MATLAB) but new to Julia workflows.
+This guide helps you set up Julia for working effectively with
+CensoredDistributions.jl, whether you're using the package for analysis or
+contributing to its development.
+It's aimed at people familiar with other technical computing languages (R,
+Python, MATLAB) but new to Julia workflows.
 
 > [!NOTE]
 > If you're familiar with other languages for technical computing, these [noteworthy differences](https://docs.julialang.org/en/v1/manual/noteworthy-differences/) may be useful.
 
 ## What this guide is and isn't
 
-This isn't a comprehensive guide to learning Julia programming. Instead, we provide practical setup advice to get you working productively with CensoredDistributions.jl quickly.
+This isn't a comprehensive guide to learning Julia programming.
+Instead, we provide practical setup advice to get you working productively
+with CensoredDistributions.jl quickly.
 
 **To learn Julia programming, we recommend:**
 - [Julia Documentation - getting started](https://docs.julialang.org/en/v1/manual/getting-started/)
@@ -16,11 +22,16 @@ This isn't a comprehensive guide to learning Julia programming. Instead, we prov
 
 ## Julia Installation with juliaup
 
-1. **Download juliaup**: This is the official cross-platform installer/updater for Julia. Go to the [juliaup GitHub repository](https://github.com/JuliaLang/juliaup) or [install.julialang.org](https://install.julialang.org) for installation instructions.
+1. **Download juliaup**: This is the official cross-platform installer/updater
+   for Julia. Go to the [juliaup GitHub repository](https://github.com/JuliaLang/juliaup) or
+   [install.julialang.org](https://install.julialang.org) for installation
+   instructions.
 
-2. **Verify Installation**: Open a terminal and type `julia` to start the Julia REPL. You should see a Julia prompt `julia>`.
+2. **Verify Installation**: Open a terminal and type `julia` to start the Julia
+   REPL. You should see a Julia prompt `julia>`.
 
-**Why juliaup?** Easy version management, automatic updates, and seamless switching between Julia versions for different projects.
+**Why juliaup?** Easy version management, automatic updates, and seamless
+switching between Julia versions for different projects.
 
 👉 **Learn more**: [juliaup GitHub repository](https://github.com/JuliaLang/juliaup) for detailed usage instructions.
 

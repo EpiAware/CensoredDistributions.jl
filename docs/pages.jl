@@ -25,5 +25,6 @@ pages = [
     "CensoredDistributions.jl: Primary event censored distributions" => "index.md",
     "Getting started" => getting_started_pages,
     "Modules" => module_pages,
-    "Development" => dev_pages
+    "Development" => dev_pages,
+    "Release notes" => "release-notes.md"
 ]
