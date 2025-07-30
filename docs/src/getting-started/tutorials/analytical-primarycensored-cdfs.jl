@@ -334,7 +334,7 @@ You can use Julia's `methods` function to discover which distribution combinatio
 # ╔═╡ 78a3e849-caae-447f-bc64-4ec24c184fdf
 # Find all analytical CDF implementations
 analytical_methods = methods(CensoredDistributions.primarycensored_cdf,
-    (Any, Any, Real, CensoredDistributions.AnalyticalSolver))
+    (Any, Any, Real, CensoredDistributions.AnalyticalSolver));
 
 # ╔═╡ 523eeb4e-b214-4139-bd02-4b78c83f7648
 md"""
