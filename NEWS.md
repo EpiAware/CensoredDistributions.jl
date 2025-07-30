@@ -21,7 +21,7 @@ observation times are subject to various forms of censoring and truncation.
   arbitrary intervals)
 - `double_interval_censored(dist; kwargs...)`: Combines primary event
   censoring, optional truncation, and optional secondary interval censoring
-  in appropriate mathematical sequence
+  in an appropriate mathematical sequence
 
 **Distribution Types**
 - `PrimaryCensored{D, P}`: Wraps delay distribution `D` with primary event
@@ -49,14 +49,6 @@ Partial implementation of Distributions.jl interface including:
 - `minimum`, `maximum`, `insupport`: Support queries
 - `mean`, `var`, `std`: Moments (where analytically tractable)
 
-### Integration
-
-**Automatic Differentiation Compatibility**
-- Compatible with ForwardDiff.jl, ReverseDiff.jl, Zygote.jl, and Enzyme.jl
-- Integration with Turing.jl for Bayesian inference
-- Type-stable implementations
-
-
 ### Migration from primarycensored R Package
 
 CensoredDistributions.jl provides a Julia-native implementation with enhanced
@@ -67,14 +59,6 @@ functionality compared to the primarycensored R package:
 - R's `pprimarycensored()` → Julia's `cdf(primary_censored(...))`
 - R's `qprimarycensored()` → Julia's `quantile(primary_censored(...))`
 - R's `rprimarycensored()` → Julia's `rand(primary_censored(...))`
-
-**Enhanced Capabilities**
-- Support for arbitrary primary event distributions beyond uniform
-- Interval censoring for discrete observation windows
-- Combined censoring mechanisms via `double_interval_censored()`
-- Analytical solutions for additional distribution pairs
-- Automatic differentiation support for gradient-based inference
-- Integration with Julia's scientific computing ecosystem
 
 **Parameter Differences**
 - Primary event window: Use `primary_event = Uniform(0, pwindow)` instead of
