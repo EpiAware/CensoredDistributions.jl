@@ -2,8 +2,10 @@
 
 This guide helps you set up Julia for working effectively with CensoredDistributions.jl, whether you're using the package for analysis or contributing to its development. It's aimed at people familiar with other technical computing languages (R, Python, MATLAB) but new to Julia workflows.
 
-> [!NOTE]
-> If you're familiar with other languages for technical computing, these [noteworthy differences](https://docs.julialang.org/en/v1/manual/noteworthy-differences/) may be useful.
+!!! note
+    If you're familiar with other languages for technical computing, these
+    [noteworthy differences](https://docs.julialang.org/en/v1/manual/noteworthy-differences/)
+    may be useful.
 
 ## What this guide is and isn't
 

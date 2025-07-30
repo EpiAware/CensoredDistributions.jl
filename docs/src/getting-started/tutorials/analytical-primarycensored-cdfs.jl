@@ -8,7 +8,6 @@ using InteractiveUtils
 begin
     let
         docs_dir = (dirname ∘ dirname ∘ dirname)(@__DIR__)
-        println(docs_dir)
         using Pkg: Pkg
         Pkg.activate(docs_dir)
         Pkg.instantiate()
@@ -86,7 +85,7 @@ begin
     solver_types = (
         analytical = typeof(pc_gamma_analytical.method),
         numerical = typeof(pc_gamma_numerical.method)
-    )
+    );
 end
 
 # ╔═╡ bbfa05f3-8ae1-4460-b423-b1ccff4ccb62
@@ -166,7 +165,7 @@ benchmark_results = [
     benchmark_cdf_methods(gamma_delay, primary_uniform, "Gamma"),
     benchmark_cdf_methods(lognormal_delay, primary_uniform, "LogNormal"),
     benchmark_cdf_methods(weibull_delay, primary_uniform, "Weibull")
-]
+];
 
 # ╔═╡ b5c22b5c-5d71-4856-a023-1a2740507eca
 # Create performance comparison plots
@@ -284,7 +283,7 @@ begin
         gamma = accuracy_gamma.max_error,
         lognormal = accuracy_lognormal.max_error,
         weibull = accuracy_weibull.max_error
-    )
+    );
 end
 
 # ╔═╡ bc1fae07-e658-46cb-b0f5-80aa07d78d53
@@ -370,7 +369,7 @@ begin
     solver_info = (
         default = typeof(pc_default.method.solver),
         custom = typeof(pc_custom.method.solver)
-    )
+    );
 end
 
 # ╔═╡ 73ebcbf1-0f7e-45c5-876e-e48d9b7dfd25

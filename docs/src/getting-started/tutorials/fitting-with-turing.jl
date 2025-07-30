@@ -69,31 +69,31 @@ md"### Define the true parameters for generating synthetic data"
 md"We start by defining the number of samples and the true parameters of the lognormal."
 
 # ╔═╡ 28bcd612-19f6-4e25-b6df-cb43df4f2a73
-n = 2000
+n = 2000;
 
 # ╔═╡ 04e414ab-c790-4d31-b216-18776534a287
-meanlog = 1.5
+meanlog = 1.5;
 
 # ╔═╡ 54700ad7-6b2a-440f-903a-c126b4c60c0e
-sdlog = 0.75
+sdlog = 0.75;
 
 # ╔═╡ d3a7196a-185d-445b-afb7-99b546b1f72a
 md"Now we can define a lognormal distribution using Distributions.jl."
 
 # ╔═╡ 7f82b991-00ca-4eed-994a-981c6d66454c
-true_dist = LogNormal(meanlog, sdlog)
+true_dist = LogNormal(meanlog, sdlog);
 
 # ╔═╡ 767a58ed-9d7b-41db-a488-10f98a777474
 md"For each individual we now sample a primary and secondary event window as well as a relative observation time (relative to their censored primary event)."
 
 # ╔═╡ 35472e04-e096-4948-a218-3de53923f271
-pwindows = rand(1:2, n)
+pwindows = rand(1:2, n);
 
 # ╔═╡ 2d0ca6e6-0333-4aec-93d4-43eb9985dc14
-swindows = rand(1:2, n)
+swindows = rand(1:2, n);
 
 # ╔═╡ 6465e51b-8d71-4c85-ba40-e6d230aa53b1
-obs_times = rand(8:12, n)
+obs_times = rand(8:12, n);
 
 # ╔═╡ b5598cc7-ddd1-4d90-af9b-110a518416ac
 md"### Simulate from the double censored distribution for each individual"
@@ -130,20 +130,20 @@ Compare the samples with and without secondary censoring to the true distributio
 """
 
 # ╔═╡ 5a6d605d-bff6-4b7d-97f0-ca35750411d3
-empirical_cdf = ecdf(samples)
+empirical_cdf = ecdf(samples);
 
 # ╔═╡ ccd8dd8e-c361-43ba-b4f1-2444ec6008fc
-empirical_cdf_obs = ecdf(delay_counts.observed_delay, weights = delay_counts.n)
+empirical_cdf_obs = ecdf(delay_counts.observed_delay, weights = delay_counts.n);
 
 # ╔═╡ 2b773594-5187-45bc-96f4-22a3d726b7d2
 # Create a sequence of x values for the theoretical CDF
-x_seq = range(minimum(samples), stop = maximum(samples), length = 100)
+x_seq = range(minimum(samples), stop = maximum(samples), length = 100);
 
 # ╔═╡ a5b04acc-acc5-4d4d-8871-09d54caab185
 # Calculate theoretical CDF using true log-normal distribution
 theoretical_cdf = @chain x_seq begin
     cdf.(true_dist, _)
-end
+end;
 
 # ╔═╡ fb6dc898-21a9-4f8d-aa14-5b45974c2242
 let

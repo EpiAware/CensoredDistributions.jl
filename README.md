@@ -37,6 +37,8 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 
 ## Getting Started
 
+For comprehensive tutorials and guides, see our [Getting Started documentation](https://www.CensoredDistributions.epiaware.org/getting-started/).
+
 The following example demonstrates how to create a double interval censored distribution:
 
 ```julia
