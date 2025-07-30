@@ -24,8 +24,11 @@ outputs:
     description: 'The new version'
     value: ${{ steps.increment.outputs.new-version }}
   pr-number:
-    description: 'PR number if created'
-    value: ${{ steps.create-pr.outputs.pr-number }}
+    description: 'PR number if created or existing PR found'
+    value: ${{ steps.create-pr.outputs.pr-number || steps.use-existing-pr.outputs.pr-number }}
+  existing-pr:
+    description: 'Whether an existing PR was found'
+    value: ${{ steps.check-pr.outputs.existing-pr }}
 
 runs:
   using: 'composite'
@@ -71,9 +74,28 @@ runs:
         # Update Project.toml
         sed -i "s/version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Project.toml
 
+    - name: Check for existing PR
+      id: check-pr
+      if: inputs.create-pr == 'true'
+      shell: bash
+      run: |
+        NEW_VERSION="${{ steps.increment.outputs.new-version }}"
+
+        # Check if a PR already exists with the same version
+        EXISTING_PR=$(gh pr list --state open --search "in:title \"${{ inputs.pr-title-prefix }} to $NEW_VERSION\"" --json number --jq '.[0].number // empty')
+
+        if [ -n "$EXISTING_PR" ]; then
+          echo "existing-pr=true" >> $GITHUB_OUTPUT
+          echo "existing-pr-number=$EXISTING_PR" >> $GITHUB_OUTPUT
+          echo "PR #$EXISTING_PR already exists for version $NEW_VERSION. Skipping PR creation."
+        else
+          echo "existing-pr=false" >> $GITHUB_OUTPUT
+          echo "No existing PR found for version $NEW_VERSION. Proceeding with PR creation."
+        fi
+
     - name: Create PR
       id: create-pr
-      if: inputs.create-pr == 'true'
+      if: inputs.create-pr == 'true' && steps.check-pr.outputs.existing-pr == 'false'
       shell: bash
       run: |
         # Configure git
@@ -128,6 +150,15 @@ runs:
         PR_NUMBER=$(echo "$PR_OUTPUT" | grep -o '/pull/[0-9]*' | grep -o '[0-9]*')
         echo "pr-number=$PR_NUMBER" >> $GITHUB_OUTPUT
         echo "Created PR #$PR_NUMBER"
+
+    - name: Use existing PR
+      id: use-existing-pr
+      if: inputs.create-pr == 'true' && steps.check-pr.outputs.existing-pr == 'true'
+      shell: bash
+      run: |
+        EXISTING_PR_NUMBER="${{ steps.check-pr.outputs.existing-pr-number }}"
+        echo "pr-number=$EXISTING_PR_NUMBER" >> $GITHUB_OUTPUT
+        echo "Using existing PR #$EXISTING_PR_NUMBER"
 
     - name: Commit directly to branch
       if: inputs.create-pr == 'false'
