@@ -133,27 +133,19 @@ A release requires a NEWS.md entry if it meets **any** of these criteria:
 
 #### Templates
 
-##### GitHub Release Template (All Releases):
-```markdown
-## What's Changed
+##### Release Documentation Strategy
 
-### New Features
-- Add support for CustomDistribution type by @contributor
+**GitHub Releases (Minor/Patch - Automated)**:
+- GitHub automatically generates release notes for minor and patch releases
+- Uses commit messages and PR labels to categorise changes
+- Provides immediate visibility in Julia ecosystem
+- No manual intervention required
 
-### Bug Fixes
-- Fix CDF calculation edge case for zero values
-- Resolve type instability in rand() method
-
-### Performance
-- 2x speedup in censored_pmf calculations
-
-### Documentation
-- Add tutorial for advanced censoring scenarios
-- Improve docstring examples
-
-**Full Changelog**:
-https://github.com/EpiAware/CensoredDistributions.jl/compare/v1.2.0...v1.2.1
-```
+**NEWS.md Entries (Major Releases - Manual)**:
+- Maintainers manually write detailed entries for major releases
+- Focus on breaking changes, migration guidance, and significant features
+- Provide comprehensive context that automated tools cannot capture
+- Follow structured format with breaking changes, new features, and migration examples
 
 ##### NEWS.md Entry Template (Major Releases):
 ```markdown

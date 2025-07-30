@@ -39,9 +39,9 @@ observation times are subject to various forms of censoring and truncation.
 - `weight(dist, weights)`: Creates weighted distributions for efficient
   likelihood computation
 
-### Distributions.jl Interface Compliance
+### Distributions.jl Interface
 
-Full implementation of Distributions.jl interface including:
+Partial implementation of Distributions.jl interface including:
 - `pdf`, `logpdf`: Probability density functions
 - `cdf`, `logcdf`: Cumulative distribution functions
 - `quantile`: Inverse CDF (where analytically tractable)
@@ -49,40 +49,13 @@ Full implementation of Distributions.jl interface including:
 - `minimum`, `maximum`, `insupport`: Support queries
 - `mean`, `var`, `std`: Moments (where analytically tractable)
 
-### Performance and Integration
-
-**Analytical Solutions**
-- Efficient analytical solutions for common distribution pairs (e.g., Gamma
-  delay with uniform primary event)
-- Numerical integration fallbacks using Integrals.jl for general cases
-- Configurable solver selection with `solver` and `force_numeric` options
+### Integration
 
 **Automatic Differentiation Compatibility**
-- Full compatibility with ForwardDiff.jl, ReverseDiff.jl, Zygote.jl, and
-  Enzyme.jl
-- Seamless integration with Turing.jl for Bayesian inference
-- Type-stable implementations for efficient precompilation
+- Compatible with ForwardDiff.jl, ReverseDiff.jl, Zygote.jl, and Enzyme.jl
+- Integration with Turing.jl for Bayesian inference
+- Type-stable implementations
 
-**Vectorisation Support**
-- Leverages Distributions.jl broadcasting for efficient batch operations
-- Supports vectorised PDF, CDF, and random number generation
-
-### Applications and Use Cases
-
-**Primary Event Censoring**
-- Infection-to-symptom onset times with uncertain infection timing
-- Exposure-to-outcome delays with uncertain exposure periods
-- Any process where the initiating event time has uncertainty
-
-**Interval Censoring**
-- Daily reporting of continuous phenomena
-- Discrete observation windows for continuous processes
-- Custom interval boundaries for irregular observation schedules
-
-**Double Interval Censoring**
-- Complex observation processes combining multiple censoring mechanisms
-- Epidemiological surveillance with reporting delays and discrete observation
-- Clinical studies with multiple sources of observation uncertainty
 
 ### Migration from primarycensored R Package
 
@@ -111,42 +84,11 @@ functionality compared to the primarycensored R package:
 - Truncation: Apply via `truncated()` from Distributions.jl or use
   `double_interval_censored()` convenience function
 
-### Dependencies and Compatibility
-
-**Core Dependencies**
-- Distributions.jl ≥ 0.25: Base distribution functionality
-- Integrals.jl ≥ 4.5: Numerical integration for CDF computation
-- LogExpFunctions.jl ≥ 0.3: Numerically stable log operations
-- SpecialFunctions.jl ≥ 2.0: Mathematical special functions
-- HypergeometricFunctions.jl ≥ 0.3: Hypergeometric function evaluation
-
-**Julia Compatibility**
-- Requires Julia ≥ 1.10
-- Tested on Julia 1.10+ across multiple platforms
-
-**Quality Assurance**
-- Comprehensive test suite with TestItemRunner
-- Aqua.jl quality checks for package health
-- JET.jl static analysis for type stability
-- SciML code style compliance
-- Benchmark suite for performance monitoring
 
 ### Contributors
 
-- Samuel Abbott ([@seabbs](https://github.com/seabbs))
+- Sam Abbott ([@seabbs](https://github.com/seabbs))
 - Damon Bayer ([@damonbayer](https://github.com/damonbayer))
+- Sam Brand ([@sambrand](https://github.com/sambrand))
 - Michael DeWitt ([@dewittpe](https://github.com/dewittpe))
 - Joseph Lemaitre ([@joelemaitre](https://github.com/joelemaitre))
-
-### Ecosystem Integration
-
-CensoredDistributions.jl is designed for seamless integration with:
-- **Distributions.jl**: Full interface compliance enables drop-in replacement
-- **Turing.jl**: Native support for Bayesian inference workflows
-- **Optimization.jl**: Compatible with MLE and other optimization-based fitting
-- **Plots.jl**: Automatic plotting support via Distributions.jl interface
-- **StatsPlots.jl**: Statistical plotting integration
-
-This initial release establishes CensoredDistributions.jl as a comprehensive
-toolkit for censored distribution modelling in Julia's scientific computing
-ecosystem.

@@ -1,7 +1,7 @@
 name = "CensoredDistributions"
 uuid = "b2eeebe4-5992-4301-9193-7ebc9f62c855"
 license = "MIT"
-authors = ["Samuel Abbott", "Damon Bayer", "Michael DeWitt", "Joseph Lemaitre"]
+authors = ["Sam Abbott", "Damon Bayer", "Sam Brand", "Michael DeWitt", "Joseph Lemaitre"]
 version = "0.1.0"
 
 [deps]
