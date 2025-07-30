@@ -41,6 +41,27 @@ open(joinpath(joinpath(@__DIR__, "src"), "index.md"), "w") do io
     end
 end
 
+# Generate release-notes.md by combining header with NEWS.md
+include("release_notes_header.jl")
+
+news_src = joinpath(dirname(@__DIR__), "NEWS.md")
+release_notes_dest = joinpath(joinpath(@__DIR__, "src"), "release-notes.md")
+
+if isfile(news_src)
+    open(release_notes_dest, "w") do io
+        # Write the header content
+        print(io, RELEASE_NOTES_HEADER)
+
+        # Append the NEWS.md content
+        for line in eachline(news_src)
+            println(io, line)
+        end
+    end
+    println("✓ Generated release-notes.md from header + NEWS.md")
+else
+    println("⚠ NEWS.md not found in project root")
+end
+
 DocMeta.setdocmeta!(
     CensoredDistributions, :DocTestSetup, :(using CensoredDistributions); recursive = true)
 
