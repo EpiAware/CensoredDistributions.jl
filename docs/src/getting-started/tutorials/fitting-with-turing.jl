@@ -209,7 +209,7 @@ and now let's fit the compiled model.
 "
 
 # ╔═╡ cd26da77-02fb-4b65-bd7b-88060d0c97e8
-naive_fit = sample(naive_mdl, NUTS(), MCMCThreads(), 500, 4)
+naive_fit = sample(naive_mdl, NUTS(), MCMCThreads(), 500, 4);
 
 # ╔═╡ 10278d0c-8c72-4c5f-b857-d3bc6ff2c242
 summarize(naive_fit)
@@ -272,7 +272,7 @@ Now we fit the model (*Note: `Turing.jl` supports a wide range of fitting method
 
 # ╔═╡ b5cd8b13-e3db-4ed1-80ce-e3ac1c57932c
 CensoredDistributions_fit = sample(
-    CensoredDistributions_mdl, NUTS(), MCMCThreads(), 1000, 4)
+    CensoredDistributions_mdl, NUTS(), MCMCThreads(), 1000, 4);
 
 # ╔═╡ a53a78b3-dcbe-4b62-a336-a26e647dc8c8
 summarize(CensoredDistributions_fit)
