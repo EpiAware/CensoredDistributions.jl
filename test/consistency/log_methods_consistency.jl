@@ -6,12 +6,13 @@
         if d isa Truncated
             return typeof(d.untruncated)
         elseif d isa CensoredDistributions.PrimaryCensored
-            return typeof(d.dist)
+            return typeof(get_dist(d))
         elseif d isa CensoredDistributions.IntervalCensored
-            if d.dist isa Truncated
-                return typeof(d.dist.untruncated)
+            underlying = get_dist(d)
+            if underlying isa Truncated
+                return typeof(underlying.untruncated)
             else
-                return typeof(d.dist)
+                return typeof(underlying)
             end
         else
             return typeof(d)
@@ -174,12 +175,13 @@ end
         if d isa Truncated
             return typeof(d.untruncated)
         elseif d isa CensoredDistributions.PrimaryCensored
-            return typeof(d.dist)
+            return typeof(get_dist(d))
         elseif d isa CensoredDistributions.IntervalCensored
-            if d.dist isa Truncated
-                return typeof(d.dist.untruncated)
+            underlying = get_dist(d)
+            if underlying isa Truncated
+                return typeof(underlying.untruncated)
             else
-                return typeof(d.dist)
+                return typeof(underlying)
             end
         else
             return typeof(d)
@@ -259,12 +261,13 @@ end
         if d isa Truncated
             return typeof(d.untruncated)
         elseif d isa CensoredDistributions.PrimaryCensored
-            return typeof(d.dist)
+            return typeof(get_dist(d))
         elseif d isa CensoredDistributions.IntervalCensored
-            if d.dist isa Truncated
-                return typeof(d.dist.untruncated)
+            underlying = get_dist(d)
+            if underlying isa Truncated
+                return typeof(underlying.untruncated)
             else
-                return typeof(d.dist)
+                return typeof(underlying)
             end
         else
             return typeof(d)
@@ -335,12 +338,13 @@ end
         if d isa Truncated
             return typeof(d.untruncated)
         elseif d isa CensoredDistributions.PrimaryCensored
-            return typeof(d.dist)
+            return typeof(get_dist(d))
         elseif d isa CensoredDistributions.IntervalCensored
-            if d.dist isa Truncated
-                return typeof(d.dist.untruncated)
+            underlying = get_dist(d)
+            if underlying isa Truncated
+                return typeof(underlying.untruncated)
             else
-                return typeof(d.dist)
+                return typeof(underlying)
             end
         else
             return typeof(d)

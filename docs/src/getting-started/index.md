@@ -60,7 +60,7 @@ usage of the key functions, and provide signposting on how to learn more.
 
 ## Loading the packages
 
-```julia
+```@example getting-started
 # Import the package
 using CensoredDistributions
 using Distributions
@@ -77,19 +77,19 @@ The mathematical formulation for primary event censoring involves several key st
 
 1. **Primary event times** ($p$) are generated from a specified primary event distribution, in this case uniform between 0 and 1:
 
-```julia
+```@example getting-started
 primary_event = Uniform(0, 1)
 ```
 
 2. **Delays** ($d$) are generated from a specified delay distribution, here a log-normal:
 
-```julia
+```@example getting-started
 dist = LogNormal(1.5, 0.75)
 ```
 
 This corresponds to: $d \sim \text{LogNormal}(1.5, 0.75), \quad d \geq 0$
 
-```julia
+```@example getting-started
 x = 0:0.01:15
 plot(x, pdf.(dist, x))
 ```
@@ -98,7 +98,7 @@ plot(x, pdf.(dist, x))
 
 Now we combine these two distributions to create a primary censored distribution:
 
-```julia
+```@example getting-started
 prim_dist = primary_censored(dist, primary_event)
 ```
 
@@ -112,13 +112,14 @@ For theory explained in more detail, see the [primary_censored](https://primary_
 
 We can now generate a random sample from the primary distribution
 
-```julia
+```@example getting-started
+Random.seed!(123)
 rand(prim_dist, 10)
 ```
 
 and plot the CDF compared to the unmodified distribution.
 
-```julia
+```@example getting-started
 x = 0:0.01:15
 plot(x, cdf.(dist, x), label="Uncensored")
 plot!(x, cdf.(prim_dist, x), label="Primary censored")
@@ -137,19 +138,20 @@ $$F_{\text{cens,norm}}(q) = \frac{F_{\text{cens}}(q)}{F_{\text{cens}}(D)}$$
 
 We can apply truncation using the normal `truncated` function from `Distributions.jl`:
 
-```julia
-trunc_prim_dist = truncated(prim_dist, upper= 10)
+```@example getting-started
+trunc_prim_dist = truncated(prim_dist, upper=10)
 ```
 
 We can again sample from the distribution
 
-```julia
+```@example getting-started
+Random.seed!(123)
 rand(trunc_prim_dist, 10)
 ```
 
 or plot the CDFs of the different distributions:
 
-```julia
+```@example getting-started
 x = 0:0.01:15
 plot(x, cdf.(dist, x), label="Uncensored")
 plot!(x, cdf.(prim_dist, x), label="Primary censored")
@@ -170,19 +172,20 @@ $$f_{\text{cens}}(d) = F_{\text{cens}}(d + \text{swindow}) - F_{\text{cens}}(d)$
 
 where $F_{\text{cens}}$ is the potentially right truncated primary event censored CDF and $\text{swindow}$ is the secondary event window.
 
-```julia
+```@example getting-started
 int_censored_dist = interval_censored(trunc_prim_dist, 1)
 ```
 
 Again we can sample from the distribution.
 
-```julia
+```@example getting-started
+Random.seed!(123)
 rand(int_censored_dist, 10)
 ```
 
 or plot the CDFs of the different distributions.
 
-```julia
+```@example getting-started
 x = 0:0.01:15
 plot(x, cdf.(dist, x), label="Uncensored")
 plot!(x, cdf.(prim_dist, x), label="Primary censored")
@@ -196,14 +199,15 @@ Neither the primary censored nor the interval censored distributions match the t
 
 For common workflows involving the complete pipeline of primary censoring, truncation, and secondary interval censoring, the package provides a convenient `double_interval_censored` function that applies all transformations in the correct order (primary censoring → truncation → interval censoring):
 
-```julia
+```@example getting-started
 # This is equivalent to the step-by-step approach above
 double_censored_dist = double_interval_censored(Gamma(2, 1); upper=8, interval=2)
 ```
 
 As with all the other functions, we can sample from the distribution
 
-```julia
+```@example getting-started
+Random.seed!(123)
 rand(double_censored_dist, 10)
 ```
 
