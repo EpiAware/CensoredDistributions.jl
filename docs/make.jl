@@ -12,7 +12,6 @@ if !skip_notebooks
     using Pluto: Configuration.CompilerOptions
     using PlutoStaticHTML
 
-    include("changelog.jl")
     include("pages.jl")
     include("build.jl")
 
@@ -22,7 +21,6 @@ if !skip_notebooks
     println("✓ Notebook processing complete")
 else
     println("⚠ Skipping Pluto notebook processing (--skip-notebooks or SKIP_NOTEBOOKS=true)")
-    include("changelog.jl")
     include("pages.jl")
 end
 
@@ -47,7 +45,7 @@ DocMeta.setdocmeta!(
     CensoredDistributions, :DocTestSetup, :(using CensoredDistributions); recursive = true)
 
 makedocs(; sitename = "CensoredDistributions.jl",
-    authors = "Samuel Brand, Sam Abbott, and contributors",
+    authors = "Sam Abbott, and contributors",
     clean = true, doctest = false, linkcheck = true,
     warnonly = [:docs_block, :missing_docs, :linkcheck, :autodocs_block],
     modules = [CensoredDistributions],
