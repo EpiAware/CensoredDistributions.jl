@@ -224,6 +224,76 @@ end
     @test extracted_upper.σ == 1
 end
 
+@testitem "Test get_dist with Distributions.Censored distributions" begin
+    using Distributions
+
+    # Test extraction of uncensored distribution from Censored
+    base = Normal(0, 1)
+    censored_dist = censored(base, -2, 2)
+
+    extracted = get_dist(censored_dist)
+    @test extracted === base
+    @test extracted isa Normal
+    @test params(extracted) == params(base)
+
+    # Test with different distribution types
+    base_gamma = Gamma(2.0, 1.5)
+    censored_gamma = censored(base_gamma, 0.5, 10.0)
+
+    extracted_gamma = get_dist(censored_gamma)
+    @test extracted_gamma === base_gamma
+    @test extracted_gamma isa Gamma
+    @test params(extracted_gamma) == params(base_gamma)
+
+    # Test with LogNormal censoring
+    base_lognormal = LogNormal(1.0, 0.5)
+    censored_lognormal = censored(base_lognormal, 0.5, 5.0)
+
+    extracted_lognormal = get_dist(censored_lognormal)
+    @test extracted_lognormal === base_lognormal
+    @test extracted_lognormal isa LogNormal
+
+    # Test with Exponential censoring
+    base_exp = Exponential(2.0)
+    censored_exp = censored(base_exp, 0.0, 10.0)
+
+    extracted_exp = get_dist(censored_exp)
+    @test extracted_exp === base_exp
+    @test extracted_exp isa Exponential
+
+    # Test with different bound types
+    base_normal2 = Normal(5, 2)
+    censored_normal2 = censored(base_normal2, 2.0, 8.0)
+
+    extracted_normal2 = get_dist(censored_normal2)
+    @test extracted_normal2 === base_normal2
+    @test extracted_normal2 isa Normal
+
+    # Test censoring with infinite bounds
+    censored_lower_only = censored(Normal(0, 1), 0, Inf)
+    extracted_lower = get_dist(censored_lower_only)
+    @test extracted_lower isa Normal
+    @test extracted_lower.μ == 0
+    @test extracted_lower.σ == 1
+
+    censored_upper_only = censored(Normal(0, 1), -Inf, 0)
+    extracted_upper = get_dist(censored_upper_only)
+    @test extracted_upper isa Normal
+    @test extracted_upper.μ == 0
+    @test extracted_upper.σ == 1
+
+    # Test type stability
+    @inferred get_dist(censored_dist)
+    @test typeof(get_dist(censored_dist)) === typeof(base)
+
+    # Test recursive extraction
+    weighted_censored = weight(censored_dist, 2.5)
+    @test get_dist_recursive(weighted_censored) === base
+
+    nested_censored = weight(interval_censored(censored_dist, 0.5), 1.5)
+    @test get_dist_recursive(nested_censored) === base
+end
+
 @testitem "Test get_dist with nested distributions" begin
     using Distributions
 
@@ -382,6 +452,24 @@ end
     @test length(samples_trunc) == 50
     # Note: samples from extracted (untruncated) can be outside [-2, 2]
     @test any(s -> abs(s) > 2, samples_trunc)  # Some should be outside bounds
+
+    # Test with Distributions.Censored
+    base_censored = Normal(0, 1)
+    censored_dist = censored(base_censored, -0.5, 0.5)
+    extracted_censored = get_dist(censored_dist)
+
+    @test params(extracted_censored) == params(base_censored)
+    @test mean(extracted_censored) == mean(base_censored)
+    @test std(extracted_censored) == std(base_censored)
+    @test pdf(extracted_censored, 0.0) == pdf(base_censored, 0.0)
+    @test cdf(extracted_censored, 0.0) == cdf(base_censored, 0.0)
+
+    # Test sampling from extracted censored distribution
+    samples_censored = rand(extracted_censored, 100)
+    @test length(samples_censored) == 100
+    # Note: samples from extracted (uncensored) can be outside [-0.5, 0.5]
+    # With Normal(0,1) and bounds [-0.5, 0.5], about 61.7% of samples will be outside
+    @test any(s -> s < -0.5 || s > 0.5, samples_censored)  # Some should be outside bounds
 end
 
 @testitem "Test get_dist with edge cases" begin
@@ -432,6 +520,59 @@ end
     uniform_base = Uniform(0, 1)
     same_bounds_trunc = truncated(uniform_base, 0, 1)
     @test get_dist(same_bounds_trunc) === uniform_base
+end
+
+@testitem "Test get_dist with double_interval_censored distributions" begin
+    using Distributions
+
+    # Test that get_dist works with all forms of double interval censored distributions
+    delay = LogNormal(1.5, 0.75)
+    primary = Uniform(0, 2)
+
+    # Test basic primary censoring (should return the delay distribution)
+    d1 = double_interval_censored(delay, primary_event = primary)
+    @test get_dist(d1) === delay
+    @test get_dist_recursive(d1) === delay
+
+    # Test primary + truncation (get_dist returns PrimaryCensored)
+    d2 = double_interval_censored(delay, primary_event = primary, upper = 10)
+    extracted_d2 = get_dist(d2)
+    @test extracted_d2 isa CensoredDistributions.PrimaryCensored
+    @test get_dist_recursive(d2) === delay
+
+    # Test primary + interval censoring (get_dist returns PrimaryCensored)
+    d3 = double_interval_censored(delay, primary_event = primary, interval = 1)
+    extracted_d3 = get_dist(d3)
+    @test extracted_d3 isa CensoredDistributions.PrimaryCensored
+    @test get_dist_recursive(d3) === delay
+
+    # Test full double interval censoring (get_dist returns Truncated)
+    d4 = double_interval_censored(delay, primary_event = primary, upper = 10, interval = 1)
+    extracted_d4 = get_dist(d4)
+    @test extracted_d4 isa Truncated
+    @test get_dist_recursive(d4) === delay
+
+    # Test with both lower and upper bounds
+    d5 = double_interval_censored(delay, primary_event = primary, lower = 0.1, upper = 10)
+    @test get_dist_recursive(d5) === delay
+
+    # Test with only lower bound
+    d6 = double_interval_censored(delay, primary_event = primary, lower = 0.1)
+    @test get_dist_recursive(d6) === delay
+
+    # Test that all forms work with different distribution types
+    exp_delay = Exponential(2.0)
+    d7 = double_interval_censored(
+        exp_delay, primary_event = primary, upper = 5, interval = 0.5)
+    @test get_dist_recursive(d7) === exp_delay
+
+    # Test nested with weighted distributions
+    weighted_double = weight(d4, 3.0)
+    @test get_dist_recursive(weighted_double) === delay
+
+    # Verify type stability
+    @inferred get_dist(d1)
+    @inferred get_dist_recursive(d4)
 end
 
 @testitem "Test get_dist preserves distribution properties" begin
@@ -730,6 +871,24 @@ end
 
     @test get_dist_recursive(trunc2) === base_normal_deep
     @test get_dist_recursive(trunc2) isa Normal
+
+    # Test Distributions.Censored distributions recursively
+    base_censored_exp = Exponential(1.5)
+    censored_exp = censored(base_censored_exp, 0.1, 8.0)
+    ic_censored_exp = interval_censored(censored_exp, 0.3)
+    wd_ic_censored_exp = weight(ic_censored_exp, 1.8)
+
+    @test get_dist_recursive(wd_ic_censored_exp) === base_censored_exp
+    @test get_dist_recursive(wd_ic_censored_exp) isa Exponential
+
+    # Test mixed Truncated and Censored
+    base_mixed = Normal(2, 1)
+    trunc_mixed = truncated(base_mixed, 0, 4)
+    censored_mixed = censored(trunc_mixed, -1, 5)  # Apply censoring to truncated
+    weighted_mixed = weight(censored_mixed, 2.0)
+
+    @test get_dist_recursive(weighted_mixed) === base_mixed
+    @test get_dist_recursive(weighted_mixed) isa Normal
 end
 
 @testitem "Test get_dist_recursive type consistency and performance" begin
