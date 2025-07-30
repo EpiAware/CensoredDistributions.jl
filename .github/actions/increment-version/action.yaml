@@ -151,4 +151,4 @@ runs:
         New version: $NEW_VERSION"
 
         # Push to current branch
-        git push
+        git pull && git push
