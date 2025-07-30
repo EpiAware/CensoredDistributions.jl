@@ -40,6 +40,27 @@ get_dist(wd) isa Normal  # true
 trunc_dist = truncated(Normal(0, 1), -2, 2)
 get_dist(trunc_dist) isa Normal  # true
 
+# Censored distribution (from Distributions.jl)
+censored_dist = censored(Normal(0, 1), -2, 2)
+get_dist(censored_dist) isa Normal  # true
+
+# Double interval censored distributions (all forms)
+# Basic case - returns PrimaryCensored
+basic_dic = double_interval_censored(LogNormal(1.5, 0.75))
+get_dist(basic_dic) isa LogNormal  # true
+
+# With truncation - returns Truncated{PrimaryCensored}
+trunc_dic = double_interval_censored(LogNormal(1.5, 0.75); upper=10)
+get_dist(trunc_dic) isa CensoredDistributions.PrimaryCensored  # true
+
+# With interval censoring - returns IntervalCensored{PrimaryCensored}
+interval_dic = double_interval_censored(LogNormal(1.5, 0.75); interval=1)
+get_dist(interval_dic) isa CensoredDistributions.PrimaryCensored  # true
+
+# Full double censoring - returns IntervalCensored{Truncated{PrimaryCensored}}
+full_dic = double_interval_censored(LogNormal(1.5, 0.75); upper=10, interval=1)
+get_dist(full_dic) isa Truncated  # true
+
 # Product distribution (returns vector of component distributions)
 pd = product_distribution([Normal(0, 1), Exponential(1)])
 components = get_dist(pd)
@@ -130,6 +151,34 @@ function get_dist(d::Product)
 end
 
 @doc raw"""
+    get_dist(d::Distributions.Censored)
+
+Extract the underlying distribution from a censored distribution.
+
+Returns the uncensored distribution before censoring bounds were applied.
+This method supports the `Censored` type from Distributions.jl created by
+the `censored()` function.
+
+# Examples
+```@example
+using Distributions
+
+# Extract Normal from censored Normal
+base = Normal(0, 1)
+censored_dist = censored(base, -2, 2)
+get_dist(censored_dist) === base  # true
+
+# Works with any censored distribution
+gamma_base = Gamma(2, 1)
+censored_gamma = censored(gamma_base, 0.1, 5.0)
+get_dist(censored_gamma) === gamma_base  # true
+```
+"""
+function get_dist(d::Distributions.Censored)
+    return d.uncensored
+end
+
+@doc raw"""
     get_dist_recursive(d)
 
 Recursively extract the underlying distribution from nested wrapper types.
@@ -166,6 +215,20 @@ base = Normal(0, 1)
 trunc_dist = truncated(base, -2, 2)
 weighted_trunc = weight(trunc_dist, 2.0)
 get_dist_recursive(weighted_trunc) == base  # true
+
+# Censored nested wrappers
+censored_dist = censored(Normal(0, 1), -2, 2)
+weighted_censored = weight(censored_dist, 2.0)
+get_dist_recursive(weighted_censored) == base  # true
+
+# Double interval censored distributions (fully recursive)
+delay = LogNormal(1.5, 0.75)
+full_double = double_interval_censored(delay; upper=10, interval=1)
+get_dist_recursive(full_double) == delay  # true
+
+# Weighted double interval censored
+weighted_double = weight(full_double, 2.0)
+get_dist_recursive(weighted_double) == delay  # true
 
 # Base distribution - returns unchanged
 d = Normal(0, 1)
