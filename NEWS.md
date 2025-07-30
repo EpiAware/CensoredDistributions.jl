@@ -1,9 +1,3 @@
-# CensoredDistributions.jl Release Notes
-
-This file documents major releases of CensoredDistributions.jl.
-For detailed patch and minor release notes, see our
-[GitHub releases](https://github.com/EpiAware/CensoredDistributions.jl/releases).
-
 ## v0.1.0 - Initial Release
 
 CensoredDistributions.jl extends Distributions.jl to support primary event
