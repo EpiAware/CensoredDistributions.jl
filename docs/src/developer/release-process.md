@@ -1,12 +1,11 @@
 # [Release Process](@id release-process)
 
 CensoredDistributions.jl follows a hybrid approach to release documentation,
-combining the Julia ecosystem's standard practices with comprehensive changelog
-management for major releases.
+combining the Julia ecosystem's standard practices with a news file for major releases.
 
 ## Release Philosophy
 
-- **Release frequently**: Ideally after every merged PR to main
+- **Release frequently**: Ideally after every merged PR to main.
 - **Semantic versioning**: Follow [SemVer](https://semver.org/) strictly
 - **Hybrid changelog approach**: Use NEWS.md for major releases, GitHub
   releases for all releases
@@ -24,7 +23,7 @@ management for major releases.
 
 ### 1. Standard Julia Tooling
 
-We use the same tools as major Julia packages (including the SciML ecosystem):
+We use the same tools as major Julia packages:
 
 - **CompatHelper**: Automated dependency updates via daily PRs
 - **@JuliaRegistrator**: Manual package registration to Julia General Registry
@@ -58,9 +57,8 @@ We use the same tools as major Julia packages (including the SciML ecosystem):
    - Include rationale for major changes
    - Acknowledge significant contributors
 3. **Update version** with major version bump (e.g., `1.5.2` → `2.0.0`)
-4. **Write comprehensive GitHub release notes** linking to NEWS.md entry
-5. **Follow same registration process** as regular releases
-6. **Consider deprecation warnings** in the previous minor release
+4. **Follow same registration process** as regular releases
+5. **Consider deprecation warnings** in the previous minor release
 
 **Additional Major Release Considerations**:
 - Create migration documentation or guides if needed
@@ -102,35 +100,6 @@ traditional NEWS.md files and GitHub releases:
    - Offers detailed migration guidance
    - Follows SciML ecosystem conventions for major version documentation
 
-#### When to Use NEWS.md vs GitHub Releases
-
-**Use NEWS.md for**:
-- **Major version releases** (e.g., v1.0.0 → v2.0.0)
-- **Significant API changes** requiring user migration
-- **Large feature additions** that fundamentally change package usage
-- **Breaking changes** that need comprehensive explanation
-- **Deprecation announcements** and removal timelines
-
-**Use GitHub Releases only for**:
-- **Patch releases** (bug fixes, performance improvements)
-- **Minor releases** (backwards-compatible feature additions)
-- **Documentation-only updates**
-- **Dependency updates** via CompatHelper
-
-#### NEWS.md Entry Criteria
-
-A release requires a NEWS.md entry if it meets **any** of these criteria:
-
-1. **Breaking Changes**: Any modification to the public API that could break
-   existing user code
-2. **Major Features**: New functionality that significantly expands package
-   capabilities
-3. **Deprecations**: Functions or features marked for future removal
-4. **Migration Required**: Changes requiring users to modify their existing
-   code
-5. **Ecosystem Impact**: Changes affecting integration with other packages
-   (Turing.jl, Distributions.jl, etc.)
-
 #### Templates
 
 ##### Release Documentation Strategy
@@ -138,14 +107,13 @@ A release requires a NEWS.md entry if it meets **any** of these criteria:
 **GitHub Releases (Minor/Patch - Automated)**:
 - GitHub automatically generates release notes for minor and patch releases
 - Uses commit messages and PR labels to categorise changes
-- Provides immediate visibility in Julia ecosystem
 - No manual intervention required
 
 **NEWS.md Entries (Major Releases - Manual)**:
 - Maintainers manually write detailed entries for major releases
 - Focus on breaking changes, migration guidance, and significant features
-- Provide comprehensive context that automated tools cannot capture
-- Follow structured format with breaking changes, new features, and migration examples
+- Provide context
+- Follow a structured format with breaking changes, new features, and migration examples
 
 ##### NEWS.md Entry Template (Major Releases):
 ```markdown
@@ -166,12 +134,6 @@ d = PrimaryCensored(delay_dist, primary_dist, censoring_window)
 d = primary_censored(delay_dist, primary_dist; window=censoring_window)
 ```
 
-### Migration Guide
-- Replace `PrimaryCensored` constructor calls with `primary_censored` function
-- Update `censoring_window` parameter to `window` keyword argumen
-- See [Migration Guide](link-to-detailed-guide) for complete transition
-  instructions
-
 ## New Features
 - Unified distribution constructor interface
 - Enhanced integration with Turing.jl v0.30+
@@ -186,43 +148,7 @@ Special thanks to @contributor1, @contributor2 for major contributions to this
 release.
 ```
 
-### 5. SciML Ecosystem Alignmen
-
-Our hybrid changelog approach aligns with established patterns in the broader
-Scientific Machine Learning (SciML) ecosystem:
-
-#### Why This Approach?
-
-**Standard Julia Practice**: Most Julia packages rely primarily on GitHub
-releases, which integrates well with the Julia package manager and registry
-system.
-
-**SciML Convention**: Larger SciML packages (DifferentialEquations.jl,
-Turing.jl, etc.) use NEWS.md files for major releases to provide detailed
-context for complex API changes that affect scientific workflows.
-
-**Best of Both Worlds**:
-- **GitHub Releases**: Immediate visibility, automatic generation, perfect for
-  routine updates
-- **NEWS.md**: Comprehensive context, detailed migration guidance, preserved
-  historical record
-
-#### Ecosystem Benefits
-
-1. **User Experience**: Scientists and researchers get detailed guidance for
-   major changes affecting their analysis workflows
-2. **Maintainer Efficiency**: Automated releases for routine changes, manual
-   curation only when high-impact changes need detailed explanation
-3. **Community Standards**: Follows established patterns that users of
-   similar packages expec
-4. **Long-term Maintenance**: NEWS.md provides curated historical record for
-   major milestones
-
-This approach ensures CensoredDistributions.jl integrates seamlessly with both
-the Julia package ecosystem and the specific needs of the scientific computing
-community.
-
-### 6. Automation Details
+### 5. Automation Details
 
 #### CompatHelper
 - Runs daily via GitHub Actions (`CompatHelper.yaml`)
@@ -230,11 +156,17 @@ community.
 - Creates PRs for dependency version bumps
 - Helps maintain up-to-date dependencies across Julia ecosystem
 
-#### TagBo
+#### TagBot
 - Triggered when package appears in Julia General Registry
 - Automatically creates GitHub releases with generated changelog
 - Uses SSH key (`DOCUMENTER_KEY`) for authenticated operations
 - Supports custom release notes if provided
+
+#### Version Management Actions
+
+- Runs automatically on pushes to main checking for version changes in Project.toml
+- Accepts /version major|minor|patch comments on PRs from users with write permissions
+- Creates patch increment PRs for main branch or commits directly to PR branches
 
 #### JuliaRegistrator
 - Community bot for registering packages
