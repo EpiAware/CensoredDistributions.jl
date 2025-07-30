@@ -9,6 +9,10 @@ jobs:
     # Only run on PR comments, not issue comments
     if: github.event.issue.pull_request != null
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     steps:
       - name: Parse version command
         id: parse-command

@@ -15,6 +15,7 @@ jobs:
     permissions:
       contents: write
       statuses: write
+      pull-requests: write
     name: Documentation
     runs-on: ubuntu-latest
     steps:
@@ -29,3 +30,52 @@ jobs:
       - uses: julia-actions/julia-docdeploy@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Comment PR with docs preview
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr_number = context.issue.number;
+            const repo_owner = context.repo.owner;
+            const repo_name = context.repo.repo;
+
+            const docs_url = `https://${repo_owner}.github.io/${repo_name}/previews/PR${pr_number}/`;
+
+            const comment_body = `
+            📖 **Documentation preview** is ready!
+
+            View the docs for this PR at: ${docs_url}
+
+            *This preview will be updated automatically when you push new commits.*
+            `;
+
+            // Get existing comments to avoid duplicates
+            const comments = await github.rest.issues.listComments({
+              owner: repo_owner,
+              repo: repo_name,
+              issue_number: pr_number
+            });
+
+            const bot_comment = comments.data.find(comment =>
+              comment.user.login === 'github-actions[bot]' &&
+              comment.body.includes('Documentation preview')
+            );
+
+            if (bot_comment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: repo_owner,
+                repo: repo_name,
+                comment_id: bot_comment.id,
+                body: comment_body
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: repo_owner,
+                repo: repo_name,
+                issue_number: pr_number,
+                body: comment_body
+              });
+            }
