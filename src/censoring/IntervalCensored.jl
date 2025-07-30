@@ -134,16 +134,16 @@ end
 # Distribution interface methods
 function Distributions.params(d::IntervalCensored)
     if is_regular_intervals(d)
-        return (params(d.dist)..., d.boundaries)
+        return (params(get_dist(d))..., d.boundaries)
     else
-        return (params(d.dist)..., d.boundaries)
+        return (params(get_dist(d))..., d.boundaries)
     end
 end
 
 Base.eltype(::Type{<:IntervalCensored{D, T}}) where {D, T} = eltype(D)
 
 function Distributions.minimum(d::IntervalCensored)
-    cont_min = minimum(d.dist)
+    cont_min = minimum(get_dist(d))
     if is_regular_intervals(d)
         return floor_to_interval(cont_min, interval_width(d))
     else
@@ -154,7 +154,7 @@ function Distributions.minimum(d::IntervalCensored)
 end
 
 function Distributions.maximum(d::IntervalCensored)
-    cont_max = maximum(d.dist)
+    cont_max = maximum(get_dist(d))
     if is_regular_intervals(d)
         return floor_to_interval(cont_max, interval_width(d))
     else
@@ -167,7 +167,7 @@ end
 function Distributions.insupport(d::IntervalCensored, x::Real)
     # For interval-censored distributions, support is continuous within the underlying distribution
     # The PDF is non-zero for any x where the underlying distribution has support
-    return insupport(d.dist, x)
+    return insupport(get_dist(d), x)
 end
 
 #### Probability functions
@@ -177,7 +177,7 @@ function Distributions.pdf(d::IntervalCensored, x::Real)
     if isnan(lower) || isnan(upper)
         return 0.0
     end
-    return cdf(d.dist, upper) - cdf(d.dist, lower)
+    return cdf(get_dist(d), upper) - cdf(get_dist(d), lower)
 end
 
 function Distributions.logpdf(d::IntervalCensored, x::Real)
@@ -193,8 +193,8 @@ function Distributions.logpdf(d::IntervalCensored, x::Real)
 
     # Compute log(P(lower < X <= upper)) = log(F(upper) - F(lower))
     # Use numerical stability approach that's AD-friendly
-    cdf_upper = cdf(d.dist, upper)
-    cdf_lower = cdf(d.dist, lower)
+    cdf_upper = cdf(get_dist(d), upper)
+    cdf_lower = cdf(get_dist(d), lower)
     pdf_mass = cdf_upper - cdf_lower
 
     # Handle edge cases
@@ -208,25 +208,25 @@ end
 # Internal function for efficient cdf/logcdf computation
 function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
     # Handle edge cases first
-    if x < minimum(d.dist)
+    if x < minimum(get_dist(d))
         return f === logcdf ? -Inf : 0.0
-    elseif x >= maximum(d.dist)
+    elseif x >= maximum(get_dist(d))
         return f === logcdf ? 0.0 : 1.0
     end
 
     if is_regular_intervals(d)
         # For regular intervals, use floor behavior from Discretised
         discretised_x = floor_to_interval(x, interval_width(d))
-        return f(d.dist, discretised_x)
+        return f(get_dist(d), discretised_x)
     else
         # For arbitrary intervals, use the lower bound of the containing interval
         idx = find_interval_index(x, d.boundaries)
         if idx == 0
             return f === logcdf ? -Inf : 0.0
         elseif idx >= length(d.boundaries)
-            return f(d.dist, d.boundaries[end])
+            return f(get_dist(d), d.boundaries[end])
         else
-            return f(d.dist, d.boundaries[idx])
+            return f(get_dist(d), d.boundaries[idx])
         end
     end
 end
@@ -261,7 +261,7 @@ end
 
 function Base.rand(rng::AbstractRNG, d::IntervalCensored)
     # Sample once from the underlying distribution
-    x = rand(rng, d.dist)
+    x = rand(rng, get_dist(d))
 
     if is_regular_intervals(d)
         # Discretise to regular intervals

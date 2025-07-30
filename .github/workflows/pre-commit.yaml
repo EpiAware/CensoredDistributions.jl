@@ -10,9 +10,9 @@ jobs:
   pre-commit:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-python@v3
-    - uses: julia-actions/setup-julia@v1
-    - uses: julia-actions/cache@v1
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+    - uses: julia-actions/setup-julia@v2
+    - uses: julia-actions/cache@v2
     - run: julia -e 'using Pkg; Pkg.add("JuliaFormatter")'
     - uses: ./.github/actions/pre-commit

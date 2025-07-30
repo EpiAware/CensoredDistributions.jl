@@ -1,0 +1,154 @@
+name: 'Increment Version'
+description: 'Increment version in Project.toml and create PR'
+inputs:
+  increment-type:
+    description: 'Type of version increment: major, minor, or patch'
+    required: true
+  create-pr:
+    description: 'Whether to create a PR (true) or just increment on current branch (false)'
+    required: false
+    default: 'true'
+  pr-title-prefix:
+    description: 'Prefix for PR title'
+    required: false
+    default: 'chore: increment version'
+  assignee:
+    description: 'GitHub username to assign PR to'
+    required: false
+    default: 'seabbs'
+outputs:
+  old-version:
+    description: 'The previous version'
+    value: ${{ steps.increment.outputs.old-version }}
+  new-version:
+    description: 'The new version'
+    value: ${{ steps.increment.outputs.new-version }}
+  pr-number:
+    description: 'PR number if created'
+    value: ${{ steps.create-pr.outputs.pr-number }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Get current version and increment
+      id: increment
+      shell: bash
+      run: |
+        # Get current version
+        CURRENT_VERSION=$(grep '^version = ' Project.toml | sed 's/version = "\(.*\)"/\1/')
+        echo "Current version: $CURRENT_VERSION"
+
+        # Parse version parts
+        IFS='.' read -ra VERSION_PARTS <<< "$CURRENT_VERSION"
+        MAJOR=${VERSION_PARTS[0]}
+        MINOR=${VERSION_PARTS[1]}
+        PATCH=${VERSION_PARTS[2]}
+
+        # Increment based on type
+        case "${{ inputs.increment-type }}" in
+          "major")
+            NEW_MAJOR=$((MAJOR + 1))
+            NEW_VERSION="${NEW_MAJOR}.0.0"
+            ;;
+          "minor")
+            NEW_MINOR=$((MINOR + 1))
+            NEW_VERSION="${MAJOR}.${NEW_MINOR}.0"
+            ;;
+          "patch")
+            NEW_PATCH=$((PATCH + 1))
+            NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+            ;;
+          *)
+            echo "Error: Invalid increment type '${{ inputs.increment-type }}'. Must be major, minor, or patch."
+            exit 1
+            ;;
+        esac
+
+        echo "New version: $NEW_VERSION"
+        echo "old-version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+        echo "new-version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+        # Update Project.toml
+        sed -i "s/version = \"$CURRENT_VERSION\"/version = \"$NEW_VERSION\"/" Project.toml
+
+    - name: Create PR
+      id: create-pr
+      if: inputs.create-pr == 'true'
+      shell: bash
+      run: |
+        # Configure git
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+
+        OLD_VERSION="${{ steps.increment.outputs.old-version }}"
+        NEW_VERSION="${{ steps.increment.outputs.new-version }}"
+        INCREMENT_TYPE="${{ inputs.increment-type }}"
+
+        # Create new branch
+        BRANCH_NAME="auto/version-increment-${NEW_VERSION}"
+        git checkout -b "$BRANCH_NAME"
+
+        # Commit changes
+        git add Project.toml
+        git commit -m "${{ inputs.pr-title-prefix }} to $NEW_VERSION
+
+        Automatically incremented $INCREMENT_TYPE version.
+
+        Previous version: $OLD_VERSION
+        New version: $NEW_VERSION"
+
+        # Push branch
+        git push origin "$BRANCH_NAME"
+
+        # Create PR using GitHub CLI
+        PR_OUTPUT=$(gh pr create \
+          --title "${{ inputs.pr-title-prefix }} to $NEW_VERSION" \
+          --body "This PR automatically increments the version from \`$OLD_VERSION\` to \`$NEW_VERSION\` as a **$INCREMENT_TYPE** release.
+
+        ## Changes
+        - Updated \`version\` in \`Project.toml\` from \`$OLD_VERSION\` to \`$NEW_VERSION\`
+
+        ## Version Increment Type
+        - **$INCREMENT_TYPE** release: $(case $INCREMENT_TYPE in
+          major) echo "Breaking changes or major new features" ;;
+          minor) echo "New features, backwards compatible" ;;
+          patch) echo "Bug fixes and small improvements" ;;
+        esac)
+
+        ## Review Checklist
+        - [ ] Version increment type is appropriate ($INCREMENT_TYPE)
+        - [ ] No other changes needed for this release
+
+        *This PR was created automatically by the Version Increment workflow.*" \
+          --base main \
+          --head "$BRANCH_NAME" \
+          --assignee "${{ inputs.assignee }}")
+
+        # Extract PR number
+        PR_NUMBER=$(echo "$PR_OUTPUT" | grep -o '/pull/[0-9]*' | grep -o '[0-9]*')
+        echo "pr-number=$PR_NUMBER" >> $GITHUB_OUTPUT
+        echo "Created PR #$PR_NUMBER"
+
+    - name: Commit directly to branch
+      if: inputs.create-pr == 'false'
+      shell: bash
+      run: |
+        # Configure git
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+
+        OLD_VERSION="${{ steps.increment.outputs.old-version }}"
+        NEW_VERSION="${{ steps.increment.outputs.new-version }}"
+        INCREMENT_TYPE="${{ inputs.increment-type }}"
+
+        # Commit changes
+        git add Project.toml
+        git commit -m "${{ inputs.pr-title-prefix }} to $NEW_VERSION
+
+        Automatically incremented $INCREMENT_TYPE version.
+
+        Previous version: $OLD_VERSION
+        New version: $NEW_VERSION"
+
+        # Push to current branch
+        git push

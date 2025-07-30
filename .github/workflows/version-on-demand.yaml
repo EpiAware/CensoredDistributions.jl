@@ -1,0 +1,103 @@
+name: Version On Demand
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  increment-version:
+    # Only run on PR comments, not issue comments
+    if: github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parse version command
+        id: parse-command
+        run: |
+          COMMENT="${{ github.event.comment.body }}"
+          echo "Comment: $COMMENT"
+
+          # Check if comment contains version increment command
+          if echo "$COMMENT" | grep -qE "^/version\s+(major|minor|patch)\s*$"; then
+            INCREMENT_TYPE=$(echo "$COMMENT" | sed -E 's|^/version\s+(major|minor|patch)\s*$|\1|')
+            echo "Valid version command found: $INCREMENT_TYPE"
+            echo "should_increment=true" >> $GITHUB_OUTPUT
+            echo "increment_type=$INCREMENT_TYPE" >> $GITHUB_OUTPUT
+          else
+            echo "No valid version command found"
+            echo "should_increment=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check permissions
+        if: steps.parse-command.outputs.should_increment == 'true'
+        id: check-permissions
+        run: |
+          # Get user's permission level in the repository
+          PERMISSION=$(gh api repos/${{ github.repository }}/collaborators/${{ github.event.comment.user.login }}/permission --jq '.permission')
+          echo "User ${{ github.event.comment.user.login }} has permission: $PERMISSION"
+
+          # Allow admin, write, or maintain permissions
+          if [[ "$PERMISSION" == "admin" || "$PERMISSION" == "write" || "$PERMISSION" == "maintain" ]]; then
+            echo "User has sufficient permissions"
+            echo "has_permission=true" >> $GITHUB_OUTPUT
+          else
+            echo "User does not have sufficient permissions"
+            echo "has_permission=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: React to comment
+        if: steps.parse-command.outputs.should_increment == 'true' && steps.check-permissions.outputs.has_permission == 'true'
+        run: |
+          # Add a reaction to show the command was received
+          gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+            --method POST \
+            --field content='rocket'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout PR
+        if: steps.parse-command.outputs.should_increment == 'true' && steps.check-permissions.outputs.has_permission == 'true'
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Checkout the PR head ref
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+      - name: Increment version
+        if: steps.parse-command.outputs.should_increment == 'true' && steps.check-permissions.outputs.has_permission == 'true'
+        id: increment
+        uses: ./.github/actions/increment-version
+        with:
+          increment-type: ${{ steps.parse-command.outputs.increment_type }}
+          create-pr: 'false'  # Don't create PR, commit directly to current branch
+          pr-title-prefix: "feat: increment version"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on PR with success
+        if: steps.parse-command.outputs.should_increment == 'true' && steps.check-permissions.outputs.has_permission == 'true'
+        run: |
+          gh pr comment ${{ github.event.issue.number }} --body "✅ **Version incremented successfully!**
+
+          - **Previous version:** \`${{ steps.increment.outputs.old-version }}\`
+          - **New version:** \`${{ steps.increment.outputs.new-version }}\`
+          - **Increment type:** ${{ steps.parse-command.outputs.increment_type }}
+
+          The version has been updated in \`Project.toml\` and committed to this PR branch.
+
+          _Triggered by @${{ github.event.comment.user.login }}_"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on permission denied
+        if: steps.parse-command.outputs.should_increment == 'true' && steps.check-permissions.outputs.has_permission == 'false'
+        run: |
+          gh pr comment ${{ github.event.issue.number }} --body "❌ **Permission denied**
+
+          Sorry @${{ github.event.comment.user.login }}, you don't have sufficient permissions to increment the version.
+
+          Only users with \`write\`, \`maintain\`, or \`admin\` permissions can use the \`/version\` command."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
