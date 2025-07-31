@@ -1,4 +1,4 @@
-# CensoredDistributions.jl <img src="docs/src/assets/logo.svg" width="100" alt="CensoredDistributions.jl logo" align="right">
+# CensoredDistributions.jl <img src="docs/src/assets/logo.svg" width="150" alt="CensoredDistributions.jl logo" align="right">
 
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://www.CensoredDistributions.epiaware.org/)
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://www.CensoredDistributions.epiaware.org/dev/)
