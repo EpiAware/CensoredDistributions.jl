@@ -35,6 +35,9 @@ open(joinpath(joinpath(@__DIR__, "src"), "index.md"), "w") do io
         # Replace ```julia with ```@example readme
         if startswith(line, "```julia")
             println(io, "```@example readme")
+            # Update logo path for documentation
+        elseif contains(line, "docs/src/assets/logo.svg")
+            println(io, replace(line, "docs/src/assets/logo.svg" => "assets/logo.svg"))
         else
             println(io, line)
         end
