@@ -13,7 +13,7 @@
 
 *Additional censored event tools for Distributions.jl*
 
-**Websites**: [Organization Website](https://www.epiaware.org/) | [Documentation](https://www.CensoredDistributions.epiaware.org/)
+**Websites**: [Organization Website](https://epiaware.org/) | [Documentation](https://CensoredDistributions.epiaware.org/)
 
 CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shields.io/github/stars/EpiAware/CensoredDistributions.jl?style=social)
 
