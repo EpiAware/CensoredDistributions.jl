@@ -69,7 +69,7 @@ function generate_logo()
 
     # White horizontal line inside the distribution
     vlines!(ax, [trunc_line_x],
-        color = :white, linestyle = :dot, linewidth = 3)
+        color = :grey, linestyle = :dot, linewidth = 3)
 
     # Set axis limits (extended to right for whiskers)
     xlims!(ax, -0.5, 12.0)

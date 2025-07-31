@@ -58,6 +58,7 @@ build/
 # Helpers
 justfile
 docs/src/getting-started/tutorials/fitting-dists-with-Turing.md
+docs/release-notes.md
 primarycensored
 claude.md
 distributions-knowledge-base.md
