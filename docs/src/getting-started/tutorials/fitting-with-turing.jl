@@ -208,16 +208,12 @@ simulation_chain = sample(fixed_model, Prior(), 1)
 simulated_data = @chain simulation_chain begin
     _[:y][1]
     DataFrame(
-        y = _,
+        observed_delay = _,
         pwindow = pwindows,
         swindow = swindows,
         obs_time = obs_times
     )
 end;
-
-# ╔═╡ f4ed7904-cdbb-4534-890a-fb346dd65f38
-# Extract samples for backward compatibility
-samples = simulated_data.y;
 
 # ╔═╡ f4ed7903-cdbb-4534-890a-fb346dd65f37
 md"### Prior predictive checks using pairplot
@@ -225,7 +221,8 @@ md"### Prior predictive checks using pairplot
 First, let's visualise the prior predictive distribution by sampling from
 the instantiated model (model_for_simulation) with uninformative priors and
 compare against our true parameters. This shows what the model believes
-before seeing any data:"
+before seeing any data. Note that this will be the same as the submodel
+since we're using the same priors:"
 
 # ╔═╡ f4ed7904-cdbb-4534-890a-fb346dd65f38
 # Sample from prior predictive distribution using the instantiated model
@@ -254,7 +251,6 @@ combinations and count occurrences.
 
 # ╔═╡ 5aed77d3-5798-4538-b3eb-3f4ce43d0423
 delay_counts = @chain simulated_data begin
-    @rename(:observed_delay = :y)
     @transform(:observed_delay_upper = :observed_delay .+ :swindow)
     @groupby(:pwindow, :swindow, :obs_time, :observed_delay,
         :observed_delay_upper)
@@ -274,7 +270,8 @@ empirical_cdf_obs = ecdf(delay_counts.observed_delay, weights = delay_counts.n);
 
 # ╔═╡ 2b773594-5187-45bc-96f4-22a3d726b7d2
 # Create a sequence of x values for the theoretical CDF
-x_seq = range(minimum(simulated_data.y), stop = maximum(simulated_data.y), length = 100);
+x_seq = range(minimum(simulated_data.observed_delay),
+    stop = maximum(simulated_data.observed_delay), length = 100);
 
 # ╔═╡ a5b04acc-acc5-4d4d-8871-09d54caab185
 # Calculate theoretical CDF using true log-normal distribution
@@ -282,25 +279,39 @@ theoretical_cdf = @chain x_seq begin
     cdf.(true_dist, _)
 end;
 
+# Generate uncensored samples from the true distribution for comparison
+uncensored_samples = rand(true_dist, n);
+empirical_cdf_uncensored = ecdf(uncensored_samples);
+
 # ╔═╡ fb6dc898-21a9-4f8d-aa14-5b45974c2242
 let
     f = Figure()
     ax = Axis(f[1, 1],
-        title = "Comparison of Observed vs Theoretical CDF",
+        title = "Comparison of Censored vs Uncensored vs Theoretical CDF",
         ylabel = "Cumulative Probability",
         xlabel = "Delay"
     )
     scatter!(
         ax,
         x_seq,
-        empirical_cdf_obs,
-        label = "Empirical CDF",
-        color = :blue        # linewidth = 2,
+        empirical_cdf_obs.(x_seq),
+        label = "Empirical CDF (Censored)",
+        color = :blue
+    )
+    scatter!(
+        ax,
+        x_seq,
+        empirical_cdf_uncensored.(x_seq),
+        label = "Empirical CDF (Uncensored)",
+        color = :red,
+        marker = :cross
     )
     lines!(ax, x_seq, theoretical_cdf, label = "Theoretical CDF",
         color = :black, linewidth = 2)
-    vlines!(ax, [mean(simulated_data.y)], color = :blue, linestyle = :dash,
-        label = "Empirical mean", linewidth = 2)
+    vlines!(ax, [mean(simulated_data.observed_delay)], color = :blue, linestyle = :dash,
+        label = "Censored mean", linewidth = 2)
+    vlines!(ax, [mean(uncensored_samples)], color = :red, linestyle = :dash,
+        label = "Uncensored mean", linewidth = 2)
     vlines!(ax, [mean(true_dist)], linestyle = :dash,
         label = "Theoretical mean", color = :black, linewidth = 2)
     axislegend(position = :rb)
