@@ -393,9 +393,6 @@ interval_only_mdl = @with delay_counts begin
     interval_only_model(:observed_delay, :n, :swindow, :obs_time)
 end
 
-# ╔═╡ a2cf54fb-917c-489a-b474-654daba16bad
-rand(interval_only_mdl)
-
 # ╔═╡ 38790b6c-4fef-4b28-9442-6bfaab9d3c5a
 md"
 Fit the interval-only model:
@@ -512,7 +509,6 @@ We also see that the posterior means are near the true parameters and the
 # ╠═c3afeed1-20ec-44c8-933c-ca0e75cda788
 # ╟─4fc543fa-dca5-40c3-810b-979c536dfe0d
 # ╠═6a274882-df7d-4972-80a6-ea62d932a906
-# ╠═a2cf54fb-917c-489a-b474-654daba16bad
 # ╟─38790b6c-4fef-4b28-9442-6bfaab9d3c5a
 # ╠═8e1764ec-345a-453a-830c-748c2a077eb7
 # ╠═e0912175-6a02-480f-b8df-abd7c06f67e9
