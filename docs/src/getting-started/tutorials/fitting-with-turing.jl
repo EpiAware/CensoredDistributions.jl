@@ -129,14 +129,11 @@ md"define a helper function to standardize our pairplot visualizations
 across all model fits:"
 
 # ╔═╡ 767a5900-9d7b-41db-a488-10f98a777478
-function plot_fit_with_truth(chain, true_mu, true_sigma)
+function plot_fit_with_truth(chain, truth_dict)
     f = pairplot(
         chain,
         PairPlots.Truth(
-            (;
-                mu = true_mu,
-                sigma = true_sigma
-            ),
+            truth_dict,
             label = "True Values"
         )
     )
@@ -157,7 +154,7 @@ begin
     latent_prior_samples = sample(latent_delay_dist(), Prior(), 1000)
 
     # Visualize the prior distribution
-    plot_fit_with_truth(latent_prior_samples, meanlog, sdlog)
+    plot_fit_with_truth(latent_prior_samples, (; mu = meanlog, sigma = sdlog))
 end
 
 # ╔═╡ 767a5900-9d7b-41db-a488-10f98a777480
@@ -203,7 +200,7 @@ sample from the prior predictive distribution. We first define a set of primary 
 
 # ╔═╡ c548931f-f5e3-4de9-9183-eb64575b6bdb
 # Create primary event distributions from pwindows
-primary_dists = Uniform.(0.0, pwindows)
+primary_dists = Uniform.(0.0, pwindows);
 
 # ╔═╡ f3568b69-875d-494c-82cf-5a3db767cdaa
 md"Then we can define the model using our observation windows."
@@ -358,7 +355,7 @@ naive_fit = sample(naive_mdl, NUTS(), MCMCThreads(), 500, 4);
 summarize(naive_fit)
 
 # ╔═╡ 2c0b4f97-5953-497d-bca9-d1aa46c5150b
-plot_fit_with_truth(naive_fit, meanlog, sdlog)
+plot_fit_with_truth(naive_fit, Dict("dist.mu" => meanlog, "dist.sigma" => sdlog))
 
 # ╔═╡ 7122bd53-81f6-4ea5-a024-86fdd7a7207a
 md"
@@ -407,7 +404,7 @@ interval_only_fit = sample(interval_only_mdl, NUTS(), MCMCThreads(), 500, 4);
 summarize(interval_only_fit)
 
 # ╔═╡ 01a37638-6494-4ce5-a02d-9d7f76f39ab7
-plot_fit_with_truth(interval_only_fit, meanlog, sdlog)
+plot_fit_with_truth(interval_only_fit, Dict("dist.mu" => meanlog, "dist.sigma" => sdlog))
 
 # ╔═╡ 080c1bca-afcd-46c0-80b8-1708e8d05ae6
 md"## Fitting the full CensoredDistributions model
@@ -440,7 +437,7 @@ CensoredDistributions_fit = sample(
 summarize(CensoredDistributions_fit)
 
 # ╔═╡ f0c02e4a-c0cc-41de-b1bf-f5fad7e7dfdb
-plot_fit_with_truth(CensoredDistributions_fit, meanlog, sdlog)
+plot_fit_with_truth(CensoredDistributions_fit, Dict("dist.mu" => meanlog, "dist.sigma" => sdlog))
 
 # ╔═╡ c045caa6-a44d-4a54-b122-1e50b1e0fe75
 md"
