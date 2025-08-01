@@ -120,6 +120,20 @@ end
 md"We can sample from this submodel directly to understand our prior beliefs
 about the underlying delay distribution:"
 
+# ╔═╡ 767a5900-9d7b-41db-a488-10f98a777477a
+md"### Helper function for consistent pairplot visualization
+
+We define a helper function to standardize our pairplot visualizations
+across all model fits:"
+
+# ╔═╡ 767a5900-9d7b-41db-a488-10f98a777477b
+function plot_fit_with_truth(chain, true_mu, true_sigma)
+    f = pairplot(chain)
+    vlines!(f[1, 1], [true_mu], linewidth = 4, color = :green)
+    vlines!(f[2, 2], [true_sigma], linewidth = 4, color = :green)
+    return f
+end
+
 # ╔═╡ 767a5900-9d7b-41db-a488-10f98a777479
 begin
     # Sample from the latent delay distribution prior
@@ -365,12 +379,7 @@ naive_fit = sample(naive_mdl, NUTS(), MCMCThreads(), 500, 4);
 summarize(naive_fit)
 
 # ╔═╡ 2c0b4f97-5953-497d-bca9-d1aa46c5150b
-let
-    f = pairplot(naive_fit)
-    vlines!(f[1, 1], [meanlog], linewidth = 4)
-    vlines!(f[2, 2], [sdlog], linewidth = 4)
-    f
-end
+plot_fit_with_truth(naive_fit, meanlog, sdlog)
 
 # ╔═╡ 7122bd53-81f6-4ea5-a024-86fdd7a7207a
 md"
@@ -410,12 +419,9 @@ Instantiate the interval-only model with our observed data:
 "
 
 # ╔═╡ af105245-d4e7-4f80-b11i-4567890123de
-interval_only_mdl = interval_only_model(
-    delay_counts.observed_delay,
-    delay_counts.n,
-    delay_counts.swindow,
-    delay_counts.obs_time
-)
+# Create a cleaner instantiation using @df macro
+interval_only_mdl = @df delay_counts interval_only_model(
+    :observed_delay, :n, :swindow, :obs_time)
 
 # ╔═╡ b0215356-e5f8-5091-c22j-5678901234ef
 md"
@@ -429,12 +435,7 @@ interval_only_fit = sample(interval_only_mdl, NUTS(), MCMCThreads(), 500, 4);
 summarize(interval_only_fit)
 
 # ╔═╡ e3548689-18fb-73c4-f55m-8901234567h2
-let
-    f = pairplot(interval_only_fit)
-    vlines!(f[1, 1], [meanlog], linewidth = 4, color = :green)
-    vlines!(f[2, 2], [sdlog], linewidth = 4, color = :green)
-    f
-end
+plot_fit_with_truth(interval_only_fit, meanlog, sdlog)
 
 # ╔═╡ 080c1bca-afcd-46c0-80b8-1708e8d05ae6
 md"## Fitting the full CensoredDistributions model
@@ -454,13 +455,9 @@ Then we instantiate this model with our observed data.
 "
 
 # ╔═╡ a59e371a-b671-4648-984d-7bcaac367d32
-CensoredDistributions_mdl = CensoredDistributions_model(
-    delay_counts.observed_delay,
-    delay_counts.n,
-    delay_counts.pwindow,
-    delay_counts.swindow,
-    delay_counts.obs_time
-)
+# Use @df macro for cleaner model instantiation
+CensoredDistributions_mdl = @df delay_counts CensoredDistributions_model(
+    :observed_delay, :n, :pwindow, :swindow, :obs_time)
 
 # ╔═╡ 691e3d54-1a31-4686-a70d-711c2fc45dc1
 md"
@@ -479,12 +476,7 @@ CensoredDistributions_fit = sample(
 summarize(CensoredDistributions_fit)
 
 # ╔═╡ f0c02e4a-c0cc-41de-b1bf-f5fad7e7dfdb
-let
-    f = pairplot(CensoredDistributions_fit)
-    CairoMakie.vlines!(f[1, 1], [meanlog], linewidth = 3)
-    CairoMakie.vlines!(f[2, 2], [sdlog], linewidth = 3)
-    f
-end
+plot_fit_with_truth(CensoredDistributions_fit, meanlog, sdlog)
 
 # ╔═╡ c045caa6-a44d-4a54-b122-1e50b1e0fe75
 md"
@@ -510,6 +502,8 @@ We also see that the posterior means are near the true parameters and the
 # ╟─767a58ff-9d7b-41db-a488-10f98a777475
 # ╠═767a5900-9d7b-41db-a488-10f98a777476
 # ╟─767a5900-9d7b-41db-a488-10f98a777478
+# ╟─767a5900-9d7b-41db-a488-10f98a777477a
+# ╠═767a5900-9d7b-41db-a488-10f98a777477b
 # ╠═767a5900-9d7b-41db-a488-10f98a777479
 # ╟─767a5900-9d7b-41db-a488-10f98a777480
 # ╠═767a5901-9d7b-41db-a488-10f98a777477
