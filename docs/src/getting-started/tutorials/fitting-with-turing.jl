@@ -17,8 +17,8 @@ end
 # ╔═╡ 3690c122-d630-4fd0-aaf2-aea9226df086
 begin
     using DataFramesMeta
-    using Chain
     using Turing
+    using DynamicPPL
     using Distributions
     using Random
     using CairoMakie, PairPlots
@@ -58,6 +58,10 @@ This tutorial builds on the concepts introduced in
 We use CairoMakie for plotting, Turing for probabilistic programming,
 Chain.jl for data pipeline workflows, DataFrames, Random, and StatsBase.
 """
+
+# ╔═╡ 2db69f1e-94aa-4e7d-a400-c67c84b41b69
+
+# ╔═╡ 38f50d8c-7a62-4432-97b8-1a52a99cb642
 
 # ╔═╡ c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
 md"""
@@ -115,10 +119,9 @@ us to reuse the same prior structure across all our models:"
 
 # ╔═╡ 767a5900-9d7b-41db-a488-10f98a777476
 @model function latent_delay_dist()
-    mu ~ Normal(1.0, 2.0)
-    sigma ~ truncated(Normal(0.5, 0.5); lower = 0.0)
-    dist = LogNormal(mu, sigma)
-    return dist
+    mu ~ Normal(1.0, 2.0);
+    sigma ~ truncated(Normal(0.5, 1); lower = 0.0)
+    return LogNormal(mu, sigma)
 end
 
 # ╔═╡ 767a5900-9d7b-41db-a488-10f98a777477
@@ -133,10 +136,13 @@ function plot_fit_with_truth(chain, true_mu, true_sigma)
     return f
 end
 
-# ╔═╡ d3ed9608-97ff-4ceb-b387-ba548470f5f7
-md"""
-We can now sample from the prior of this model to get a sense of how our prior model relates to our known truth parameters.
-"""
+# ╔═╡ d75a13b5-1c21-49c1-b10b-d26fcafc2736
+md"### Prior predictive checks using pairplot
+
+First, let's visualise the prior predictive distribution by sampling from
+the instantiated model with uninformative priors and
+comparing against our true parameters. This shows what the model believes
+before seeing any data."
 
 # ╔═╡ 767a5900-9d7b-41db-a488-10f98a777479
 begin
@@ -199,12 +205,22 @@ md"Then we can define the model using our observation windows."
 model_for_simulation = CensoredDistributions_model(
     missing, ones(n), primary_dists, swindows, obs_times)
 
+# ╔═╡ 5855dab4-5c1f-4ed9-a2d2-6fe282cd0f04
+rand(model_for_simulation)
+
+# ╔═╡ 498ddb65-9a28-455f-935b-d3b318a25ead
+
 # ╔═╡ 5516cadb-f2f5-4852-8215-1493b001ab4d
 md"We can then fix our priors based on the known values."
 
 # ╔═╡ cf588dc1-3ac7-46a2-9fab-38d90aa391c5
 
-fixed_model = fix(model_for_simulation, (; mu = meanlog, sigma = sdlog))
+fixed_model = fix(
+    model_for_simulation,
+    (@varname(dist.mu) => meanlog, @varname(dist.sigma) => sdlog))
+
+# ╔═╡ fcc1d4ba-13ca-41be-8451-7d035c8ff4a2
+DynamicPPL.fixed(fixed_model)
 
 # ╔═╡ 2a0c4692-3ac5-4c46-9ac0-a057256a0b37
 md"To simulate from this model all we need to do is call it:"
@@ -216,56 +232,46 @@ observed_delays = fixed_model()
 md"We can now assemble our simulated data as a data frame."
 
 # ╔═╡ f4ed78e2-cdbb-4534-890a-fb346dd65f36
-simulated_data = DataFrame(
-    observed_delay = observed_delays,
-    pwindow = pwindows,
-    swindow = swindows,
-    obs_time = obs_times,
-    primary_dist = primary_dists
-)
-
-# ╔═╡ f4ed7903-cdbb-4534-890a-fb346dd65f37
-md"### Prior predictive checks using pairplot
-
-First, let's visualise the prior predictive distribution by sampling from
-the instantiated model (model_for_simulation) with uninformative priors and
-compare against our true parameters. This shows what the model believes
-before seeing any data. Note that this will be the same as the submodel
-since we're using the same priors:"
-
-# ╔═╡ f4ed7904-cdbb-4534-890a-fb346dd65f38
-# Sample from prior predictive distribution using the instantiated model
-prior_chain = sample(model_for_simulation, Prior(), 500)
-
-# ╔═╡ f4ed7905-cdbb-4534-890a-fb346dd65f40
-plot_fit_with_truth(prior_chain, meanlog, sdlog)
+simulated_data = @chain begin
+    DataFrame(
+        observed_delay = observed_delays,
+        pwindow = pwindows,
+        swindow = swindows,
+        obs_time = obs_times,
+        primary_dist = primary_dists
+    )
+    @transform(:observed_delay_upper = :observed_delay .+ :swindow)
+end;
 
 # ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
-md"Create a dataframe with the data we just generated aggregated to unique
-combinations and count occurrences.
-"
+md"""
+### Visualise the simulated data
 
-# ╔═╡ 5aed77d3-5798-4538-b3eb-3f4ce43d0423
+To make handling the data easier and later to speed up our models we first create a dataframe with the data we just generated, aggregated to unique
+combinations and count occurrences.
+"""
+
+# ╔═╡ 6fd01b5c-e374-4f5c-9f1c-ea75d06132af
 delay_counts = @chain simulated_data begin
-    @transform(:observed_delay_upper = :observed_delay .+ :swindow)
-    @groupby(:pwindow, :swindow, :obs_time, :observed_delay,
-        :observed_delay_upper, :primary_dist)
+    @groupby(:pwindow, :swindow, :obs_time, :observed_delay, :observed_delay_upper,
+        :primary_dist)
     @combine(:n = length(:pwindow))
 end
 
 # ╔═╡ 993f1f74-4a55-47a7-9e3e-c725cba13c0a
 md"""
-Compare the samples with and without secondary censoring to the true
+Now let's compare the samples with and without double interval censoring to the true
 distribution. First let's calculate the empirical CDF:
 """
 
 # ╔═╡ ccd8dd8e-c361-43ba-b4f1-2444ec6008fc
-empirical_cdf_obs = ecdf(delay_counts.observed_delay, weights = delay_counts.n);
+empirical_cdf_obs = @with(delay_counts, ecdf(:observed_delay, weights = :n));
 
 # ╔═╡ 2b773594-5187-45bc-96f4-22a3d726b7d2
 # Create a sequence of x values for the theoretical CDF
-x_seq = range(minimum(simulated_data.observed_delay),
-    stop = maximum(simulated_data.observed_delay), length = 100);
+x_seq = @with delay_counts begin
+    range(minimum(:observed_delay), stop = maximum(:observed_delay) + 2, length = 100);
+end
 
 # ╔═╡ a5b04acc-acc5-4d4d-8871-09d54caab185
 begin
@@ -315,13 +321,6 @@ let
     f
 end
 
-# ╔═╡ 9c8aebbe-8606-41e7-8e86-23129b1cbc8d
-md"""
-We've aggregated the data to unique combinations of `pwindow`, `swindow`,
-and `obs_time` and counted the number of occurrences of each `observed_delay`
-for each combination. This is the data we will use to fit our model.
-"""
-
 # ╔═╡ 91279812-9848-48bc-9258-b6f86c9fe923
 md"
 ## Fitting a naive model using Turing
@@ -333,21 +332,17 @@ delay distribution, providing a baseline for comparison.
 
 # ╔═╡ a257ce07-efbe-45e1-a8b0-ada40c29de8d
 @model function naive_model(y, n)
-    dist = to_submodel(latent_delay_dist())
+    dist ~ to_submodel(latent_delay_dist())
     y ~ weight(dist, n)
 end
 
 # ╔═╡ 49846128-379c-4c3b-9ec1-567ffa92e079
 md"
-Now lets instantiate this model with data
+Now lets instantiate this model with data. Note we add a small constant to avoid issues at zero for this simple model.
 "
 
 # ╔═╡ 4cf596f1-0042-4990-8d0a-caa8ba1db0c7
-naive_mdl = naive_model(
-    delay_counts.observed_delay .+ 1e-6, # Add a small constant to avoid log(0)
-    delay_counts.n)
-
-# ╔═╡ 82e9a2d9-1f00-4b52-b8c3-c824c8ab10c5
+naive_mdl = @with(delay_counts, naive_model(:observed_delay .+ 1e-6, :n))
 
 # ╔═╡ 71900c43-9f52-474d-adc7-becdc74045da
 md"
@@ -382,28 +377,23 @@ a comparison point between the naive model and the full model.
 
 # ╔═╡ c3afeed1-20ec-44c8-933c-ca0e75cda788
 @model function interval_only_model(y, n, sws, Ds)
-    dist = to_submodel(latent_delay_dist())
+    dist ~ to_submodel(latent_delay_dist())
 
     icens_dists = map(sws, Ds) do sw, D
-        @chain dist begin
-            truncated(; upper = D)
-            interval_censored(sw)
-        end
+        interval_censored(truncated(dist; upper = D), sw)
     end
 
     y ~ weight(icens_dists, n)
     return y
 end
 
-# ╔═╡ 6a31c82d-aed4-400c-9bcc-ab07dfa12049
-md"
-Instantiate the interval-only model with our observed data:
-"
+# ╔═╡ 4fc543fa-dca5-40c3-810b-979c536dfe0d
+md"Instantiate the interval only model"
 
-# ╔═╡ 39c3101f-7eb3-47fa-967e-f970ccf12612
-# Create a cleaner instantiation using @df macro
-interval_only_mdl = @df delay_counts interval_only_model(
-    :observed_delay, :n, :swindow, :obs_time)
+# ╔═╡ 6a274882-df7d-4972-80a6-ea62d932a906
+interval_only_mdl = @with delay_counts begin
+    interval_only_model(:observed_delay, :n, :swindow, :obs_time)
+end
 
 # ╔═╡ 38790b6c-4fef-4b28-9442-6bfaab9d3c5a
 md"
@@ -427,19 +417,11 @@ Since the CensoredDistributions_model was defined earlier and used for
 simulation, we'll reuse it for fitting - demonstrating the consistency
 of our approach."
 
-# ╔═╡ 825227da-5788-4bbd-8546-2d8a30996aaa
-md"The model uses the same `@submodel` pattern as the other models,
-ensuring consistent parameter priors across all approaches."
-
-# ╔═╡ e24c231a-0bf3-4a03-a307-2ab43cdbecf4
-md"
-Then we instantiate this model with our observed data.
-"
-
 # ╔═╡ a59e371a-b671-4648-984d-7bcaac367d32
-# Use @df macro for cleaner model instantiation
-CensoredDistributions_mdl = @df delay_counts CensoredDistributions_model(
-    :observed_delay, :n, :primary_dist, :swindow, :obs_time)
+CensoredDistributions_mdl = @with delay_counts begin
+    CensoredDistributions_model(:observed_delay, :n, :primary_dist,
+        :swindow, :obs_time)
+end
 
 # ╔═╡ 691e3d54-1a31-4686-a70d-711c2fc45dc1
 md"
@@ -467,30 +449,12 @@ We also see that the posterior means are near the true parameters and the
 90% credible intervals include the true parameters.
 "
 
-# ╔═╡ 5a6d605d-bff6-4b7d-97f0-ca35750411d3
-
-# ╔═╡ f4ed7906-cdbb-4534-890a-fb346dd65f41
-md"### Data validation checks
-
-We validate that our simulated data is consistent with the expected
-distribution characteristics."
-
-# ╔═╡ f4ed7900-cdbb-4534-890a-fb346dd65f34
-md"We use Turing's proper simulation approach with DynamicPPL's `fix` function.
-This is the recommended way to simulate from Turing models as it leverages
-the model's structure and handles the censoring process correctly:"
-
-# ╔═╡ f4ed7901-cdbb-4534-890a-fb346dd65f35
-# f4ed7902-cdbb-4534-890a-fb346dd65f36
-md"Now we simulate data using the true parameter values with Turing's
-simulation approach. This ensures consistency between data generation
-and model fitting, and demonstrates the proper way to simulate from
-Turing models rather than manual approaches:"
-
 # ╔═╡ Cell order:
 # ╟─30511a27-984e-40b7-9b1e-34bc87cb8d56
-# ╟─bb9c75db-6638-48fe-afcb-e78c4bcc057d
+# ╠═bb9c75db-6638-48fe-afcb-e78c4bcc057d
+# ╠═2db69f1e-94aa-4e7d-a400-c67c84b41b69
 # ╠═3690c122-d630-4fd0-aaf2-aea9226df086
+# ╠═38f50d8c-7a62-4432-97b8-1a52a99cb642
 # ╟─c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
 # ╠═b4409687-7bee-4028-824d-03b209aee68d
 # ╟─30e99e77-aad1-43e8-9284-ab0bf8ae741f
@@ -505,7 +469,7 @@ Turing models rather than manual approaches:"
 # ╠═767a5900-9d7b-41db-a488-10f98a777476
 # ╟─767a5900-9d7b-41db-a488-10f98a777477
 # ╠═767a5900-9d7b-41db-a488-10f98a777478
-# ╟─d3ed9608-97ff-4ceb-b387-ba548470f5f7
+# ╟─d75a13b5-1c21-49c1-b10b-d26fcafc2736
 # ╠═767a5900-9d7b-41db-a488-10f98a777479
 # ╟─767a5900-9d7b-41db-a488-10f98a777480
 # ╠═a8f036dd-fd59-4834-8422-f1ea7da616e0
@@ -518,28 +482,26 @@ Turing models rather than manual approaches:"
 # ╠═c548931f-f5e3-4de9-9183-eb64575b6bdb
 # ╟─f3568b69-875d-494c-82cf-5a3db767cdaa
 # ╠═8cbb8a46-c090-420f-bbb9-32b971a963f0
+# ╠═5855dab4-5c1f-4ed9-a2d2-6fe282cd0f04
+# ╠═498ddb65-9a28-455f-935b-d3b318a25ead
 # ╟─5516cadb-f2f5-4852-8215-1493b001ab4d
 # ╠═cf588dc1-3ac7-46a2-9fab-38d90aa391c5
+# ╠═fcc1d4ba-13ca-41be-8451-7d035c8ff4a2
 # ╟─2a0c4692-3ac5-4c46-9ac0-a057256a0b37
 # ╠═a52a18c5-7625-4d9d-a7f7-bce5cb6ccb3f
 # ╟─8e3ff244-c4d5-4562-99a5-7e63c6860a1e
 # ╠═f4ed78e2-cdbb-4534-890a-fb346dd65f36
-# ╟─f4ed7903-cdbb-4534-890a-fb346dd65f37
-# ╠═f4ed7904-cdbb-4534-890a-fb346dd65f38
-# ╠═f4ed7905-cdbb-4534-890a-fb346dd65f40
 # ╟─50757759-9ec3-42d0-a765-df212642885a
-# ╠═5aed77d3-5798-4538-b3eb-3f4ce43d0423
+# ╠═6fd01b5c-e374-4f5c-9f1c-ea75d06132af
 # ╟─993f1f74-4a55-47a7-9e3e-c725cba13c0a
 # ╠═ccd8dd8e-c361-43ba-b4f1-2444ec6008fc
 # ╠═2b773594-5187-45bc-96f4-22a3d726b7d2
 # ╠═a5b04acc-acc5-4d4d-8871-09d54caab185
 # ╠═fb6dc898-21a9-4f8d-aa14-5b45974c2242
-# ╟─9c8aebbe-8606-41e7-8e86-23129b1cbc8d
 # ╟─91279812-9848-48bc-9258-b6f86c9fe923
 # ╠═a257ce07-efbe-45e1-a8b0-ada40c29de8d
 # ╟─49846128-379c-4c3b-9ec1-567ffa92e079
 # ╠═4cf596f1-0042-4990-8d0a-caa8ba1db0c7
-# ╠═82e9a2d9-1f00-4b52-b8c3-c824c8ab10c5
 # ╟─71900c43-9f52-474d-adc7-becdc74045da
 # ╠═cd26da77-02fb-4b65-bd7b-88060d0c97e8
 # ╠═10278d0c-8c72-4c5f-b857-d3bc6ff2c242
@@ -547,22 +509,16 @@ Turing models rather than manual approaches:"
 # ╟─7122bd53-81f6-4ea5-a024-86fdd7a7207a
 # ╟─4cb137e3-93e9-43bf-a39f-b063dd6daac6
 # ╠═c3afeed1-20ec-44c8-933c-ca0e75cda788
-# ╟─6a31c82d-aed4-400c-9bcc-ab07dfa12049
-# ╠═39c3101f-7eb3-47fa-967e-f970ccf12612
+# ╟─4fc543fa-dca5-40c3-810b-979c536dfe0d
+# ╠═6a274882-df7d-4972-80a6-ea62d932a906
 # ╟─38790b6c-4fef-4b28-9442-6bfaab9d3c5a
 # ╠═8e1764ec-345a-453a-830c-748c2a077eb7
 # ╠═e0912175-6a02-480f-b8df-abd7c06f67e9
 # ╠═01a37638-6494-4ce5-a02d-9d7f76f39ab7
 # ╟─080c1bca-afcd-46c0-80b8-1708e8d05ae6
-# ╟─825227da-5788-4bbd-8546-2d8a30996aaa
-# ╟─e24c231a-0bf3-4a03-a307-2ab43cdbecf4
 # ╠═a59e371a-b671-4648-984d-7bcaac367d32
 # ╟─691e3d54-1a31-4686-a70d-711c2fc45dc1
 # ╠═b5cd8b13-e3db-4ed1-80ce-e3ac1c57932c
 # ╠═a53a78b3-dcbe-4b62-a336-a26e647dc8c8
 # ╠═f0c02e4a-c0cc-41de-b1bf-f5fad7e7dfdb
 # ╟─c045caa6-a44d-4a54-b122-1e50b1e0fe75
-# ╠═5a6d605d-bff6-4b7d-97f0-ca35750411d3
-# ╠═f4ed7906-cdbb-4534-890a-fb346dd65f41
-# ╠═f4ed7900-cdbb-4534-890a-fb346dd65f34
-# ╠═f4ed7901-cdbb-4534-890a-fb346dd65f35
