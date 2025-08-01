@@ -404,7 +404,7 @@ a comparison point between the naive model and the full model.
 
     icens_dists = map(sws, Ds) do sw, D
         @chain dist begin
-            truncated(upper = D)
+            truncated(; upper = D)
             interval_censored(sw)
         end
     end
