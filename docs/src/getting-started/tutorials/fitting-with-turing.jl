@@ -211,7 +211,7 @@ model_for_simulation = CensoredDistributions_model(
 
 # ╔═╡ f4ed78e0-cdbb-4534-890a-fb346dd65f34
 # Fix parameters to their true values
-fixed_model = fix(model_for_simulation, (mu = meanlog, sigma = sdlog))
+fixed_model = fix(model_for_simulation, (; mu = meanlog, sigma = sdlog))
 
 # ╔═╡ f4ed78e1-cdbb-4534-890a-fb346dd65f35
 # Sample from the prior predictive distribution
