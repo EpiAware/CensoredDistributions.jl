@@ -158,12 +158,12 @@ truncation. This model uses the `latent_delay_dist()` submodel via
 `to_submodel()` to include the delay distribution parameters:"
 
 # ╔═╡ 767a5901-9d7b-41db-a488-10f98a777477
-@model function CensoredDistributions_model(y, n, pws, sws, Ds)
+@model function CensoredDistributions_model(y, n, primary_dists, sws, Ds)
     dist = to_submodel(latent_delay_dist())
 
-    pcens_dists = map(pws, Ds, sws) do pw, D, sw
+    pcens_dists = map(primary_dists, Ds, sws) do primary_dist, D, sw
         double_interval_censored(
-            dist; primary_event = Uniform(0.0, pw), upper = D, interval = sw)
+            dist; primary_event = primary_dist, upper = D, interval = sw)
     end
 
     y ~ weight(pcens_dists, n)
@@ -205,9 +205,12 @@ and model fitting, and demonstrates the proper way to simulate from
 Turing models rather than manual approaches:"
 
 # ╔═╡ f4ed78df-cdbb-4534-890a-fb346dd65f33
+# Create primary event distributions from pwindows
+primary_dists = Uniform.(0.0, pwindows)
+
 # Create model with missing y values for simulation
 model_for_simulation = CensoredDistributions_model(
-    missing, n, pwindows, swindows, obs_times)
+    missing, n, primary_dists, swindows, obs_times)
 
 # ╔═╡ f4ed78e0-cdbb-4534-890a-fb346dd65f34
 # Fix parameters to their true values
@@ -225,7 +228,8 @@ simulated_data = @chain simulation_chain begin
         observed_delay = _,
         pwindow = pwindows,
         swindow = swindows,
-        obs_time = obs_times
+        obs_time = obs_times,
+        primary_dist = primary_dists
     )
 end;
 
@@ -267,7 +271,7 @@ combinations and count occurrences.
 delay_counts = @chain simulated_data begin
     @transform(:observed_delay_upper = :observed_delay .+ :swindow)
     @groupby(:pwindow, :swindow, :obs_time, :observed_delay,
-        :observed_delay_upper)
+        :observed_delay_upper, :primary_dist)
     @combine(:n = length(:pwindow))
 end
 
@@ -457,7 +461,7 @@ Then we instantiate this model with our observed data.
 # ╔═╡ a59e371a-b671-4648-984d-7bcaac367d32
 # Use @df macro for cleaner model instantiation
 CensoredDistributions_mdl = @df delay_counts CensoredDistributions_model(
-    :observed_delay, :n, :pwindow, :swindow, :obs_time)
+    :observed_delay, :n, :primary_dist, :swindow, :obs_time)
 
 # ╔═╡ 691e3d54-1a31-4686-a70d-711c2fc45dc1
 md"
