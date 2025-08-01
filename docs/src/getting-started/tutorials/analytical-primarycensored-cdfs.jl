@@ -21,7 +21,7 @@ begin
     using BenchmarkTools
     using Plots
     using StatsPlots
-    using DataFrames
+    using DataFramesMeta
     using Printf
     using Integrals
 end
