@@ -394,9 +394,10 @@ a comparison point between the naive model and the full model.
     dist = to_submodel(latent_delay_dist())
 
     icens_dists = map(sws, Ds) do sw, D
-        interval_censored(
-            truncated(dist; upper = D), sw
-        )
+        @chain dist begin
+            truncated(upper = D)
+            interval_censored(sw)
+        end
     end
 
     y ~ weight(icens_dists, n)
