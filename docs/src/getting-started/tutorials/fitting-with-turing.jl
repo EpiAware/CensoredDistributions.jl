@@ -117,7 +117,7 @@ end
 
 # ╔═╡ 767a5901-9d7b-41db-a488-10f98a777477
 @model function CensoredDistributions_model(y, n, pws, sws, Ds)
-    @submodel dist = latent_delay_dist()
+    dist = to_submodel(latent_delay_dist())
 
     pcens_dists = map(pws, Ds, sws) do pw, D, sw
         double_interval_censored(
@@ -300,7 +300,7 @@ delay distribution, providing a baseline for comparison.
 
 # ╔═╡ a257ce07-efbe-45e1-a8b0-ada40c29de8d
 @model function naive_model(y, n)
-    @submodel dist = latent_delay_dist()
+    dist = to_submodel(latent_delay_dist())
     y ~ weight(dist, n)
 end
 
@@ -354,7 +354,7 @@ a comparison point between the naive model and the full model.
 
 # ╔═╡ 8d9f4023-b2c5-4d6e-9f0g-2345678901bc
 @model function interval_only_model(y, n, sws, Ds)
-    @submodel dist = latent_delay_dist()
+    dist = to_submodel(latent_delay_dist())
 
     icens_dists = map(sws, Ds) do sw, D
         interval_censored(
