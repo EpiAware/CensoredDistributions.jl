@@ -130,9 +130,16 @@ across all model fits:"
 
 # ╔═╡ 767a5900-9d7b-41db-a488-10f98a777478
 function plot_fit_with_truth(chain, true_mu, true_sigma)
-    f = pairplot(chain)
-    vlines!(f[1, 1], [true_mu], linewidth = 4, color = :green)
-    vlines!(f[2, 2], [true_sigma], linewidth = 4, color = :green)
+    f = pairplot(
+        chain,
+        PairPlots.Truth(
+            (;
+                mu = true_mu,
+                sigma = true_sigma
+            ),
+            label = "True Values"
+        )
+    )
     return f
 end
 
@@ -204,11 +211,6 @@ md"Then we can define the model using our observation windows."
 # ╔═╡ 8cbb8a46-c090-420f-bbb9-32b971a963f0
 model_for_simulation = CensoredDistributions_model(
     missing, ones(n), primary_dists, swindows, obs_times)
-
-# ╔═╡ 5855dab4-5c1f-4ed9-a2d2-6fe282cd0f04
-rand(model_for_simulation)
-
-# ╔═╡ 498ddb65-9a28-455f-935b-d3b318a25ead
 
 # ╔═╡ 5516cadb-f2f5-4852-8215-1493b001ab4d
 md"We can then fix our priors based on the known values."
@@ -449,7 +451,7 @@ We also see that the posterior means are near the true parameters and the
 
 # ╔═╡ Cell order:
 # ╟─30511a27-984e-40b7-9b1e-34bc87cb8d56
-# ╠═bb9c75db-6638-48fe-afcb-e78c4bcc057d
+# ╟─bb9c75db-6638-48fe-afcb-e78c4bcc057d
 # ╠═2db69f1e-94aa-4e7d-a400-c67c84b41b69
 # ╠═3690c122-d630-4fd0-aaf2-aea9226df086
 # ╠═38f50d8c-7a62-4432-97b8-1a52a99cb642
@@ -480,8 +482,6 @@ We also see that the posterior means are near the true parameters and the
 # ╠═c548931f-f5e3-4de9-9183-eb64575b6bdb
 # ╟─f3568b69-875d-494c-82cf-5a3db767cdaa
 # ╠═8cbb8a46-c090-420f-bbb9-32b971a963f0
-# ╠═5855dab4-5c1f-4ed9-a2d2-6fe282cd0f04
-# ╠═498ddb65-9a28-455f-935b-d3b318a25ead
 # ╟─5516cadb-f2f5-4852-8215-1493b001ab4d
 # ╠═cf588dc1-3ac7-46a2-9fab-38d90aa391c5
 # ╠═fcc1d4ba-13ca-41be-8451-7d035c8ff4a2
