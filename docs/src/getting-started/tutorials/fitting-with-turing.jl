@@ -102,10 +102,11 @@ md"Now we can define a lognormal distribution using Distributions.jl."
 true_dist = LogNormal(meanlog, sdlog);
 
 # ╔═╡ 767a58ff-9d7b-41db-a488-10f98a777475
-md"### Define the double censored model for simulation and fitting
+md"### Define a reusable submodel for the latent delay distribution
 
-We define our Turing model that incorporates double censoring and right
-truncation. This model will be used both for simulation and fitting."
+To avoid code duplication across our models, we define a submodel that
+encapsulates the latent delay distribution parameters. This pattern allows
+us to reuse the same prior structure across all our models:"
 
 # ╔═╡ 767a5900-9d7b-41db-a488-10f98a777476
 @model function latent_delay_dist()
@@ -114,6 +115,33 @@ truncation. This model will be used both for simulation and fitting."
     dist = LogNormal(mu, sigma)
     return dist
 end
+
+# ╔═╡ 767a5900-9d7b-41db-a488-10f98a777478
+md"We can sample from this submodel directly to understand our prior beliefs
+about the underlying delay distribution:"
+
+# ╔═╡ 767a5900-9d7b-41db-a488-10f98a777479
+begin
+    # Sample from the latent delay distribution prior
+    latent_prior_samples = sample(latent_delay_dist(), Prior(), 1000)
+
+    # Visualize the prior distribution
+    let
+        f = pairplot(latent_prior_samples)
+        CairoMakie.vlines!(f[1, 1], [meanlog], linewidth = 3, color = :red,
+            label = "True μ")
+        CairoMakie.vlines!(f[2, 2], [sdlog], linewidth = 3, color = :red,
+            label = "True σ")
+        f
+    end
+end
+
+# ╔═╡ 767a5900-9d7b-41db-a488-10f98a777480
+md"### Define the double censored model for simulation and fitting
+
+Now we define our full model that incorporates double censoring and right
+truncation. This model uses the `latent_delay_dist()` submodel via
+`to_submodel()` to include the delay distribution parameters:"
 
 # ╔═╡ 767a5901-9d7b-41db-a488-10f98a777477
 @model function CensoredDistributions_model(y, n, pws, sws, Ds)
@@ -168,8 +196,8 @@ model_for_simulation = CensoredDistributions_model(
     missing, n, pwindows, swindows, obs_times)
 
 # ╔═╡ f4ed78e0-cdbb-4534-890a-fb346dd65f34
-# Fix parameters to their true values using DynamicPPL's fix function
-fixed_model = fix(model_for_simulation, mu = meanlog, sigma = sdlog)
+# Fix parameters to their true values
+fixed_model = fix(model_for_simulation, (mu = meanlog, sigma = sdlog))
 
 # ╔═╡ f4ed78e1-cdbb-4534-890a-fb346dd65f35
 # Sample from the prior predictive distribution
@@ -177,12 +205,10 @@ simulation_chain = sample(fixed_model, Prior(), 1)
 
 # ╔═╡ f4ed78e2-cdbb-4534-890a-fb346dd65f36
 # Extract the simulated y values and create a DataFrame with all specifications
-begin
-    y_samples = simulation_chain[:y][1]
-
-    # Create DataFrame with samples and their specifications
-    simulated_data = DataFrame(
-        y = y_samples,
+simulated_data = @chain simulation_chain begin
+    _[:y][1]
+    DataFrame(
+        y = _,
         pwindow = pwindows,
         swindow = swindows,
         obs_time = obs_times
@@ -469,6 +495,12 @@ We also see that the posterior means are near the true parameters and the
 # ╟─d3a7196a-185d-445b-afb7-99b546b1f72a
 # ╠═7f82b991-00ca-4eed-994a-981c6d66454c
 # ╟─767a58ed-9d7b-41db-a488-10f98a777474
+# ╟─767a58ff-9d7b-41db-a488-10f98a777475
+# ╠═767a5900-9d7b-41db-a488-10f98a777476
+# ╟─767a5900-9d7b-41db-a488-10f98a777478
+# ╠═767a5900-9d7b-41db-a488-10f98a777479
+# ╟─767a5900-9d7b-41db-a488-10f98a777480
+# ╠═767a5901-9d7b-41db-a488-10f98a777477
 # ╠═35472e04-e096-4948-a218-3de53923f271
 # ╠═2d0ca6e6-0333-4aec-93d4-43eb9985dc14
 # ╠═6465e51b-8d71-4c85-ba40-e6d230aa53b1
