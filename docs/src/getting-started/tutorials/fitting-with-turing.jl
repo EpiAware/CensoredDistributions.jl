@@ -120,7 +120,7 @@ end
 md"We can sample from this submodel directly to understand our prior beliefs
 about the underlying delay distribution:"
 
-# ╔═╡ 767a5900-9d7b-41db-a488-10f98a777477a
+# ╔═╡ 767a5900-9d7b-41db-a488-10f98a777477
 md"### Helper function for consistent pairplot visualization
 
 We define a helper function to standardize our pairplot visualizations
@@ -506,7 +506,7 @@ We also see that the posterior means are near the true parameters and the
 # ╟─767a58ff-9d7b-41db-a488-10f98a777475
 # ╠═767a5900-9d7b-41db-a488-10f98a777476
 # ╟─767a5900-9d7b-41db-a488-10f98a777478
-# ╟─767a5900-9d7b-41db-a488-10f98a777477a
+# ╟─767a5900-9d7b-41db-a488-10f98a777477
 # ╠═767a5900-9d7b-41db-a488-10f98a777477b
 # ╠═767a5900-9d7b-41db-a488-10f98a777479
 # ╟─767a5900-9d7b-41db-a488-10f98a777480
