@@ -108,10 +108,16 @@ We define our Turing model that incorporates double censoring and right
 truncation. This model will be used both for simulation and fitting."
 
 # ╔═╡ 767a5900-9d7b-41db-a488-10f98a777476
-@model function CensoredDistributions_model(y, n, pws, sws, Ds)
+@model function latent_delay_dist()
     mu ~ Normal(1.0, 2.0)
     sigma ~ truncated(Normal(0.5, 0.5); lower = 0.0)
     dist = LogNormal(mu, sigma)
+    return dist
+end
+
+# ╔═╡ 767a5901-9d7b-41db-a488-10f98a777477
+@model function CensoredDistributions_model(y, n, pws, sws, Ds)
+    @submodel dist = latent_delay_dist()
 
     pcens_dists = map(pws, Ds, sws) do pw, D, sw
         double_interval_censored(
@@ -294,9 +300,8 @@ delay distribution, providing a baseline for comparison.
 
 # ╔═╡ a257ce07-efbe-45e1-a8b0-ada40c29de8d
 @model function naive_model(y, n)
-    mu ~ Normal(1.0, 1.0)
-    sigma ~ truncated(Normal(0.5, 1.0); lower = 0.0)
-    y ~ weight(LogNormal(mu, sigma), n)
+    @submodel dist = latent_delay_dist()
+    y ~ weight(dist, n)
 end
 
 # ╔═╡ 49846128-379c-4c3b-9ec1-567ffa92e079
@@ -349,9 +354,7 @@ a comparison point between the naive model and the full model.
 
 # ╔═╡ 8d9f4023-b2c5-4d6e-9f0g-2345678901bc
 @model function interval_only_model(y, n, sws, Ds)
-    mu ~ Normal(1.0, 2.0)
-    sigma ~ truncated(Normal(0.5, 0.5); lower = 0.0)
-    dist = LogNormal(mu, sigma)
+    @submodel dist = latent_delay_dist()
 
     icens_dists = map(sws, Ds) do sw, D
         interval_censored(
@@ -370,7 +373,7 @@ Instantiate the interval-only model with our observed data:
 
 # ╔═╡ af105245-d4e7-4f80-b11i-4567890123de
 interval_only_mdl = interval_only_model(
-    delay_counts.observed_delay .+ 1e-6, # Add small constant to avoid log(0)
+    delay_counts.observed_delay,
     delay_counts.n,
     delay_counts.swindow,
     delay_counts.obs_time
@@ -398,13 +401,14 @@ end
 # ╔═╡ 080c1bca-afcd-46c0-80b8-1708e8d05ae6
 md"## Fitting the full CensoredDistributions model
 
-Now we'll define and fit a model that accounts for the censoring process.
-This model uses the same mathematical structure as the data generation
-process."
+Now we'll fit the full model that accounts for the censoring process.
+Since the CensoredDistributions_model was defined earlier and used for
+simulation, we'll reuse it for fitting - demonstrating the consistency
+of our approach."
 
 # ╔═╡ 825227da-5788-4bbd-8546-2d8a30996aaa
-md"The CensoredDistributions_model has been defined earlier and will be
-reused for fitting."
+md"The model uses the same `@submodel` pattern as the other models,
+ensuring consistent parameter priors across all approaches."
 
 # ╔═╡ e24c231a-0bf3-4a03-a307-2ab43cdbecf4
 md"
