@@ -20,7 +20,7 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 ## Why CensoredDistributions.jl?
 
 - **Primary event censoring**: Model delay distributions where the initial event occurs within a time window (e.g., exposure periods in epidemiology).
-- **Interval censoring**: Bin continuous distributions into discrete intervals (e.g., daily reporting) when exact values are unobserved.
+- **Interval censoring**: Bin continuous distributions into discrete intervals (e.g., daily reporting) when exact values are not observed.
 - **Double interval censoring**: Combines both primary event and interval censoring for complex observation processes.
 - **Distribution fitting**: Extends Distributions.jl's `fit` support with MLE fitting for primary censored and interval censored distributions (potentially truncated), plus Turing.jl integration for Bayesian inference.
 - **Analytical solutions**: Provides analytical solutions where possible with numerical fallbacks for efficiency.
@@ -39,7 +39,7 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 
 For comprehensive tutorials and guides, see our [Getting Started documentation](https://www.CensoredDistributions.epiaware.org/getting-started/).
 
-The following example demonstrates how to create a double interval censored distribution:
+The following example demonstrates how to create a double interval censored distribution (combines primary event, interval censoring, and right truncation (using `Distributions.truncated`)):
 
 ```julia
 using CensoredDistributions, Distributions, Plots
@@ -86,6 +86,21 @@ model = double_censored_model(values, weights)
 chain = sample(model, NUTS(), MCMCThreads(), 1000, 2; progress = false)
 summarize(chain)
 ```
+
+## Relationship to Distributions.jl
+
+Both CensoredDistributions.jl and Distributions.jl's built-in `censored()` function handle censoring, but they address different types of uncertainty:
+
+| Aspect | Distributions.jl `censored()` | CensoredDistributions.jl |
+|--------|-------------------------------|---------------------------|
+| **Type** | Observation censoring | Event timing censoring |
+| **Question** | "Can't measure outside bounds?" | "Don't know exactly when it happened?" |
+| **Example** | Lab test detection limits | Disease onset within time window |
+| **Use case** | Measurement limitations | Epidemiological modeling |
+
+These approaches complement each other - you can apply observation limits to distributions with event timing uncertainty when both types of censoring affect your data.
+
+CensoredDistributions.jl also works well with `truncated()` from Distributions.jl and supports both primary event censoring (initial event timing uncertainty) and secondary event censoring (observation window effects).
 
 ## What packages work well with CensoredDistributions.jl?
 
