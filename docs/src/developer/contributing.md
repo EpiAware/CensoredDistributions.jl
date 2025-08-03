@@ -6,8 +6,12 @@ This page details the guidelines that should be followed when contributing to Ce
 
 Before contributing, please:
 1. Read the [Getting Started with Julia](@ref julia) guide if you're new to Julia development
-2. Check out the [developer documentation](@ref developer) for advanced workflows
-3. Review the project structure and development commands below
+2. **Install Task** for streamlined development workflows:
+   - **macOS**: `brew install go-task/tap/go-task`
+   - **Linux**: Download from [releases](https://github.com/go-task/task/releases) or use package manager
+   - **Windows**: `winget install Task.Task` or download from releases
+3. Check out the [developer documentation](@ref developer) for advanced workflows
+4. Review the project structure and development commands below
 
 ## Project Structure
 
@@ -33,7 +37,28 @@ CensoredDistributions.jl/
 
 ## Development Commands
 
-### Running Tests
+This project includes a Taskfile for streamlined development workflows.
+
+### Quick Start with Tasks
+
+```bash
+# Discover all available tasks
+task --list
+
+# Common development workflow
+task setup     # One-time environment setup
+task dev       # Fast tests + documentation
+task precommit # Pre-commit validation
+
+# Individual workflows
+task test-fast    # Quick testing
+task docs-pluto   # Start Pluto notebook server
+task benchmark    # Run benchmarks
+```
+
+### Detailed Commands
+
+For advanced usage or when tasks don't cover specific needs, use the underlying Julia commands:
 
 ```bash
 # Full test suite (recommended for CI and final checks)
@@ -44,18 +69,10 @@ julia --project=test test/runtests.jl
 
 # Skip quality tests for faster development iteration
 julia --project=test test/runtests.jl skip_quality
-```
 
-### Building Documentation
-
-```bash
 # Build complete documentation (includes Pluto notebook conversion)
 julia --project=docs docs/make.jl
-```
 
-### Running Benchmarks
-
-```bash
 # Execute benchmark suite
 julia --project=benchmark benchmark/runbenchmarks.jl
 ```
@@ -92,9 +109,9 @@ These are converted to markdown during the documentation build.
 
 #### Working with Pluto notebooks
 
-1. **Start Pluto**: Use the provided script `docs/pluto-scripts.sh` or:
+1. **Start Pluto**: Use the task command:
    ```bash
-   julia --project=docs -e 'using Pluto; Pluto.run()'
+   task docs-pluto
    ```
 
 2. **Environment setup**: Notebooks should use the docs environment and develop the local package:
@@ -143,17 +160,16 @@ Key points:
 
 Before submitting a pull request:
 
-1. **Run full tests**:
+1. **Run pre-commit checks** (recommended):
    ```bash
-   julia --project=. -e 'using Pkg; Pkg.test()'
+   task precommit
    ```
 
-2. **Build documentation**:
+2. **Or run individual checks**:
    ```bash
-   julia --project=docs docs/make.jl
+   task test       # Full test suite
+   task docs-fast  # Build documentation
    ```
-
-3. **Check formatting**: The project uses automatic formatting tools
 
 ### Quality Tools
 

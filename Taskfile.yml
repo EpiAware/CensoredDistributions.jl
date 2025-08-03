@@ -1,0 +1,214 @@
+version: '3'
+
+tasks:
+  # Default task - show help
+  default:
+    desc: Show available tasks and common workflows
+    cmds:
+      - task: help
+
+  # === TESTING WORKFLOWS ===
+  test:
+    desc: Run comprehensive test suite including quality checks
+    cmds:
+      - echo "🧪 Running comprehensive test suite..."
+      - julia --project=. -e 'using Pkg; Pkg.test()'
+      - echo "✅ All tests completed successfully"
+
+  test-fast:
+    desc: Run tests quickly (skip quality checks for development)
+    cmds:
+      - echo "🧪 Running fast test suite (skipping quality checks)..."
+      - julia --project=test test/runtests.jl skip_quality
+      - echo "✅ Fast tests completed"
+
+  test-quality:
+    desc: Run only quality checks (Aqua, formatting, linting, doctests)
+    cmds:
+      - echo "🔍 Running quality checks only..."
+      - julia --project=test -e 'using TestItemRunner; run_tests("test/package/")'
+      - echo "✅ Quality checks completed"
+
+  test-extensions:
+    desc: Test package extensions with OptimizationExt
+    cmds:
+      - echo "🔧 Testing package extensions..."
+      - julia --project=docs -e 'using CensoredDistributions, Distributions, OptimizationOptimJL, Bijectors; println("✅ Extensions loaded successfully")'
+
+  # === DOCUMENTATION WORKFLOWS ===
+  docs:
+    desc: Build complete documentation including Pluto notebooks (slow)
+    cmds:
+      - echo "📚 Building complete documentation (including notebooks)..."
+      - julia --project=docs docs/make.jl
+      - echo "✅ Documentation built successfully"
+
+  docs-fast:
+    desc: Build documentation quickly (skip notebook processing)
+    cmds:
+      - echo "📚 Building documentation (skipping notebooks)..."
+      - julia --project=docs docs/make.jl --skip-notebooks
+      - echo "✅ Fast documentation build completed"
+
+  docs-pluto:
+    desc: Start Pluto server for interactive notebook development
+    cmds:
+      - echo "🚀 Starting Pluto server for interactive development..."
+      - julia --project=docs -e 'using Pluto; Pluto.run()'
+
+  # === DEVELOPMENT SETUP ===
+  setup:
+    desc: Set up development environment from scratch
+    cmds:
+      - echo "🛠️  Setting up development environment..."
+      - echo "📦 Installing root environment dependencies..."
+      - julia --project=. -e 'using Pkg; Pkg.instantiate()'
+      - echo "📦 Installing test environment dependencies..."
+      - julia --project=test -e 'using Pkg; Pkg.instantiate()'
+      - echo "📦 Installing docs environment dependencies..."
+      - julia --project=docs -e 'using Pkg; Pkg.instantiate()'
+      - echo "📦 Installing benchmark environment dependencies..."
+      - julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
+      - echo "✅ Development environment ready"
+
+  setup-precompile:
+    desc: Force precompilation of all environments
+    cmds:
+      - echo "🔄 Precompiling all environments..."
+      - julia --project=. -e 'using Pkg; Pkg.precompile()'
+      - julia --project=test -e 'using Pkg; Pkg.precompile()'
+      - julia --project=docs -e 'using Pkg; Pkg.precompile()'
+      - julia --project=benchmark -e 'using Pkg; Pkg.precompile()'
+      - echo "✅ Precompilation completed"
+
+  # === PACKAGE MANAGEMENT ===
+  pkg-status:
+    desc: Show package status across all environments
+    cmds:
+      - echo "📦 Package status overview:"
+      - echo ""
+      - echo "=== Root Environment ==="
+      - julia --project=. -e 'using Pkg; Pkg.status()'
+      - echo ""
+      - echo "=== Test Environment ==="
+      - julia --project=test -e 'using Pkg; Pkg.status()'
+      - echo ""
+      - echo "=== Docs Environment ==="
+      - julia --project=docs -e 'using Pkg; Pkg.status()'
+      - echo ""
+      - echo "=== Benchmark Environment ==="
+      - julia --project=benchmark -e 'using Pkg; Pkg.status()'
+
+  pkg-update:
+    desc: Update packages in all environments
+    interactive: true
+    cmds:
+      - |
+        echo "⚠️  WARNING: This will update packages in all environments"
+        printf "   Continue? [y/N] "
+        read -r REPLY
+        if [ "$REPLY" = "y" ] || [ "$REPLY" = "Y" ]; then
+          echo "📦 Updating root environment..."
+          julia --project=. -e 'using Pkg; Pkg.update()'
+          echo "📦 Updating test environment..."
+          julia --project=test -e 'using Pkg; Pkg.update()'
+          echo "📦 Updating docs environment..."
+          julia --project=docs -e 'using Pkg; Pkg.update()'
+          echo "📦 Updating benchmark environment..."
+          julia --project=benchmark -e 'using Pkg; Pkg.update()'
+          echo "✅ All environments updated"
+        else
+          echo "❌ Update cancelled"
+        fi
+
+  pkg-add:
+    desc: "Add package to specified environment (usage: task pkg:add ENV=docs -- PackageName)"
+    cmds:
+      - |
+        ENV_VAR={{.ENV | default "."}}
+        if [ -z "{{.CLI_ARGS}}" ]; then
+          echo "Usage: task pkg:add ENV=<environment> -- <PackageName>"
+          echo "Environments: . (root), test, docs, benchmark"
+          echo "Example: task pkg:add ENV=docs -- PlutoStaticHTML"
+          exit 1
+        fi
+        echo "📦 Adding {{.CLI_ARGS}} to $ENV_VAR environment..."
+        julia --project=$ENV_VAR -e "using Pkg; Pkg.add(\"{{.CLI_ARGS}}\")"
+        echo "✅ Package added successfully"
+
+  # === BENCHMARKS ===
+  benchmark:
+    desc: Run complete benchmark suite
+    cmds:
+      - echo "⚡ Running benchmark suite..."
+      - julia --project=benchmark benchmark/runbenchmarks.jl
+      - echo "✅ Benchmarks completed successfully"
+
+  # === DEVELOPMENT WORKFLOWS ===
+  dev:
+    desc: Common development workflow (fast test + fast docs)
+    deps: ["test-fast", "docs-fast"]
+    cmds:
+      - echo "✅ Development checks completed"
+
+  precommit:
+    desc: Run pre-commit hooks on all files plus fast tests
+    cmds:
+      - echo "🔍 Running pre-commit hooks on all files..."
+      - pre-commit run --all-files
+      - echo "🧪 Running fast tests..."
+      - task: test-fast
+      - echo "✅ Pre-commit checks passed - ready to commit!"
+
+  ci:
+    desc: Simulate CI pipeline locally (comprehensive testing)
+    cmds:
+      - echo "🤖 Running CI simulation..."
+      - task: precommit
+      - task: test
+      - task: docs-fast
+      - task: benchmark
+      - echo "✅ CI simulation completed successfully"
+
+  # === UTILITIES ===
+  utils-uuid:
+    desc: Generate UUID for Pluto notebooks
+    cmds:
+      - julia -e "using UUIDs; println(uuid4())"
+
+  clean:
+    desc: Clean build artifacts and temporary files
+    interactive: true
+    cmds:
+      - |
+        echo "⚠️  WARNING: This will delete build artifacts and temporary files"
+        echo "   - docs/build/ directory"
+        echo "   - .cov files"
+        echo "   - Test environment Manifest.toml"
+        printf "   Continue? [y/N] "
+        read -r REPLY
+        if [ "$REPLY" = "y" ] || [ "$REPLY" = "Y" ]; then
+          echo "🗑️  Cleaning build artifacts..."
+          rm -rf docs/build/
+          find . -name "*.cov" -delete
+          rm -f test/Manifest.toml docs/Manifest.toml benchmark/Manifest.toml
+          echo "✅ Cleanup completed"
+        else
+          echo "❌ Cleanup cancelled"
+        fi
+
+  # === INFORMATION ===
+  info:
+    desc: Show project information and environment status
+    cmds:
+      - echo "📋 CensoredDistributions.jl Project Information"
+      - echo "==============================================="
+      - |
+        julia --project=. -e 'using Pkg; println("Julia version: ", VERSION); pkg = Pkg.project(); println("Package: ", pkg.name, " v", pkg.version)'
+      - echo ""
+      - task: pkg-status
+
+  help:
+    desc: Show available commands
+    cmds:
+      - task --list
