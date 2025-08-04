@@ -26,7 +26,7 @@
 
             # Test basic functionality
             @test isfinite(mean(pc_dist))
-            @test var(pc_dist) >= 0
+            @test Distributions.var(pc_dist) >= 0
             @test std(pc_dist) >= 0
 
             # Test PDF/CDF evaluation at various points
@@ -70,7 +70,7 @@ end
     end
 
     @test mean(pc_tilted) ≈ mean(pc_uniform) rtol=1e-6
-    @test var(pc_tilted) ≈ var(pc_uniform) rtol=1e-6
+    @test Distributions.var(pc_tilted) ≈ Distributions.var(pc_uniform) rtol=1e-6
 end
 
 @testitem "ExponentiallyTilted impact on delay distribution bias" begin
@@ -134,7 +134,7 @@ end
 
     # Test basic functionality
     @test isfinite(mean(double_censored))
-    @test var(double_censored) >= 0
+    @test Distributions.var(double_censored) >= 0
 
     # Test evaluation
     test_points = [0.1, 0.5, 1.0, 2.0]
@@ -174,7 +174,7 @@ end
 
         # Test basic properties
         @test isfinite(mean(double_censored))
-        @test var(double_censored) >= 0
+        @test Distributions.var(double_censored) >= 0
 
         # Test evaluation
         @test pdf(double_censored, 1.0) >= 0
@@ -223,7 +223,7 @@ end
 
     # Should still work, just using numerical methods
     @test isfinite(mean(pc_strong))
-    @test var(pc_strong) >= 0
+    @test Distributions.var(pc_strong) >= 0
     @test pdf(pc_strong, 1.0) >= 0
     @test 0 <= cdf(pc_strong, 1.0) <= 1
 end
@@ -274,25 +274,25 @@ end
     narrow_prior = ExponentiallyTilted(0.0, 1e-6, 0.5)
     pc_narrow = primary_censored(delay_dist, narrow_prior)
     @test isfinite(mean(pc_narrow))
-    @test var(pc_narrow) >= 0
+    @test Distributions.var(pc_narrow) >= 0
 
     # Very wide window
     wide_prior = ExponentiallyTilted(0.0, 100.0, 0.1)
     pc_wide = primary_censored(delay_dist, wide_prior)
     @test isfinite(mean(pc_wide))
-    @test var(pc_wide) >= 0
+    @test Distributions.var(pc_wide) >= 0
 
     # Large positive growth rate
     large_pos_prior = ExponentiallyTilted(0.0, 1.0, 5.0)
     pc_large_pos = primary_censored(delay_dist, large_pos_prior)
     @test isfinite(mean(pc_large_pos))
-    @test var(pc_large_pos) >= 0
+    @test Distributions.var(pc_large_pos) >= 0
 
     # Large negative growth rate
     large_neg_prior = ExponentiallyTilted(0.0, 1.0, -5.0)
     pc_large_neg = primary_censored(delay_dist, large_neg_prior)
     @test isfinite(mean(pc_large_neg))
-    @test var(pc_large_neg) >= 0
+    @test Distributions.var(pc_large_neg) >= 0
 
     # Test that extreme cases still maintain proper ordering
     @test mean(pc_large_neg) > mean(pc_large_pos)  # Decay > Growth
@@ -315,7 +315,7 @@ end
 
     # Test basic functionality
     @test isfinite(mean(weighted_pc))
-    @test var(weighted_pc) >= 0
+    @test Distributions.var(weighted_pc) >= 0
 
     # Test evaluation
     @test pdf(weighted_pc, 1.0) >= 0
