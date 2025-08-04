@@ -69,10 +69,10 @@ println("   Generating $n_samples samples from each scenario...")
 for (name, prior) in scenarios
     pc_dist = primary_censored(delay_dist, prior)
     samples = rand(pc_dist, n_samples)
-    
+
     empirical_mean = sum(samples) / n_samples
     empirical_std = sqrt(sum((x - empirical_mean)^2 for x in samples) / (n_samples - 1))
-    
+
     println("   $name: empirical_mean=$(round(empirical_mean, digits=2)), empirical_std=$(round(empirical_std, digits=2))")
 end
 
