@@ -29,7 +29,7 @@ F_P(x) = \\frac{\\exp(r \\cdot (x - \\text{min})) - \\exp(r \\cdot \\text{min})}
   - `r → 0`: approaches uniform distribution
 
 # Examples
-```julia
+@example
 using CensoredDistributions, Distributions
 
 # Uniform-like (no growth)
@@ -38,14 +38,14 @@ d1 = ExponentiallyTilted(0.0, 1.0, 0.0)
 # Exponential growth (r > 0)
 d2 = ExponentiallyTilted(0.0, 1.0, 2.0)
 
-# Exponential decay (r < 0)
+# Exponential decay (r < 0)  
 d3 = ExponentiallyTilted(0.0, 1.0, -1.5)
 
 # Integration with PrimaryCensored
 delay_dist = LogNormal(1.5, 0.75)
 growth_prior = ExponentiallyTilted(0.0, 1.0, 0.8)  # Growing epidemic
 censored_dist = primary_censored(delay_dist, growth_prior)
-```
+@end
 
 # References
 - Park, S.W., Akhmetzhanov, A.R., Charniga, K. et al. (2024). "Estimating epidemiological delay distributions for infectious diseases." medRxiv preprint.
@@ -65,8 +65,10 @@ struct ExponentiallyTilted{T<:Real} <: ContinuousUnivariateDistribution
 end
 
 # Constructor with type promotion
-ExponentiallyTilted(min::Real=0.0, max::Real=1.0, r::Real=0.0) =
-    ExponentiallyTilted{promote_type(typeof(min), typeof(max), typeof(r))}(min, max, r)
+function ExponentiallyTilted(min::Real=0.0, max::Real=1.0, r::Real=0.0)
+    T = promote_type(typeof(min), typeof(max), typeof(r))
+    return ExponentiallyTilted{T}(T(min), T(max), T(r))
+end
 
 # Parameters interface
 Distributions.params(d::ExponentiallyTilted) = (d.min, d.max, d.r)
