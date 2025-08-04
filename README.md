@@ -20,6 +20,7 @@ CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shiel
 ## Why CensoredDistributions.jl?
 
 - **Primary event censoring**: Model delay distributions where the initial event occurs within a time window (e.g., exposure periods in epidemiology).
+- **Exponentially tilted primary events**: Account for epidemic dynamics where primary events are biased by exponential growth or decay patterns.
 - **Interval censoring**: Bin continuous distributions into discrete intervals (e.g., daily reporting) when exact values are not observed.
 - **Double interval censoring**: Combines both primary event and interval censoring for complex observation processes.
 - **Distribution fitting**: Extends Distributions.jl's `fit` support with MLE fitting for primary censored and interval censored distributions (potentially truncated), plus Turing.jl integration for Bayesian inference.
@@ -101,6 +102,26 @@ Both CensoredDistributions.jl and Distributions.jl's built-in `censored()` funct
 These approaches complement each other - you can apply observation limits to distributions with event timing uncertainty when both types of censoring affect your data.
 
 CensoredDistributions.jl also works well with `truncated()` from Distributions.jl and supports both primary event censoring (initial event timing uncertainty) and secondary event censoring (observation window effects).
+
+### Exponentially Tilted Primary Events
+
+For epidemic modeling scenarios where primary events are biased by exponential growth or decay:
+
+```julia
+using CensoredDistributions, Distributions
+
+# Model incubation period during epidemic growth
+incubation = LogNormal(1.5, 0.75)
+growth_prior = ExponentiallyTilted(0.0, 1.0, 0.8)  # r > 0 for growth
+censored_incubation = primary_censored(incubation, growth_prior)
+
+# Compare with uniform assumption
+uniform_prior = ExponentiallyTilted(0.0, 1.0, 0.0)  # r = 0 for uniform
+uniform_censored = primary_censored(incubation, uniform_prior)
+
+println("Growth scenario mean: $(round(mean(censored_incubation), digits=2))")
+println("Uniform scenario mean: $(round(mean(uniform_censored), digits=2))")
+```
 
 ## What packages work well with CensoredDistributions.jl?
 

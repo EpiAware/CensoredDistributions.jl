@@ -3,6 +3,7 @@ getting_started_pages = Any[
 "Installation" => "getting-started/installation.md",
 "Tutorials" => [
     "Analytical CDF Solutions" => "getting-started/tutorials/analytical-primarycensored-cdfs.md",
+    "Exponentially Tilted Primary Events" => "getting-started/tutorials/exponentially-tilted-primary-events.md",
     "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md"
 ],
 "Julia" => "getting-started/julia.md",
