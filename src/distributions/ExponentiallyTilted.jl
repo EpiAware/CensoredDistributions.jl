@@ -190,3 +190,22 @@ function Base.rand(rng::AbstractRNG, d::ExponentiallyTilted)
     u = rand(rng)
     return quantile(d, u)
 end
+
+# Mean calculation
+function Distributions.mean(d::ExponentiallyTilted)
+    if _is_r_small(d.r)
+        # Uniform case
+        return (d.min + d.max) / 2
+    else
+        # For exponentially tilted distribution:
+        # E[X] = min + (1/r) - (max-min)*exp(r*(max-min)) / (exp(r*(max-min))-1)
+        r_range = d.r * (d.max - d.min)
+        if abs(r_range) < 1e-6
+            # Use approximation for small r_range to avoid numerical issues
+            return (d.min + d.max) / 2
+        else
+            exp_r_range = exp(r_range)
+            return d.min + (d.max - d.min) * (exp_r_range / (exp_r_range - 1) - 1 / r_range)
+        end
+    end
+end

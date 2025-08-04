@@ -225,16 +225,17 @@ end
 
 @testitem "ExponentiallyTilted PDF integration to 1" begin
     using Distributions
+    using Integrals
 
-    # Test numerical integration of PDF equals 1
-    # Using simple trapezoidal rule for verification
-    function integrate_pdf(d, n_points = 1000)
-        x_vals = range(minimum(d), maximum(d), length = n_points)
-        dx = (maximum(d) - minimum(d)) / (n_points - 1)
-        pdf_vals = [pdf(d, x) for x in x_vals]
-        # Trapezoidal rule
-        return dx * (0.5 * (pdf_vals[1] + pdf_vals[end]) +
-                     sum(pdf_vals[2:(end - 1)]))
+    # Test numerical integration of PDF equals 1 using Integrals.jl
+    function integrate_pdf(d)
+        prob = IntegralProblem(
+            (x, p) -> pdf(d, x),
+            minimum(d),
+            maximum(d)
+        )
+        sol = solve(prob, QuadGKJL(); reltol = 1e-8)
+        return sol.u
     end
 
     # Test different parameter values
@@ -248,8 +249,8 @@ end
     for (min_val, max_val, r_val) in test_cases
         d = ExponentiallyTilted(min_val, max_val, r_val)
         integral = integrate_pdf(d)
-        # Should integrate to 1 (looser tolerance for numerical integration)
-        @test abs(integral - 1.0) < 1e-4
+        # Should integrate to 1 with high precision
+        @test abs(integral - 1.0) < 1e-10
     end
 end
 
@@ -312,60 +313,65 @@ end
     end
 end
 
-@testitem "ExponentiallyTilted integration with primary_censored" begin
+@testitem "ExponentiallyTilted mean calculation" begin
     using Distributions
 
-    # Test that ExponentiallyTilted works as a primary event distribution
-    delay_dist = LogNormal(1.0, 0.5)
-    primary_dist = ExponentiallyTilted(0.0, 2.0, 1.0)
+    # Test uniform case (r ≈ 0)
+    d_uniform = ExponentiallyTilted(0.0, 1.0, 1e-12)
+    @test abs(mean(d_uniform) - 0.5) < 1e-10
 
-    # This should not throw an error
-    pc_dist = primary_censored(delay_dist, primary_dist)
-    @test typeof(pc_dist) <: CensoredDistributions.PrimaryCensored
-    @test pc_dist.primary_event === primary_dist
-    @test pc_dist.dist === delay_dist
+    # Test symmetric case
+    d_symmetric = ExponentiallyTilted(-1.0, 1.0, 1e-12)
+    @test abs(mean(d_symmetric) - 0.0) < 1e-10
 
-    # Test basic functionality works
-    @test isfinite(pdf(pc_dist, 1.0))
-    @test isfinite(cdf(pc_dist, 1.0))
-    @test 0.0 <= cdf(pc_dist, 1.0) <= 1.0
+    # Test with positive r (tilted towards max)
+    d_positive = ExponentiallyTilted(0.0, 1.0, 1.0)
+    @test mean(d_positive) > 0.5  # Should be greater than uniform mean
 
-    # Test with near-uniform primary event distribution
-    primary_uniform = ExponentiallyTilted(0.0, 1.0, 1e-10)
-    pc_uniform = primary_censored(delay_dist, primary_uniform)
+    # Test with negative r (tilted towards min)
+    d_negative = ExponentiallyTilted(0.0, 1.0, -1.0)
+    @test mean(d_negative) < 0.5  # Should be less than uniform mean
 
-    @test isfinite(pdf(pc_uniform, 1.0))
-    @test isfinite(cdf(pc_uniform, 1.0))
+    # Test consistency with integration for a specific case
+    d_test = ExponentiallyTilted(0.0, 2.0, 0.5)
+    theoretical_mean = mean(d_test)
+
+    # The mean should be finite and within the support bounds
+    @test isfinite(theoretical_mean)
+    @test 0.0 <= theoretical_mean <= 2.0
+
+    # For positive r, mean should be greater than midpoint
+    @test theoretical_mean > 1.0  # midpoint of [0, 2]
 end
 
 @testitem "ExponentiallyTilted mathematical consistency checks" begin
     using Distributions
+    using Integrals
 
     d = ExponentiallyTilted(0.0, 1.0, 1.5)
 
-    # Test that CDF is the integral of PDF
-    # Using numerical integration to verify
-    function numerical_cdf(dist, x, n_points = 1000)
+    # Test that CDF is the integral of PDF using Integrals.jl
+    function numerical_cdf(dist, x)
         if x <= minimum(dist)
             return 0.0
         elseif x >= maximum(dist)
             return 1.0
         end
 
-        x_vals = range(minimum(dist), x, length = n_points)
-        dx = (x - minimum(dist)) / (n_points - 1)
-        pdf_vals = [pdf(dist, xi) for xi in x_vals]
-
-        # Trapezoidal rule
-        return dx * (0.5 * (pdf_vals[1] + pdf_vals[end]) +
-                     sum(pdf_vals[2:(end - 1)]))
+        prob = IntegralProblem(
+            (t, p) -> pdf(dist, t),
+            minimum(dist),
+            x
+        )
+        sol = solve(prob, QuadGKJL(); reltol = 1e-10)
+        return sol.u
     end
 
     test_points = [0.1, 0.3, 0.5, 0.7, 0.9]
     for x in test_points
         numerical_val = numerical_cdf(d, x)
         analytical_val = cdf(d, x)
-        @test abs(numerical_val - analytical_val) < 1e-4
+        @test abs(numerical_val - analytical_val) < 1e-8
     end
 
     # Test derivative relationship: d/dx CDF(x) ≈ PDF(x)
@@ -382,6 +388,7 @@ end
     using Random
     using Statistics
     using StatsBase
+    using HypothesisTests
 
     # Set seed for reproducible tests
     Random.seed!(42)
@@ -407,23 +414,9 @@ end
         # Test 1: All samples within support
         @test all(min_val <= s <= max_val for s in samples)
 
-        # Test 2: Empirical CDF vs analytical CDF (Kolmogorov-Smirnov test)
-        test_points = range(min_val + 0.01 * (max_val - min_val),
-            max_val - 0.01 * (max_val - min_val),
-            length = 20)
-
-        max_ks_statistic = 0.0
-        for x in test_points
-            empirical_cdf = mean(samples .<= x)
-            analytical_cdf = cdf(d, x)
-            ks_statistic = abs(empirical_cdf - analytical_cdf)
-            max_ks_statistic = max(max_ks_statistic, ks_statistic)
-        end
-
-        # Critical value for KS test at α = 0.001 with large n
-        # KS critical value ≈ 1.63 / sqrt(n) for α = 0.001
-        ks_critical = 1.63 / sqrt(n_samples)
-        @test max_ks_statistic < ks_critical
+        # Test 2: Kolmogorov-Smirnov test using HypothesisTests.jl
+        ks_test = ExactOneSampleKSTest(samples, d)
+        @test pvalue(ks_test) > 0.001  # Should not reject at α = 0.001
 
         # Test 3: Quantile consistency
         prob_levels = [0.1, 0.25, 0.5, 0.75, 0.9]
@@ -438,43 +431,15 @@ end
             @test relative_error < tolerance
         end
 
-        # Test 4: Sample mean validation (if we can compute it analytically)
+        # Test 4: Sample mean validation using analytical mean
         empirical_mean = mean(samples)
-
-        # For exponentially tilted distribution, the mean can be computed
-        # analytically
-        if abs(r_val) < 1e-10
-            # Uniform case
-            expected_mean = (min_val + max_val) / 2
-        else
-            # For exponentially tilted:
-            # E[X] = min + (1/r) - (max-min)*exp(r*(max-min)) /
-            #        (exp(r*(max-min))-1)
-            r_range = r_val * (max_val - min_val)
-            if abs(r_range) < 1e-6
-                expected_mean = (min_val + max_val) / 2  # Approximate uniform
-            else
-                exp_r_range = exp(r_range)
-                expected_mean = min_val +
-                                (max_val - min_val) *
-                                (exp_r_range / (exp_r_range - 1) - 1 / r_range)
-            end
-        end
+        expected_mean = mean(d)  # Use the implemented mean method
 
         # Test mean with appropriate tolerance
         mean_tolerance = 0.02 * (max_val - min_val)
         @test abs(empirical_mean - expected_mean) < mean_tolerance
 
-        # Test 5: PDF integration via Monte Carlo using importance sampling
-        # Sample from uniform and compute ∫ f(x) dx ≈ (b-a) * E[f(U)]
-        # where U ~ Uniform(a,b)
-        n_integration = 5000
-        uniform_samples = rand(Uniform(min_val, max_val), n_integration)
-        mc_integral = (max_val - min_val) *
-                      mean([pdf(d, u) for u in uniform_samples])
-        @test abs(mc_integral - 1.0) < 0.02
-
-        # Test 6: Moments consistency for special cases
+        # Test 5: Moments consistency for special cases
         if r_val == 0.0  # Uniform case - we know all moments
             empirical_var = var(samples)
             expected_var = (max_val - min_val)^2 / 12

@@ -1,9 +1,9 @@
 [deps]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-CensoredDistributions = "b2eeebe4-5992-4301-9193-7ebc9f62c855"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+HypothesisTests = "09f84164-cd44-5f33-b23f-e6b0d136a0d5"
 Integrals = "de52edbc-65ea-441a-8357-d3a637375a31"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
 JuliaFormatter = "98e50ef6-434e-11e9-1051-2b60c6c9e899"
