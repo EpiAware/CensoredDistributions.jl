@@ -434,7 +434,8 @@ CensoredDistributions_fit = sample(
 summarize(CensoredDistributions_fit)
 
 # ╔═╡ f0c02e4a-c0cc-41de-b1bf-f5fad7e7dfdb
-plot_fit_with_truth(CensoredDistributions_fit, Dict("dist.mu" => meanlog, "dist.sigma" => sdlog))
+plot_fit_with_truth(
+    CensoredDistributions_fit, Dict("dist.mu" => meanlog, "dist.sigma" => sdlog))
 
 # ╔═╡ c045caa6-a44d-4a54-b122-1e50b1e0fe75
 md"

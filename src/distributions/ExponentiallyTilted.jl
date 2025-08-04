@@ -37,7 +37,8 @@ lower values. When r ≈ 0, it approaches a uniform distribution.
 
 The distribution has probability density function:
 ```math
-f(x) = \frac{\exp(r(x - \text{min}))}{\int_{\text{min}}^{\text{max}} \exp(r(t - \text{min})) dt}
+f(x) = \frac{\exp(r(x - \text{min}))}{\int_{\text{min}}^{\text{max}}
+\exp(r(t - \text{min})) dt}
 ```
 for r ≠ 0, and f(x) = 1/(max - min) for r ≈ 0.
 
@@ -90,7 +91,8 @@ function _normalisation_constant(min::Real, max::Real, r::Real)
         return max - min
     else
         # Integral of exp(r*(x-min)) from min to max
-        # With substitution u = x - min: integral becomes exp(r*u) from 0 to (max-min)
+        # With substitution u = x - min: integral becomes exp(r*u)
+        # from 0 to (max-min)
         # = (exp(r*(max-min)) - 1)/r
         r_range = r * (max - min)
         if abs(r_range) < 1e-8

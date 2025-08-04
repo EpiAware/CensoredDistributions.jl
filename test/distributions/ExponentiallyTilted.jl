@@ -28,8 +28,10 @@
     # Test error cases
     @test_throws ArgumentError ExponentiallyTilted(1.0, 1.0, 1.0)  # max == min
     @test_throws ArgumentError ExponentiallyTilted(2.0, 1.0, 1.0)  # max < min
-    @test_throws ArgumentError ExponentiallyTilted(Inf, 1.0, 1.0)  # infinite min
-    @test_throws ArgumentError ExponentiallyTilted(0.0, Inf, 1.0)  # infinite max
+    # infinite min
+    @test_throws ArgumentError ExponentiallyTilted(Inf, 1.0, 1.0)
+    # infinite max
+    @test_throws ArgumentError ExponentiallyTilted(0.0, Inf, 1.0)
     @test_throws ArgumentError ExponentiallyTilted(0.0, 1.0, Inf)  # infinite r
     @test_throws ArgumentError ExponentiallyTilted(0.0, 1.0, NaN)  # NaN r
 end
@@ -231,7 +233,8 @@ end
         dx = (maximum(d) - minimum(d)) / (n_points - 1)
         pdf_vals = [pdf(d, x) for x in x_vals]
         # Trapezoidal rule
-        return dx * (0.5 * (pdf_vals[1] + pdf_vals[end]) + sum(pdf_vals[2:(end - 1)]))
+        return dx * (0.5 * (pdf_vals[1] + pdf_vals[end]) +
+                     sum(pdf_vals[2:(end - 1)]))
     end
 
     # Test different parameter values
@@ -245,11 +248,12 @@ end
     for (min_val, max_val, r_val) in test_cases
         d = ExponentiallyTilted(min_val, max_val, r_val)
         integral = integrate_pdf(d)
-        @test abs(integral - 1.0) < 1e-4  # Should integrate to 1 (looser tolerance for numerical integration)
+        # Should integrate to 1 (looser tolerance for numerical integration)
+        @test abs(integral - 1.0) < 1e-4
     end
 end
 
-@testitem "ExponentiallyTilted numerical stability with extreme parameters" begin
+@testitem "ExponentiallyTilted numerical stability with extreme params" begin
     using Distributions
 
     # Test with very large positive r
@@ -353,7 +357,8 @@ end
         pdf_vals = [pdf(dist, xi) for xi in x_vals]
 
         # Trapezoidal rule
-        return dx * (0.5 * (pdf_vals[1] + pdf_vals[end]) + sum(pdf_vals[2:(end - 1)]))
+        return dx * (0.5 * (pdf_vals[1] + pdf_vals[end]) +
+                     sum(pdf_vals[2:(end - 1)]))
     end
 
     test_points = [0.1, 0.3, 0.5, 0.7, 0.9]
@@ -370,4 +375,152 @@ end
         analytical_pdf = pdf(d, x)
         @test abs(numerical_derivative - analytical_pdf) < 1e-4
     end
+end
+
+@testitem "ExponentiallyTilted Monte Carlo validation" begin
+    using Distributions
+    using Random
+    using Statistics
+    using StatsBase
+
+    # Set seed for reproducible tests
+    Random.seed!(42)
+
+    # Test parameters: (min, max, r)
+    test_cases = [
+        (0.0, 1.0, 0.0),    # Uniform case (r = 0)
+        (0.0, 1.0, 1.0),    # Moderate positive tilting
+        (0.0, 1.0, -0.5),   # Negative tilting
+        (-1.0, 2.0, 0.8),   # Different bounds with positive tilting
+        (0.0, 1.0, 2.5),    # Strong positive tilting
+        (0.0, 1.0, -2.0)    # Strong negative tilting
+    ]
+
+    n_samples = 15000  # Large sample size for stability
+
+    for (min_val, max_val, r_val) in test_cases
+        d = ExponentiallyTilted(min_val, max_val, r_val)
+
+        # Generate large sample
+        samples = [rand(d) for _ in 1:n_samples]
+
+        # Test 1: All samples within support
+        @test all(min_val <= s <= max_val for s in samples)
+
+        # Test 2: Empirical CDF vs analytical CDF (Kolmogorov-Smirnov test)
+        test_points = range(min_val + 0.01 * (max_val - min_val),
+            max_val - 0.01 * (max_val - min_val),
+            length = 20)
+
+        max_ks_statistic = 0.0
+        for x in test_points
+            empirical_cdf = mean(samples .<= x)
+            analytical_cdf = cdf(d, x)
+            ks_statistic = abs(empirical_cdf - analytical_cdf)
+            max_ks_statistic = max(max_ks_statistic, ks_statistic)
+        end
+
+        # Critical value for KS test at α = 0.001 with large n
+        # KS critical value ≈ 1.63 / sqrt(n) for α = 0.001
+        ks_critical = 1.63 / sqrt(n_samples)
+        @test max_ks_statistic < ks_critical
+
+        # Test 3: Quantile consistency
+        prob_levels = [0.1, 0.25, 0.5, 0.75, 0.9]
+        for p in prob_levels
+            analytical_quantile = quantile(d, p)
+            empirical_quantile = quantile(samples, p)
+
+            # Allow larger tolerance for extreme quantiles
+            tolerance = p in [0.1, 0.9] ? 0.05 : 0.03
+            relative_error = abs(analytical_quantile - empirical_quantile) /
+                             (max_val - min_val)
+            @test relative_error < tolerance
+        end
+
+        # Test 4: Sample mean validation (if we can compute it analytically)
+        empirical_mean = mean(samples)
+
+        # For exponentially tilted distribution, the mean can be computed
+        # analytically
+        if abs(r_val) < 1e-10
+            # Uniform case
+            expected_mean = (min_val + max_val) / 2
+        else
+            # For exponentially tilted:
+            # E[X] = min + (1/r) - (max-min)*exp(r*(max-min)) /
+            #        (exp(r*(max-min))-1)
+            r_range = r_val * (max_val - min_val)
+            if abs(r_range) < 1e-6
+                expected_mean = (min_val + max_val) / 2  # Approximate uniform
+            else
+                exp_r_range = exp(r_range)
+                expected_mean = min_val +
+                                (max_val - min_val) *
+                                (exp_r_range / (exp_r_range - 1) - 1 / r_range)
+            end
+        end
+
+        # Test mean with appropriate tolerance
+        mean_tolerance = 0.02 * (max_val - min_val)
+        @test abs(empirical_mean - expected_mean) < mean_tolerance
+
+        # Test 5: PDF integration via Monte Carlo using importance sampling
+        # Sample from uniform and compute ∫ f(x) dx ≈ (b-a) * E[f(U)]
+        # where U ~ Uniform(a,b)
+        n_integration = 5000
+        uniform_samples = rand(Uniform(min_val, max_val), n_integration)
+        mc_integral = (max_val - min_val) *
+                      mean([pdf(d, u) for u in uniform_samples])
+        @test abs(mc_integral - 1.0) < 0.02
+
+        # Test 6: Moments consistency for special cases
+        if r_val == 0.0  # Uniform case - we know all moments
+            empirical_var = var(samples)
+            expected_var = (max_val - min_val)^2 / 12
+            @test abs(empirical_var - expected_var) < 0.05 * expected_var
+        end
+    end
+end
+
+@testitem "ExponentiallyTilted Monte Carlo edge cases" begin
+    using Distributions
+    using Random
+    using Statistics
+
+    Random.seed!(123)
+    n_samples = 10000
+
+    # Test edge case: very small positive r (should behave like uniform)
+    d_small_r = ExponentiallyTilted(0.0, 1.0, 1e-12)
+    samples_small_r = [rand(d_small_r) for _ in 1:n_samples]
+
+    # Should behave like Uniform(0, 1)
+    @test abs(mean(samples_small_r) - 0.5) < 0.02
+    @test abs(var(samples_small_r) - 1/12) < 0.01
+
+    # Test edge case: large positive r (heavily tilted towards max)
+    d_large_r = ExponentiallyTilted(0.0, 1.0, 5.0)
+    samples_large_r = [rand(d_large_r) for _ in 1:n_samples]
+
+    # Should be heavily skewed towards 1.0
+    @test mean(samples_large_r) > 0.75
+    @test quantile(samples_large_r, 0.9) > 0.9
+
+    # Test edge case: large negative r (heavily tilted towards min)
+    d_large_neg_r = ExponentiallyTilted(0.0, 1.0, -5.0)
+    samples_large_neg_r = [rand(d_large_neg_r) for _ in 1:n_samples]
+
+    # Should be heavily skewed towards 0.0
+    @test mean(samples_large_neg_r) < 0.25
+    @test quantile(samples_large_neg_r, 0.1) < 0.1
+
+    # Test numerical stability with extreme parameters
+    d_extreme = ExponentiallyTilted(-10.0, 10.0, 3.0)
+    # Smaller sample for extreme case
+    samples_extreme = [rand(d_extreme) for _ in 1:1000]
+
+    @test all(-10.0 <= s <= 10.0 for s in samples_extreme)
+    @test isfinite(mean(samples_extreme))
+    @test isfinite(var(samples_extreme))
 end
