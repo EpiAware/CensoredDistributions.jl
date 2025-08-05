@@ -15,6 +15,9 @@ export primary_censored, interval_censored, double_interval_censored
 # Export underlying primarycensored_cdf method for user extension
 export primarycensored_cdf
 
+# Exported distributions
+export ExponentiallyTilted
+
 # Exported utilities
 export weight, get_dist, get_dist_recursive
 
@@ -24,6 +27,8 @@ include("censoring/primarycensored_cdf.jl")
 include("censoring/PrimaryCensored.jl")
 include("censoring/IntervalCensored.jl")
 include("censoring/DoubleIntervalCensored.jl")
+
+include("distributions/ExponentiallyTilted.jl")
 
 include("utils/Weighted.jl")
 include("utils/get_dist.jl")

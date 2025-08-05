@@ -58,10 +58,6 @@ We use CairoMakie for plotting, Turing for probabilistic programming,
 Chain.jl for data pipeline workflows, DataFramesMeta, Random, and StatsBase.
 """
 
-# ╔═╡ 2db69f1e-94aa-4e7d-a400-c67c84b41b69
-
-# ╔═╡ 38f50d8c-7a62-4432-97b8-1a52a99cb642
-
 # ╔═╡ c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
 md"""
 ## Generate synthetic data using Turing model simulation
@@ -434,7 +430,8 @@ CensoredDistributions_fit = sample(
 summarize(CensoredDistributions_fit)
 
 # ╔═╡ f0c02e4a-c0cc-41de-b1bf-f5fad7e7dfdb
-plot_fit_with_truth(CensoredDistributions_fit, Dict("dist.mu" => meanlog, "dist.sigma" => sdlog))
+plot_fit_with_truth(
+    CensoredDistributions_fit, Dict("dist.mu" => meanlog, "dist.sigma" => sdlog))
 
 # ╔═╡ c045caa6-a44d-4a54-b122-1e50b1e0fe75
 md"
@@ -445,10 +442,8 @@ We also see that the posterior means are near the true parameters and the
 
 # ╔═╡ Cell order:
 # ╟─30511a27-984e-40b7-9b1e-34bc87cb8d56
-# ╟─bb9c75db-6638-48fe-afcb-e78c4bcc057d
-# ╠═2db69f1e-94aa-4e7d-a400-c67c84b41b69
+# ╠═bb9c75db-6638-48fe-afcb-e78c4bcc057d
 # ╠═3690c122-d630-4fd0-aaf2-aea9226df086
-# ╠═38f50d8c-7a62-4432-97b8-1a52a99cb642
 # ╟─c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
 # ╠═b4409687-7bee-4028-824d-03b209aee68d
 # ╟─30e99e77-aad1-43e8-9284-ab0bf8ae741f

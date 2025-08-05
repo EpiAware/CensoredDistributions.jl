@@ -268,3 +268,99 @@ end
     @test logpdf(d_trunc, 1.0) ≠ NaN  # At lower bound
     @test logpdf(d_trunc, 10.0) ≠ NaN  # At upper bound
 end
+
+@testitem "ExponentiallyTilted basic integration test" begin
+    using Distributions
+
+    # Test that ExponentiallyTilted works as a primary event distribution
+    delay_dist = LogNormal(1.5, 0.75)
+    primary_event = ExponentiallyTilted(0.0, 2.0, 1.0)
+
+    d = primary_censored(delay_dist, primary_event)
+
+    @test typeof(d) <: CensoredDistributions.PrimaryCensored
+    @test d.dist === delay_dist
+    @test d.primary_event === primary_event
+    @test d.method isa CensoredDistributions.AnalyticalSolver
+
+    # Test basic functionality
+    @test isfinite(pdf(d, 1.0))
+    @test isfinite(cdf(d, 1.0))
+    @test isfinite(logpdf(d, 1.0))
+    @test 0.0 ≤ cdf(d, 1.0) ≤ 1.0
+
+    # Test random sampling works
+    samples = rand(d, 100)
+    @test length(samples) == 100
+    @test all(s ≥ 0 for s in samples)
+end
+
+@testitem "ExponentiallyTilted growth/decay scenarios" begin
+    using Distributions
+
+    delay_dist = Gamma(2.0, 1.0)
+
+    # Test positive r (growth scenario - tilted towards later times)
+    growth_primary = ExponentiallyTilted(0.0, 2.0, 1.5)
+    d_growth = primary_censored(delay_dist, growth_primary)
+
+    @test typeof(d_growth) <: CensoredDistributions.PrimaryCensored
+    @test isfinite(pdf(d_growth, 1.0))
+    @test isfinite(cdf(d_growth, 1.0))
+    @test 0.0 ≤ cdf(d_growth, 1.0) ≤ 1.0
+
+    # Test negative r (decay scenario - tilted towards earlier times)
+    decay_primary = ExponentiallyTilted(0.0, 2.0, -1.2)
+    d_decay = primary_censored(delay_dist, decay_primary)
+
+    @test typeof(d_decay) <: CensoredDistributions.PrimaryCensored
+    @test isfinite(pdf(d_decay, 1.0))
+    @test isfinite(cdf(d_decay, 1.0))
+    @test 0.0 ≤ cdf(d_decay, 1.0) ≤ 1.0
+
+    # Test that growth and decay produce different results
+    test_x = 1.5
+    @test pdf(d_growth, test_x) ≠ pdf(d_decay, test_x)
+    @test cdf(d_growth, test_x) ≠ cdf(d_decay, test_x)
+end
+
+@testitem "ExponentiallyTilted with multiple delay distributions" begin
+    using Distributions
+
+    primary_event = ExponentiallyTilted(0.0, 1.5, 0.8)
+
+    # Test with different delay distributions
+    delay_distributions = [
+        Gamma(2.0, 1.0),
+        LogNormal(1.0, 0.5),
+        Exponential(1.5)
+    ]
+
+    for delay_dist in delay_distributions
+        d = primary_censored(delay_dist, primary_event)
+
+        @test typeof(d) <: CensoredDistributions.PrimaryCensored
+        @test d.dist === delay_dist
+        @test d.primary_event === primary_event
+
+        # Test basic properties work with each delay distribution
+        @test isfinite(pdf(d, 1.0))
+        @test isfinite(cdf(d, 1.0))
+        @test isfinite(logpdf(d, 1.0))
+        @test 0.0 ≤ cdf(d, 1.0) ≤ 1.0
+
+        # Test consistency between pdf and logpdf
+        pdf_val = pdf(d, 1.0)
+        logpdf_val = logpdf(d, 1.0)
+        if pdf_val > 0
+            @test abs(log(pdf_val) - logpdf_val) < 1e-10
+        else
+            @test logpdf_val == -Inf
+        end
+
+        # Test random sampling
+        samples = rand(d, 50)
+        @test length(samples) == 50
+        @test all(s ≥ 0 for s in samples)
+    end
+end

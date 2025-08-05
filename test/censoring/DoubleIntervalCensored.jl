@@ -451,3 +451,60 @@ end
         @test isfinite(logpdf_val) || logpdf_val == -Inf
     end
 end
+
+@testitem "DoubleIntervalCensored with ExponentiallyTilted - basic integration" begin
+    using Distributions
+
+    # Test basic integration with ExponentiallyTilted as primary event
+    delay_dist = LogNormal(1.0, 0.5)
+    primary_event = ExponentiallyTilted(0.0, 2.0, 1.0)
+
+    # Test primary censoring only
+    d1 = double_interval_censored(delay_dist; primary_event = primary_event)
+    @test typeof(d1) <: CensoredDistributions.PrimaryCensored
+
+    # Test basic functionality
+    @test isfinite(pdf(d1, 1.0)) && pdf(d1, 1.0) ≥ 0
+    @test 0.0 ≤ cdf(d1, 1.0) ≤ 1.0
+    @test isfinite(rand(d1))
+end
+
+@testitem "DoubleIntervalCensored with ExponentiallyTilted - with truncation" begin
+    using Distributions
+
+    # Test ExponentiallyTilted with truncation
+    delay_dist = Gamma(2.0, 1.5)
+    primary_event = ExponentiallyTilted(0.0, 1.5, -0.8)  # Decay scenario
+
+    d2 = double_interval_censored(delay_dist;
+        primary_event = primary_event, upper = 8.0)
+
+    @test typeof(d2) <: Distributions.Truncated
+    @test maximum(d2) == 8.0
+    @test isfinite(pdf(d2, 2.0)) && pdf(d2, 2.0) ≥ 0
+    @test 0.0 ≤ cdf(d2, 2.0) ≤ 1.0
+end
+
+@testitem "DoubleIntervalCensored with ExponentiallyTilted - growth vs decay" begin
+    using Distributions
+
+    # Test that growth and decay scenarios produce different results
+    delay_dist = Exponential(1.0)
+
+    # Growth scenario (r > 0)
+    growth_primary = ExponentiallyTilted(0.0, 2.0, 1.5)
+    d_growth = double_interval_censored(delay_dist; primary_event = growth_primary)
+
+    # Decay scenario (r < 0)
+    decay_primary = ExponentiallyTilted(0.0, 2.0, -1.5)
+    d_decay = double_interval_censored(delay_dist; primary_event = decay_primary)
+
+    # Should produce different results
+    test_point = 1.0
+    pdf_growth = pdf(d_growth, test_point)
+    pdf_decay = pdf(d_decay, test_point)
+
+    @test isfinite(pdf_growth) && pdf_growth > 0
+    @test isfinite(pdf_decay) && pdf_decay > 0
+    @test pdf_growth ≠ pdf_decay  # Should be different
+end

@@ -26,7 +26,7 @@ tasks:
     desc: Run only quality checks (Aqua, formatting, linting, doctests)
     cmds:
       - echo "🔍 Running quality checks only..."
-      - julia --project=test -e 'using TestItemRunner; run_tests("test/package/")'
+      - julia --project=. -e 'using Pkg; Pkg.test(test_args=["quality_only"])'
       - echo "✅ Quality checks completed"
 
   test-extensions:
@@ -34,6 +34,21 @@ tasks:
     cmds:
       - echo "🔧 Testing package extensions..."
       - julia --project=docs -e 'using CensoredDistributions, Distributions, OptimizationOptimJL, Bijectors; println("✅ Extensions loaded successfully")'
+
+  format:
+    desc: Format code with JuliaFormatter (fixes formatting issues)
+    cmds:
+      - echo "🎨 Formatting code with JuliaFormatter..."
+      - julia --project=test -e 'using JuliaFormatter; format(".", verbose=true, overwrite=true)'
+      - echo "✅ Code formatting completed"
+
+  format-check:
+    desc: Check code formatting without making changes
+    cmds:
+      - echo "🔍 Checking code formatting..."
+      - |
+        julia --project=test -e 'using JuliaFormatter; success = format(".", verbose=true, overwrite=false); success || error("Code needs formatting - run: task format")'
+      - echo "✅ Code formatting is correct"
 
   # === DOCUMENTATION WORKFLOWS ===
   docs:

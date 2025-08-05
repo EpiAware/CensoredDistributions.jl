@@ -22,7 +22,7 @@ jobs:
 
           # Check if comment contains version increment command
           if echo "$COMMENT" | grep -qE "^/version\s+(major|minor|patch)\s*$"; then
-            INCREMENT_TYPE=$(echo "$COMMENT" | sed -E 's|^/version\s+(major|minor|patch)\s*$|\1|')
+            INCREMENT_TYPE=$(echo "$COMMENT" | sed -E 's#^/version\s+(major|minor|patch)\s*$#\1#')
             echo "Valid version command found: $INCREMENT_TYPE"
             echo "should_increment=true" >> $GITHUB_OUTPUT
             echo "increment_type=$INCREMENT_TYPE" >> $GITHUB_OUTPUT
