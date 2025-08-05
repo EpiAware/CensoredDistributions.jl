@@ -34,7 +34,10 @@
     @test_throws ArgumentError ExponentiallyTilted(0.0, Inf, 1.0)
     @test_throws ArgumentError ExponentiallyTilted(0.0, 1.0, Inf)  # infinite r
     @test_throws ArgumentError ExponentiallyTilted(0.0, 1.0, NaN)  # NaN r
-    @test_throws ArgumentError ExponentiallyTilted(0.0, 1.0, 0.0)  # r = 0
+
+    # Test r = 0 is now accepted (uniform behavior)
+    d_zero = ExponentiallyTilted(0.0, 1.0, 0.0)
+    @test d_zero.r == 0.0
 end
 
 @testitem "ExponentiallyTilted basic interface methods" begin
@@ -468,7 +471,7 @@ end
 
     # Test parameters: (min, max, r)
     test_cases = [
-        (0.0, 1.0, 1e-4),   # Near-uniform case (small r)
+        (0.0, 1.0, 0.0),    # Uniform case (r = 0)
         (0.0, 1.0, 1.0),    # Moderate positive tilting
         (0.0, 1.0, -0.5),   # Negative tilting
         (-1.0, 2.0, 0.8),   # Different bounds with positive tilting
@@ -526,13 +529,51 @@ end
         median_tolerance = 0.03 * (max_val - min_val)
         @test abs(empirical_median - expected_median) < median_tolerance
 
-        # Test 7: Variance consistency for near-uniform case
-        if abs(r_val) <= 1e-3  # Near-uniform case - we know all moments
+        # Test 7: Variance consistency for uniform case
+        if r_val == 0.0  # Uniform case - we know all moments
             empirical_var = var(samples)
             expected_var = var(d)  # Use implemented variance method
             @test abs(empirical_var - expected_var) < 0.05 * expected_var
         end
     end
+end
+
+@testitem "ExponentiallyTilted r=0 uniform behavior" begin
+    using Distributions
+    using Random
+
+    # Test that r=0 gives exact uniform distribution behavior
+    d_zero = ExponentiallyTilted(0.0, 1.0, 0.0)
+    uniform_d = Uniform(0.0, 1.0)
+
+    # Test points within the support
+    test_points = [0.1, 0.25, 0.5, 0.75, 0.9]
+
+    for x in test_points
+        # PDF should be exactly uniform
+        @test pdf(d_zero, x) == pdf(uniform_d, x)
+
+        # CDF should be exactly uniform
+        @test cdf(d_zero, x) == cdf(uniform_d, x)
+
+        # logPDF should be exactly uniform
+        @test logpdf(d_zero, x) == logpdf(uniform_d, x)
+
+        # logCDF should be exactly uniform
+        @test logcdf(d_zero, x) == logcdf(uniform_d, x)
+    end
+
+    # Quantiles should be exactly uniform
+    p_vals = [0.1, 0.25, 0.5, 0.75, 0.9]
+    for p in p_vals
+        @test quantile(d_zero, p) == quantile(uniform_d, p)
+    end
+
+    # Moments should be exactly uniform
+    @test mean(d_zero) == mean(uniform_d)
+    @test var(d_zero) == var(uniform_d)
+    @test std(d_zero) == std(uniform_d)
+    @test median(d_zero) == median(uniform_d)
 end
 
 @testitem "ExponentiallyTilted Monte Carlo edge cases" begin

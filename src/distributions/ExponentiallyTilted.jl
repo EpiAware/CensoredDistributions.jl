@@ -19,7 +19,13 @@ F(x) = \frac{\exp(r(x - \text{min})) - 1}{\exp(r(\text{max} - \text{min})) - 1}
 ```
 for x ∈ [min, max].
 
-When r → 0, both functions reduce to the uniform distribution on [min, max].
+The quantile function (inverse CDF) is:
+```math
+F^{-1}(p) = \text{min} + \frac{1}{r} \log\left(1 + p(\exp(r(\text{max} - \text{min})) - 1)\right)
+```
+for p ∈ [0, 1].
+
+When r → 0, all functions reduce to the uniform distribution on [min, max].
 - For r > 0: distribution is tilted towards higher values (increasing density)
 - For r < 0: distribution is tilted towards lower values (decreasing density)
 
@@ -42,8 +48,6 @@ struct ExponentiallyTilted{T <: Real} <:
         isfinite(min) || throw(ArgumentError("min must be finite"))
         isfinite(max) || throw(ArgumentError("max must be finite"))
         isfinite(r) || throw(ArgumentError("r must be finite"))
-        r != 0.0 ||
-            throw(ArgumentError("r cannot be zero; use a small value like 1e-6 for near-uniform behaviour"))
         new{T}(min, max, r)
     end
 end
@@ -102,10 +106,15 @@ Distributions.insupport(d::ExponentiallyTilted, x::Real) = d.min ≤ x ≤ d.max
 
 # Helper function to compute log normalisation constant
 function _log_normalisation_constant(min::Real, max::Real, r::Real)
-    # log((exp(r*(max-min)) - 1)/r)
-    r_range = r * (max - min)
-    normalisation_constant = expm1(r_range) / r
-    return log(normalisation_constant)
+    if abs(r) < 1e-10
+        # For r ≈ 0, reduces to uniform: log(max - min)
+        return log(max - min)
+    else
+        # For r ≠ 0: log((exp(r*(max-min)) - 1)/r)
+        r_range = r * (max - min)
+        normalisation_constant = expm1(r_range) / r
+        return log(normalisation_constant)
+    end
 end
 
 # Probability density function
@@ -117,9 +126,14 @@ function Distributions.logpdf(d::ExponentiallyTilted, x::Real)
     if !insupport(d, x)
         return -Inf
     end
-    log_numerator = d.r * (x - d.min)
-    log_denominator = _log_normalisation_constant(d.min, d.max, d.r)
-    return log_numerator - log_denominator
+    if abs(d.r) < 1e-10
+        # For r ≈ 0, uniform distribution: log(1/(max-min))
+        return -log(d.max - d.min)
+    else
+        log_numerator = d.r * (x - d.min)
+        log_denominator = _log_normalisation_constant(d.min, d.max, d.r)
+        return log_numerator - log_denominator
+    end
 end
 
 # Cumulative distribution function
@@ -130,14 +144,19 @@ function Distributions.cdf(d::ExponentiallyTilted, x::Real)
         return 1.0
     end
 
-    # CDF(x) = (exp(r*(x-min)) - 1) / (exp(r*(max-min)) - 1)
-    r_x_rel = d.r * (x - d.min)
-    r_range = d.r * (d.max - d.min)
+    if abs(d.r) < 1e-10
+        # For r ≈ 0, uniform distribution: (x - min) / (max - min)
+        return (x - d.min) / (d.max - d.min)
+    else
+        # CDF(x) = (exp(r*(x-min)) - 1) / (exp(r*(max-min)) - 1)
+        r_x_rel = d.r * (x - d.min)
+        r_range = d.r * (d.max - d.min)
 
-    numerator = expm1(r_x_rel)
-    denominator = expm1(r_range)
+        numerator = expm1(r_x_rel)
+        denominator = expm1(r_range)
 
-    return numerator / denominator
+        return numerator / denominator
+    end
 end
 
 # Log cumulative distribution function
@@ -147,7 +166,12 @@ function Distributions.logcdf(d::ExponentiallyTilted, x::Real)
     elseif x ≥ d.max
         return 0.0
     end
-    return log(cdf(d, x))
+    if abs(d.r) < 1e-10
+        # For r ≈ 0, uniform distribution: log((x - min) / (max - min))
+        return log((x - d.min) / (d.max - d.min))
+    else
+        return log(cdf(d, x))
+    end
 end
 
 # Quantile function (inverse CDF)
@@ -162,15 +186,20 @@ function Distributions.quantile(d::ExponentiallyTilted, p::Real)
         return d.max
     end
 
-    # Unified quantile formulation without branching
-    # p = (exp(r*(x-min)) - 1) / (exp(r*(max-min)) - 1)
-    # Solve for x: exp(r*(x-min)) = 1 + p * (exp(r*(max-min)) - 1)
+    if abs(d.r) < 1e-10
+        # For r ≈ 0, uniform distribution: min + p * (max - min)
+        return d.min + p * (d.max - d.min)
+    else
+        # Quantile formulation for r ≠ 0
+        # p = (exp(r*(x-min)) - 1) / (exp(r*(max-min)) - 1)
+        # Solve for x: exp(r*(x-min)) = 1 + p * (exp(r*(max-min)) - 1)
 
-    r_range = d.r * (d.max - d.min)
-    exp_r_range_minus_1 = expm1(r_range)
-    inner_term = 1.0 + p * exp_r_range_minus_1
+        r_range = d.r * (d.max - d.min)
+        exp_r_range_minus_1 = expm1(r_range)
+        inner_term = 1.0 + p * exp_r_range_minus_1
 
-    return d.min + log(inner_term) / d.r
+        return d.min + log(inner_term) / d.r
+    end
 end
 
 # Random number generation
@@ -182,27 +211,38 @@ end
 
 # Mean calculation
 function Distributions.mean(d::ExponentiallyTilted)
-    r_range = d.r * (d.max - d.min)
-    exp_r_range = exp(r_range)
-    return d.min + (d.max - d.min) * (exp_r_range / (exp_r_range - 1) - 1 / r_range)
+    if abs(d.r) < 1e-10
+        # For r ≈ 0, uniform distribution: (min + max) / 2
+        return (d.min + d.max) / 2
+    else
+        r_range = d.r * (d.max - d.min)
+        exp_r_range = exp(r_range)
+        return d.min + (d.max - d.min) * (exp_r_range / (exp_r_range - 1) - 1 / r_range)
+    end
 end
 
 # Variance calculation
 function Distributions.var(d::ExponentiallyTilted)
-    r_range = d.r * (d.max - d.min)
-    exp_r_range = exp(r_range)
-    range = d.max - d.min
+    if abs(d.r) < 1e-10
+        # For r ≈ 0, uniform distribution: (max - min)² / 12
+        range = d.max - d.min
+        return range^2 / 12
+    else
+        r_range = d.r * (d.max - d.min)
+        exp_r_range = exp(r_range)
+        range = d.max - d.min
 
-    mean_y = range * exp_r_range / (exp_r_range - 1) - 1 / d.r
+        mean_y = range * exp_r_range / (exp_r_range - 1) - 1 / d.r
 
-    second_moment_y = (range^2 * exp_r_range - 2 * range * exp_r_range / d.r +
-                       2 * exp_r_range / d.r^2 - 2 / d.r^2) / (exp_r_range - 1)
+        second_moment_y = (range^2 * exp_r_range - 2 * range * exp_r_range / d.r +
+                           2 * exp_r_range / d.r^2 - 2 / d.r^2) / (exp_r_range - 1)
 
-    second_moment = d.min^2 + 2 * d.min * mean_y + second_moment_y
+        second_moment = d.min^2 + 2 * d.min * mean_y + second_moment_y
 
-    # Compute variance = E[X²] - (E[X])²
-    mean_val = mean(d)
-    return second_moment - mean_val^2
+        # Compute variance = E[X²] - (E[X])²
+        mean_val = mean(d)
+        return second_moment - mean_val^2
+    end
 end
 
 # Standard deviation calculation

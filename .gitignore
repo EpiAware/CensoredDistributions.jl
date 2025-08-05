@@ -12,6 +12,7 @@ docs/src/checklist_files
 docs/src/index.md
 # Generated tutorial markdown files from Pluto notebooks
 docs/src/getting-started/tutorials/*.md
+docs/src/release-notes.md
 dev/
 build/
 # Data
