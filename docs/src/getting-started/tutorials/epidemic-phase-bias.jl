@@ -135,24 +135,16 @@ Now we demonstrate the **double interval censoring** concept: primary events occ
 begin
     # Demonstrate effective censoring windows from combining primary + secondary
     n_samples = 10000
-    secondary_window = 10.0  # Total surveillance window
-
-    # Create expanded dataset with samples for each scenario
-    expanded_scenarios = DataFrame()
-    for row in eachrow(scenarios_df)
-        scenario_samples = DataFrame(
-            sample_id = 1:n_samples,
-            scenario = row.name,
-            r_value = row.r,
-            scenario_color = row.color,
-            primary_dist = [row.primary_event for _ in 1:n_samples]
-        )
-        append!(expanded_scenarios, scenario_samples)
-    end
+    secondary_window = 10.0  # Secondary window length
 
     # Sample primary event times and calculate effective windows (no delay filtering)
-    censoring_windows_df = @chain expanded_scenarios begin
-        @transform :primary_time = [rand(pd) for pd in :primary_dist]
+    censoring_windows_df = @chain crossjoin(
+        scenarios_df,
+        DataFrame(sample_id = 1:n_samples)
+    ) begin
+        @select :sample_id, :scenario => :name, :r_value => :r, :scenario_color => :color,
+        :primary_event
+        @transform :primary_time = [rand(pd) for pd in :primary_event]
         @transform :effective_window = secondary_window .- :primary_time
         @select :scenario, :r_value, :scenario_color, :primary_time, :effective_window
     end
