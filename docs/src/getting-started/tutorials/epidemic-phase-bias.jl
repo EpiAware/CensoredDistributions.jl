@@ -137,14 +137,25 @@ begin
     n_samples = 10000
     secondary_window = 10.0  # Secondary window length
 
-    # Sample primary event times and calculate effective windows (no delay filtering)
-    censoring_windows_df = @chain crossjoin(
-        scenarios_df,
-        DataFrame(sample_id = 1:n_samples)
-    ) begin
-        @select :sample_id, :scenario => :name, :r_value => :r, :scenario_color => :color,
-        :primary_event
-        @transform :primary_time = [rand(pd) for pd in :primary_event]
+    # Sample primary event times efficiently using vectorized approach (tidyverse-style nest/unnest)
+    # Step 1: Create nested data with vectorized samples
+    nested_samples = @chain scenarios_df begin
+        @transform :samples = [DataFrame(
+                                   sample_id = 1:n_samples,
+                                   primary_time = rand(pe, n_samples)  # Vectorized sampling!
+                               ) for pe in :primary_event]
+    end
+
+    # Step 2: Unnest the samples (flatten)
+    censoring_windows_df = @chain nested_samples begin
+        @select :name, :r, :color, :samples
+        # Flatten nested DataFrames
+    end |>
+                                                 x -> @chain vcat([@transform(row.samples,
+                                                                       :scenario => row.name,
+                                                                       :r_value => row.r,
+                                                                       :scenario_color => row.color)
+                                                                   for row in eachrow(x)]...) begin
         @transform :effective_window = secondary_window .- :primary_time
         @select :scenario, :r_value, :scenario_color, :primary_time, :effective_window
     end
