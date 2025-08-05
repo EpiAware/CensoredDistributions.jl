@@ -19,6 +19,7 @@ begin
     using CensoredDistributions
     using Distributions
     using Plots
+    using StatsPlots
     using DataFramesMeta
     using Statistics
     using Random
@@ -39,7 +40,6 @@ We'll demonstrate how epidemic growth creates bias in observed delay distributio
 1. Exponentially tilted vs Uniform primary events
 2. Double interval censoring effects
 3. Impact on delay distributions
-4. Parameter sensitivity analysis
 
 ### What might I need to know before starting
 
@@ -63,10 +63,7 @@ We'll examine epidemic phase bias using a realistic scenario:
 """
 
 # ╔═╡ d09daadf-93a0-4065-b2b9-0a060f75f46a
-begin
-    # True delay distribution (incubation period: mean = 6 days)
-    true_delay = Gamma(4.0, 1.5)
-end
+true_delay = Gamma(4.0, 1.5);
 
 # ╔═╡ 778badaf-dcdd-4e87-a6b9-ee2d789e3675
 md"""
@@ -134,30 +131,19 @@ Now we demonstrate the **double interval censoring** concept: primary events occ
 # ╔═╡ 0321b0af-23ca-4d1a-a657-197b0a4a5a1f
 begin
     # Demonstrate effective censoring windows from combining primary + secondary
-    n_samples = 10000
-    secondary_window = 10.0  # Secondary window length
+    n_samples = 1000000
+    secondary_window = 7.0  # Secondary window length
 
-    # Sample primary event times efficiently using vectorized approach (tidyverse-style nest/unnest)
-    # Step 1: Create nested data with vectorized samples
-    nested_samples = @chain scenarios_df begin
-        @transform :samples = [DataFrame(
-                                   sample_id = 1:n_samples,
-                                   primary_time = rand(pe, n_samples)  # Vectorized sampling!
-                               ) for pe in :primary_event]
-    end
-
-    # Step 2: Unnest the samples (flatten)
-    censoring_windows_df = @chain nested_samples begin
-        @select :name, :r, :color, :samples
-        # Flatten nested DataFrames
-    end |>
-                                                 x -> @chain vcat([@transform(row.samples,
-                                                                       :scenario => row.name,
-                                                                       :r_value => row.r,
-                                                                       :scenario_color => row.color)
-                                                                   for row in eachrow(x)]...) begin
+    # DataFramesMeta lacks nest/unnest so we have to get clunky
+    censoring_windows_df = @chain scenarios_df begin
+        vcat([DataFrame(
+                  name = fill(row.name, n_samples),
+                  r = fill(row.r, n_samples),
+                  color = fill(row.color, n_samples),
+                  sample_id = 1:n_samples,
+                  primary_time = rand(row.primary_event, n_samples)
+              ) for row in eachrow(_)]...)
         @transform :effective_window = secondary_window .- :primary_time
-        @select :scenario, :r_value, :scenario_color, :primary_time, :effective_window
     end
 end
 
@@ -166,50 +152,29 @@ md"Generated $(nrow(censoring_windows_df)) effective censoring windows across sc
 
 # ╔═╡ 3abce2f9-30b0-4603-98b9-f018dc7db1d7
 begin
-    # Visualise effective censoring windows
-    p2 = plot(title = "Double Interval Censoring: Secondary - Primary Windows",
-        xlabel = "Primary event time (days)", ylabel = "Effective secondary window (days)",
-        size = (700, 400))
+    # Plot distribution of effective censoring windows by scenario
+    p2 = plot(
+        title = "Distribution of Effective Censoring Windows by Epidemic Phase",
+        xlabel = "Effective censoring window (days)",
+        ylabel = "Density",
+        size = (700, 400),
+        legend = :topright
+    )
 
-    # Show how effective secondary window varies with primary timing
-    x_primary_demo = 0:0.1:secondary_window
-    effective_secondary_demo = secondary_window .- x_primary_demo
+    # Plot density for each scenario
+    for scenario_name in unique(censoring_windows_df.name)
+        scenario_data = @subset(censoring_windows_df, :name .== scenario_name)
+        scenario_color = scenario_data.color[1]
 
-    plot!(p2, x_primary_demo, effective_secondary_demo,
-        label = "Effective secondary window", color = :black, linewidth = 3)
-
-    # Add scatter points for sampled data (subset for clarity)
-    sample_subset = @subset(censoring_windows_df, rand(nrow(censoring_windows_df)) .< 0.01)
-
-    for scenario_name in unique(sample_subset.scenario)
-        scenario_data = @subset(sample_subset, :scenario .== scenario_name)
-        scatter!(p2, scenario_data.primary_time, scenario_data.effective_window,
-            label = scenario_name, alpha = 0.6, markersize = 2,
-            color = scenario_data.scenario_color[1])
+        # Use StatsPlots density plot
+        density!(p2, scenario_data.effective_window,
+            label = scenario_name,
+            color = scenario_color,
+            linewidth = 3,
+            alpha = 0.7)
     end
 
     p2
-end
-
-# ╔═╡ 22d4ada7-ff16-4be6-b99a-e600a5a1ed75
-begin
-    # Create double interval censored distributions for each scenario
-    double_censored_df = @chain scenarios_df begin
-        @transform :double_censored_dist = double_interval_censored.(
-            Ref(true_delay), :primary_event;
-            secondary_dist = Uniform(0.0, secondary_window)
-        )
-        @transform :double_mean = mean.(:double_censored_dist)
-        @transform :double_std = std.(:double_censored_dist)
-        @transform :double_median = median.(:double_censored_dist)
-    end
-
-    # Compare with single censoring (primary only)
-    @chain double_censored_df begin
-        @transform :single_censored_dist = primary_censored.(Ref(true_delay), :primary_event)
-        @transform :single_mean = mean.(:single_censored_dist)
-        @transform :single_std = std.(:single_censored_dist)
-    end
 end
 
 # ╔═╡ f5173b0c-5240-497e-951a-6148f1ac2381
@@ -217,40 +182,18 @@ md"Created double interval censored distributions for comparison with single cen
 
 # ╔═╡ d1025566-b83d-4e7a-80eb-c3ebc8c5df9e
 md"""
-## Part 3: Impact on Observed Delay Distributions
+## Part 3: Impact on Censored Delay Distributions
 
-Now we examine how epidemic phase bias affects the delays we actually observe, comparing against the true distribution.
+Now we examine how epidemic phase bias affects the delays we might observe. We start with the primary censored delay distributions. Note that most of the time, we won't observe these continuous distributions as the secondary event will also be censored.
 """
 
-# ╔═╡ 1d5196ac-f677-40a8-9385-d3fe7cca44f2
+# ╔═╡ c4922ef2-7ffd-4abc-b163-e9271acfa72d
 begin
-    # Create censored distributions and analyze bias
+    # Setup the primary censored distributions
     @chain scenarios_df begin
         @transform! :censored_dist = primary_censored.(Ref(true_delay), :primary_event)
     end
 
-    # Calculate theoretical bias statistics
-    true_mean = mean(true_delay)
-    true_std = std(true_delay)
-    true_median = median(true_delay)
-
-    bias_stats_df = @chain scenarios_df begin
-        @transform :obs_mean = mean.(:censored_dist)
-        @transform :obs_std = std.(:censored_dist)
-        @transform :obs_median = median.(:censored_dist)
-        @transform :mean_bias = :obs_mean .- true_mean
-        @transform :std_bias = :obs_std .- true_std
-        @transform :median_bias = :obs_median .- true_median
-        @transform :mean_rel_bias = (:mean_bias ./ true_mean) .* 100
-    end
-
-    # Display results
-    select(bias_stats_df, :name, :r, :obs_mean, :obs_median,
-        :mean_bias, :median_bias, :mean_rel_bias)
-end
-
-# ╔═╡ c4922ef2-7ffd-4abc-b163-e9271acfa72d
-begin
     # Visualise observed vs true delay distributions
     x_delay = range(0, 15, length = 100)
 
@@ -275,43 +218,39 @@ begin
     p3
 end
 
-# ╔═╡ 0bc8affe-57ee-4c6d-9960-1d2b8b614632
-md"""
-## Part 4: Parameter Sensitivity Analysis
+# ╔═╡ 926ad257-5778-4bd0-8c5c-316eece80e7a
+md"We can also plot the impact on the double censored distribution (which is what we would often observe). Here we show the CDF."
 
-Finally, we examine how the two key factors - **window length** and **growth rate** - affect bias magnitude.
-"""
-
-# ╔═╡ f4a019a4-c825-4399-9c17-102155fad57c
+# ╔═╡ 3735b6d9-049a-4cad-b964-735a4ab055a8
 begin
-    # Parameter sensitivity analysis using same scenarios with different windows
-    window_lengths = [3.0, 7.0, 14.0]
-
-    # Create comprehensive parameter grid using existing scenarios
-    sensitivity_df = @chain DataFrame(
-        window_length = repeat(window_lengths, inner = length(scenarios_df.r)),
-        r = repeat(scenarios_df.r, outer = length(window_lengths)),
-        name = repeat(scenarios_df.name, outer = length(window_lengths))
-    ) begin
-        @transform :primary_event = ExponentiallyTilted.(0.0, :window_length, :r)
-        @transform :censored_dist = primary_censored.(Ref(true_delay), :primary_event)
-        @transform :mean_bias = mean.(:censored_dist) .- true_mean
-        @transform :median_bias = median.(:censored_dist) .- true_median
-        @transform :mean_rel_bias = ((:mean_bias ./ true_mean) .* 100)
+    # Setup the double interval censored distributions
+    @chain scenarios_df begin
+        @rtransform! :double_censored_dist = double_interval_censored(
+            true_delay; primary_event = :primary_event,
+            interval = secondary_window
+        )
     end
 
-    # Visualise sensitivity analysis
-    p4 = plot(title = "Bias Sensitivity: Window Length & Growth Rate",
-        xlabel = "Growth rate (r)", ylabel = "Mean bias (days)",
+    # Visualise double vs single censored delay distributions
+    x_delay_d = range(0, 40, length = 100)
+
+    # True distribution (reference)
+    y_true_d = cdf.(true_delay, x_delay_d)
+    p4 = plot(title = "Double vs Single Interval Censored Distributions",
+        xlabel = "Delay (days)", ylabel = "Probability density",
         size = (700, 400))
 
-    for window in window_lengths
-        window_data = @subset(sensitivity_df, :window_length .== window)
-        plot!(p4, window_data.r, window_data.mean_bias,
-            label = "$(Int(window))-day window", marker = :circle, linewidth = 2)
-    end
+    plot!(p4, x_delay_d, y_true_d,
+        label = "True distribution", color = :black,
+        linestyle = :dash, linewidth = 3)
 
-    hline!(p4, [0], color = :black, linestyle = :dash, alpha = 0.5, label = "No bias")
+    # Double censored distributions for each epidemic phase
+    for row in eachrow(scenarios_df)
+        y_double = cdf.(row.double_censored_dist, x_delay_d)
+        plot!(p4, x_delay_d, y_double,
+            label = "$(row.name) Double (r=$(row.r))",
+            color = row.color, linewidth = 2, linestyle = :solid)
+    end
 
     p4
 end
@@ -324,29 +263,17 @@ md"""
    - Occurs when primary events don't happen uniformly within observation windows
    - Growth phase: Recent primary events over-represented → shorter observed delays
    - Decline phase: Older primary events more represented → longer observed delays
-   - Steady state: Uniform timing → minimal bias
+   - Steady state: Uniform timing → minimal additional bias
 
 2. **Two key factors control bias magnitude:**
    - **Growth rate magnitude**: Stronger growth (larger |r|) creates more bias
-   - **Window length**: Longer windows reduce bias for same growth rate
-   - Bias can be several days for realistic epidemic parameters
+   - **Window length**: Longer windows increases bias for same growth rate
 
-3. **Double interval censoring reveals the mechanism:**
-   - Primary events occur within surveillance windows, but their distribution matters
-   - During epidemic processes, primary events are likely non-uniform (e.g., ExponentiallyTilted)
-   - Secondary observation window depends on primary timing
-   - Effective observation time = secondary window - primary event time
-
-4. **Practical implications:**
-   - Ignoring epidemic phase leads to systematic parameter estimation errors
-   - ExponentiallyTilted distributions can correct for this bias
-   - Critical for accurate outbreak analysis and forecasting
-
-5. **When to use ExponentiallyTilted:**
+3. **When to use `ExponentiallyTilted`:**
    - Most important when primary censoring intervals are wide (multi-day windows)
    - For daily primary censoring and moderate epidemic growth, Uniform distributions are often a reasonable approximation
    - Key benefit of Uniform: Analytical solutions available that are much faster computationally
-   - Use ExponentiallyTilted when precision is critical and computational cost is acceptable
+   - Use `ExponentiallyTilted` when precision is critical, the computational cost is acceptable, and the growth rate is relatively well known.
 
 ## References
 
@@ -358,7 +285,7 @@ md"""
 # ╔═╡ Cell order:
 # ╠═a1cfb960-d5f2-44f7-9aa2-eb421bbc771f
 # ╠═5af3c6a1-5518-49d7-bacc-d59d429d8367
-# ╠═0ff7feee-5685-45e0-8145-99bdcd834757
+# ╟─0ff7feee-5685-45e0-8145-99bdcd834757
 # ╟─2b436d16-51ec-47a7-8bd1-83dfee693702
 # ╠═d09daadf-93a0-4065-b2b9-0a060f75f46a
 # ╟─778badaf-dcdd-4e87-a6b9-ee2d789e3675
@@ -369,11 +296,9 @@ md"""
 # ╠═0321b0af-23ca-4d1a-a657-197b0a4a5a1f
 # ╟─61da92eb-8f60-41dc-bf45-031ec6dc52b8
 # ╠═3abce2f9-30b0-4603-98b9-f018dc7db1d7
-# ╠═22d4ada7-ff16-4be6-b99a-e600a5a1ed75
 # ╟─f5173b0c-5240-497e-951a-6148f1ac2381
 # ╟─d1025566-b83d-4e7a-80eb-c3ebc8c5df9e
-# ╠═1d5196ac-f677-40a8-9385-d3fe7cca44f2
 # ╠═c4922ef2-7ffd-4abc-b163-e9271acfa72d
-# ╟─0bc8affe-57ee-4c6d-9960-1d2b8b614632
-# ╠═f4a019a4-c825-4399-9c17-102155fad57c
+# ╠═926ad257-5778-4bd0-8c5c-316eece80e7a
+# ╠═3735b6d9-049a-4cad-b964-735a4ab055a8
 # ╟─902e2702-fd10-467c-9ea9-8eb35da46474
