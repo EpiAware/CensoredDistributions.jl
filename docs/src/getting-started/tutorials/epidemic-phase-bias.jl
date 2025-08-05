@@ -14,7 +14,7 @@ begin
     end
 end
 
-# ╔═╡ 5af3c6a1-5518-49d7-bacc-d59d429d8367
+# ╔═╡ abae7fb4-26f5-4ea5-b8ad-1b40ec1cd075
 begin
     using CensoredDistributions
     using Distributions
@@ -55,11 +55,17 @@ During epidemic growth/decline, primary events don't occur uniformly within our 
 md"""
 ## Setup
 
+### Packages used
+"""
+
+# ╔═╡ d3452fdb-8fb6-4e3f-aa20-da60ec45fa7a
+md"""
+### Simulated scenarios
+
 We'll examine epidemic phase bias using a realistic scenario:
 - **True incubation period**: Gamma(4.0, 1.5) with mean 6.0 days
 - **Primary event windows**: 7-day observation periods
 - **Growth rate scenarios**: r ∈ {-10%, -5%, 0%, +5%, +10%}
-- **Window sensitivity**: Testing 3, 7, and 14-day windows
 """
 
 # ╔═╡ d09daadf-93a0-4065-b2b9-0a060f75f46a
@@ -283,10 +289,11 @@ md"""
 """
 
 # ╔═╡ Cell order:
-# ╠═a1cfb960-d5f2-44f7-9aa2-eb421bbc771f
-# ╠═5af3c6a1-5518-49d7-bacc-d59d429d8367
+# ╟─a1cfb960-d5f2-44f7-9aa2-eb421bbc771f
 # ╟─0ff7feee-5685-45e0-8145-99bdcd834757
 # ╟─2b436d16-51ec-47a7-8bd1-83dfee693702
+# ╠═abae7fb4-26f5-4ea5-b8ad-1b40ec1cd075
+# ╟─d3452fdb-8fb6-4e3f-aa20-da60ec45fa7a
 # ╠═d09daadf-93a0-4065-b2b9-0a060f75f46a
 # ╟─778badaf-dcdd-4e87-a6b9-ee2d789e3675
 # ╠═947ef70e-cb74-4ee7-aa1c-80903305d6bf
