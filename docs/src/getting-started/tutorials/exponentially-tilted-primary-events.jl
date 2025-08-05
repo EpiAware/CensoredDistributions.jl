@@ -14,7 +14,7 @@ begin
     end
 end
 
-# ╔═╡ abae7fb4-26f5-4ea5-b8ad-1b40ec1cd075
+# ╔═╡ f6d94f57-4874-493b-833c-16298a19fded
 begin
     using CensoredDistributions
     using Distributions
@@ -285,10 +285,10 @@ md"""
 """
 
 # ╔═╡ Cell order:
-# ╠═a1cfb960-d5f2-44f7-9aa2-eb421bbc771f
-# ╠═abae7fb4-26f5-4ea5-b8ad-1b40ec1cd075
+# ╟─a1cfb960-d5f2-44f7-9aa2-eb421bbc771f
 # ╟─0ff7feee-5685-45e0-8145-99bdcd834757
 # ╟─2b436d16-51ec-47a7-8bd1-83dfee693702
+# ╠═f6d94f57-4874-493b-833c-16298a19fded
 # ╟─d3452fdb-8fb6-4e3f-aa20-da60ec45fa7a
 # ╠═d09daadf-93a0-4065-b2b9-0a060f75f46a
 # ╟─778badaf-dcdd-4e87-a6b9-ee2d789e3675

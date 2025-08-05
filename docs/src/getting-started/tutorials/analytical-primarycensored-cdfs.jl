@@ -14,7 +14,7 @@ begin
     end
 end
 
-# ╔═╡ 5fd10670-c3b3-4e06-a7fa-3aa3a0ff3e54
+# ╔═╡ 8f99f09f-17e1-464c-b533-0813d90e0e1d
 begin
     using CensoredDistributions
     using Distributions
@@ -54,6 +54,9 @@ md"""
 
 These analytical solutions are based on the mathematical derivations implemented in the [primarycensored R package](https://primarycensored.epinowcast.org/), with detailed mathematical formulations available in their [analytical solutions vignette](https://primarycensored.epinowcast.org/articles/analytic-solutions.html).
 """
+
+# ╔═╡ f49a943d-7be9-4fbe-873d-c19e20850507
+md""### Packages used""
 
 # ╔═╡ 36e4b227-b48b-44d8-b667-12489034b4d2
 md"""
@@ -407,10 +410,10 @@ The analytical CDF solutions in CensoredDistributions.jl provide:
 """
 
 # ╔═╡ Cell order:
-# ╟─a1b2c3d4-e5f6-7890-abcd-ef1234567890
-# ╠═5fd10670-c3b3-4e06-a7fa-3aa3a0ff3e54
 # ╟─be405547-68c6-4320-b38b-19982e0ffd11
 # ╟─fda88e76-732a-48d0-85c8-f354647896fc
+# ╟─f49a943d-7be9-4fbe-873d-c19e20850507
+# ╠═8f99f09f-17e1-464c-b533-0813d90e0e1d
 # ╟─36e4b227-b48b-44d8-b667-12489034b4d2
 # ╠═7bf1f801-674d-451e-b876-21b9eb7a8993
 # ╟─bbfa05f3-8ae1-4460-b423-b1ccff4ccb62
@@ -431,3 +434,4 @@ The analytical CDF solutions in CensoredDistributions.jl provide:
 # ╠═926c655e-b0d1-4dfa-834d-38e00c73ab47
 # ╟─73ebcbf1-0f7e-45c5-876e-e48d9b7dfd25
 # ╟─2547c183-84cf-470c-8d85-14648247b8cc
+# ╠═03bb2cc6-1b31-4592-b0d7-7c27cc88f3f0
