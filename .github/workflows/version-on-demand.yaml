@@ -60,14 +60,28 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Get PR details
+        if: steps.parse-command.outputs.should_increment == 'true' && steps.check-permissions.outputs.has_permission == 'true'
+        id: pr-details
+        run: |
+          PR_DATA=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.issue.number }})
+          HEAD_REF=$(echo "$PR_DATA" | jq -r '.head.ref')
+          HEAD_REPO=$(echo "$PR_DATA" | jq -r '.head.repo.full_name')
+          echo "head_ref=$HEAD_REF" >> $GITHUB_OUTPUT
+          echo "head_repo=$HEAD_REPO" >> $GITHUB_OUTPUT
+          echo "PR head ref: $HEAD_REF"
+          echo "PR head repo: $HEAD_REPO"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Checkout PR
         if: steps.parse-command.outputs.should_increment == 'true' && steps.check-permissions.outputs.has_permission == 'true'
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           # Checkout the PR head ref
-          ref: ${{ github.event.pull_request.head.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ steps.pr-details.outputs.head_ref }}
+          repository: ${{ steps.pr-details.outputs.head_repo }}
 
       - name: Increment version
         if: steps.parse-command.outputs.should_increment == 'true' && steps.check-permissions.outputs.has_permission == 'true'
