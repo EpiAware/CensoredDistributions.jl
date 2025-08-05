@@ -209,3 +209,78 @@ function Distributions.mean(d::ExponentiallyTilted)
         end
     end
 end
+
+# Variance calculation
+function Distributions.var(d::ExponentiallyTilted)
+    if _is_r_small(d.r)
+        # Uniform case: var = (b-a)²/12
+        return (d.max - d.min)^2 / 12
+    else
+        # For exponentially tilted distribution, we need E[X²] - (E[X])²
+        r_range = d.r * (d.max - d.min)
+        if abs(r_range) < 1e-6
+            # Use uniform approximation for small r_range
+            return (d.max - d.min)^2 / 12
+        else
+            # For distribution f(x) = r*exp(r*(x-min))/(exp(r*(max-min))-1) on [min, max],
+            # we compute the second moment analytically:
+            # E[X²] = ∫_{min}^{max} x² * r*exp(r*(x-min))/(exp(r*(max-min))-1) dx
+
+            exp_r_range = exp(r_range)
+            range = d.max - d.min
+
+            # Using integration by parts twice for the second moment:
+            # After changing variables to y = x - min (so x = y + min, dx = dy)
+            # E[X²] = ∫_0^range (y + min)² * r*exp(ry)/(exp(r*range)-1) dy
+            #       = ∫_0^range (y² + 2*min*y + min²) * r*exp(ry)/(exp(r*range)-1) dy
+            #       = min² + 2*min*E[Y] + E[Y²]
+            # where Y has PDF r*exp(ry)/(exp(r*range)-1) on [0, range]
+
+            # For Y on [0, L] with PDF r*exp(ry)/(exp(rL)-1):
+            # E[Y] = (L*exp(rL) - (exp(rL)-1)/r) / (exp(rL)-1) = L - (exp(rL)-1)/(r*(exp(rL)-1)) = L - 1/(r*(exp(rL)-1)/(exp(rL)-1)) = (L*r*exp(rL) - L*r + 1)/(r*(exp(rL)-1))
+            # Simplifying: E[Y] = L*r*exp(rL)/(r*(exp(rL)-1)) - L*r/(r*(exp(rL)-1)) + 1/(r*(exp(rL)-1))
+            #                    = L*exp(rL)/(exp(rL)-1) - L/(exp(rL)-1) + 1/(r*(exp(rL)-1))
+            #                    = L*(exp(rL)-1)/(exp(rL)-1) + 1/(r*(exp(rL)-1))
+            #                    = L + 1/(r*(exp(rL)-1))
+            # Wait, this doesn't look right. Let me recalculate...
+
+            # For exponential distribution with parameter r on [0, L], truncated:
+            # E[Y] = ∫_0^L y * r*exp(ry)/(exp(rL)-1) dy
+            # Using integration by parts: ∫ y*exp(ry) dy = y*exp(ry)/r - exp(ry)/r²
+            # E[Y] = [y*exp(ry)/r - exp(ry)/r²]_0^L * r/(exp(rL)-1)
+            #      = [L*exp(rL)/r - exp(rL)/r² + 1/r²] * r/(exp(rL)-1)
+            #      = [L*exp(rL) - exp(rL)/r + 1/r] / (exp(rL)-1)
+            #      = L*exp(rL)/(exp(rL)-1) - exp(rL)/(r*(exp(rL)-1)) + 1/(r*(exp(rL)-1))
+            #      = L*exp(rL)/(exp(rL)-1) - (exp(rL)-1)/(r*(exp(rL)-1))
+            #      = L*exp(rL)/(exp(rL)-1) - 1/r
+
+            mean_y = range * exp_r_range / (exp_r_range - 1) - 1 / d.r
+
+            # E[Y²] = ∫_0^L y² * r*exp(ry)/(exp(rL)-1) dy
+            # Using integration by parts twice: ∫ y²*exp(ry) dy = y²*exp(ry)/r - 2y*exp(ry)/r² + 2*exp(ry)/r³
+            # E[Y²] = [y²*exp(ry)/r - 2y*exp(ry)/r² + 2*exp(ry)/r³]_0^L * r/(exp(rL)-1)
+            #       = [L²*exp(rL)/r - 2L*exp(rL)/r² + 2*exp(rL)/r³ - 2/r³] * r/(exp(rL)-1)
+            #       = [L²*exp(rL) - 2L*exp(rL)/r + 2*exp(rL)/r² - 2/r²] / (exp(rL)-1)
+
+            second_moment_y = (range^2 * exp_r_range - 2 * range * exp_r_range / d.r +
+                               2 * exp_r_range / d.r^2 - 2 / d.r^2) / (exp_r_range - 1)
+
+            # Now E[X²] = min² + 2*min*E[Y] + E[Y²]
+            second_moment = d.min^2 + 2 * d.min * mean_y + second_moment_y
+
+            # Compute variance = E[X²] - (E[X])²
+            mean_val = mean(d)
+            return second_moment - mean_val^2
+        end
+    end
+end
+
+# Standard deviation calculation
+function Distributions.std(d::ExponentiallyTilted)
+    return sqrt(var(d))
+end
+
+# Median calculation
+function Distributions.median(d::ExponentiallyTilted)
+    return quantile(d, 0.5)
+end

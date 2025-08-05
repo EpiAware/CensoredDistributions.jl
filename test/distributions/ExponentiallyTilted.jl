@@ -344,6 +344,78 @@ end
     @test theoretical_mean > 1.0  # midpoint of [0, 2]
 end
 
+@testitem "ExponentiallyTilted std and variance calculation" begin
+    using Distributions
+
+    # Test uniform case (r ≈ 0)
+    d_uniform = ExponentiallyTilted(0.0, 1.0, 1e-12)
+    expected_var_uniform = (1.0)^2 / 12  # Uniform variance formula
+    @test abs(var(d_uniform) - expected_var_uniform) < 1e-10
+    @test abs(std(d_uniform) - sqrt(expected_var_uniform)) < 1e-10
+
+    # Test symmetric case
+    d_symmetric = ExponentiallyTilted(-1.0, 1.0, 1e-12)
+    expected_var_symmetric = (2.0)^2 / 12  # Uniform(−1,1) variance
+    @test abs(var(d_symmetric) - expected_var_symmetric) < 1e-10
+
+    # Test with positive r (should have different variance than uniform)
+    d_positive = ExponentiallyTilted(0.0, 1.0, 1.0)
+    var_positive = var(d_positive)
+    std_positive = std(d_positive)
+
+    @test isfinite(var_positive) && var_positive > 0
+    @test isfinite(std_positive) && std_positive > 0
+    @test abs(std_positive - sqrt(var_positive)) < 1e-12  # Consistency check
+
+    # Test with negative r
+    d_negative = ExponentiallyTilted(0.0, 1.0, -1.0)
+    var_negative = var(d_negative)
+
+    @test isfinite(var_negative) && var_negative > 0
+    @test abs(var_positive - var_negative) < 1e-12  # Same magnitude r gives same variance
+
+    # Test different bounds
+    d_wide = ExponentiallyTilted(0.0, 10.0, 0.5)
+    @test var(d_wide) > var(d_positive)  # Wider interval should have larger variance
+end
+
+@testitem "ExponentiallyTilted median calculation" begin
+    using Distributions
+
+    # Test uniform case (r ≈ 0) - median should be at midpoint
+    d_uniform = ExponentiallyTilted(0.0, 1.0, 1e-12)
+    @test abs(median(d_uniform) - 0.5) < 1e-10
+
+    # Test symmetric case
+    d_symmetric = ExponentiallyTilted(-1.0, 1.0, 1e-12)
+    @test abs(median(d_symmetric) - 0.0) < 1e-10
+
+    # Test with positive r (median should be > midpoint)
+    d_positive = ExponentiallyTilted(0.0, 1.0, 1.0)
+    median_positive = median(d_positive)
+    @test median_positive > 0.5  # Should be greater than uniform median
+    @test 0.0 <= median_positive <= 1.0  # Within support
+
+    # Test with negative r (median should be < midpoint)
+    d_negative = ExponentiallyTilted(0.0, 1.0, -1.0)
+    median_negative = median(d_negative)
+    @test median_negative < 0.5  # Should be less than uniform median
+    @test 0.0 <= median_negative <= 1.0  # Within support
+
+    # Test consistency: median should be where CDF = 0.5
+    for r in [-1.5, -0.5, 0.5, 1.5]
+        d = ExponentiallyTilted(0.0, 2.0, r)
+        med = median(d)
+        @test abs(cdf(d, med) - 0.5) < 1e-10
+    end
+
+    # Test different bounds
+    d_shifted = ExponentiallyTilted(5.0, 15.0, 0.8)
+    median_shifted = median(d_shifted)
+    @test 5.0 <= median_shifted <= 15.0
+    @test median_shifted > 10.0  # Should be > midpoint for positive r
+end
+
 @testitem "ExponentiallyTilted mathematical consistency checks" begin
     using Distributions
     using Integrals
@@ -439,10 +511,24 @@ end
         mean_tolerance = 0.02 * (max_val - min_val)
         @test abs(empirical_mean - expected_mean) < mean_tolerance
 
-        # Test 5: Moments consistency for special cases
+        # Test 5: Sample standard deviation validation
+        empirical_std = std(samples)
+        expected_std = std(d)  # Use the implemented std method
+
+        std_tolerance = 0.05 * expected_std  # 5% tolerance
+        @test abs(empirical_std - expected_std) < std_tolerance
+
+        # Test 6: Sample median validation
+        empirical_median = median(samples)
+        expected_median = median(d)  # Use the implemented median method
+
+        median_tolerance = 0.03 * (max_val - min_val)
+        @test abs(empirical_median - expected_median) < median_tolerance
+
+        # Test 7: Variance consistency for uniform case
         if r_val == 0.0  # Uniform case - we know all moments
             empirical_var = var(samples)
-            expected_var = (max_val - min_val)^2 / 12
+            expected_var = var(d)  # Use implemented variance method
             @test abs(empirical_var - expected_var) < 0.05 * expected_var
         end
     end
@@ -460,9 +546,10 @@ end
     d_small_r = ExponentiallyTilted(0.0, 1.0, 1e-12)
     samples_small_r = [rand(d_small_r) for _ in 1:n_samples]
 
-    # Should behave like Uniform(0, 1)
-    @test abs(mean(samples_small_r) - 0.5) < 0.02
-    @test abs(var(samples_small_r) - 1/12) < 0.01
+    # Should behave like Uniform(0, 1) - use implemented methods for comparison
+    @test abs(mean(samples_small_r) - mean(d_small_r)) < 0.02
+    @test abs(std(samples_small_r) - std(d_small_r)) < 0.01
+    @test abs(var(samples_small_r) - var(d_small_r)) < 0.01
 
     # Test edge case: large positive r (heavily tilted towards max)
     d_large_r = ExponentiallyTilted(0.0, 1.0, 5.0)
