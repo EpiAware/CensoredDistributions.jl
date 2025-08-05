@@ -42,6 +42,8 @@ struct ExponentiallyTilted{T <: Real} <:
         isfinite(min) || throw(ArgumentError("min must be finite"))
         isfinite(max) || throw(ArgumentError("max must be finite"))
         isfinite(r) || throw(ArgumentError("r must be finite"))
+        r != 0.0 ||
+            throw(ArgumentError("r cannot be zero; use a small value like 1e-6 for near-uniform behaviour"))
         new{T}(min, max, r)
     end
 end

@@ -34,6 +34,7 @@
     @test_throws ArgumentError ExponentiallyTilted(0.0, Inf, 1.0)
     @test_throws ArgumentError ExponentiallyTilted(0.0, 1.0, Inf)  # infinite r
     @test_throws ArgumentError ExponentiallyTilted(0.0, 1.0, NaN)  # NaN r
+    @test_throws ArgumentError ExponentiallyTilted(0.0, 1.0, 0.0)  # r = 0
 end
 
 @testitem "ExponentiallyTilted basic interface methods" begin
@@ -467,7 +468,7 @@ end
 
     # Test parameters: (min, max, r)
     test_cases = [
-        (0.0, 1.0, 0.0),    # Uniform case (r = 0)
+        (0.0, 1.0, 1e-4),   # Near-uniform case (small r)
         (0.0, 1.0, 1.0),    # Moderate positive tilting
         (0.0, 1.0, -0.5),   # Negative tilting
         (-1.0, 2.0, 0.8),   # Different bounds with positive tilting
@@ -525,8 +526,8 @@ end
         median_tolerance = 0.03 * (max_val - min_val)
         @test abs(empirical_median - expected_median) < median_tolerance
 
-        # Test 7: Variance consistency for uniform case
-        if r_val == 0.0  # Uniform case - we know all moments
+        # Test 7: Variance consistency for near-uniform case
+        if abs(r_val) <= 1e-3  # Near-uniform case - we know all moments
             empirical_var = var(samples)
             expected_var = var(d)  # Use implemented variance method
             @test abs(empirical_var - expected_var) < 0.05 * expected_var
