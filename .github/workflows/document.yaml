@@ -2,9 +2,12 @@ name: Documenter
 on:
   push:
     branches: main
-    tags: [v*]
+    tags: '*'
   pull_request:
   merge_group:
+  release:
+    types: [published]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
