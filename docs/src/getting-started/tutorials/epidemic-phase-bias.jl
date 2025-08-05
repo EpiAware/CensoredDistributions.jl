@@ -35,7 +35,7 @@ md"""
 
 ### What are we going to do in this exercise
 
-We'll demonstrate how epidemic growth creates bias in observed delay distributions through primary event censoring - distinct from truncation bias. We'll cover:
+We'll demonstrate how epidemic growth creates additional bias in observed delay distributions through primary event censoring - distinct from truncation bias. We'll cover:
 
 1. Exponentially tilted vs Uniform primary events
 2. Double interval censoring effects
@@ -43,7 +43,7 @@ We'll demonstrate how epidemic growth creates bias in observed delay distributio
 
 ### What might I need to know before starting
 
-This tutorial builds on [Getting Started with CensoredDistributions.jl](@ref getting-started) and focusses on **epidemic phase bias for primary events** - the systematic error when primary events occur non-uniformly within observation windows (due here to exponential dynamics).
+This tutorial builds on [Getting Started with CensoredDistributions.jl](@ref getting-started) and focusses on **epidemic phase bias for primary events** - when primary events occur non-uniformly within observation windows (due here to exponential dynamics).
 
 During epidemic growth/decline, primary events don't occur uniformly within our observation window:
 - **Growth phase**: Recent primary events over-represented → shorter observed delays
@@ -98,7 +98,7 @@ begin
 end
 
 # ╔═╡ 468e7035-a64d-4dd8-87d1-46c26a157db4
-md"Created $(nrow(scenarios_df)) epidemic scenarios for comparison"
+md"Created $(nrow(scenarios_df)) epidemic scenarios for comparison. Now lets plot the primary event timing distributions."
 
 # ╔═╡ 334379d2-f7b5-476a-bf04-96dfa2c34734
 begin
@@ -154,7 +154,7 @@ begin
 end
 
 # ╔═╡ 61da92eb-8f60-41dc-bf45-031ec6dc52b8
-md"Generated $(nrow(censoring_windows_df)) effective censoring windows across scenarios"
+md"Now we can plot the distribution of effective censoring windows by scenario."
 
 # ╔═╡ 3abce2f9-30b0-4603-98b9-f018dc7db1d7
 begin
@@ -182,9 +182,6 @@ begin
 
     p2
 end
-
-# ╔═╡ f5173b0c-5240-497e-951a-6148f1ac2381
-md"Created double interval censored distributions for comparison with single censoring"
 
 # ╔═╡ d1025566-b83d-4e7a-80eb-c3ebc8c5df9e
 md"""
@@ -266,14 +263,13 @@ md"""
 ## Key Insights
 
 1. **Primary event bias is distinct from truncation bias:**
-   - Occurs when primary events don't happen uniformly within observation windows
+   - Occurs regardless of the primary event distribution but is more complex when the primary event distribution is non-uniform.
    - Growth phase: Recent primary events over-represented → shorter observed delays
    - Decline phase: Older primary events more represented → longer observed delays
-   - Steady state: Uniform timing → minimal additional bias
 
 2. **Two key factors control bias magnitude:**
-   - **Growth rate magnitude**: Stronger growth (larger |r|) creates more bias
-   - **Window length**: Longer windows increases bias for same growth rate
+   - **Growth rate magnitude**: Stronger growth (larger |r|) creates more divergence from the uniform case
+   - **Window length**: Longer windows increases divergence for same growth rate
 
 3. **When to use `ExponentiallyTilted`:**
    - Most important when primary censoring intervals are wide (multi-day windows)
@@ -289,10 +285,10 @@ md"""
 """
 
 # ╔═╡ Cell order:
-# ╟─a1cfb960-d5f2-44f7-9aa2-eb421bbc771f
+# ╠═a1cfb960-d5f2-44f7-9aa2-eb421bbc771f
+# ╠═abae7fb4-26f5-4ea5-b8ad-1b40ec1cd075
 # ╟─0ff7feee-5685-45e0-8145-99bdcd834757
 # ╟─2b436d16-51ec-47a7-8bd1-83dfee693702
-# ╠═abae7fb4-26f5-4ea5-b8ad-1b40ec1cd075
 # ╟─d3452fdb-8fb6-4e3f-aa20-da60ec45fa7a
 # ╠═d09daadf-93a0-4065-b2b9-0a060f75f46a
 # ╟─778badaf-dcdd-4e87-a6b9-ee2d789e3675
@@ -303,9 +299,8 @@ md"""
 # ╠═0321b0af-23ca-4d1a-a657-197b0a4a5a1f
 # ╟─61da92eb-8f60-41dc-bf45-031ec6dc52b8
 # ╠═3abce2f9-30b0-4603-98b9-f018dc7db1d7
-# ╟─f5173b0c-5240-497e-951a-6148f1ac2381
 # ╟─d1025566-b83d-4e7a-80eb-c3ebc8c5df9e
 # ╠═c4922ef2-7ffd-4abc-b163-e9271acfa72d
-# ╠═926ad257-5778-4bd0-8c5c-316eece80e7a
+# ╟─926ad257-5778-4bd0-8c5c-316eece80e7a
 # ╠═3735b6d9-049a-4cad-b964-735a4ab055a8
 # ╟─902e2702-fd10-467c-9ea9-8eb35da46474
