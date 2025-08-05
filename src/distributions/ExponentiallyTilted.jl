@@ -5,6 +5,24 @@ A continuous distribution on interval [min, max] with exponential tilting
 controlled by parameter r. This distribution generalises the uniform
 distribution by allowing exponential weighting of values within the interval.
 
+# Mathematical Definition
+
+The probability density function is:
+```math
+f(x) = \frac{r \exp(r(x - \text{min}))}{(\exp(r(\text{max} - \text{min})) - 1)}
+```
+for x ∈ [min, max] and r ≠ 0.
+
+The cumulative distribution function is:
+```math
+F(x) = \frac{\exp(r(x - \text{min})) - 1}{\exp(r(\text{max} - \text{min})) - 1}
+```
+for x ∈ [min, max].
+
+When r → 0, both functions reduce to the uniform distribution on [min, max].
+- For r > 0: distribution is tilted towards higher values (increasing density)
+- For r < 0: distribution is tilted towards lower values (decreasing density)
+
 # Fields
 - `min`: Lower bound of the support
 - `max`: Upper bound of the support
