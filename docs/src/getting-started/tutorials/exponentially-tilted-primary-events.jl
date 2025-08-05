@@ -29,7 +29,7 @@ end
 
 # ╔═╡ 0ff7feee-5685-45e0-8145-99bdcd834757
 md"""
-# How Epidemic Phase Affects Observed Delay Distributions
+# How Exponentially Tilted Primary Events Affect Observed Delay Distributions
 
 ## Introduction
 
@@ -43,7 +43,7 @@ We'll demonstrate how epidemic growth creates additional bias in observed delay 
 
 ### What might I need to know before starting
 
-This tutorial builds on [Getting Started with CensoredDistributions.jl](@ref getting-started) and focusses on **epidemic phase bias for primary events** - when primary events occur non-uniformly within observation windows (due here to exponential dynamics).
+This tutorial builds on [Getting Started with CensoredDistributions.jl](@ref getting-started) and focusses on **exponentially tilted primary events** - when primary events occur non-uniformly within observation windows (due here to exponential dynamics).
 
 During epidemic growth/decline, primary events don't occur uniformly within our observation window:
 - **Growth phase**: Recent primary events over-represented → shorter observed delays
