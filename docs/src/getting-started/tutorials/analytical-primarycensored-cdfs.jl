@@ -4,7 +4,7 @@
 using Markdown
 using InteractiveUtils
 
-# ╔═╡ a1b2c3d4-e5f6-7890-abcd-ef1234567890
+# ╔═╡ 03bb2cc6-1b31-4592-b0d7-7c27cc88f3f0
 begin
     let
         docs_dir = (dirname ∘ dirname ∘ dirname)(@__DIR__)
