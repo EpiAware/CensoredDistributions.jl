@@ -381,13 +381,8 @@ function Distributions.quantile(d::IntervalCensored, p::Real)
     end
 
     # Initial guess based on quantile of underlying distribution
-    x0 = try
-        underlying_quantile = quantile(get_dist(d), p)
-        [underlying_quantile]  # No need to floor here, objective function handles it
-    catch
-        # Fallback to reasonable starting point
-        [5.0]  # Simple fallback
-    end
+    underlying_quantile = quantile(get_dist(d), p)
+    x0 = [underlying_quantile]
 
     # Set up optimization problem
     optfun = OptimizationFunction(objective)
