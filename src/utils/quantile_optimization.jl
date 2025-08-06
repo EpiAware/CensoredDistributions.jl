@@ -21,7 +21,7 @@ quantile functions.
 
 # Arguments
 - `d`: The distribution for which to compute the quantile
-- `p`: The probability value in [0, 1]
+- `p`: The probability value in `[0, 1]`
 
 # Keyword Arguments
 - `initial_guess_fn`: Function that takes `(d, p)` and returns initial guess
@@ -34,7 +34,7 @@ quantile functions.
 The quantile value after optimization and post-processing.
 
 # Implementation Details
-- Validates that p ∈ [0, 1] (with optional NaN checking)
+- Validates that p ∈ `[0, 1]` (with optional NaN checking)
 - Handles boundary cases p=0 (minimum) and p=1 (maximum) analytically
 - Creates objective function `(cdf(d, q) - p)^2` with support checking
 - Uses heavy penalty for values outside distribution support
