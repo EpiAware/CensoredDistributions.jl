@@ -370,74 +370,43 @@ function Distributions.quantile(d::IntervalCensored, p::Real)
         return maximum(d)
     end
 
-    # For interval-censored distributions, use a more direct approach
-    # Since the CDF is a step function, we can find the quantile more efficiently
-
-    if is_regular_intervals(d)
-        # For regular intervals, use the quantile of underlying distribution as starting point
-        interval_w = interval_width(d)
-
-        # Get a reasonable search range based on the underlying distribution
-        underlying_dist = get_dist(d)
-
-        # Start search from a reasonable lower bound
-        min_x = if isfinite(minimum(d))
-            minimum(d)
+    # Unified approach: use optimization with appropriate interval snapping
+    # Objective function: minimize (cdf(d, snapped_x) - p)²
+    objective = function (x, _)
+        x_val = x[1]
+        # Snap to appropriate interval boundary based on interval type
+        interval_x = if is_regular_intervals(d)
+            floor_to_interval(x_val, interval_width(d))
         else
-            # For unbounded distributions, start from a reasonable quantile
-            try
-                floor_to_interval(quantile(underlying_dist, 0.001), interval_w)
-            catch
-                -100.0 * interval_w  # Fallback
-            end
+            # For arbitrary intervals, find the appropriate boundary
+            find_interval_boundary(x_val, d.boundaries)
         end
+        cdf_val = cdf(d, interval_x)
+        return (cdf_val - p)^2
+    end
 
-        # Set a reasonable upper bound
-        max_x = if isfinite(maximum(d))
-            maximum(d)
+    # Initial guess based on quantile of underlying distribution
+    underlying_quantile = float(quantile(get_dist(d), p))
+    x0 = [underlying_quantile]
+
+    # Set up optimization problem
+    optfun = OptimizationFunction(objective)
+    prob = OptimizationProblem(optfun, x0, nothing)
+
+    # Solve using NelderMead (derivative-free, robust for discrete problems)
+    sol = solve(prob, NelderMead(); reltol = 1e-8, abstol = 1e-8, maxiters = 10000)
+
+    # Check convergence and return result
+    if sol.retcode == ReturnCode.Success || sol.retcode == ReturnCode.Default
+        result = sol.u[1]
+        # Apply same boundary snapping as in objective function
+        return if is_regular_intervals(d)
+            floor_to_interval(result, interval_width(d))
         else
-            try
-                floor_to_interval(quantile(underlying_dist, 0.999), interval_w)
-            catch
-                min_x + 200 * interval_w  # Fallback
-            end
+            find_interval_boundary(result, d.boundaries)
         end
-
-        # Create search points
-        search_points = []
-        x = min_x
-        count = 0
-        max_points = 10000  # Safety limit
-
-        while x <= max_x && count < max_points
-            push!(search_points, x)
-            x += interval_w
-            count += 1
-        end
-
-        # Find the interval where CDF transitions to >= p
-        for i in 1:length(search_points)
-            test_x = search_points[i]
-            cdf_val = cdf(d, test_x)
-            if cdf_val >= p
-                return test_x
-            end
-        end
-
-        # If not found, return the closest we found
-        return isempty(search_points) ? min_x : search_points[end]
-
     else
-        # For arbitrary intervals, check each boundary
-        for i in 1:length(d.boundaries)
-            boundary = d.boundaries[i]
-            cdf_val = cdf(d, boundary)
-            if cdf_val >= p
-                return boundary
-            end
-        end
-
-        return maximum(d)  # Fallback
+        error("Quantile optimization failed to converge for p = $p")
     end
 end
 

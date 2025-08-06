@@ -266,13 +266,9 @@ function Distributions.quantile(d::PrimaryCensored, p::Real)
         return Inf
     end
 
-    # Objective function - prevent negative quantiles with a simple constraint
+    # Objective function - simple and clean, no artificial constraints
     objective = function (q, _)
         q_val = q[1]
-        # Add penalty for negative values
-        if q_val < 0.0
-            return 1e6 + (q_val)^2
-        end
         cdf_val = cdf(d, q_val)
         return (cdf_val - p)^2
     end
@@ -282,7 +278,7 @@ function Distributions.quantile(d::PrimaryCensored, p::Real)
     q0 = try
         underlying_quantile = quantile(get_dist(d), p)
         primary_mean = mean(d.primary_event)
-        [max(0.0, underlying_quantile + primary_mean)]
+        [underlying_quantile + primary_mean]
     catch
         # Fallback if quantile or mean fail
         [1.0]
