@@ -279,5 +279,155 @@ function Base.rand(rng::AbstractRNG, d::IntervalCensored)
     end
 end
 
+#### Quantile function
+
+@doc raw"
+Compute the quantile of an interval-censored distribution.
+
+For interval-censored distributions, the quantile function returns the value `x` such that
+`P(X ≤ x) = p`, where `X` follows the interval-censored distribution. Due to the discrete
+nature of interval censoring, this is computed numerically by solving the equation
+`cdf(d, x) = p` using optimization.
+
+The returned quantile respects the interval structure:
+- For regular intervals: quantiles are multiples of the interval width
+- For arbitrary intervals: quantiles correspond to interval boundary values
+
+# Arguments
+- `d::IntervalCensored`: The interval-censored distribution
+- `p::Real`: The probability level (must be in [0, 1])
+
+# Returns
+The quantile value `x` such that `P(X ≤ x) = p`
+
+# Throws
+- `ArgumentError`: If `p` is not in [0, 1]
+- `ErrorException`: If the optimization fails to converge
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+# Regular intervals with daily censoring
+d = interval_censored(Normal(5, 2), 1.0)
+q25 = quantile(d, 0.25)  # 25th percentile
+q50 = quantile(d, 0.50)  # Median
+q75 = quantile(d, 0.75)  # 75th percentile
+
+# Arbitrary intervals (age groups)
+age_dist = interval_censored(Normal(40, 20), [0, 18, 65, 100])
+median_age = quantile(age_dist, 0.5)  # Median age group boundary
+```
+
+# Implementation Notes
+Uses numerical optimization with the Nelder-Mead algorithm to solve `cdf(d, x) - p = 0`.
+The initial guess is based on the quantile of the underlying continuous distribution.
+For efficiency, the search is constrained to the relevant interval boundaries.
+"
+function Distributions.quantile(d::IntervalCensored, p::Real)
+    if p < 0.0 || p > 1.0
+        throw(ArgumentError("p must be in [0, 1]"))
+    end
+
+    # Handle boundary cases
+    if p == 0.0
+        return minimum(d)
+    elseif p == 1.0
+        return maximum(d)
+    end
+
+    # Determine search bounds based on interval structure
+    lower_bound,
+    upper_bound = if is_regular_intervals(d)
+        # For regular intervals, use wide bounds based on underlying distribution
+        underlying_min = minimum(get_dist(d))
+        underlying_max = maximum(get_dist(d))
+        interval_width_val = interval_width(d)
+
+        # Floor and ceiling to interval boundaries
+        lower = floor_to_interval(underlying_min, interval_width_val)
+        # Add some buffer for numerical stability
+        upper = floor_to_interval(underlying_max, interval_width_val) +
+                10 * interval_width_val
+        (lower, upper)
+    else
+        # For arbitrary intervals, use the boundary range
+        (d.boundaries[1], d.boundaries[end])
+    end
+
+    # Handle infinite bounds
+    if isinf(upper_bound)
+        # Use a reasonable upper bound based on the underlying distribution
+        try
+            # Try to get a high quantile of the underlying distribution as upper bound
+            underlying_q99 = quantile(get_dist(d), 0.999)
+            upper_bound = if is_regular_intervals(d)
+                floor_to_interval(underlying_q99, interval_width(d)) + interval_width(d)
+            else
+                # Find the interval containing this quantile
+                idx = find_interval_index(underlying_q99, d.boundaries)
+                idx < length(d.boundaries) ? d.boundaries[idx + 1] : d.boundaries[end]
+            end
+        catch
+            # Fallback to a large finite value
+            upper_bound = 1000.0
+        end
+    end
+
+    # For arbitrary intervals, we can directly search through boundaries
+    # since the CDF is a step function
+    if !is_regular_intervals(d)
+        # Find the smallest boundary value b such that cdf(d, b) >= p
+        for i in 1:length(d.boundaries)
+            if cdf(d, d.boundaries[i]) >= p
+                return d.boundaries[i]
+            end
+        end
+        # If no boundary satisfies the condition, return the last boundary
+        return d.boundaries[end]
+    end
+
+    # For regular intervals, use optimization
+    # Objective function: minimize (cdf(d, x) - p)²
+    objective = function (x, _)
+        x_val = x[1]
+
+        # Add penalty for values outside bounds
+        if x_val < lower_bound || x_val > upper_bound
+            return 1e6 + (x_val - clamp(x_val, lower_bound, upper_bound))^2
+        end
+
+        cdf_val = cdf(d, x_val)
+        return (cdf_val - p)^2
+    end
+
+    # Initial guess based on quantile of underlying distribution
+    x0 = try
+        underlying_quantile = quantile(get_dist(d), p)
+        [floor_to_interval(underlying_quantile, interval_width(d))]
+    catch
+        # Fallback to midpoint of bounds
+        [(lower_bound + upper_bound) / 2]
+    end
+
+    # Ensure initial guess is within bounds
+    x0[1] = clamp(x0[1], lower_bound, upper_bound)
+
+    # Set up optimization problem
+    optfun = OptimizationFunction(objective)
+    prob = OptimizationProblem(optfun, x0, nothing)
+
+    # Solve using NelderMead (derivative-free, robust for discrete problems)
+    sol = solve(prob, NelderMead(); reltol = 1e-8, abstol = 1e-8, maxiters = 10000)
+
+    # Check convergence and return result
+    if sol.retcode == ReturnCode.Success || sol.retcode == ReturnCode.Default
+        result = sol.u[1]
+        return floor_to_interval(result, interval_width(d))
+    else
+        error("Quantile optimization failed to converge for p = $p")
+    end
+end
+
 # Sampler method for efficient sampling
 Distributions.sampler(d::IntervalCensored) = d
