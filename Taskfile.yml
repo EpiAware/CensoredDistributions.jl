@@ -19,7 +19,7 @@ tasks:
     desc: Run tests quickly (skip quality checks for development)
     cmds:
       - echo "🧪 Running fast test suite (skipping quality checks)..."
-      - julia --project=test test/runtests.jl skip_quality
+      - julia --project=. -e 'using Pkg; Pkg.test(test_args=["skip_quality"])'
       - echo "✅ Fast tests completed"
 
   test-quality:

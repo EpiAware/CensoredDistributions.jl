@@ -266,25 +266,29 @@ function Distributions.quantile(d::PrimaryCensored, p::Real)
         return Inf
     end
 
-    # Objective function - CDF handles distribution support bounds naturally
+    # Objective function - prevent negative quantiles with a simple constraint
     objective = function (q, _)
         q_val = q[1]
+        # Add penalty for negative values
+        if q_val < 0.0
+            return 1e6 + (q_val)^2
+        end
         cdf_val = cdf(d, q_val)
         return (cdf_val - p)^2
     end
 
-    # Initial guess based on underlying distribution and primary event
-    # Use median of delay distribution plus mean of primary event as starting point
+    # Initial guess: quantile of underlying distribution + mean of primary event
+    # This is the key insight - start from where we expect the answer to be
     q0 = try
-        delay_median = quantile(get_dist(d), 0.5)
+        underlying_quantile = quantile(get_dist(d), p)
         primary_mean = mean(d.primary_event)
-        [delay_median + primary_mean]
+        [max(0.0, underlying_quantile + primary_mean)]
     catch
-        # Fallback to fixed value if quantile/mean fails
+        # Fallback if quantile or mean fail
         [1.0]
     end
 
-    # Set up optimization problem without bounds (use penalty instead)
+    # Set up optimization problem
     optfun = OptimizationFunction(objective)
     prob = OptimizationProblem(optfun, q0, nothing)
 
