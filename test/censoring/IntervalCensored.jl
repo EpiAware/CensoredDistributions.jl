@@ -563,3 +563,32 @@ end
         end
     end
 end
+
+@testitem "Test quantile bounds checking" begin
+    using Distributions
+
+    # Test bounds checking for regular intervals
+    d_reg = interval_censored(Normal(0, 1), 1.0)
+
+    # Test boundary cases work
+    @test quantile(d_reg, 0.0) == minimum(d_reg)
+    @test quantile(d_reg, 1.0) == maximum(d_reg)
+
+    # Test invalid probability values throw ArgumentError
+    @test_throws ArgumentError quantile(d_reg, -0.1)
+    @test_throws ArgumentError quantile(d_reg, 1.1)
+    @test_throws ArgumentError quantile(d_reg, NaN)
+
+    # Test bounds checking for arbitrary intervals
+    boundaries = [0.0, 2.0, 5.0, 8.0]
+    d_arb = interval_censored(Normal(4, 2), boundaries)
+
+    # Test boundary cases work
+    @test quantile(d_arb, 0.0) == minimum(d_arb)
+    @test quantile(d_arb, 1.0) == maximum(d_arb)
+
+    # Test invalid probability values throw ArgumentError
+    @test_throws ArgumentError quantile(d_arb, -0.1)
+    @test_throws ArgumentError quantile(d_arb, 1.1)
+    @test_throws ArgumentError quantile(d_arb, NaN)
+end
