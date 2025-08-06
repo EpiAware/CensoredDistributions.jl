@@ -261,14 +261,18 @@ function Distributions.quantile(d::PrimaryCensored, p::Real)
 
     # Handle boundary cases
     if p == 0.0
-        return 0.0
+        return minimum(d)
     elseif p == 1.0
-        return Inf
+        return maximum(d)
     end
 
-    # Objective function - simple and clean, no artificial constraints
+    # Objective function with proper support checking
     objective = function (q, _)
         q_val = q[1]
+        # If outside support, penalize heavily to guide optimization back
+        if !insupport(d, q_val)
+            return 1e10 + (q_val - minimum(d))^2  # Large penalty + distance from valid region
+        end
         cdf_val = cdf(d, q_val)
         return (cdf_val - p)^2
     end

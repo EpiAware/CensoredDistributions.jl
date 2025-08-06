@@ -379,6 +379,12 @@ function Distributions.quantile(d::IntervalCensored, p::Real)
             # For arbitrary intervals, find the appropriate boundary
             find_interval_boundary(x_val, d.boundaries)
         end
+
+        # Check support and penalize if outside
+        if !insupport(d, interval_x)
+            return 1e10 + (interval_x - minimum(d))^2  # Large penalty + distance from valid region
+        end
+
         cdf_val = cdf(d, interval_x)
         return (cdf_val - p)^2
     end
