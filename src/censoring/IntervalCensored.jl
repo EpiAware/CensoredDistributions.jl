@@ -354,64 +354,18 @@ The initial guess is based on the quantile of the underlying continuous distribu
 The search is constrained to the relevant interval boundaries.
 "
 function Distributions.quantile(d::IntervalCensored, p::Real)
-    # Handle NaN input explicitly
-    if isnan(p)
-        throw(ArgumentError("p must be in [0, 1], got NaN"))
-    end
-
-    if p < 0.0 || p > 1.0
-        throw(ArgumentError("p must be in [0, 1]"))
-    end
-
-    # Handle boundary cases
-    if p == 0.0
-        return minimum(d)
-    elseif p == 1.0
-        return maximum(d)
-    end
-
-    objective = function (x, _)
-        x_val = x[1]
-        # Snap to appropriate interval boundary based on interval type
-        interval_x = if is_regular_intervals(d)
-            floor_to_interval(x_val, interval_width(d))
-        else
-            # For arbitrary intervals, find the appropriate boundary
-            find_interval_boundary(x_val, d.boundaries)
-        end
-
-        # Check support and penalize if outside
-        if !insupport(d, interval_x)
-            return 1e10 + (interval_x - minimum(d))^2  # Large penalty + distance from valid region
-        end
-
-        cdf_val = cdf(d, interval_x)
-        return (cdf_val - p)^2
-    end
-
-    # Initial guess based on quantile of underlying distribution
-    underlying_quantile = float(quantile(get_dist(d), p))
-    x0 = [underlying_quantile]
-
-    # Set up optimization problem
-    optfun = OptimizationFunction(objective)
-    prob = OptimizationProblem(optfun, x0, nothing)
-
-    # Solve using NelderMead (derivative-free, robust for discrete problems)
-    sol = solve(prob, NelderMead(); reltol = 1e-8, abstol = 1e-8, maxiters = 10000)
-
-    # Check convergence and return result
-    if sol.retcode == ReturnCode.Success || sol.retcode == ReturnCode.Default
-        result = sol.u[1]
-        # Apply same boundary snapping as in objective function
+    # Post-processing function to snap result to interval boundary
+    result_postprocess_fn = function (result)
         return if is_regular_intervals(d)
             floor_to_interval(result, interval_width(d))
         else
             find_interval_boundary(result, d.boundaries)
         end
-    else
-        error("Quantile optimization failed to converge for p = $p")
     end
+
+    return _quantile_optimization(d, p;
+        result_postprocess_fn = result_postprocess_fn,
+        check_nan = true)
 end
 
 # Sampler method for efficient sampling
