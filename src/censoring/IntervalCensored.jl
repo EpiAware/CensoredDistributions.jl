@@ -51,7 +51,17 @@ using CensoredDistributions, Distributions
 
 # Daily reporting intervals
 d = interval_censored(Normal(5, 2), 1.0)
-rand(d, 10)  # Returns values like 4.0, 5.0, 6.0, etc.
+
+# Evaluate distribution functions
+pdf_at_5 = pdf(d, 5.0)      # probability mass at interval containing 5
+cdf_at_7 = cdf(d, 7.0)      # P(X ≤ 7) accounting for interval censoring
+ccdf_at_3 = ccdf(d, 3.0)    # survival function
+
+# Compute quantiles and statistics
+q25 = quantile(d, 0.25)     # 25th percentile (interval boundary)
+median_val = quantile(d, 0.5)  # median
+q90 = quantile(d, 0.9)      # 90th percentile
+samples = rand(d, 100)      # random samples (interval boundaries)
 
 # Weekly intervals
 d_weekly = interval_censored(Exponential(3), 7.0)
@@ -82,6 +92,13 @@ using CensoredDistributions, Distributions
 # Age groups: 0-18, 18-65, 65+
 age_dist = interval_censored(Normal(40, 20), [0, 18, 65, 100])
 
+# Evaluate distribution functions for arbitrary intervals
+pdf_at_25 = pdf(age_dist, 25.0)    # probability mass in interval containing 25
+cdf_at_50 = cdf(age_dist, 50.0)    # P(X ≤ 50) with interval censoring
+q75 = quantile(age_dist, 0.75)     # 75th percentile (boundary value)
+median_age = quantile(age_dist, 0.5)  # median age group
+samples = rand(age_dist, 50)       # random age group boundaries
+
 # Custom measurement bins
 measure_dist = interval_censored(Gamma(2, 3), [0.0, 0.5, 1.0, 2.5, 5.0, Inf])
 ```
@@ -111,6 +128,18 @@ function find_interval_index(x::Real, intervals::AbstractVector)
     else
         # Binary search for efficiency
         return searchsortedlast(intervals, x)
+    end
+end
+
+# Find the appropriate boundary for quantile purposes (left boundary of containing interval)
+function find_interval_boundary(x::Real, intervals::AbstractVector)
+    idx = find_interval_index(x, intervals)
+    if idx == 0
+        return intervals[1]  # First boundary
+    elseif idx >= length(intervals)
+        return intervals[end]  # Last boundary
+    else
+        return intervals[idx]  # Left boundary of containing interval
     end
 end
 
@@ -276,6 +305,112 @@ function Base.rand(rng::AbstractRNG, d::IntervalCensored)
         else
             return d.boundaries[idx]
         end
+    end
+end
+
+#### Quantile function
+
+@doc raw"
+Compute the quantile of an interval-censored distribution.
+
+For interval-censored distributions, the quantile function returns the value `x` such that
+`P(X ≤ x) = p`, where `X` follows the interval-censored distribution. Due to the discrete
+nature of interval censoring, this is computed numerically by solving the equation
+`cdf(d, x) = p` using optimization.
+
+The returned quantile respects the interval structure:
+- For regular intervals: quantiles are multiples of the interval width
+- For arbitrary intervals: quantiles correspond to interval boundary values
+
+# Arguments
+- `d::IntervalCensored`: The interval-censored distribution
+- `p::Real`: The probability level (must be in [0, 1])
+
+# Returns
+The quantile value `x` such that `P(X ≤ x) = p`
+
+# Throws
+- `ArgumentError`: If `p` is not in [0, 1]
+- `ErrorException`: If the optimization fails to converge
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+# Regular intervals with daily censoring
+d = interval_censored(Normal(5, 2), 1.0)
+q25 = quantile(d, 0.25)  # 25th percentile
+q50 = quantile(d, 0.50)  # Median
+q75 = quantile(d, 0.75)  # 75th percentile
+
+# Arbitrary intervals (age groups)
+age_dist = interval_censored(Normal(40, 20), [0, 18, 65, 100])
+median_age = quantile(age_dist, 0.5)  # Median age group boundary
+```
+
+# Implementation Notes
+Uses numerical optimization with the Nelder-Mead algorithm to solve `cdf(d, x) - p = 0`.
+The initial guess is based on the quantile of the underlying continuous distribution.
+The search is constrained to the relevant interval boundaries.
+"
+function Distributions.quantile(d::IntervalCensored, p::Real)
+    # Handle NaN input explicitly
+    if isnan(p)
+        throw(ArgumentError("p must be in [0, 1], got NaN"))
+    end
+
+    if p < 0.0 || p > 1.0
+        throw(ArgumentError("p must be in [0, 1]"))
+    end
+
+    # Handle boundary cases
+    if p == 0.0
+        return minimum(d)
+    elseif p == 1.0
+        return maximum(d)
+    end
+
+    objective = function (x, _)
+        x_val = x[1]
+        # Snap to appropriate interval boundary based on interval type
+        interval_x = if is_regular_intervals(d)
+            floor_to_interval(x_val, interval_width(d))
+        else
+            # For arbitrary intervals, find the appropriate boundary
+            find_interval_boundary(x_val, d.boundaries)
+        end
+
+        # Check support and penalize if outside
+        if !insupport(d, interval_x)
+            return 1e10 + (interval_x - minimum(d))^2  # Large penalty + distance from valid region
+        end
+
+        cdf_val = cdf(d, interval_x)
+        return (cdf_val - p)^2
+    end
+
+    # Initial guess based on quantile of underlying distribution
+    underlying_quantile = float(quantile(get_dist(d), p))
+    x0 = [underlying_quantile]
+
+    # Set up optimization problem
+    optfun = OptimizationFunction(objective)
+    prob = OptimizationProblem(optfun, x0, nothing)
+
+    # Solve using NelderMead (derivative-free, robust for discrete problems)
+    sol = solve(prob, NelderMead(); reltol = 1e-8, abstol = 1e-8, maxiters = 10000)
+
+    # Check convergence and return result
+    if sol.retcode == ReturnCode.Success || sol.retcode == ReturnCode.Default
+        result = sol.u[1]
+        # Apply same boundary snapping as in objective function
+        return if is_regular_intervals(d)
+            floor_to_interval(result, interval_width(d))
+        else
+            find_interval_boundary(result, d.boundaries)
+        end
+    else
+        error("Quantile optimization failed to converge for p = $p")
     end
 end
 

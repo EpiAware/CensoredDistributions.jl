@@ -30,7 +30,7 @@ A composed distribution that can be used with all standard `Distributions.jl` me
 
 # Examples
 ```@example
-using Distributions
+using CensoredDistributions, Distributions
 
 # Basic primary censoring only (uses default Uniform(0, 1))
 dist1 = double_interval_censored(LogNormal(1.5, 0.75))
@@ -44,11 +44,17 @@ dist3 = double_interval_censored(LogNormal(1.5, 0.75); interval=1)
 # Full double interval censoring with truncation
 dist4 = double_interval_censored(LogNormal(1.5, 0.75); upper=10, interval=1)
 
+# Evaluate distribution functions and compute statistics
+pdf_at_3 = pdf(dist4, 3.0)        # probability density at 3 days
+cdf_at_7 = cdf(dist4, 7.0)        # P(X ≤ 7) with full censoring pipeline
+ccdf_at_5 = ccdf(dist4, 5.0)      # survival function
+q25 = quantile(dist4, 0.25)       # 25th percentile
+median_delay = quantile(dist4, 0.5)  # median
+q95 = quantile(dist4, 0.95)       # 95th percentile
+samples = rand(dist4, 100)        # random samples
+
 # Custom primary event distribution
 dist5 = double_interval_censored(LogNormal(1.5, 0.75); primary_event=Uniform(0, 2))
-
-# Sample from any of these distributions
-samples = rand(dist4, 1000)
 ```
 
 # Mathematical Background

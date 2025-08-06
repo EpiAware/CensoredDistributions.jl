@@ -8,6 +8,7 @@ using Integrals
 using LogExpFunctions
 using SpecialFunctions
 using HypergeometricFunctions
+using Optimization, OptimizationOptimJL
 
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
@@ -26,7 +27,7 @@ include("docstrings.jl")
 include("censoring/primarycensored_cdf.jl")
 include("censoring/PrimaryCensored.jl")
 include("censoring/IntervalCensored.jl")
-include("censoring/DoubleIntervalCensored.jl")
+include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")
 

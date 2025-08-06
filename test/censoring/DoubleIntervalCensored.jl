@@ -508,3 +508,47 @@ end
     @test isfinite(pdf_decay) && pdf_decay > 0
     @test pdf_growth ≠ pdf_decay  # Should be different
 end
+
+@testitem "Test quantile with truncation" begin
+    using Distributions
+
+    # Test truncation boundary handling
+    d = double_interval_censored(Gamma(2.0, 1.0); upper = 10.0)
+
+    # Test boundary cases (numerical optimization tolerance)
+    @test quantile(d, 0.0) ≈ 0.0 atol=1e-3
+    @test quantile(d, 1.0) ≈ 10.0 atol=1e-1
+
+    # Test quantile within bounds
+    q50 = quantile(d, 0.5)
+    @test 0.0 ≤ q50 ≤ 10.0
+    @test cdf(d, q50) ≈ 0.5 rtol=1e-4
+end
+
+@testitem "Test quantile with interval censoring" begin
+    using Distributions
+
+    # Test interval censoring - quantiles should land on interval boundaries
+    d = double_interval_censored(Exponential(1.0); interval = 1.0)
+
+    quantiles = [quantile(d, p) for p in [0.1, 0.25, 0.5, 0.75, 0.9]]
+    @test all(q -> q % 1.0 ≈ 0.0, quantiles)  # All multiples of interval width
+    @test all(diff(quantiles) .≥ 0)  # Monotonic
+
+    # Test step function property: quantile should find the best available interval boundary
+    for (p, q) in zip([0.1, 0.25, 0.5, 0.75, 0.9], quantiles)
+        cdf_val = cdf(d, q)
+
+        # The quantile should be an interval boundary
+        @test q % 1.0 ≈ 0.0
+
+        # For step functions: either cdf(q) ≥ p, or q is the rightmost boundary with cdf(q) < p
+        if cdf_val < p
+            # If cdf(q) < p, then q+1 should give cdf ≥ p (or be outside support)
+            next_boundary = q + 1.0
+            if next_boundary ≤ maximum(d)
+                @test cdf(d, next_boundary) ≥ p
+            end
+        end
+    end
+end

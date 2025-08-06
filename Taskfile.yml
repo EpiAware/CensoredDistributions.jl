@@ -12,34 +12,34 @@ tasks:
     desc: Run comprehensive test suite including quality checks
     cmds:
       - echo "🧪 Running comprehensive test suite..."
-      - julia --project=. -e 'using Pkg; Pkg.test()'
+      - julia --project=. --quiet -e 'using Pkg; Pkg.test()'
       - echo "✅ All tests completed successfully"
 
   test-fast:
     desc: Run tests quickly (skip quality checks for development)
     cmds:
       - echo "🧪 Running fast test suite (skipping quality checks)..."
-      - julia --project=test test/runtests.jl skip_quality
+      - julia --project=. --quiet -e 'using Pkg; Pkg.test(test_args=["skip_quality"])'
       - echo "✅ Fast tests completed"
 
   test-quality:
     desc: Run only quality checks (Aqua, formatting, linting, doctests)
     cmds:
       - echo "🔍 Running quality checks only..."
-      - julia --project=. -e 'using Pkg; Pkg.test(test_args=["quality_only"])'
+      - julia --project=. --quiet -e 'using Pkg; Pkg.test(test_args=["quality_only"])'
       - echo "✅ Quality checks completed"
 
   test-extensions:
     desc: Test package extensions with OptimizationExt
     cmds:
       - echo "🔧 Testing package extensions..."
-      - julia --project=docs -e 'using CensoredDistributions, Distributions, OptimizationOptimJL, Bijectors; println("✅ Extensions loaded successfully")'
+      - julia --project=docs --quiet -e 'using CensoredDistributions, Distributions, OptimizationOptimJL, Bijectors; println("✅ Extensions loaded successfully")'
 
   format:
     desc: Format code with JuliaFormatter (fixes formatting issues)
     cmds:
       - echo "🎨 Formatting code with JuliaFormatter..."
-      - julia --project=test -e 'using JuliaFormatter; format(".", verbose=true, overwrite=true)'
+      - julia --project=test --quiet -e 'using JuliaFormatter; format(".", verbose=false, overwrite=true)'
       - echo "✅ Code formatting completed"
 
   format-check:
@@ -47,8 +47,17 @@ tasks:
     cmds:
       - echo "🔍 Checking code formatting..."
       - |
-        julia --project=test -e 'using JuliaFormatter; success = format(".", verbose=true, overwrite=false); success || error("Code needs formatting - run: task format")'
+        julia --project=test --quiet -e 'using JuliaFormatter; success = format(".", verbose=false, overwrite=false); success || error("Code needs formatting - run: task format")'
       - echo "✅ Code formatting is correct"
+
+  coverage:
+    desc: Run tests with coverage and generate coverage report
+    cmds:
+      - echo "📊 Running tests with coverage..."
+      - julia --project=. --code-coverage=user -e 'using Pkg; Pkg.test(test_args=["skip_quality"])'
+      - echo "📊 Processing coverage data..."
+      - julia --project=test -e 'using Pkg; Pkg.add("Coverage"); using Coverage; coverage = process_folder(); LCOV.writefile("lcov.info", coverage)'
+      - echo "✅ Coverage report generated (lcov.info)"
 
   # === DOCUMENTATION WORKFLOWS ===
   docs:
@@ -103,16 +112,16 @@ tasks:
       - echo "📦 Package status overview:"
       - echo ""
       - echo "=== Root Environment ==="
-      - julia --project=. -e 'using Pkg; Pkg.status()'
+      - julia --project=. --quiet -e 'using Pkg; Pkg.status()'
       - echo ""
       - echo "=== Test Environment ==="
-      - julia --project=test -e 'using Pkg; Pkg.status()'
+      - julia --project=test --quiet -e 'using Pkg; Pkg.status()'
       - echo ""
       - echo "=== Docs Environment ==="
-      - julia --project=docs -e 'using Pkg; Pkg.status()'
+      - julia --project=docs --quiet -e 'using Pkg; Pkg.status()'
       - echo ""
       - echo "=== Benchmark Environment ==="
-      - julia --project=benchmark -e 'using Pkg; Pkg.status()'
+      - julia --project=benchmark --quiet -e 'using Pkg; Pkg.status()'
 
   pkg-update:
     desc: Update packages in all environments
@@ -161,19 +170,29 @@ tasks:
 
   # === DEVELOPMENT WORKFLOWS ===
   dev:
-    desc: Common development workflow (fast test + fast docs)
-    deps: ["test-fast", "docs-fast"]
+    desc: Common development workflow (format + precommit + fast test + fast docs)
     cmds:
+      - task: format
+      - task: precommit
+      - task: test-fast
+      - task: docs-fast
       - echo "✅ Development checks completed"
 
-  precommit:
-    desc: Run pre-commit hooks on all files plus fast tests
+  dev-full:
+    desc: Full development workflow (format + precommit + all tests + full docs)
     cmds:
-      - echo "🔍 Running pre-commit hooks on all files..."
+      - task: format
+      - task: precommit
+      - task: test
+      - task: docs
+      - echo "✅ Full development checks completed"
+
+  precommit:
+    desc: Run pre-commit formatting hooks only
+    cmds:
+      - echo "🎨 Running pre-commit formatting hooks..."
       - pre-commit run --all-files
-      - echo "🧪 Running fast tests..."
-      - task: test-fast
-      - echo "✅ Pre-commit checks passed - ready to commit!"
+      - echo "✅ Pre-commit formatting completed"
 
   ci:
     desc: Simulate CI pipeline locally (comprehensive testing)

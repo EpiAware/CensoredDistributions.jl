@@ -235,8 +235,7 @@ end
     function integrate_pdf(d)
         prob = IntegralProblem(
             (x, p) -> pdf(d, x),
-            minimum(d),
-            maximum(d)
+            (minimum(d), maximum(d))
         )
         sol = solve(prob, QuadGKJL(); reltol = 1e-8)
         return sol.u
@@ -436,8 +435,7 @@ end
 
         prob = IntegralProblem(
             (t, p) -> pdf(dist, t),
-            minimum(dist),
-            x
+            (minimum(dist), x)
         )
         sol = solve(prob, QuadGKJL(); reltol = 1e-10)
         return sol.u

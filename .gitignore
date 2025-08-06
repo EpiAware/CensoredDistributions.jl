@@ -63,4 +63,5 @@ claude.md
 distributions-knowledge-base.md
 
 *.cov
+lcov.info
 worktree-*

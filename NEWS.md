@@ -69,4 +69,4 @@ functionality compared to the primarycensored R package:
 - Damon Bayer ([@damonbayer](https://github.com/damonbayer))
 - Sam Brand ([@sambrand](https://github.com/sambrand))
 - Michael DeWitt ([@dewittpe](https://github.com/dewittpe))
-- Joseph Lemaitre ([@joelemaitre](https://github.com/joelemaitre))
+- Joseph Lemaitre

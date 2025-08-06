@@ -364,3 +364,43 @@ end
         @test all(s ≥ 0 for s in samples)
     end
 end
+
+@testitem "Test quantile function" begin
+    using Distributions
+
+    d = primary_censored(Exponential(1.0), Uniform(0, 1))
+
+    # Test basic functionality: monotonicity and CDF consistency
+    test_probs = [0.1, 0.25, 0.5, 0.75, 0.9]
+    quantiles = [quantile(d, p) for p in test_probs]
+
+    @test all(diff(quantiles) .≥ 0)  # Monotonic
+    @test all(isfinite.(quantiles))  # Finite values
+    @test all(quantiles .≥ 0)       # Non-negative (for this distribution)
+
+    # Test CDF roundtrip accuracy
+    for (p, q) in zip(test_probs, quantiles)
+        @test cdf(d, q) ≈ p rtol=1e-3  # Relaxed for numerical optimization
+    end
+
+    # Test boundary cases
+    @test quantile(d, 0.0) == minimum(d)
+    @test quantile(d, 1.0) == maximum(d)
+    @test_throws ArgumentError quantile(d, -0.1)
+    @test_throws ArgumentError quantile(d, 1.1)
+end
+
+@testitem "Test quantile with truncation" begin
+    using Distributions
+
+    truncated_dist = truncated(primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)), 1.0, 10.0)
+
+    # Test boundary cases
+    @test quantile(truncated_dist, 0.0) ≈ 1.0 atol=1e-3
+    @test quantile(truncated_dist, 1.0) ≈ 10.0 atol=1e-1
+
+    # Test quantile within bounds
+    q50 = quantile(truncated_dist, 0.5)
+    @test 1.0 ≤ q50 ≤ 10.0
+    @test cdf(truncated_dist, q50) ≈ 0.5 rtol=1e-4
+end

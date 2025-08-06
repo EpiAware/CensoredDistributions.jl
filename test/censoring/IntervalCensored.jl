@@ -503,3 +503,92 @@ end
         @test isfinite(logpdf_val) || logpdf_val == -Inf
     end
 end
+
+@testitem "Test quantile - regular intervals" begin
+    using Distributions
+
+    d = interval_censored(Normal(0, 1), 1.0)
+
+    # Test quantiles land on interval boundaries (multiples of 1.0)
+    quantiles = [quantile(d, p) for p in [0.1, 0.25, 0.5, 0.75, 0.9]]
+    @test all(q -> q % 1.0 ≈ 0.0, quantiles)  # All multiples of interval width
+    @test all(diff(quantiles) .≥ 0)  # Monotonic
+
+    # Test step function property: quantile should find the best available interval boundary
+    # For step functions, cdf(quantile(p)) may be < p when p doesn't align with jump points
+    for (p, q) in zip([0.1, 0.25, 0.5, 0.75, 0.9], quantiles)
+        cdf_val = cdf(d, q)
+
+        # The quantile should be an interval boundary
+        @test q % 1.0 ≈ 0.0
+
+        # For step functions: either cdf(q) ≥ p, or q is the rightmost boundary with cdf(q) < p
+        # This is the correct mathematical property for discrete/step function quantiles
+        if cdf_val < p
+            # If cdf(q) < p, then q+1 should give cdf ≥ p (or be outside support)
+            next_boundary = q + 1.0
+            if next_boundary ≤ maximum(d)
+                @test cdf(d, next_boundary) ≥ p
+            end
+        end
+    end
+end
+
+@testitem "Test quantile - arbitrary intervals" begin
+    using Distributions
+
+    boundaries = [0.0, 2.0, 5.0, 8.0]
+    d = interval_censored(Normal(4, 2), boundaries)
+
+    # Test quantiles land on boundary values
+    quantiles = [quantile(d, p) for p in [0.1, 0.25, 0.5, 0.75, 0.9]]
+    @test all(q -> q in boundaries, quantiles)  # Should be boundary values (including last boundary)
+    @test all(diff(quantiles) .≥ 0)  # Monotonic
+
+    # Test step function property: quantile should find the best available boundary
+    for (p, q) in zip([0.1, 0.25, 0.5, 0.75, 0.9], quantiles)
+        cdf_val = cdf(d, q)
+
+        # The quantile should be a boundary value
+        @test q in boundaries
+
+        # For step functions: either cdf(q) ≥ p, or q is the rightmost boundary with cdf(q) < p
+        if cdf_val < p
+            # Find the next boundary after q
+            q_idx = findfirst(==(q), boundaries)
+            if q_idx < length(boundaries)
+                next_boundary = boundaries[q_idx + 1]
+                @test cdf(d, next_boundary) ≥ p
+            end
+        end
+    end
+end
+
+@testitem "Test quantile bounds checking" begin
+    using Distributions
+
+    # Test bounds checking for regular intervals
+    d_reg = interval_censored(Normal(0, 1), 1.0)
+
+    # Test boundary cases work
+    @test quantile(d_reg, 0.0) == minimum(d_reg)
+    @test quantile(d_reg, 1.0) == maximum(d_reg)
+
+    # Test invalid probability values throw ArgumentError
+    @test_throws ArgumentError quantile(d_reg, -0.1)
+    @test_throws ArgumentError quantile(d_reg, 1.1)
+    @test_throws ArgumentError quantile(d_reg, NaN)
+
+    # Test bounds checking for arbitrary intervals
+    boundaries = [0.0, 2.0, 5.0, 8.0]
+    d_arb = interval_censored(Normal(4, 2), boundaries)
+
+    # Test boundary cases work
+    @test quantile(d_arb, 0.0) == minimum(d_arb)
+    @test quantile(d_arb, 1.0) == maximum(d_arb)
+
+    # Test invalid probability values throw ArgumentError
+    @test_throws ArgumentError quantile(d_arb, -0.1)
+    @test_throws ArgumentError quantile(d_arb, 1.1)
+    @test_throws ArgumentError quantile(d_arb, NaN)
+end
