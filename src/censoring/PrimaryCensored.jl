@@ -255,45 +255,14 @@ p_check = cdf(d, q50)  # Should be ≈ 0.50
 ```
 "
 function Distributions.quantile(d::PrimaryCensored, p::Real)
-    if p < 0.0 || p > 1.0
-        throw(ArgumentError("p must be in [0, 1]"))
+    # Custom initial guess: underlying quantile + mean of primary event
+    initial_guess_fn = function (d, p)
+        underlying_quantile = quantile(get_dist(d), p)
+        primary_mean = mean(d.primary_event)
+        return [underlying_quantile + primary_mean]
     end
 
-    # Handle boundary cases
-    if p == 0.0
-        return minimum(d)
-    elseif p == 1.0
-        return maximum(d)
-    end
-
-    # Objective function with proper support checking
-    objective = function (q, _)
-        q_val = q[1]
-        # If outside support, penalize heavily to guide optimization back
-        if !insupport(d, q_val)
-            return 1e10 + (q_val - minimum(d))^2  # Large penalty + distance from valid region
-        end
-        cdf_val = cdf(d, q_val)
-        return (cdf_val - p)^2
-    end
-
-    # Initial guess: quantile of underlying distribution + mean of primary event
-    underlying_quantile = quantile(get_dist(d), p)
-    primary_mean = mean(d.primary_event)
-    q0 = [underlying_quantile + primary_mean]
-
-    # Set up optimization problem
-    optfun = OptimizationFunction(objective)
-    prob = OptimizationProblem(optfun, q0, nothing)
-
-    sol = solve(prob, NelderMead(); reltol = 1e-8, abstol = 1e-8, maxiters = 10000)
-
-    # Check convergence and return result
-    if sol.retcode == ReturnCode.Success || sol.retcode == ReturnCode.Default
-        return sol.u[1]
-    else
-        error("Quantile optimization failed to converge for p = $p")
-    end
+    return _quantile_optimization(d, p; initial_guess_fn = initial_guess_fn)
 end
 
 #### Sampling

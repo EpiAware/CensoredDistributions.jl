@@ -206,66 +206,118 @@ function Distributions.pdf(d::IntervalCensored, x::Real)
     if isnan(lower) || isnan(upper)
         return 0.0
     end
-    return cdf(get_dist(d), upper) - cdf(get_dist(d), lower)
+
+    # Handle boundary cases for distributions with bounded support
+    dist_min = minimum(get_dist(d))
+    dist_max = maximum(get_dist(d))
+
+    # For lower bound at or below distribution minimum, CDF is 0
+    cdf_lower = lower <= dist_min ? 0.0 : cdf(get_dist(d), lower)
+
+    # For upper bound at or above distribution maximum, CDF is 1
+    cdf_upper = upper >= dist_max ? 1.0 : cdf(get_dist(d), upper)
+
+    return cdf_upper - cdf_lower
 end
 
 function Distributions.logpdf(d::IntervalCensored, x::Real)
-    # Check support first for type stability
-    if !insupport(d, x)
-        return -Inf
+    try
+        # Check support first for type stability
+        if !insupport(d, x)
+            return -Inf
+        end
+
+        lower, upper = get_interval_bounds(d, x)
+        if isnan(lower) || isnan(upper)
+            return -Inf
+        end
+
+        # Compute log(P(lower < X <= upper)) = log(F(upper) - F(lower))
+        # Use numerical stability approach that's AD-friendly
+
+        # Handle boundary cases for distributions with bounded support
+        dist_min = minimum(get_dist(d))
+        dist_max = maximum(get_dist(d))
+
+        # For lower bound at or below distribution minimum, CDF is 0
+        cdf_lower = lower <= dist_min ? 0.0 : cdf(get_dist(d), lower)
+
+        # For upper bound at or above distribution maximum, CDF is 1
+        cdf_upper = upper >= dist_max ? 1.0 : cdf(get_dist(d), upper)
+
+        pdf_mass = cdf_upper - cdf_lower
+
+        # Handle edge cases
+        if pdf_mass <= 0.0
+            return -Inf
+        end
+
+        return log(pdf_mass)
+    catch e
+        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
+            return -Inf
+        else
+            rethrow(e)
+        end
     end
-
-    lower, upper = get_interval_bounds(d, x)
-    if isnan(lower) || isnan(upper)
-        return -Inf
-    end
-
-    # Compute log(P(lower < X <= upper)) = log(F(upper) - F(lower))
-    # Use numerical stability approach that's AD-friendly
-    cdf_upper = cdf(get_dist(d), upper)
-    cdf_lower = cdf(get_dist(d), lower)
-    pdf_mass = cdf_upper - cdf_lower
-
-    # Handle edge cases
-    if pdf_mass <= 0.0
-        return -Inf
-    end
-
-    return log(pdf_mass)
 end
 
 # Internal function for efficient cdf/logcdf computation
 function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
-    # Handle edge cases first
-    if x < minimum(get_dist(d))
-        return f === logcdf ? -Inf : 0.0
-    elseif x >= maximum(get_dist(d))
-        return f === logcdf ? 0.0 : 1.0
-    end
-
-    if is_regular_intervals(d)
-        # For regular intervals, use floor behavior from Discretised
-        discretised_x = floor_to_interval(x, interval_width(d))
-        return f(get_dist(d), discretised_x)
-    else
-        # For arbitrary intervals, use the lower bound of the containing interval
-        idx = find_interval_index(x, d.boundaries)
-        if idx == 0
+    try
+        # Handle edge cases first
+        if x < minimum(get_dist(d))
             return f === logcdf ? -Inf : 0.0
-        elseif idx >= length(d.boundaries)
-            return f(get_dist(d), d.boundaries[end])
+        elseif x >= maximum(get_dist(d))
+            return f === logcdf ? 0.0 : 1.0
+        end
+
+        if is_regular_intervals(d)
+            # For regular intervals, use floor behavior from Discretised
+            discretised_x = floor_to_interval(x, interval_width(d))
+            return f(get_dist(d), discretised_x)
         else
-            return f(get_dist(d), d.boundaries[idx])
+            # For arbitrary intervals, use the lower bound of the containing interval
+            idx = find_interval_index(x, d.boundaries)
+            if idx == 0
+                return f === logcdf ? -Inf : 0.0
+            elseif idx >= length(d.boundaries)
+                return f(get_dist(d), d.boundaries[end])
+            else
+                return f(get_dist(d), d.boundaries[idx])
+            end
+        end
+    catch e
+        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
+            return f === logcdf ? -Inf : 0.0
+        else
+            rethrow(e)
         end
     end
 end
 
 function Distributions.cdf(d::IntervalCensored, x::Real)
-    return _interval_cdf(d, x, cdf)
+    try
+        return _interval_cdf(d, x, cdf)
+    catch e
+        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
+            return 0.0
+        else
+            rethrow(e)
+        end
+    end
 end
 
 function Distributions.logcdf(d::IntervalCensored, x::Real)
-    return _interval_cdf(d, x, logcdf)
+    try
+        return _interval_cdf(d, x, logcdf)
+    catch e
+        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
+            return -Inf
+        else
+            rethrow(e)
+        end
+    end
 end
 
 function Distributions.ccdf(d::IntervalCensored, x::Real)
@@ -354,64 +406,18 @@ The initial guess is based on the quantile of the underlying continuous distribu
 The search is constrained to the relevant interval boundaries.
 "
 function Distributions.quantile(d::IntervalCensored, p::Real)
-    # Handle NaN input explicitly
-    if isnan(p)
-        throw(ArgumentError("p must be in [0, 1], got NaN"))
-    end
-
-    if p < 0.0 || p > 1.0
-        throw(ArgumentError("p must be in [0, 1]"))
-    end
-
-    # Handle boundary cases
-    if p == 0.0
-        return minimum(d)
-    elseif p == 1.0
-        return maximum(d)
-    end
-
-    objective = function (x, _)
-        x_val = x[1]
-        # Snap to appropriate interval boundary based on interval type
-        interval_x = if is_regular_intervals(d)
-            floor_to_interval(x_val, interval_width(d))
-        else
-            # For arbitrary intervals, find the appropriate boundary
-            find_interval_boundary(x_val, d.boundaries)
-        end
-
-        # Check support and penalize if outside
-        if !insupport(d, interval_x)
-            return 1e10 + (interval_x - minimum(d))^2  # Large penalty + distance from valid region
-        end
-
-        cdf_val = cdf(d, interval_x)
-        return (cdf_val - p)^2
-    end
-
-    # Initial guess based on quantile of underlying distribution
-    underlying_quantile = float(quantile(get_dist(d), p))
-    x0 = [underlying_quantile]
-
-    # Set up optimization problem
-    optfun = OptimizationFunction(objective)
-    prob = OptimizationProblem(optfun, x0, nothing)
-
-    # Solve using NelderMead (derivative-free, robust for discrete problems)
-    sol = solve(prob, NelderMead(); reltol = 1e-8, abstol = 1e-8, maxiters = 10000)
-
-    # Check convergence and return result
-    if sol.retcode == ReturnCode.Success || sol.retcode == ReturnCode.Default
-        result = sol.u[1]
-        # Apply same boundary snapping as in objective function
+    # Post-processing function to snap result to interval boundary
+    result_postprocess_fn = function (result)
         return if is_regular_intervals(d)
             floor_to_interval(result, interval_width(d))
         else
             find_interval_boundary(result, d.boundaries)
         end
-    else
-        error("Quantile optimization failed to converge for p = $p")
     end
+
+    return _quantile_optimization(d, p;
+        result_postprocess_fn = result_postprocess_fn,
+        check_nan = true)
 end
 
 # Sampler method for efficient sampling
