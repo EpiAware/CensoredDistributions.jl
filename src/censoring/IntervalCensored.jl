@@ -381,7 +381,7 @@ function Distributions.quantile(d::IntervalCensored, p::Real)
     end
 
     # Initial guess based on quantile of underlying distribution
-    underlying_quantile = quantile(get_dist(d), p)
+    underlying_quantile = float(quantile(get_dist(d), p))
     x0 = [underlying_quantile]
 
     # Set up optimization problem
