@@ -274,15 +274,9 @@ function Distributions.quantile(d::PrimaryCensored, p::Real)
     end
 
     # Initial guess: quantile of underlying distribution + mean of primary event
-    # This is the key insight - start from where we expect the answer to be
-    q0 = try
-        underlying_quantile = quantile(get_dist(d), p)
-        primary_mean = mean(d.primary_event)
-        [underlying_quantile + primary_mean]
-    catch
-        # Fallback if quantile or mean fail
-        [1.0]
-    end
+    underlying_quantile = quantile(get_dist(d), p)
+    primary_mean = mean(d.primary_event)
+    q0 = [underlying_quantile + primary_mean]
 
     # Set up optimization problem
     optfun = OptimizationFunction(objective)

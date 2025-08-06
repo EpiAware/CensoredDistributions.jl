@@ -351,7 +351,7 @@ median_age = quantile(age_dist, 0.5)  # Median age group boundary
 # Implementation Notes
 Uses numerical optimization with the Nelder-Mead algorithm to solve `cdf(d, x) - p = 0`.
 The initial guess is based on the quantile of the underlying continuous distribution.
-For efficiency, the search is constrained to the relevant interval boundaries.
+The search is constrained to the relevant interval boundaries.
 "
 function Distributions.quantile(d::IntervalCensored, p::Real)
     # Handle NaN input explicitly
@@ -370,8 +370,6 @@ function Distributions.quantile(d::IntervalCensored, p::Real)
         return maximum(d)
     end
 
-    # Unified approach: use optimization with appropriate interval snapping
-    # Objective function: minimize (cdf(d, snapped_x) - p)²
     objective = function (x, _)
         x_val = x[1]
         # Snap to appropriate interval boundary based on interval type
