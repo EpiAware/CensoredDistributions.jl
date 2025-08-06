@@ -33,10 +33,15 @@ d = primary_censored(incubation, infection_window)
 # Sample observed symptom onset times
 onsets = rand(d, 1000)
 
-# Calculate CDFs
+# Calculate CDFs and quantiles
 x = 0:0.1:10
 cdf_original = cdf.(incubation, x)
 cdf_censored = cdf.(d, x)
+
+# Compute quantiles (median, quartiles)
+q25 = quantile(d, 0.25)
+q50 = quantile(d, 0.50)  # median
+q75 = quantile(d, 0.75)
 
 # Force numerical integration (useful for testing)
 d_numeric = primary_censored(incubation, infection_window; force_numeric=true)
@@ -82,6 +87,9 @@ d2 = primary_censored(LogNormal(1.5, 0.75); primary_event=Uniform(0, 2))
 
 # All distributions are equivalent to the positional argument version
 d3 = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
+
+# Compute quantiles for any of these distributions
+median_delay = quantile(d1, 0.5)
 ```
 "
 function primary_censored(
@@ -213,7 +221,7 @@ F(q) = p
 ```
 where $F$ is the CDF of the primary censored distribution.
 
-Uses L-BFGS-B optimization to minimize $(F(q) - p)^2$ subject to $q \geq 0$.
+Uses L-BFGS-B optimization to minimize $(F(q) - p)^2$.
 
 # Arguments
 - `d`: PrimaryCensored distribution
@@ -253,13 +261,9 @@ function Distributions.quantile(d::PrimaryCensored, p::Real)
         return Inf
     end
 
-    # Objective function with penalty for q < 0 (since distribution support is [0, ∞))
+    # Objective function - CDF handles distribution support bounds naturally
     objective = function (q, _)
         q_val = q[1]
-        # Add penalty for negative values
-        if q_val < 0.0
-            return 1e6 + (q_val)^2
-        end
         cdf_val = cdf(d, q_val)
         return (cdf_val - p)^2
     end
@@ -269,7 +273,7 @@ function Distributions.quantile(d::PrimaryCensored, p::Real)
     q0 = try
         delay_median = quantile(get_dist(d), 0.5)
         primary_mean = mean(d.primary_event)
-        [max(0.1, delay_median + primary_mean)]  # Ensure positive starting point
+        [delay_median + primary_mean]
     catch
         # Fallback to fixed value if quantile/mean fails
         [1.0]
@@ -279,7 +283,6 @@ function Distributions.quantile(d::PrimaryCensored, p::Real)
     optfun = OptimizationFunction(objective)
     prob = OptimizationProblem(optfun, q0, nothing)
 
-    # Solve using NelderMead (derivative-free)
     sol = solve(prob, NelderMead(); reltol = 1e-8, abstol = 1e-8, maxiters = 10000)
 
     # Check convergence and return result
