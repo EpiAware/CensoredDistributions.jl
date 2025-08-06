@@ -12,21 +12,21 @@ tasks:
     desc: Run comprehensive test suite including quality checks
     cmds:
       - echo "🧪 Running comprehensive test suite..."
-      - JULIA_PKG_QUIET=1 julia --project=. --quiet -e 'using Pkg; Pkg.test()'
+      - julia --project=. --quiet -e 'using Pkg; Pkg.test(julia_args=`--quiet`)'
       - echo "✅ All tests completed successfully"
 
   test-fast:
     desc: Run tests quickly (skip quality checks for development)
     cmds:
       - echo "🧪 Running fast test suite (skipping quality checks)..."
-      - JULIA_PKG_QUIET=1 julia --project=. --quiet -e 'using Pkg; Pkg.test(test_args=["skip_quality"])'
+      - julia --project=. --quiet -e 'using Pkg; Pkg.test(julia_args=`--quiet`, test_args=["skip_quality"])'
       - echo "✅ Fast tests completed"
 
   test-quality:
     desc: Run only quality checks (Aqua, formatting, linting, doctests)
     cmds:
       - echo "🔍 Running quality checks only..."
-      - JULIA_PKG_QUIET=1 julia --project=. --quiet -e 'using Pkg; Pkg.test(test_args=["quality_only"])'
+      - julia --project=. --quiet -e 'using Pkg; Pkg.test(julia_args=`--quiet`, test_args=["quality_only"])'
       - echo "✅ Quality checks completed"
 
   test-extensions:
