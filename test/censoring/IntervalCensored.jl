@@ -503,3 +503,387 @@ end
         @test isfinite(logpdf_val) || logpdf_val == -Inf
     end
 end
+
+@testitem "Test quantile function - basic functionality for regular intervals" begin
+    using Distributions
+
+    # Test with different underlying distributions and regular intervals
+    test_configurations = [
+        (Normal(0, 1), 0.5),
+        (Gamma(2.0, 1.0), 1.0),
+        (LogNormal(1.0, 0.5), 0.25),
+        (Exponential(2.0), 2.0)
+    ]
+
+    for (base_dist, interval) in test_configurations
+        d = interval_censored(base_dist, interval)
+
+        @testset "$(typeof(base_dist)) with interval $(interval)" begin
+            # Test quantile exists and returns reasonable values
+            q25 = quantile(d, 0.25)
+            q50 = quantile(d, 0.5)
+            q75 = quantile(d, 0.75)
+
+            @test isfinite(q25)
+            @test isfinite(q50)
+            @test isfinite(q75)
+
+            # Test monotonicity: q25 ≤ q50 ≤ q75
+            @test q25 ≤ q50 ≤ q75
+
+            # Test that quantiles are multiples of the interval
+            @test q25 % interval ≈ 0.0 atol=1e-10
+            @test q50 % interval ≈ 0.0 atol=1e-10
+            @test q75 % interval ≈ 0.0 atol=1e-10
+
+            # Test that quantiles are in distribution support
+            @test insupport(d, q25)
+            @test insupport(d, q50)
+            @test insupport(d, q75)
+        end
+    end
+end
+
+@testitem "Test quantile function - basic functionality for arbitrary intervals" begin
+    using Distributions
+
+    # Test with different underlying distributions and arbitrary intervals
+    test_configurations = [
+        (Normal(5, 2), [0.0, 2.0, 5.0, 8.0, 12.0]),
+        (Gamma(2.0, 1.0), [0.0, 1.0, 3.0, 6.0]),
+        (LogNormal(1.0, 0.5), [0.0, 0.5, 2.0, 5.0, 10.0])
+    ]
+
+    for (base_dist, boundaries) in test_configurations
+        d = interval_censored(base_dist, boundaries)
+
+        @testset "$(typeof(base_dist)) with boundaries $(boundaries)" begin
+            # Test quantile exists and returns reasonable values
+            q25 = quantile(d, 0.25)
+            q50 = quantile(d, 0.5)
+            q75 = quantile(d, 0.75)
+
+            @test isfinite(q25)
+            @test isfinite(q50)
+            @test isfinite(q75)
+
+            # Test monotonicity: q25 ≤ q50 ≤ q75
+            @test q25 ≤ q50 ≤ q75
+
+            # Test that quantiles are boundary values
+            @test q25 in boundaries
+            @test q50 in boundaries
+            @test q75 in boundaries
+
+            # Test that quantiles are in distribution support
+            @test insupport(d, q25)
+            @test insupport(d, q50)
+            @test insupport(d, q75)
+        end
+    end
+end
+
+@testitem "Test quantile function - boundary cases" begin
+    using Distributions
+
+    # Test with regular intervals
+    d_regular = interval_censored(Normal(0, 1), 1.0)
+
+    # Test boundary probability values
+    @test quantile(d_regular, 0.0) == minimum(d_regular)
+    @test quantile(d_regular, 1.0) == maximum(d_regular)
+
+    # Test with arbitrary intervals
+    boundaries = [-2.0, 0.0, 2.0, 5.0]
+    d_arbitrary = interval_censored(Normal(1, 1), boundaries)
+
+    @test quantile(d_arbitrary, 0.0) == -2.0  # First boundary
+    @test quantile(d_arbitrary, 1.0) == 2.0   # Last interval start (where samples can occur)
+
+    # Test that invalid probabilities throw errors
+    @test_throws ArgumentError quantile(d_regular, -0.1)
+    @test_throws ArgumentError quantile(d_regular, 1.1)
+    @test_throws ArgumentError quantile(d_regular, NaN)
+
+    @test_throws ArgumentError quantile(d_arbitrary, -0.1)
+    @test_throws ArgumentError quantile(d_arbitrary, 1.1)
+end
+
+@testitem "Test quantile-CDF consistency for regular intervals" begin
+    using Distributions
+
+    # Test with various configurations
+    test_configurations = [
+        (Normal(0, 1), 0.5),
+        (Exponential(1.0), 1.0),
+        (Gamma(2.0, 1.0), 0.25)
+    ]
+
+    for (base_dist, interval) in test_configurations
+        d = interval_censored(base_dist, interval)
+
+        @testset "$(typeof(base_dist)) consistency tests" begin
+            # Test CDF-quantile roundtrip: cdf(d, quantile(d, p)) ≈ p
+            test_probs = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
+
+            for p in test_probs
+                q = quantile(d, p)
+                cdf_q = cdf(d, q)
+                @test cdf_q ≈ p rtol=1e-1  # More lenient for discretized distributions
+            end
+
+            # Test quantile-CDF roundtrip for interval boundaries
+            # For interval-censored distributions, this is more complex due to discretization
+            interval_values = [0.0, interval, 2*interval, 3*interval, 5*interval]
+
+            for x in interval_values
+                if minimum(d) ≤ x ≤ maximum(d)
+                    cdf_val = cdf(d, x)
+                    if cdf_val > 0.0 && cdf_val < 1.0
+                        q = quantile(d, cdf_val)
+                        # For interval censored, quantile should be ≤ x (due to flooring)
+                        @test q ≤ x + 1e-10  # Small tolerance for numerical precision
+                    end
+                end
+            end
+        end
+    end
+end
+
+@testitem "Test quantile-CDF consistency for arbitrary intervals" begin
+    using Distributions
+
+    boundaries = [0.0, 1.0, 3.0, 6.0, 10.0]
+    d = interval_censored(Normal(4, 2), boundaries)
+
+    # Test CDF-quantile roundtrip: cdf(d, quantile(d, p)) ≈ p
+    test_probs = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
+
+    for p in test_probs
+        q = quantile(d, p)
+        cdf_q = cdf(d, q)
+        @test cdf_q ≈ p rtol=1e-1  # More lenient for discretized distributions
+    end
+
+    # Test quantile-CDF roundtrip for boundary values
+    for boundary in boundaries[1:(end - 1)]  # Exclude last boundary (upper bound)
+        cdf_val = cdf(d, boundary)
+        if cdf_val > 0.0 && cdf_val < 1.0
+            q = quantile(d, cdf_val)
+            @test q ≤ boundary + 1e-10  # Should be ≤ boundary due to discretization
+        end
+    end
+end
+
+@testitem "Test quantile function - monotonicity" begin
+    using Distributions
+
+    # Test with regular intervals
+    d_regular = interval_censored(LogNormal(1.0, 0.5), 0.5)
+
+    # Test monotonicity with many probability values
+    probs = range(0.01, 0.99, length = 20)
+    quantiles = [quantile(d_regular, p) for p in probs]
+
+    # Check that quantiles are non-decreasing
+    for i in 2:length(quantiles)
+        @test quantiles[i] ≥ quantiles[i - 1]
+    end
+
+    # Test with arbitrary intervals
+    d_arbitrary = interval_censored(Gamma(2.0, 1.0), [0.0, 0.5, 2.0, 5.0, 10.0])
+
+    probs_arb = range(0.05, 0.95, length = 15)
+    quantiles_arb = [quantile(d_arbitrary, p) for p in probs_arb]
+
+    # Check that quantiles are non-decreasing
+    for i in 2:length(quantiles_arb)
+        @test quantiles_arb[i] ≥ quantiles_arb[i - 1]
+    end
+end
+
+@testitem "Test quantile function - numerical stability" begin
+    using Distributions
+
+    # Test with challenging configurations that might cause numerical issues
+    challenging_configs = [
+        (Normal(0, 10), 1e-6),  # Very fine intervals
+        (Exponential(1e-3), 1e3),  # Mismatched scales
+        (truncated(Normal(0, 1), -10, 10), 0.01)  # Truncated with fine intervals
+    ]
+
+    for (base_dist, interval) in challenging_configs
+        d = interval_censored(base_dist, interval)
+
+        @testset "$(typeof(base_dist)) stability tests" begin
+            # Test that quantiles don't return NaN
+            test_probs = [0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99]
+
+            for p in test_probs
+                q = quantile(d, p)
+                @test !isnan(q)
+                @test isfinite(q)  # Should always be finite for interval censored
+
+                # Verify quantile is a valid interval boundary
+                @test q % interval ≈ 0.0 atol=1e-10
+            end
+        end
+    end
+
+    # Test with arbitrary intervals and challenging distributions
+    extreme_boundaries = [-1e6, 0.0, 1e-10, 1.0, 1e6]
+    d_extreme = interval_censored(Normal(0, 100), extreme_boundaries)
+
+    test_probs = [0.1, 0.3, 0.5, 0.7, 0.9]
+    for p in test_probs
+        q = quantile(d_extreme, p)
+        @test !isnan(q)
+        @test isfinite(q)
+        @test q in extreme_boundaries
+    end
+end
+
+@testitem "Test quantile function - edge cases and degenerate intervals" begin
+    using Distributions
+
+    # Test with very narrow intervals
+    d_narrow = interval_censored(Normal(0, 1), [0.0, 0.001])
+
+    # Most probability mass should be in the single interval
+    q25 = quantile(d_narrow, 0.25)
+    q50 = quantile(d_narrow, 0.5)
+    q75 = quantile(d_narrow, 0.75)
+
+    # All should return the interval boundary (0.0)
+    @test q25 == 0.0
+    @test q50 == 0.0
+    @test q75 == 0.0
+
+    # Test with intervals that have very different probabilities
+    # Intervals: [-5, -1), [-1, 1), [1, 5) with Normal(0, 1)
+    # Middle interval should have most mass
+    d_skewed = interval_censored(Normal(0, 1), [-5.0, -1.0, 1.0, 5.0])
+
+    q25 = quantile(d_skewed, 0.25)
+    q50 = quantile(d_skewed, 0.5)
+    q75 = quantile(d_skewed, 0.75)
+
+    # Most quantiles should be from the middle interval
+    @test q25 in [-5.0, -1.0, 1.0]
+    @test q50 in [-5.0, -1.0, 1.0]
+    @test q75 in [-5.0, -1.0, 1.0]
+
+    # Test consistency
+    for p in [0.25, 0.5, 0.75]
+        q = quantile(d_skewed, p)
+        cdf_q = cdf(d_skewed, q)
+        @test cdf_q ≈ p rtol=1e-1  # More lenient for discretized distributions
+    end
+end
+
+@testitem "Test quantile function - extreme probability values" begin
+    using Distributions
+
+    d = interval_censored(Exponential(1.0), 0.5)
+
+    # Test very small probabilities
+    small_probs = [1e-10, 1e-8, 1e-6, 1e-4]
+    for p in small_probs
+        q = quantile(d, p)
+        @test isfinite(q)
+        @test q % 0.5 ≈ 0.0 atol=1e-10  # Should be multiple of interval
+        @test cdf(d, q) ≈ p rtol=1e-3
+    end
+
+    # Test very large probabilities
+    large_probs = [1.0 - 1e-10, 1.0 - 1e-8, 1.0 - 1e-6, 1.0 - 1e-4]
+    for p in large_probs
+        q = quantile(d, p)
+        @test isfinite(q)
+        @test q % 0.5 ≈ 0.0 atol=1e-10  # Should be multiple of interval
+        @test cdf(d, q) ≈ p rtol=1e-3
+    end
+
+    # Test with arbitrary intervals
+    d_arb = interval_censored(Normal(5, 2), [0.0, 2.0, 4.0, 6.0, 10.0])
+
+    for p in [1e-6, 0.5, 1.0 - 1e-6]
+        q = quantile(d_arb, p)
+        @test isfinite(q)
+        @test q in [0.0, 2.0, 4.0, 6.0]  # Should be a boundary value
+        @test cdf(d_arb, q) ≈ p rtol=1e-3
+    end
+end
+
+@testitem "Test quantile function - comparison with underlying distribution" begin
+    using Distributions
+
+    # For fine intervals, quantile should approximate underlying distribution
+    base_dist = Normal(0, 1)
+    fine_interval = 1e-4
+    d_fine = interval_censored(base_dist, fine_interval)
+
+    test_probs = [0.1, 0.25, 0.5, 0.75, 0.9]
+
+    for p in test_probs
+        q_discretized = quantile(d_fine, p)
+        q_continuous = quantile(base_dist, p)
+
+        # Discretized quantile should be close to continuous quantile
+        @test abs(q_discretized - q_continuous) < 2 * fine_interval
+
+        # Should be floored to interval boundary
+        expected_floored = floor(q_continuous / fine_interval) * fine_interval
+        @test q_discretized ≈ expected_floored atol=1e-10
+    end
+
+    # For coarse intervals, quantile should be quite different
+    coarse_interval = 2.0
+    d_coarse = interval_censored(base_dist, coarse_interval)
+
+    for p in test_probs
+        q_discretized = quantile(d_coarse, p)
+        q_continuous = quantile(base_dist, p)
+
+        # Should be multiple of coarse interval
+        @test q_discretized % coarse_interval ≈ 0.0 atol=1e-10
+
+        # Should be ≤ continuous quantile (due to flooring)
+        @test q_discretized ≤ q_continuous + coarse_interval
+    end
+end
+
+@testitem "Test quantile function - special cases with bounded distributions" begin
+    using Distributions
+
+    # Test with bounded underlying distribution
+    bounded_dist = truncated(Normal(0, 1), -3, 3)
+    d = interval_censored(bounded_dist, 0.5)
+
+    # Test that quantiles respect underlying bounds
+    test_probs = [0.01, 0.1, 0.5, 0.9, 0.99]
+
+    for p in test_probs
+        q = quantile(d, p)
+        @test q ≥ minimum(d)
+        @test q ≤ maximum(d)
+        @test q % 0.5 ≈ 0.0 atol=1e-10
+
+        # Test consistency
+        @test cdf(d, q) ≈ p rtol=1e-1  # More lenient for discretized distributions
+    end
+
+    # Test with discrete underlying distribution (should still work)
+    discrete_base = Binomial(10, 0.5)  # This will be treated as continuous for interval censoring
+    d_discrete = interval_censored(discrete_base, 1.0)
+
+    # Should still provide valid quantiles
+    q25 = quantile(d_discrete, 0.25)
+    q50 = quantile(d_discrete, 0.5)
+    q75 = quantile(d_discrete, 0.75)
+
+    @test isfinite(q25) && q25 ≥ 0
+    @test isfinite(q50) && q50 ≥ 0
+    @test isfinite(q75) && q75 ≥ 0
+    @test q25 ≤ q50 ≤ q75
+end

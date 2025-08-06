@@ -364,3 +364,248 @@ end
         @test all(s ≥ 0 for s in samples)
     end
 end
+
+@testitem "Test quantile function - basic functionality" begin
+    using Distributions
+
+    # Test with different distribution combinations
+    test_configurations = [
+        (Exponential(1.0), Uniform(0.0, 1.0)),
+        (Gamma(2.0, 1.5), Uniform(0.0, 2.0)),
+        (LogNormal(1.0, 0.5), Uniform(0.5, 1.5)),
+        (Weibull(1.5, 2.0), Uniform(0.0, 0.5))
+    ]
+
+    for (delay_dist, primary_dist) in test_configurations
+        d = primary_censored(delay_dist, primary_dist)
+
+        @testset "$(typeof(delay_dist)) + $(typeof(primary_dist))" begin
+            # Test quantile exists and returns reasonable values
+            q25 = quantile(d, 0.25)
+            q50 = quantile(d, 0.5)
+            q75 = quantile(d, 0.75)
+
+            @test isfinite(q25) && q25 ≥ 0
+            @test isfinite(q50) && q50 ≥ 0
+            @test isfinite(q75) && q75 ≥ 0
+
+            # Test monotonicity: q25 ≤ q50 ≤ q75
+            @test q25 ≤ q50 ≤ q75
+
+            # Test that quantiles are in distribution support
+            @test insupport(d, q25)
+            @test insupport(d, q50)
+            @test insupport(d, q75)
+        end
+    end
+end
+
+@testitem "Test quantile function - boundary cases" begin
+    using Distributions
+
+    d = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+
+    # Test boundary probability values
+    @test quantile(d, 0.0) == 0.0  # Should return minimum (0 for non-negative dist)
+    @test quantile(d, 1.0) == Inf  # Should return maximum (Inf for unbounded dist)
+
+    # Test very small and large probability values
+    q_tiny = quantile(d, 1e-10)
+    q_large = quantile(d, 1.0 - 1e-10)
+
+    @test isfinite(q_tiny) && q_tiny ≥ 0
+    @test isfinite(q_large) && q_large > q_tiny
+
+    # Test that boundary values throw errors for invalid probabilities
+    @test_throws ArgumentError quantile(d, -0.1)
+    @test_throws ArgumentError quantile(d, 1.1)
+    @test_throws ArgumentError quantile(d, NaN)
+end
+
+@testitem "Test quantile-CDF consistency" begin
+    using Distributions
+
+    # Test with various configurations
+    test_configurations = [
+        (Exponential(2.0), Uniform(0.0, 1.0)),
+        (Gamma(1.5, 2.0), Uniform(0.0, 0.5)),
+        (LogNormal(0.5, 1.0), Uniform(0.0, 2.0))
+    ]
+
+    for (delay_dist, primary_dist) in test_configurations
+        d = primary_censored(delay_dist, primary_dist)
+
+        @testset "$(typeof(delay_dist)) consistency tests" begin
+            # Test quantile-CDF roundtrip: quantile(d, cdf(d, x)) ≈ x
+            test_values = [0.1, 0.5, 1.0, 2.0, 5.0]
+
+            for x in test_values
+                if insupport(d, x)
+                    cdf_val = cdf(d, x)
+                    # Only test roundtrip if CDF value is reasonable
+                    if 0.01 ≤ cdf_val ≤ 0.99  # Avoid extreme quantiles
+                        quantile_val = quantile(d, cdf_val)
+                        @test quantile_val ≈ x rtol=1e-4
+                    end
+                end
+            end
+
+            # Test CDF-quantile roundtrip: cdf(d, quantile(d, p)) ≈ p
+            test_probs = [0.1, 0.25, 0.5, 0.75, 0.9]
+
+            for p in test_probs
+                q = quantile(d, p)
+                cdf_q = cdf(d, q)
+                @test cdf_q ≈ p rtol=1e-4
+            end
+        end
+    end
+end
+
+@testitem "Test quantile function - monotonicity" begin
+    using Distributions
+
+    d = primary_censored(LogNormal(1.0, 0.75), Uniform(0, 1))
+
+    # Test monotonicity with many probability values
+    probs = range(0.01, 0.99, length = 20)
+    quantiles = [quantile(d, p) for p in probs]
+
+    # Check that quantiles are non-decreasing
+    for i in 2:length(quantiles)
+        @test quantiles[i] ≥ quantiles[i - 1]
+    end
+
+    # Test with specific probability pairs
+    prob_pairs = [(0.1, 0.2), (0.3, 0.4), (0.6, 0.8), (0.85, 0.95)]
+
+    for (p1, p2) in prob_pairs
+        q1 = quantile(d, p1)
+        q2 = quantile(d, p2)
+        @test q1 ≤ q2  # Monotonicity
+    end
+end
+
+@testitem "Test quantile function - numerical stability" begin
+    using Distributions
+
+    # Test with distributions that might cause numerical issues
+    challenging_configs = [
+        (LogNormal(10.0, 3.0), Uniform(0, 1)),  # High variance
+        (Gamma(0.5, 1.0), Uniform(0, 0.1)),     # Shape < 1 (infinite density at 0)
+        (Weibull(0.8, 1.0), Uniform(0, 2.0))    # Shape < 1
+    ]
+
+    for (delay_dist, primary_dist) in challenging_configs
+        d = primary_censored(delay_dist, primary_dist)
+
+        @testset "$(typeof(delay_dist)) numerical stability" begin
+            # Test that quantiles don't return NaN or negative values
+            test_probs = [0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99]
+
+            for p in test_probs
+                q = quantile(d, p)
+                @test !isnan(q)
+                @test q ≥ 0  # Should be non-negative
+                @test isfinite(q) || q == Inf  # Should be finite or +Inf
+            end
+        end
+    end
+end
+
+@testitem "Test quantile function - with truncation" begin
+    using Distributions
+
+    # Test with truncated primary censored distributions
+    base_dist = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    truncated_dist = truncated(base_dist, 1.0, 10.0)
+
+    # Test basic functionality
+    q25 = quantile(truncated_dist, 0.25)
+    q50 = quantile(truncated_dist, 0.5)
+    q75 = quantile(truncated_dist, 0.75)
+
+    @test 1.0 ≤ q25 ≤ 10.0  # Within truncation bounds
+    @test 1.0 ≤ q50 ≤ 10.0
+    @test 1.0 ≤ q75 ≤ 10.0
+
+    # Test monotonicity
+    @test q25 ≤ q50 ≤ q75
+
+    # Test boundary cases
+    @test quantile(truncated_dist, 0.0) == 1.0  # Lower bound
+    @test quantile(truncated_dist, 1.0) == 10.0  # Upper bound
+
+    # Test consistency
+    test_probs = [0.1, 0.3, 0.7, 0.9]
+    for p in test_probs
+        q = quantile(truncated_dist, p)
+        cdf_q = cdf(truncated_dist, q)
+        @test cdf_q ≈ p rtol=1e-4
+    end
+end
+
+@testitem "Test quantile function - extreme probability values" begin
+    using Distributions
+
+    d = primary_censored(Exponential(1.0), Uniform(0, 1))
+
+    # Test very small probabilities
+    small_probs = [1e-10, 1e-8, 1e-6, 1e-4]
+    for p in small_probs
+        q = quantile(d, p)
+        @test isfinite(q) && q ≥ 0
+        # CDF should be approximately equal to p (within numerical precision)
+        @test cdf(d, q) ≈ p rtol=1e-3
+    end
+
+    # Test very large probabilities
+    large_probs = [1.0 - 1e-10, 1.0 - 1e-8, 1.0 - 1e-6, 1.0 - 1e-4]
+    for p in large_probs
+        q = quantile(d, p)
+        @test isfinite(q) && q ≥ 0
+        # For large probabilities, quantile should give large values
+        @test q > 1.0  # Should be reasonably large
+        @test cdf(d, q) ≈ p rtol=1e-3
+    end
+end
+
+@testitem "Test quantile function - with ExponentiallyTilted primary" begin
+    using Distributions
+
+    # Test quantile with ExponentiallyTilted primary event distributions
+    delay_dist = LogNormal(1.0, 0.5)
+
+    # Growth scenario (r > 0)
+    growth_primary = ExponentiallyTilted(0.0, 2.0, 1.0)
+    d_growth = primary_censored(delay_dist, growth_primary)
+
+    # Decay scenario (r < 0)
+    decay_primary = ExponentiallyTilted(0.0, 2.0, -1.0)
+    d_decay = primary_censored(delay_dist, decay_primary)
+
+    # Neutral scenario (r ≈ 0)
+    neutral_primary = ExponentiallyTilted(0.0, 2.0, 1e-8)
+    d_neutral = primary_censored(delay_dist, neutral_primary)
+
+    test_probs = [0.1, 0.25, 0.5, 0.75, 0.9]
+
+    for p in test_probs
+        q_growth = quantile(d_growth, p)
+        q_decay = quantile(d_decay, p)
+        q_neutral = quantile(d_neutral, p)
+
+        # All should be valid quantiles
+        @test isfinite(q_growth) && q_growth ≥ 0
+        @test isfinite(q_decay) && q_decay ≥ 0
+        @test isfinite(q_neutral) && q_neutral ≥ 0
+
+        # Growth and decay should give different results
+        @test q_growth ≠ q_decay
+
+        # Test consistency with CDF
+        @test cdf(d_growth, q_growth) ≈ p rtol=1e-5
+        @test cdf(d_decay, q_decay) ≈ p rtol=1e-5
+        @test cdf(d_neutral, q_neutral) ≈ p rtol=1e-5
+    end
+end
