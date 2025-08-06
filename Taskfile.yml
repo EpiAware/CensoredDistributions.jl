@@ -50,6 +50,15 @@ tasks:
         julia --project=test --quiet -e 'using JuliaFormatter; success = format(".", verbose=false, overwrite=false); success || error("Code needs formatting - run: task format")'
       - echo "✅ Code formatting is correct"
 
+  coverage:
+    desc: Run tests with coverage and generate coverage report
+    cmds:
+      - echo "📊 Running tests with coverage..."
+      - julia --project=. --code-coverage=user -e 'using Pkg; Pkg.test(test_args=["skip_quality"])'
+      - echo "📊 Processing coverage data..."
+      - julia --project=test -e 'using Pkg; Pkg.add("Coverage"); using Coverage; coverage = process_folder(); LCOV.writefile("lcov.info", coverage)'
+      - echo "✅ Coverage report generated (lcov.info)"
+
   # === DOCUMENTATION WORKFLOWS ===
   docs:
     desc: Build complete documentation including Pluto notebooks (slow)
