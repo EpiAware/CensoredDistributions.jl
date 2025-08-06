@@ -33,5 +33,6 @@ include("distributions/ExponentiallyTilted.jl")
 
 include("utils/Weighted.jl")
 include("utils/get_dist.jl")
+include("utils/quantile_optimization.jl")
 
 end
