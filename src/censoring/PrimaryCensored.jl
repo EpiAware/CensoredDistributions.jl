@@ -202,6 +202,94 @@ function Distributions.logpdf(d::PrimaryCensored, x::Real)
     end
 end
 
+#### Quantile function using numerical optimization
+
+@doc raw"
+Quantile function for PrimaryCensored distribution.
+
+Computes the quantile (inverse CDF) by numerically solving the equation:
+```math
+F(q) = p
+```
+where $F$ is the CDF of the primary censored distribution.
+
+Uses L-BFGS-B optimization to minimize $(F(q) - p)^2$ subject to $q \geq 0$.
+
+# Arguments
+- `d`: PrimaryCensored distribution
+- `p`: Probability value in [0, 1]
+
+# Returns
+The quantile value $q$ such that $P(X \leq q) = p$.
+
+# Throws
+- `ArgumentError`: If `p` is not in [0, 1]
+
+# Examples
+```julia
+using CensoredDistributions, Distributions
+
+# Create primary censored distribution
+d = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
+
+# Compute quantiles
+q25 = quantile(d, 0.25)
+q50 = quantile(d, 0.50)  # median
+q75 = quantile(d, 0.75)
+
+# Verify: should be approximately equal to p
+p_check = cdf(d, q50)  # Should be ≈ 0.50
+```
+"
+function Distributions.quantile(d::PrimaryCensored, p::Real)
+    if p < 0.0 || p > 1.0
+        throw(ArgumentError("p must be in [0, 1]"))
+    end
+
+    # Handle boundary cases
+    if p == 0.0
+        return 0.0
+    elseif p == 1.0
+        return Inf
+    end
+
+    # Objective function with penalty for q < 0 (since distribution support is [0, ∞))
+    objective = function (q, _)
+        q_val = q[1]
+        # Add penalty for negative values
+        if q_val < 0.0
+            return 1e6 + (q_val)^2
+        end
+        cdf_val = cdf(d, q_val)
+        return (cdf_val - p)^2
+    end
+
+    # Initial guess based on underlying distribution and primary event
+    # Use median of delay distribution plus mean of primary event as starting point
+    q0 = try
+        delay_median = quantile(get_dist(d), 0.5)
+        primary_mean = mean(d.primary_event)
+        [max(0.1, delay_median + primary_mean)]  # Ensure positive starting point
+    catch
+        # Fallback to fixed value if quantile/mean fails
+        [1.0]
+    end
+
+    # Set up optimization problem without bounds (use penalty instead)
+    optfun = OptimizationFunction(objective)
+    prob = OptimizationProblem(optfun, q0, nothing)
+
+    # Solve using NelderMead (derivative-free)
+    sol = solve(prob, NelderMead(); reltol = 1e-8, abstol = 1e-8, maxiters = 10000)
+
+    # Check convergence and return result
+    if sol.retcode == ReturnCode.Success || sol.retcode == ReturnCode.Default
+        return sol.u[1]
+    else
+        error("Quantile optimization failed to converge for p = $p")
+    end
+end
+
 #### Sampling
 
 function Base.rand(rng::AbstractRNG, d::PrimaryCensored)
