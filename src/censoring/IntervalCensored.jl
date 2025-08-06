@@ -370,22 +370,12 @@ function Distributions.quantile(d::IntervalCensored, p::Real)
         return maximum(d)
     end
 
-    objective = function (x, _)
-        x_val = x[1]
-        # Snap to appropriate interval boundary based on interval type
-        interval_x = if is_regular_intervals(d)
-            floor_to_interval(x_val, interval_width(d))
-        else
-            # For arbitrary intervals, find the appropriate boundary
-            find_interval_boundary(x_val, d.boundaries)
+    objective = function (q, _)
+        q_val = q[1]
+        if !insupport(d, q_val)
+            return 1e10 + (q_val - minimum(d))^2
         end
-
-        # Check support and penalize if outside
-        if !insupport(d, interval_x)
-            return 1e10 + (interval_x - minimum(d))^2  # Large penalty + distance from valid region
-        end
-
-        cdf_val = cdf(d, interval_x)
+        cdf_val = cdf(d, q_val)
         return (cdf_val - p)^2
     end
 
@@ -403,7 +393,7 @@ function Distributions.quantile(d::IntervalCensored, p::Real)
     # Check convergence and return result
     if sol.retcode == ReturnCode.Success || sol.retcode == ReturnCode.Default
         result = sol.u[1]
-        # Apply same boundary snapping as in objective function
+        # Snap result to appropriate interval boundary
         return if is_regular_intervals(d)
             floor_to_interval(result, interval_width(d))
         else
