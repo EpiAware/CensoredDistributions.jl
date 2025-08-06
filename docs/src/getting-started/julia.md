@@ -18,7 +18,7 @@ This isn't a comprehensive guide to learning Julia programming. Instead, we prov
 
 ## Julia Installation with juliaup
 
-1. **Download juliaup**: This is the official cross-platform installer/updater for Julia. Go to the [juliaup GitHub repository](https://github.com/JuliaLang/juliaup) or [install.julialang.org](https://install.julialang.org) for installation instructions.
+1. **Download juliaup**: This is the official cross-platform installer/updater for Julia. Go to the [juliaup GitHub repository](https://github.com/JuliaLang/juliaup) for installation instructions.
 
 2. **Verify Installation**: Open a terminal and type `julia` to start the Julia REPL. You should see a Julia prompt `julia>`.
 
@@ -31,7 +31,7 @@ This isn't a comprehensive guide to learning Julia programming. Instead, we prov
 **Recommended setup:**
 
 1. Install [Visual Studio Code](https://code.visualstudio.com/)
-2. Install the [Julia extension](https://marketplace.visualstudio.com/items?itemName=julialang.language-julia)
+2. Install the Julia extension from the VS Code Extensions marketplace (search for "Julia")
 
 **Key features:**
 - **Integrated REPL**: Execute code directly from editor
