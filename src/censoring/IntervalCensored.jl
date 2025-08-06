@@ -131,6 +131,18 @@ function find_interval_index(x::Real, intervals::AbstractVector)
     end
 end
 
+# Find the appropriate boundary for quantile purposes (left boundary of containing interval)
+function find_interval_boundary(x::Real, intervals::AbstractVector)
+    idx = find_interval_index(x, intervals)
+    if idx == 0
+        return intervals[1]  # First boundary
+    elseif idx >= length(intervals)
+        return intervals[end]  # Last boundary
+    else
+        return intervals[idx]  # Left boundary of containing interval
+    end
+end
+
 # Get interval bounds for a value
 function get_interval_bounds(d::IntervalCensored, x::Real)
     if is_regular_intervals(d)
@@ -353,82 +365,29 @@ function Distributions.quantile(d::IntervalCensored, p::Real)
         return maximum(d)
     end
 
-    # Determine search bounds based on interval structure
-    lower_bound,
-    upper_bound = if is_regular_intervals(d)
-        # For regular intervals, use wide bounds based on underlying distribution
-        underlying_min = minimum(get_dist(d))
-        underlying_max = maximum(get_dist(d))
-        interval_width_val = interval_width(d)
-
-        # Floor and ceiling to interval boundaries
-        lower = floor_to_interval(underlying_min, interval_width_val)
-        # Add some buffer for numerical stability
-        upper = floor_to_interval(underlying_max, interval_width_val) +
-                10 * interval_width_val
-        (lower, upper)
-    else
-        # For arbitrary intervals, use the boundary range
-        (d.boundaries[1], d.boundaries[end])
-    end
-
-    # Handle infinite bounds
-    if isinf(upper_bound)
-        # Use a reasonable upper bound based on the underlying distribution
-        try
-            # Try to get a high quantile of the underlying distribution as upper bound
-            underlying_q99 = quantile(get_dist(d), 0.999)
-            upper_bound = if is_regular_intervals(d)
-                floor_to_interval(underlying_q99, interval_width(d)) + interval_width(d)
-            else
-                # Find the interval containing this quantile
-                idx = find_interval_index(underlying_q99, d.boundaries)
-                idx < length(d.boundaries) ? d.boundaries[idx + 1] : d.boundaries[end]
-            end
-        catch
-            # Fallback to a large finite value
-            upper_bound = 1000.0
-        end
-    end
-
-    # For arbitrary intervals, we can directly search through boundaries
-    # since the CDF is a step function
-    if !is_regular_intervals(d)
-        # Find the smallest boundary value b such that cdf(d, b) >= p
-        for i in 1:length(d.boundaries)
-            if cdf(d, d.boundaries[i]) >= p
-                return d.boundaries[i]
-            end
-        end
-        # If no boundary satisfies the condition, return the last boundary
-        return d.boundaries[end]
-    end
-
-    # For regular intervals, use optimization
-    # Objective function: minimize (cdf(d, x) - p)²
+    # Unified approach: use optimization with appropriate interval snapping
+    # Objective function: minimize (cdf(d, snapped_x) - p)²
     objective = function (x, _)
         x_val = x[1]
-
-        # Add penalty for values outside bounds
-        if x_val < lower_bound || x_val > upper_bound
-            return 1e6 + (x_val - clamp(x_val, lower_bound, upper_bound))^2
+        # Snap to appropriate interval boundary based on interval type
+        interval_x = if is_regular_intervals(d)
+            floor_to_interval(x_val, interval_width(d))
+        else
+            # For arbitrary intervals, find the appropriate boundary
+            find_interval_boundary(x_val, d.boundaries)
         end
-
-        cdf_val = cdf(d, x_val)
+        cdf_val = cdf(d, interval_x)
         return (cdf_val - p)^2
     end
 
     # Initial guess based on quantile of underlying distribution
     x0 = try
         underlying_quantile = quantile(get_dist(d), p)
-        [floor_to_interval(underlying_quantile, interval_width(d))]
+        [underlying_quantile]  # No need to floor here, objective function handles it
     catch
-        # Fallback to midpoint of bounds
-        [(lower_bound + upper_bound) / 2]
+        # Fallback to reasonable starting point
+        [5.0]  # Simple fallback
     end
-
-    # Ensure initial guess is within bounds
-    x0[1] = clamp(x0[1], lower_bound, upper_bound)
 
     # Set up optimization problem
     optfun = OptimizationFunction(objective)
@@ -440,7 +399,12 @@ function Distributions.quantile(d::IntervalCensored, p::Real)
     # Check convergence and return result
     if sol.retcode == ReturnCode.Success || sol.retcode == ReturnCode.Default
         result = sol.u[1]
-        return floor_to_interval(result, interval_width(d))
+        # Apply same boundary snapping as in objective function
+        return if is_regular_intervals(d)
+            floor_to_interval(result, interval_width(d))
+        else
+            find_interval_boundary(result, d.boundaries)
+        end
     else
         error("Quantile optimization failed to converge for p = $p")
     end
