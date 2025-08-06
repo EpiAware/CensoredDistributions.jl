@@ -315,15 +315,17 @@ end
         @test cdf(pc, 5.0) ≤ 1.0
     end
 
-    # Test 2: Verify non-zero minimum support is rejected
+    # Test 2: Verify non-zero minimum support is now supported
     @testset "Non-zero minimum support check" begin
-        # Uniform delay on [2, 5] should be rejected
+        # Uniform delay on [2, 5] should now be supported
         delay_dist = Uniform(2.0, 5.0)
         primary_event = Uniform(0.0, 1.0)
 
-        # Should throw an error for non-zero minimum
-        @test_throws ArgumentError CensoredDistributions.primary_censored(
-            delay_dist, primary_event)
+        # Should successfully create primary censored distribution with non-zero minimum
+        pc = CensoredDistributions.primary_censored(delay_dist, primary_event)
+        @test typeof(pc) <: CensoredDistributions.PrimaryCensored
+        @test minimum(pc) == minimum(delay_dist)  # Should preserve minimum from delay dist
+        @test maximum(pc) == maximum(delay_dist)  # Should preserve maximum from delay dist
     end
 
     # Test 3: Edge case with small x values
