@@ -33,15 +33,17 @@ d = primary_censored(incubation, infection_window)
 # Sample observed symptom onset times
 onsets = rand(d, 1000)
 
-# Calculate CDFs and quantiles
-x = 0:0.1:10
-cdf_original = cdf.(incubation, x)
-cdf_censored = cdf.(d, x)
+# Evaluate distribution functions
+pdf_at_2 = pdf(d, 2.0)    # probability density at 2 days
+cdf_at_5 = cdf(d, 5.0)    # cumulative probability by 5 days
+ccdf_at_3 = ccdf(d, 3.0)  # survival function (1 - CDF)
 
-# Compute quantiles (median, quartiles)
-q25 = quantile(d, 0.25)
-q50 = quantile(d, 0.50)  # median
-q75 = quantile(d, 0.75)
+# Compute quantiles and summary statistics
+q10 = quantile(d, 0.1)    # 10th percentile
+q50 = quantile(d, 0.5)    # median
+q95 = quantile(d, 0.95)   # 95th percentile
+mean_onset = mean(d)      # mean onset time (if available)
+samples = rand(d, 50)     # random onset time samples
 
 # Force numerical integration (useful for testing)
 d_numeric = primary_censored(incubation, infection_window; force_numeric=true)
@@ -88,8 +90,13 @@ d2 = primary_censored(LogNormal(1.5, 0.75); primary_event=Uniform(0, 2))
 # All distributions are equivalent to the positional argument version
 d3 = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
 
-# Compute quantiles for any of these distributions
-median_delay = quantile(d1, 0.5)
+# Evaluate distribution functions and compute statistics
+pdf_value = pdf(d1, 3.0)         # probability density at 3
+cdf_value = cdf(d1, 4.0)         # P(X ≤ 4)
+median_delay = quantile(d1, 0.5)  # median
+q90 = quantile(d1, 0.9)          # 90th percentile
+mean_delay = mean(d1)            # mean (if analytically available)
+samples = rand(d1, 10)           # generate random samples
 ```
 "
 function primary_censored(
@@ -123,8 +130,6 @@ struct PrimaryCensored{
     function PrimaryCensored(
             dist::D1, primary_event::D2, method::M) where {
             D1, D2, M <: AbstractSolverMethod}
-        minimum(dist) == 0 ||
-            throw(ArgumentError("Delay distribution must have minimum of zero"))
         new{D1, D2, M}(dist, primary_event, method)
     end
 end

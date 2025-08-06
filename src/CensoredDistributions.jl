@@ -27,7 +27,7 @@ include("docstrings.jl")
 include("censoring/primarycensored_cdf.jl")
 include("censoring/PrimaryCensored.jl")
 include("censoring/IntervalCensored.jl")
-include("censoring/DoubleIntervalCensored.jl")
+include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")
 

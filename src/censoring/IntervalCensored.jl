@@ -51,7 +51,17 @@ using CensoredDistributions, Distributions
 
 # Daily reporting intervals
 d = interval_censored(Normal(5, 2), 1.0)
-rand(d, 10)  # Returns values like 4.0, 5.0, 6.0, etc.
+
+# Evaluate distribution functions
+pdf_at_5 = pdf(d, 5.0)      # probability mass at interval containing 5
+cdf_at_7 = cdf(d, 7.0)      # P(X ≤ 7) accounting for interval censoring
+ccdf_at_3 = ccdf(d, 3.0)    # survival function
+
+# Compute quantiles and statistics
+q25 = quantile(d, 0.25)     # 25th percentile (interval boundary)
+median_val = quantile(d, 0.5)  # median
+q90 = quantile(d, 0.9)      # 90th percentile
+samples = rand(d, 100)      # random samples (interval boundaries)
 
 # Weekly intervals
 d_weekly = interval_censored(Exponential(3), 7.0)
@@ -81,6 +91,13 @@ using CensoredDistributions, Distributions
 
 # Age groups: 0-18, 18-65, 65+
 age_dist = interval_censored(Normal(40, 20), [0, 18, 65, 100])
+
+# Evaluate distribution functions for arbitrary intervals
+pdf_at_25 = pdf(age_dist, 25.0)    # probability mass in interval containing 25
+cdf_at_50 = cdf(age_dist, 50.0)    # P(X ≤ 50) with interval censoring
+q75 = quantile(age_dist, 0.75)     # 75th percentile (boundary value)
+median_age = quantile(age_dist, 0.5)  # median age group
+samples = rand(age_dist, 50)       # random age group boundaries
 
 # Custom measurement bins
 measure_dist = interval_censored(Gamma(2, 3), [0.0, 0.5, 1.0, 2.5, 5.0, Inf])
