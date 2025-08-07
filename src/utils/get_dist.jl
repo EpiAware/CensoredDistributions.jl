@@ -174,7 +174,7 @@ censored_gamma = censored(gamma_base, 0.1, 5.0)
 get_dist(censored_gamma) === gamma_base  # true
 ```
 """
-function get_dist(d::Distributions.Censored)
+function get_dist(d::Censored)
     return d.uncensored
 end
 

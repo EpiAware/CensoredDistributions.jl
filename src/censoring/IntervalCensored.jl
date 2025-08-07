@@ -10,7 +10,7 @@ Supports both:
 - `intervals`: Either a scalar (regular interval width) or vector (arbitrary boundaries)
 "
 struct IntervalCensored{D <: UnivariateDistribution, T} <:
-       Distributions.UnivariateDistribution{Distributions.ValueSupport}
+       UnivariateDistribution{ValueSupport}
     "The underlying continuous distribution"
     dist::D
     "Either a scalar (regular intervals) or vector (boundaries for arbitrary intervals)"
@@ -161,7 +161,7 @@ function get_interval_bounds(d::IntervalCensored, x::Real)
 end
 
 # Distribution interface methods
-function Distributions.params(d::IntervalCensored)
+function params(d::IntervalCensored)
     if is_regular_intervals(d)
         return (params(get_dist(d))..., d.boundaries)
     else
@@ -171,7 +171,7 @@ end
 
 Base.eltype(::Type{<:IntervalCensored{D, T}}) where {D, T} = eltype(D)
 
-function Distributions.minimum(d::IntervalCensored)
+function minimum(d::IntervalCensored)
     cont_min = minimum(get_dist(d))
     if is_regular_intervals(d)
         return floor_to_interval(cont_min, interval_width(d))
@@ -182,7 +182,7 @@ function Distributions.minimum(d::IntervalCensored)
     end
 end
 
-function Distributions.maximum(d::IntervalCensored)
+function maximum(d::IntervalCensored)
     cont_max = maximum(get_dist(d))
     if is_regular_intervals(d)
         return floor_to_interval(cont_max, interval_width(d))
@@ -193,7 +193,7 @@ function Distributions.maximum(d::IntervalCensored)
     end
 end
 
-function Distributions.insupport(d::IntervalCensored, x::Real)
+function insupport(d::IntervalCensored, x::Real)
     # For interval-censored distributions, support is continuous within the underlying distribution
     # The PDF is non-zero for any x where the underlying distribution has support
     return insupport(get_dist(d), x)
@@ -201,7 +201,7 @@ end
 
 #### Probability functions
 
-function Distributions.pdf(d::IntervalCensored, x::Real)
+function pdf(d::IntervalCensored, x::Real)
     lower, upper = get_interval_bounds(d, x)
     if isnan(lower) || isnan(upper)
         return 0.0
@@ -220,7 +220,7 @@ function Distributions.pdf(d::IntervalCensored, x::Real)
     return cdf_upper - cdf_lower
 end
 
-function Distributions.logpdf(d::IntervalCensored, x::Real)
+function logpdf(d::IntervalCensored, x::Real)
     try
         # Check support first for consistency with Distributions.jl
         if !insupport(d, x)
@@ -275,19 +275,19 @@ function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
     end
 end
 
-function Distributions.cdf(d::IntervalCensored, x::Real)
+function cdf(d::IntervalCensored, x::Real)
     return _interval_cdf(d, x, cdf)
 end
 
-function Distributions.logcdf(d::IntervalCensored, x::Real)
+function logcdf(d::IntervalCensored, x::Real)
     return _interval_cdf(d, x, logcdf)
 end
 
-function Distributions.ccdf(d::IntervalCensored, x::Real)
+function ccdf(d::IntervalCensored, x::Real)
     return 1 - cdf(d, x)
 end
 
-function Distributions.logccdf(d::IntervalCensored, x::Real)
+function logccdf(d::IntervalCensored, x::Real)
     # Use log1mexp for numerical stability: log(1 - exp(logcdf))
     logcdf_val = logcdf(d, x)
 
@@ -368,7 +368,7 @@ Uses numerical optimization with the Nelder-Mead algorithm to solve `cdf(d, x) -
 The initial guess is based on the quantile of the underlying continuous distribution.
 The search is constrained to the relevant interval boundaries.
 "
-function Distributions.quantile(d::IntervalCensored, p::Real)
+function quantile(d::IntervalCensored, p::Real)
     # Post-processing function to snap result to interval boundary
     result_postprocess_fn = function (result)
         return if is_regular_intervals(d)
@@ -384,4 +384,4 @@ function Distributions.quantile(d::IntervalCensored, p::Real)
 end
 
 # Sampler method for efficient sampling
-Distributions.sampler(d::IntervalCensored) = d
+sampler(d::IntervalCensored) = d

@@ -1,5 +1,3 @@
-using Optimization: ReturnCode
-
 @doc raw"
 Internal utilities for quantile optimization shared across censored distributions.
 

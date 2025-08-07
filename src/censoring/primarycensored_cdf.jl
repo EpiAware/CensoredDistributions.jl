@@ -11,7 +11,7 @@ function _gamma_cdf_ad_safe(k::Real, θ::Real, x::Real)
     # Use the same approach as in weibull_g function
     # P(a,z) = γ(a,z)/Γ(a) = z^a/a * M(a, a+1, -z) / Γ(a)
     # For integer a, Γ(a) = (a-1)!, but we use gamma(k) for generality
-    return (z^k / k * HypergeometricFunctions.M(k, k + 1, -z)) / gamma(k)
+    return (z^k / k * M(k, k + 1, -z)) / gamma(k)
 end
 
 @doc raw"
@@ -332,7 +332,7 @@ function primarycensored_cdf(
         # γ(a,z) = z^a/a * M(a, a+1, -z) where M is the confluent hypergeometric function
         # See: https://github.com/JuliaMath/HypergeometricFunctions.jl/issues/50#issuecomment-1397363491
         # This avoids gamma_inc which causes AD issues
-        return x^a / a * HypergeometricFunctions.M(a, a + 1, -x)
+        return x^a / a * M(a, a + 1, -x)
     end
 
     # Compute g values

@@ -32,7 +32,7 @@ end
 ```
 """
 struct Weighted{D <: UnivariateDistribution, T <: Real} <:
-       Distributions.UnivariateDistribution{Distributions.ValueSupport}
+       UnivariateDistribution{ValueSupport}
     dist::D
     weight::T
 
@@ -145,10 +145,10 @@ end
 
 # Basic properties
 Base.eltype(::Type{<:Weighted{D, T}}) where {D, T} = promote_type(eltype(D), T)
-Distributions.minimum(d::Weighted) = minimum(get_dist(d))
-Distributions.maximum(d::Weighted) = maximum(get_dist(d))
-Distributions.insupport(d::Weighted, x::Real) = insupport(get_dist(d), x)
-Distributions.params(d::Weighted) = (params(get_dist(d))..., d.weight)
+minimum(d::Weighted) = minimum(get_dist(d))
+maximum(d::Weighted) = maximum(get_dist(d))
+insupport(d::Weighted, x::Real) = insupport(get_dist(d), x)
+params(d::Weighted) = (params(get_dist(d))..., d.weight)
 
 # Probability functions
 @doc raw"""
@@ -158,7 +158,7 @@ Returns the probability density/mass at `x` from the underlying distribution (un
 
 The PDF is not affected by weights as weights only apply to log-likelihood contributions.
 """
-function Distributions.pdf(d::Weighted, x::Real)
+function pdf(d::Weighted, x::Real)
     return pdf(get_dist(d), x)
 end
 
@@ -169,31 +169,31 @@ Returns the weighted log-probability at `x`. This is the key method used by Turi
 
 Returns `weight * logpdf(dist, x)`.
 """
-function Distributions.logpdf(d::Weighted, x::Real)
+function logpdf(d::Weighted, x::Real)
     # If weight is zero, return -Inf to avoid 0 * -Inf = NaN
     d.weight == 0 && return -Inf
     return d.weight * logpdf(get_dist(d), x)
 end
 
 # CDF-based methods - delegate to underlying distribution
-function Distributions.cdf(d::Weighted, x::Real)
+function cdf(d::Weighted, x::Real)
     return cdf(get_dist(d), x)
 end
 
-function Distributions.logcdf(d::Weighted, x::Real)
+function logcdf(d::Weighted, x::Real)
     return logcdf(get_dist(d), x)
 end
 
-function Distributions.ccdf(d::Weighted, x::Real)
+function ccdf(d::Weighted, x::Real)
     return ccdf(get_dist(d), x)
 end
 
-function Distributions.logccdf(d::Weighted, x::Real)
+function logccdf(d::Weighted, x::Real)
     return logccdf(get_dist(d), x)
 end
 
 # Quantile function
-function Distributions.quantile(d::Weighted, p::Real)
+function quantile(d::Weighted, p::Real)
     return quantile(get_dist(d), p)
 end
 
@@ -201,4 +201,4 @@ end
 Base.rand(rng::AbstractRNG, d::Weighted) = rand(rng, get_dist(d))
 
 # Sampler method for efficient sampling
-Distributions.sampler(d::Weighted) = Weighted(sampler(get_dist(d)), d.weight)
+sampler(d::Weighted) = Weighted(sampler(get_dist(d)), d.weight)

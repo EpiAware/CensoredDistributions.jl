@@ -119,7 +119,7 @@ Represents the distribution of observed delays when the primary event time is su
 "
 struct PrimaryCensored{
     D1 <: UnivariateDistribution, D2 <: UnivariateDistribution, M <: AbstractSolverMethod} <:
-       Distributions.UnivariateDistribution{Distributions.Continuous}
+       UnivariateDistribution{Continuous}
     "The delay distribution from primary event to observation."
     dist::D1
     "The primary event time distribution."
@@ -134,31 +134,31 @@ struct PrimaryCensored{
     end
 end
 
-function Distributions.params(d::PrimaryCensored)
+function params(d::PrimaryCensored)
     d0params = params(get_dist(d))
     d1params = params(d.primary_event)
     return (d0params..., d1params...)
 end
 
 Base.eltype(::Type{<:PrimaryCensored{D}}) where {D} = promote_type(eltype(D), eltype(D))
-Distributions.minimum(d::PrimaryCensored) = minimum(get_dist(d))
-Distributions.maximum(d::PrimaryCensored) = maximum(get_dist(d))
-Distributions.insupport(d::PrimaryCensored, x::Real) = insupport(get_dist(d), x)
+minimum(d::PrimaryCensored) = minimum(get_dist(d))
+maximum(d::PrimaryCensored) = maximum(get_dist(d))
+insupport(d::PrimaryCensored, x::Real) = insupport(get_dist(d), x)
 
-function Distributions.cdf(d::PrimaryCensored, x::Real)
+function cdf(d::PrimaryCensored, x::Real)
     primarycensored_cdf(get_dist(d), d.primary_event, x, d.method)
 end
 
-function Distributions.logcdf(d::PrimaryCensored, x::Real)
+function logcdf(d::PrimaryCensored, x::Real)
     primarycensored_logcdf(get_dist(d), d.primary_event, x, d.method)
 end
 
-function Distributions.ccdf(d::PrimaryCensored, x::Real)
+function ccdf(d::PrimaryCensored, x::Real)
     result = 1 - cdf(d, x)
     return result
 end
 
-function Distributions.logccdf(d::PrimaryCensored, x::Real)
+function logccdf(d::PrimaryCensored, x::Real)
     # Use log1mexp for numerical stability: log(1 - exp(logcdf))
     logcdf_val = logcdf(d, x)
 
@@ -173,11 +173,11 @@ function Distributions.logccdf(d::PrimaryCensored, x::Real)
 end
 
 #### PDF using numerical differentiation of CDF
-function Distributions.pdf(d::PrimaryCensored, x::Real)
+function pdf(d::PrimaryCensored, x::Real)
     return exp(logpdf(d, x))
 end
 
-function Distributions.logpdf(d::PrimaryCensored, x::Real)
+function logpdf(d::PrimaryCensored, x::Real)
     try
         if !insupport(d, x)
             return -Inf
@@ -254,7 +254,7 @@ q75 = quantile(d, 0.75)
 p_check = cdf(d, q50)  # Should be ≈ 0.50
 ```
 "
-function Distributions.quantile(d::PrimaryCensored, p::Real)
+function quantile(d::PrimaryCensored, p::Real)
     # Custom initial guess: underlying quantile + mean of primary event
     initial_guess_fn = function (d, p)
         underlying_quantile = quantile(get_dist(d), p)
@@ -272,17 +272,17 @@ function Base.rand(rng::AbstractRNG, d::PrimaryCensored)
 end
 
 function Base.rand(
-        rng::Random.AbstractRNG, d::Truncated{<:PrimaryCensored})
+        rng::AbstractRNG, d::Truncated{<:PrimaryCensored})
     d0 = d.untruncated
     lower = d.lower
     upper = d.upper
     while true
         r = rand(rng, d0)
-        if Distributions._in_closed_interval(r, lower, upper)
+        if _in_closed_interval(r, lower, upper)
             return r
         end
     end
 end
 
 # Sampler method for efficient sampling
-Distributions.sampler(d::PrimaryCensored) = d
+sampler(d::PrimaryCensored) = d
