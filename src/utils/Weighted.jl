@@ -1,5 +1,4 @@
 @doc "
-$(TYPEDEF)
 
 A distribution wrapper that applies a weight to the log-probability of an
 underlying distribution.
@@ -8,7 +7,6 @@ This is primarily used where observations have associated counts or weights.
 Only the `logpdf` method is affected by the weight - all other methods (pdf,
 cdf, sampling, etc.) delegate directly to the underlying distribution.
 
-$(TYPEDFIELDS)
 
 # Examples
 ```@example

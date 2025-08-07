@@ -1,5 +1,4 @@
 @doc "
-$(TYPEDSIGNATURES)
 
 Create a primary event censored distribution.
 
@@ -26,8 +25,10 @@ necessary for certain AD backends or when debugging.
 # Arguments
 - `dist`: The delay distribution from primary event to observation
 - `primary_event`: The distribution of primary event times within the window
+
+# Keyword Arguments
 - `solver`: Quadrature solver (default: `QuadGKJL()`)
-- `force_numeric`: Force numeric integration even when analytical available
+- `force_numeric`: Force numeric integration even when analytical available (default: `false`)
 
 This is useful for modeling:
 - Infection-to-symptom onset times when infection time is uncertain
@@ -67,7 +68,6 @@ function primary_censored(
 end
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Create a primary event censored distribution with keyword arguments.
 
@@ -95,7 +95,6 @@ function primary_censored(
 end
 
 @doc "
-$(TYPEDEF)
 
 Represents the distribution of observed delays when the primary event time is
 subject to censoring.
@@ -105,7 +104,6 @@ The `method` field determines computation strategy:
   LogNormal, Weibull with Uniform primary), falls back to numeric otherwise
 - `NumericSolver`: Always uses quadrature integration
 
-$(TYPEDFIELDS)
 
 # See also
 - [`primary_censored`](@ref): Constructor function
@@ -141,7 +139,6 @@ maximum(d::PrimaryCensored) = maximum(get_dist(d))
 insupport(d::PrimaryCensored, x::Real) = insupport(get_dist(d), x)
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the cumulative distribution function.
 
@@ -152,7 +149,6 @@ function cdf(d::PrimaryCensored, x::Real)
 end
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the log cumulative distribution function.
 
@@ -183,7 +179,6 @@ end
 
 #### PDF using numerical differentiation of CDF
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the probability density function using numerical differentiation.
 
@@ -194,7 +189,6 @@ function pdf(d::PrimaryCensored, x::Real)
 end
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the log probability density function using numerical differentiation
 of the log CDF.
@@ -244,7 +238,6 @@ end
 #### Quantile function using numerical optimization
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the quantile (inverse CDF) using numerical optimization.
 
@@ -264,7 +257,6 @@ end
 #### Sampling
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Generate a random sample by summing samples from delay and primary event
 distributions.

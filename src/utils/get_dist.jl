@@ -1,5 +1,4 @@
-@doc raw"""
-    get_dist(d)
+@doc "
 
 Extract the underlying distribution from a wrapped distribution type.
 
@@ -31,83 +30,45 @@ get_dist(pc) == delay  # true
 continuous = Normal(5, 2)
 ic = interval_censored(continuous, 1.0)
 get_dist(ic) == continuous  # true
-
-# Weighted distribution
-wd = weight(Normal(0, 1), 2.5)
-get_dist(wd) isa Normal  # true
-
-# Truncated distribution
-trunc_dist = truncated(Normal(0, 1), -2, 2)
-get_dist(trunc_dist) isa Normal  # true
-
-# Censored distribution (from Distributions.jl)
-censored_dist = censored(Normal(0, 1), -2, 2)
-get_dist(censored_dist) isa Normal  # true
-
-# Double interval censored distributions (all forms)
-# Basic case - returns PrimaryCensored
-basic_dic = double_interval_censored(LogNormal(1.5, 0.75))
-get_dist(basic_dic) isa LogNormal  # true
-
-# With truncation - returns Truncated{PrimaryCensored}
-trunc_dic = double_interval_censored(LogNormal(1.5, 0.75); upper=10)
-get_dist(trunc_dic) isa CensoredDistributions.PrimaryCensored  # true
-
-# With interval censoring - returns IntervalCensored{PrimaryCensored}
-interval_dic = double_interval_censored(LogNormal(1.5, 0.75); interval=1)
-get_dist(interval_dic) isa CensoredDistributions.PrimaryCensored  # true
-
-# Full double censoring - returns IntervalCensored{Truncated{PrimaryCensored}}
-full_dic = double_interval_censored(LogNormal(1.5, 0.75); upper=10, interval=1)
-get_dist(full_dic) isa Truncated  # true
-
-# Product distribution (returns vector of component distributions)
-pd = product_distribution([Normal(0, 1), Exponential(1)])
-components = get_dist(pd)
-length(components) == 2  # true
 ```
-"""
+"
 function get_dist(d)
     return d
 end
 
-@doc raw"""
-    get_dist(d::PrimaryCensored)
+@doc "
 
 Extract the delay distribution from a primary censored distribution.
 
 Returns the underlying delay distribution (the distribution of times from
 primary event to observation).
-"""
+"
 function get_dist(d::PrimaryCensored)
     return d.dist
 end
 
-@doc raw"""
-    get_dist(d::IntervalCensored)
+@doc "
 
 Extract the underlying continuous distribution from an interval censored
 distribution.
 
 Returns the continuous distribution that was discretised into intervals.
-"""
+"
 function get_dist(d::IntervalCensored)
     return d.dist
 end
 
-@doc raw"""
-    get_dist(d::Weighted)
+@doc "
 
 Extract the underlying distribution from a weighted distribution.
 
 Returns the base distribution before weighting was applied.
-"""
+"
 function get_dist(d::Weighted)
     return d.dist
 end
 
-@doc raw"""
-    get_dist(d::Truncated)
+@doc "
 
 Extract the untruncated distribution from a truncated distribution.
 
@@ -128,13 +89,12 @@ gamma_base = Gamma(2, 1)
 trunc_gamma = truncated(gamma_base, 0.1, 5.0)
 get_dist(trunc_gamma) === gamma_base  # true
 ```
-"""
+"
 function get_dist(d::Truncated)
     return d.untruncated
 end
 
-@doc raw"""
-    get_dist(d::Product)
+@doc "
 
 Extract the component distributions from a product distribution.
 
@@ -145,13 +105,12 @@ distributions or multiple independent observations.
 # Note
 This method has different behaviour from other `get_dist` methods as it
 returns a vector of distributions rather than a single distribution.
-"""
+"
 function get_dist(d::Product)
     return d.v
 end
 
-@doc raw"""
-    get_dist(d::Distributions.Censored)
+@doc "
 
 Extract the underlying distribution from a censored distribution.
 
@@ -173,13 +132,12 @@ gamma_base = Gamma(2, 1)
 censored_gamma = censored(gamma_base, 0.1, 5.0)
 get_dist(censored_gamma) === gamma_base  # true
 ```
-"""
+"
 function get_dist(d::Censored)
     return d.uncensored
 end
 
-@doc raw"""
-    get_dist_recursive(d)
+@doc "
 
 Recursively extract the underlying distribution from nested wrapper types.
 
@@ -239,7 +197,7 @@ get_dist_recursive(d) == d  # true
 For `Product` distributions, this function applies recursive extraction
 to each component, potentially returning mixed types of underlying
 distributions.
-"""
+"
 function get_dist_recursive(d)
     next = get_dist(d)
     # If get_dist returns the same object, we've reached the end

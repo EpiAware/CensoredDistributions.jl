@@ -14,7 +14,7 @@ function _gamma_cdf_ad_safe(k::Real, θ::Real, x::Real)
     return (z^k / k * M(k, k + 1, -z)) / gamma(k)
 end
 
-@doc raw"
+@doc "
 Abstract type for solver methods used in CDF computation.
 
 Subtypes determine whether analytical solutions are preferred or
@@ -22,7 +22,7 @@ numerical integration is forced.
 "
 abstract type AbstractSolverMethod end
 
-@doc raw"
+@doc "
 Solver that attempts analytical solutions when available, falling back to numerical integration.
 
 Stores a numerical integration solver for use when no analytical solution exists
@@ -32,7 +32,7 @@ struct AnalyticalSolver{S} <: AbstractSolverMethod
     solver::S  # Fallback solver for when no analytical solution exists
 end
 
-@doc raw"
+@doc "
 Solver that always uses numerical integration.
 
 Forces numerical computation even when analytical solutions are available,
@@ -42,7 +42,7 @@ struct NumericSolver{S} <: AbstractSolverMethod
     solver::S
 end
 
-@doc raw"
+@doc "
 Compute the CDF of a primary event censored distribution.
 
 Dispatches to either analytical or numerical implementation based on the solver method.
@@ -70,7 +70,7 @@ function primarycensored_cdf(
     error("primarycensored_cdf not implemented for method type $(typeof(method))")
 end
 
-@doc raw"
+@doc "
 Generic fallback implementation for AnalyticalSolver.
 
 When no specific analytical solution is available for a distribution pair,
@@ -93,13 +93,13 @@ function primarycensored_cdf(
     primarycensored_cdf(dist, primary_event, x, NumericSolver(method.solver))
 end
 
-@doc raw"
+@doc "
 Numerical CDF implementation for primary event censored distributions.
 
 Computes the CDF using numerical integration when no analytical solution is available.
 The integral computed is:
 ```math
-F_{S+}(x) = \int_{max(x-u_{max}, s_{min})}^{x-u_{min}} F_S(u) f_U(x-u) du
+F_{S+}(x) = \\int_{\\max(x-u_{\\max}, s_{\\min})}^{x-u_{\\min}} F_S(u) f_U(x-u) du
 ```
 where F_S is the delay distribution CDF, f_U is the primary event distribution PDF,
 u_min and u_max are the primary event bounds, and s_min is the delay minimum.
@@ -143,7 +143,8 @@ end
 # Analytical CDF implementations for specific distribution pairs
 # ============================================================================
 
-@doc raw"
+@doc "
+
 Analytical CDF for Gamma delay with Uniform primary event distribution.
 
 Implements the closed-form solution derived in Park et al. (2024) and
@@ -220,7 +221,8 @@ function primarycensored_cdf(
     return F_Splus
 end
 
-@doc raw"
+@doc "
+
 Analytical CDF for LogNormal delay with Uniform primary event distribution.
 
 Uses a parameter shift approach where the partial expectation of LogNormal(μ, σ)
@@ -291,7 +293,8 @@ function primarycensored_cdf(
     return F_Splus
 end
 
-@doc raw"
+@doc "
+
 Analytical CDF for Weibull delay with Uniform primary event distribution.
 
 Uses the lower incomplete gamma function to express the partial expectation
@@ -380,7 +383,8 @@ end
 # Log-space implementations for numerical stability
 # ============================================================================
 
-@doc raw"
+@doc "
+
 Compute the log CDF of a primary event censored distribution.
 
 Computes log(CDF) with appropriate handling for edge cases where CDF = 0.

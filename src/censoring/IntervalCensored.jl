@@ -1,5 +1,4 @@
 @doc "
-$(TYPEDEF)
 
 Interval-censored distribution where continuous values are observed only within
 intervals.
@@ -8,7 +7,6 @@ Supports both:
 - Regular intervals: fixed-width intervals (e.g., daily reporting)
 - Arbitrary intervals: custom interval boundaries
 
-$(TYPEDFIELDS)
 "
 struct IntervalCensored{D <: UnivariateDistribution, T} <:
        UnivariateDistribution{ValueSupport}
@@ -37,13 +35,16 @@ struct IntervalCensored{D <: UnivariateDistribution, T} <:
 end
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Construct an interval-censored distribution with regular intervals.
 
 Creates a distribution where observations are censored to regular intervals of
 width `interval`, starting from 0. For example, with `interval=1`, observations
 fall into [0,1), [1,2), [2,3), etc.
+
+# Arguments
+- `dist`: The underlying continuous distribution
+- `interval`: Width of regular intervals (must be positive)
 
 # Examples
 ```@example
@@ -62,13 +63,16 @@ function interval_censored(dist::UnivariateDistribution, interval::Real)
 end
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Construct an interval-censored distribution with arbitrary intervals.
 
 Creates a distribution where observations are censored to specified intervals
 defined by the boundaries. For example, with `boundaries=[0, 2, 5, 10]`,
 observations fall into [0,2), [2,5), or [5,10).
+
+# Arguments
+- `dist`: The underlying continuous distribution
+- `boundaries`: Vector of interval boundaries (must be sorted and strictly increasing, minimum length 2)
 
 # Examples
 ```@example
@@ -182,7 +186,6 @@ end
 #### Probability functions
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the probability mass for the interval containing `x`.
 
@@ -208,7 +211,6 @@ function pdf(d::IntervalCensored, x::Real)
 end
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the log probability mass for the interval containing `x`.
 
@@ -271,7 +273,6 @@ function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
 end
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the cumulative distribution function.
 
@@ -282,7 +283,6 @@ function cdf(d::IntervalCensored, x::Real)
 end
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the log cumulative distribution function.
 
@@ -313,7 +313,6 @@ end
 #### Sampling
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Generate a random sample by discretising a sample from the underlying
 distribution.
@@ -344,7 +343,6 @@ end
 #### Quantile function
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the quantile using numerical optimization.
 

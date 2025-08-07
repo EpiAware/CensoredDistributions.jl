@@ -1,5 +1,4 @@
 @doc """
-$(TYPEDEF)
 
 A continuous distribution on interval [min, max] with exponential tilting
 controlled by parameter r. This distribution generalises the uniform
@@ -30,7 +29,6 @@ When r → 0, all functions reduce to the uniform distribution on [min, max].
 - For r > 0: distribution is tilted towards higher values (increasing density)
 - For r < 0: distribution is tilted towards lower values (decreasing density)
 
-$(TYPEDFIELDS)
 """
 struct ExponentiallyTilted{T <: Real} <:
        UnivariateDistribution{Continuous}
