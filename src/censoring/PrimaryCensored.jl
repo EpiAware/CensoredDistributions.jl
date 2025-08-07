@@ -1,25 +1,17 @@
-@doc raw"
+@doc "
+$(TYPEDSIGNATURES)
+
 Create a primary event censored distribution.
 
-Models a process where a primary event occurs within a censoring window, followed by a delay.
-The primary event time is not observed directly but is known to fall within the censoring
-distribution's support. The observed time is the sum of the primary event time and the delay.
+Models a process where a primary event occurs within a censoring window,
+followed by a delay. The primary event time is not observed directly but is
+known to fall within the censoring distribution's support. The observed time is
+the sum of the primary event time and the delay.
 
 This is useful for modeling:
 - Infection-to-symptom onset times when infection time is uncertain
 - Exposure-to-outcome delays with uncertain exposure timing
 - Any process where the initiating event time has uncertainty
-
-# Arguments
-- `dist`: Distribution of the delay from primary event to observation
-- `primary_event`: Distribution of the primary event time (typically Uniform(0, window))
-
-# Keyword Arguments
-- `solver=QuadGKJL()`: Numerical integration solver for CDF computation
-- `force_numeric=false`: If true, always use numerical integration; if false, use analytical solutions when available
-
-# Returns
-A `PrimaryCensored` distribution representing the convolution of the censoring and delay distributions.
 
 # Examples
 ```@example
@@ -30,23 +22,10 @@ incubation = LogNormal(1.5, 0.75)  # Delay distribution
 infection_window = Uniform(0, 1)    # Daily infection window
 d = primary_censored(incubation, infection_window)
 
-# Sample observed symptom onset times
-onsets = rand(d, 1000)
-
 # Evaluate distribution functions
 pdf_at_2 = pdf(d, 2.0)    # probability density at 2 days
 cdf_at_5 = cdf(d, 5.0)    # cumulative probability by 5 days
-ccdf_at_3 = ccdf(d, 3.0)  # survival function (1 - CDF)
-
-# Compute quantiles and summary statistics
-q10 = quantile(d, 0.1)    # 10th percentile
 q50 = quantile(d, 0.5)    # median
-q95 = quantile(d, 0.95)   # 95th percentile
-mean_onset = mean(d)      # mean onset time (if available)
-samples = rand(d, 50)     # random onset time samples
-
-# Force numerical integration (useful for testing)
-d_numeric = primary_censored(incubation, infection_window; force_numeric=true)
 ```
 "
 function primary_censored(
@@ -60,22 +39,14 @@ function primary_censored(
     return PrimaryCensored(dist, primary_event, method)
 end
 
-@doc raw"
+@doc "
+$(TYPEDSIGNATURES)
+
 Create a primary event censored distribution with keyword arguments.
 
-This is a convenience version of `primary_censored` that uses keyword arguments for consistency
-with `double_interval_censored`. The primary event distribution defaults to `Uniform(0, 1)`.
-
-# Arguments
-- `dist`: Distribution of the delay from primary event to observation
-
-# Keyword Arguments
-- `primary_event=Uniform(0, 1)`: Distribution of the primary event time
-- `solver=QuadGKJL()`: Numerical integration solver for CDF computation
-- `force_numeric=false`: If true, always use numerical integration; if false, use analytical solutions when available
-
-# Returns
-A `PrimaryCensored` distribution representing the convolution of the censoring and delay distributions.
+This is a convenience version of `primary_censored` that uses keyword arguments
+for consistency with `double_interval_censored`. The primary event distribution
+defaults to `Uniform(0, 1)`.
 
 # Examples
 ```@example
@@ -86,17 +57,6 @@ d1 = primary_censored(LogNormal(1.5, 0.75))
 
 # Custom primary event distribution
 d2 = primary_censored(LogNormal(1.5, 0.75); primary_event=Uniform(0, 2))
-
-# All distributions are equivalent to the positional argument version
-d3 = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
-
-# Evaluate distribution functions and compute statistics
-pdf_value = pdf(d1, 3.0)         # probability density at 3
-cdf_value = cdf(d1, 4.0)         # P(X ≤ 4)
-median_delay = quantile(d1, 0.5)  # median
-q90 = quantile(d1, 0.9)          # 90th percentile
-mean_delay = mean(d1)            # mean (if analytically available)
-samples = rand(d1, 10)           # generate random samples
 ```
 "
 function primary_censored(
@@ -107,18 +67,17 @@ function primary_censored(
         dist, primary_event; solver = solver, force_numeric = force_numeric)
 end
 
-@doc raw"
-Primary event censored distribution.
+@doc "
+$(TYPEDEF)
 
-Represents the distribution of observed delays when the primary event time is subject to censoring.
+Represents the distribution of observed delays when the primary event time is
+subject to censoring.
 
-# Fields
-- `dist`: Distribution of the delay from primary event to observation
-- `primary_event`: Distribution of the primary event time
-- `method`: Solver method for CDF computation (analytical or numeric)
+$(TYPEDFIELDS)
 "
 struct PrimaryCensored{
-    D1 <: UnivariateDistribution, D2 <: UnivariateDistribution, M <: AbstractSolverMethod} <:
+    D1 <: UnivariateDistribution, D2 <: UnivariateDistribution,
+    M <: AbstractSolverMethod} <:
        UnivariateDistribution{Continuous}
     "The delay distribution from primary event to observation."
     dist::D1
@@ -145,10 +104,24 @@ minimum(d::PrimaryCensored) = minimum(get_dist(d))
 maximum(d::PrimaryCensored) = maximum(get_dist(d))
 insupport(d::PrimaryCensored, x::Real) = insupport(get_dist(d), x)
 
+@doc "
+$(TYPEDSIGNATURES)
+
+Compute the cumulative distribution function.
+
+See also: [`logcdf`](@ref)
+"
 function cdf(d::PrimaryCensored, x::Real)
     primarycensored_cdf(get_dist(d), d.primary_event, x, d.method)
 end
 
+@doc "
+$(TYPEDSIGNATURES)
+
+Compute the log cumulative distribution function.
+
+See also: [`cdf`](@ref)
+"
 function logcdf(d::PrimaryCensored, x::Real)
     primarycensored_logcdf(get_dist(d), d.primary_event, x, d.method)
 end
@@ -173,10 +146,25 @@ function logccdf(d::PrimaryCensored, x::Real)
 end
 
 #### PDF using numerical differentiation of CDF
+@doc "
+$(TYPEDSIGNATURES)
+
+Compute the probability density function using numerical differentiation.
+
+See also: [`logpdf`](@ref)
+"
 function pdf(d::PrimaryCensored, x::Real)
     return exp(logpdf(d, x))
 end
 
+@doc "
+$(TYPEDSIGNATURES)
+
+Compute the log probability density function using numerical differentiation
+of the log CDF.
+
+See also: [`pdf`](@ref), [`logcdf`](@ref)
+"
 function logpdf(d::PrimaryCensored, x::Real)
     try
         if !insupport(d, x)
@@ -203,10 +191,12 @@ function logpdf(d::PrimaryCensored, x::Real)
             # Central difference for interior points
             logcdf_upper = logcdf(d, x_upper)
             logcdf_lower = logcdf(d, x_lower)
-            return logsubexp(logcdf_upper, logcdf_lower) - log(x_upper - x_lower)
+            return logsubexp(logcdf_upper, logcdf_lower) -
+                   log(x_upper - x_lower)
         end
     catch e
-        # If numerical differentiation fails (e.g., domain error in logsubexp), return -Inf
+        # If numerical differentiation fails (e.g., domain error in logsubexp),
+        # return -Inf
         if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
             return -Inf
         else
@@ -217,42 +207,12 @@ end
 
 #### Quantile function using numerical optimization
 
-@doc raw"
-Quantile function for PrimaryCensored distribution.
+@doc "
+$(TYPEDSIGNATURES)
 
-Computes the quantile (inverse CDF) by numerically solving the equation:
-```math
-F(q) = p
-```
-where $F$ is the CDF of the primary censored distribution.
+Compute the quantile (inverse CDF) using numerical optimization.
 
-Uses L-BFGS-B optimization to minimize $(F(q) - p)^2$.
-
-# Arguments
-- `d`: PrimaryCensored distribution
-- `p`: Probability value in [0, 1]
-
-# Returns
-The quantile value $q$ such that $P(X \leq q) = p$.
-
-# Throws
-- `ArgumentError`: If `p` is not in [0, 1]
-
-# Examples
-```julia
-using CensoredDistributions, Distributions
-
-# Create primary censored distribution
-d = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
-
-# Compute quantiles
-q25 = quantile(d, 0.25)
-q50 = quantile(d, 0.50)  # median
-q75 = quantile(d, 0.75)
-
-# Verify: should be approximately equal to p
-p_check = cdf(d, q50)  # Should be ≈ 0.50
-```
+See also: [`cdf`](@ref)
 "
 function quantile(d::PrimaryCensored, p::Real)
     # Custom initial guess: underlying quantile + mean of primary event
@@ -267,6 +227,14 @@ end
 
 #### Sampling
 
+@doc "
+$(TYPEDSIGNATURES)
+
+Generate a random sample by summing samples from delay and primary event
+distributions.
+
+See also: [`quantile`](@ref)
+"
 function Base.rand(rng::AbstractRNG, d::PrimaryCensored)
     rand(rng, get_dist(d)) + rand(rng, d.primary_event)
 end

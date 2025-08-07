@@ -1,15 +1,14 @@
-@doc raw"""
-    Weighted{D <: UnivariateDistribution, T <: Real} <: UnivariateDistribution{ValueSupport}
+@doc "
+$(TYPEDEF)
 
-A distribution wrapper that applies a weight to the log-probability of an underlying distribution.
+A distribution wrapper that applies a weight to the log-probability of an
+underlying distribution.
 This is primarily used where observations have associated counts or weights.
 
-Only the `logpdf` method is affected by the weight - all other methods (pdf, cdf, sampling, etc.)
-delegate directly to the underlying distribution.
+Only the `logpdf` method is affected by the weight - all other methods (pdf,
+cdf, sampling, etc.) delegate directly to the underlying distribution.
 
-# Fields
-- `dist::D`: The underlying distribution
-- `weight::T`: The weight factor (must be non-negative)
+$(TYPEDFIELDS)
 
 # Examples
 ```@example
@@ -30,30 +29,26 @@ wd = weight(d, 10.0)  # Observation with weight/count of 10
     y ~ weight(d, n)
 end
 ```
-"""
+"
 struct Weighted{D <: UnivariateDistribution, T <: Real} <:
        UnivariateDistribution{ValueSupport}
     dist::D
     weight::T
 
-    function Weighted(dist::D, weight::T) where {D <: UnivariateDistribution, T <: Real}
+    function Weighted(
+            dist::D, weight::T) where {D <: UnivariateDistribution, T <: Real}
         weight >= 0 || throw(ArgumentError("Weight must be non-negative"))
         new{D, T}(dist, weight)
     end
 end
 
-@doc raw"""
-    weight(dist::UnivariateDistribution, w::Real)
+@doc "
+$(TYPEDSIGNATURES)
 
 Create a weighted distribution where the log-probability is scaled by `w`.
 
-# Arguments
-- `dist`: The underlying distribution
-- `w`: The weight factor (must be non-negative)
-
-# Returns
-A `Weight` distribution that when used in Turing.jl will contribute `w * logpdf(dist, x)` to the
-log-probability.
+A `Weighted` distribution that when used in Turing.jl will contribute
+`w * logpdf(dist, x)` to the log-probability.
 
 # Examples
 ```@example
@@ -69,23 +64,20 @@ n_count = 25  # Number of times this value was observed
     y_obs ~ weight(d, n_count)
 end
 ```
-"""
+"
 function weight(dist::UnivariateDistribution, w::Real)
     return Weighted(dist, w)
 end
 
 # For creating an array of weighted distributions with different weights
-@doc raw"""
-    weight(dist::UnivariateDistribution, weights::AbstractVector{<:Real})
+@doc "
+$(TYPEDSIGNATURES)
 
-Create a product distribution of weighted distributions, each with a different weight.
+Create a product distribution of weighted distributions, each with a different
+weight.
 
-# Arguments
-- `dist`: The underlying distribution (same for all)
-- `weights`: Vector of weights for each observation
-
-# Returns
-A `Product` distribution of `Weighted` distributions suitable for vectorized observations.
+A `Product` distribution of `Weighted` distributions suitable for vectorized
+observations.
 
 # Examples
 ```@example
@@ -100,45 +92,41 @@ n_counts = [25, 10, 15]  # Counts for each observation
     y_obs ~ weight(d, n_counts)
 end
 ```
-"""
+"
 function weight(dist::UnivariateDistribution, weights::AbstractVector{<:Real})
     return product_distribution([Weighted(dist, w) for w in weights])
 end
 
 # For creating weighted distributions from a vector of distributions and weights
-@doc raw"""
-    weight(dists::AbstractVector{<:UnivariateDistribution}, weights::AbstractVector{<:Real})
+@doc "
+$(TYPEDSIGNATURES)
 
-Create a product distribution of weighted distributions, where each distribution has its own weight.
+Create a product distribution of weighted distributions, where each
+distribution has its own weight.
 
-# Arguments
-- `dists`: Vector of underlying distributions
-- `weights`: Vector of weights, one for each distribution
-
-# Returns
-A `Product` distribution of `Weighted` distributions suitable for vectorized observations with different distributions.
+A `Product` distribution of `Weighted` distributions suitable for vectorized
+observations with different distributions.
 
 # Examples
 ```@example
 using CensoredDistributions, Distributions
 
 y_obs = [3.5, 4.2, 3.8]  # Observed values
-μ_values = [2.0, 2.5, 1.8]  # Different means
-σ_values = [0.5, 0.8, 0.6]  # Different standard deviations
+dists = [Normal(2.0, 0.5), Normal(2.5, 0.8), Normal(1.8, 0.6)]
 n_counts = [25, 10, 15]  # Counts for each observation
-
-dists = [Normal(μ, σ) for (μ, σ) in zip(μ_values, σ_values)]
 weighted_dists = weight(dists, n_counts)
-
-# Calculate weighted log-likelihood
-total_loglik = sum(logpdf(weighted_dists, y_obs))
 ```
-"""
+"
 function weight(
-        dists::AbstractVector{<:UnivariateDistribution}, weights::AbstractVector{<:Real})
+        dists::AbstractVector{<:UnivariateDistribution},
+        weights::AbstractVector{<:Real})
     length(dists) == length(weights) ||
-        throw(ArgumentError("Number of distributions must equal number of weights"))
-    return product_distribution([Weighted(d, w) for (d, w) in zip(dists, weights)])
+        throw(
+            ArgumentError("Number of distributions must equal number of weights")
+        )
+    return product_distribution(
+        [Weighted(d, w) for (d, w) in zip(dists, weights)]
+    )
 end
 
 # Distributions.jl interface implementation
@@ -151,24 +139,24 @@ insupport(d::Weighted, x::Real) = insupport(get_dist(d), x)
 params(d::Weighted) = (params(get_dist(d))..., d.weight)
 
 # Probability functions
-@doc raw"""
-    pdf(d::Weight, x::Real)
+@doc "
+$(TYPEDSIGNATURES)
 
-Returns the probability density/mass at `x` from the underlying distribution (unweighted).
+Return the probability density from the underlying distribution (unweighted).
 
-The PDF is not affected by weights as weights only apply to log-likelihood contributions.
-"""
+See also: [`logpdf`](@ref)
+"
 function pdf(d::Weighted, x::Real)
     return pdf(get_dist(d), x)
 end
 
-@doc raw"""
-    logpdf(d::Weight, x::Real)
+@doc "
+$(TYPEDSIGNATURES)
 
-Returns the weighted log-probability at `x`. This is the key method used by Turing.jl.
+Return the weighted log-probability: `weight * logpdf(dist, x)`.
 
-Returns `weight * logpdf(dist, x)`.
-"""
+See also: [`pdf`](@ref)
+"
 function logpdf(d::Weighted, x::Real)
     # If weight is zero, return -Inf to avoid 0 * -Inf = NaN
     d.weight == 0 && return -Inf
@@ -176,6 +164,14 @@ function logpdf(d::Weighted, x::Real)
 end
 
 # CDF-based methods - delegate to underlying distribution
+@doc "
+$(TYPEDSIGNATURES)
+
+Compute the cumulative distribution function (delegates to underlying
+distribution).
+
+See also: [`logcdf`](@ref)
+"
 function cdf(d::Weighted, x::Real)
     return cdf(get_dist(d), x)
 end
@@ -193,11 +189,25 @@ function logccdf(d::Weighted, x::Real)
 end
 
 # Quantile function
+@doc "
+$(TYPEDSIGNATURES)
+
+Compute the quantile function (delegates to underlying distribution).
+
+See also: [`cdf`](@ref)
+"
 function quantile(d::Weighted, p::Real)
     return quantile(get_dist(d), p)
 end
 
 # Sampling - delegates to underlying distribution
+@doc "
+$(TYPEDSIGNATURES)
+
+Generate a random sample (delegates to underlying distribution).
+
+See also: [`quantile`](@ref)
+"
 Base.rand(rng::AbstractRNG, d::Weighted) = rand(rng, get_dist(d))
 
 # Sampler method for efficient sampling

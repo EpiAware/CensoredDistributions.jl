@@ -1,13 +1,14 @@
-@doc raw"
-Interval-censored distribution where continuous values are observed only within intervals.
+@doc "
+$(TYPEDEF)
+
+Interval-censored distribution where continuous values are observed only within
+intervals.
 
 Supports both:
 - Regular intervals: fixed-width intervals (e.g., daily reporting)
 - Arbitrary intervals: custom interval boundaries
 
-# Fields
-- `dist`: The underlying continuous distribution
-- `intervals`: Either a scalar (regular interval width) or vector (arbitrary boundaries)
+$(TYPEDFIELDS)
 "
 struct IntervalCensored{D <: UnivariateDistribution, T} <:
        UnivariateDistribution{ValueSupport}
@@ -24,26 +25,25 @@ struct IntervalCensored{D <: UnivariateDistribution, T} <:
     function IntervalCensored(dist::D, boundaries::AbstractVector{<:Real}) where {D}
         length(boundaries) >= 2 ||
             throw(ArgumentError("Must provide at least 2 interval boundaries"))
-        issorted(boundaries) || throw(ArgumentError("Interval boundaries must be sorted"))
+        issorted(boundaries) ||
+            throw(ArgumentError("Interval boundaries must be sorted"))
         all(diff(boundaries) .> 0) ||
-            throw(ArgumentError("Interval boundaries must be strictly increasing"))
+            throw(
+                ArgumentError("Interval boundaries must be strictly increasing")
+            )
 
         new{D, typeof(boundaries)}(dist, boundaries)
     end
 end
 
-@doc raw"
+@doc "
+$(TYPEDSIGNATURES)
+
 Construct an interval-censored distribution with regular intervals.
 
-Creates a distribution where observations are censored to regular intervals of width `interval`,
-starting from 0. For example, with `interval=1`, observations fall into [0,1), [1,2), [2,3), etc.
-
-# Arguments
-- `dist`: The underlying continuous distribution
-- `interval`: The width of regular intervals
-
-# Returns
-An `IntervalCensored` distribution
+Creates a distribution where observations are censored to regular intervals of
+width `interval`, starting from 0. For example, with `interval=1`, observations
+fall into [0,1), [1,2), [2,3), etc.
 
 # Examples
 ```@example
@@ -54,36 +54,21 @@ d = interval_censored(Normal(5, 2), 1.0)
 
 # Evaluate distribution functions
 pdf_at_5 = pdf(d, 5.0)      # probability mass at interval containing 5
-cdf_at_7 = cdf(d, 7.0)      # P(X ≤ 7) accounting for interval censoring
-ccdf_at_3 = ccdf(d, 3.0)    # survival function
-
-# Compute quantiles and statistics
 q25 = quantile(d, 0.25)     # 25th percentile (interval boundary)
-median_val = quantile(d, 0.5)  # median
-q90 = quantile(d, 0.9)      # 90th percentile
-samples = rand(d, 100)      # random samples (interval boundaries)
-
-# Weekly intervals
-d_weekly = interval_censored(Exponential(3), 7.0)
 ```
 "
 function interval_censored(dist::UnivariateDistribution, interval::Real)
     return IntervalCensored(dist, interval)
 end
 
-@doc raw"
+@doc "
+$(TYPEDSIGNATURES)
+
 Construct an interval-censored distribution with arbitrary intervals.
 
-Creates a distribution where observations are censored to specified intervals defined by
-the boundaries. For example, with `boundaries=[0, 2, 5, 10]`, observations fall into
-[0,2), [2,5), or [5,10).
-
-# Arguments
-- `dist`: The underlying continuous distribution
-- `boundaries`: Vector of interval boundaries (must be sorted and strictly increasing)
-
-# Returns
-An `IntervalCensored` distribution
+Creates a distribution where observations are censored to specified intervals
+defined by the boundaries. For example, with `boundaries=[0, 2, 5, 10]`,
+observations fall into [0,2), [2,5), or [5,10).
 
 # Examples
 ```@example
@@ -91,19 +76,11 @@ using CensoredDistributions, Distributions
 
 # Age groups: 0-18, 18-65, 65+
 age_dist = interval_censored(Normal(40, 20), [0, 18, 65, 100])
-
-# Evaluate distribution functions for arbitrary intervals
-pdf_at_25 = pdf(age_dist, 25.0)    # probability mass in interval containing 25
-cdf_at_50 = cdf(age_dist, 50.0)    # P(X ≤ 50) with interval censoring
 q75 = quantile(age_dist, 0.75)     # 75th percentile (boundary value)
-median_age = quantile(age_dist, 0.5)  # median age group
-samples = rand(age_dist, 50)       # random age group boundaries
-
-# Custom measurement bins
-measure_dist = interval_censored(Gamma(2, 3), [0.0, 0.5, 1.0, 2.5, 5.0, Inf])
 ```
 "
-function interval_censored(dist::UnivariateDistribution, boundaries::AbstractVector{<:Real})
+function interval_censored(
+        dist::UnivariateDistribution, boundaries::AbstractVector{<:Real})
     return IntervalCensored(dist, boundaries)
 end
 
@@ -131,7 +108,8 @@ function find_interval_index(x::Real, intervals::AbstractVector)
     end
 end
 
-# Find the appropriate boundary for quantile purposes (left boundary of containing interval)
+# Find the appropriate boundary for quantile purposes (left boundary of
+# containing interval)
 function find_interval_boundary(x::Real, intervals::AbstractVector)
     idx = find_interval_index(x, intervals)
     if idx == 0
@@ -189,18 +167,27 @@ function maximum(d::IntervalCensored)
     else
         # Find last interval that could contain values
         idx = find_interval_index(cont_max, d.boundaries)
-        return idx < length(d.boundaries) ? d.boundaries[idx] : d.boundaries[end - 1]
+        return idx < length(d.boundaries) ? d.boundaries[idx] :
+               d.boundaries[end - 1]
     end
 end
 
 function insupport(d::IntervalCensored, x::Real)
-    # For interval-censored distributions, support is continuous within the underlying distribution
-    # The PDF is non-zero for any x where the underlying distribution has support
+    # For interval-censored distributions, support is continuous within the
+    # underlying distribution. The PDF is non-zero for any x where the underlying
+    # distribution has support
     return insupport(get_dist(d), x)
 end
 
 #### Probability functions
 
+@doc "
+$(TYPEDSIGNATURES)
+
+Compute the probability mass for the interval containing `x`.
+
+See also: [`logpdf`](@ref), [`cdf`](@ref)
+"
 function pdf(d::IntervalCensored, x::Real)
     lower, upper = get_interval_bounds(d, x)
     if isnan(lower) || isnan(upper)
@@ -220,6 +207,13 @@ function pdf(d::IntervalCensored, x::Real)
     return cdf_upper - cdf_lower
 end
 
+@doc "
+$(TYPEDSIGNATURES)
+
+Compute the log probability mass for the interval containing `x`.
+
+See also: [`pdf`](@ref), [`logcdf`](@ref)
+"
 function logpdf(d::IntervalCensored, x::Real)
     try
         # Check support first for consistency with Distributions.jl
@@ -256,7 +250,8 @@ function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
             discretised_x = floor_to_interval(x, interval_width(d))
             return f(get_dist(d), discretised_x)
         else
-            # For arbitrary intervals, use the lower bound of the containing interval
+            # For arbitrary intervals, use the lower bound of the containing
+            # interval
             idx = find_interval_index(x, d.boundaries)
             if idx == 0
                 return f === logcdf ? -Inf : 0.0
@@ -275,10 +270,24 @@ function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
     end
 end
 
+@doc "
+$(TYPEDSIGNATURES)
+
+Compute the cumulative distribution function.
+
+See also: [`logcdf`](@ref)
+"
 function cdf(d::IntervalCensored, x::Real)
     return _interval_cdf(d, x, cdf)
 end
 
+@doc "
+$(TYPEDSIGNATURES)
+
+Compute the log cumulative distribution function.
+
+See also: [`cdf`](@ref)
+"
 function logcdf(d::IntervalCensored, x::Real)
     return _interval_cdf(d, x, logcdf)
 end
@@ -303,6 +312,14 @@ end
 
 #### Sampling
 
+@doc "
+$(TYPEDSIGNATURES)
+
+Generate a random sample by discretising a sample from the underlying
+distribution.
+
+See also: [`quantile`](@ref)
+"
 function Base.rand(rng::AbstractRNG, d::IntervalCensored)
     # Sample once from the underlying distribution
     x = rand(rng, get_dist(d))
@@ -314,7 +331,8 @@ function Base.rand(rng::AbstractRNG, d::IntervalCensored)
         # Find which arbitrary interval contains x
         idx = find_interval_index(x, d.boundaries)
         if idx == 0 || idx >= length(d.boundaries)
-            # Outside intervals - this shouldn't happen if dist is properly bounded
+            # Outside intervals - this shouldn't happen if dist is properly
+            # bounded
             # Return closest boundary
             return idx == 0 ? d.boundaries[1] : d.boundaries[end]
         else
@@ -325,48 +343,16 @@ end
 
 #### Quantile function
 
-@doc raw"
-Compute the quantile of an interval-censored distribution.
+@doc "
+$(TYPEDSIGNATURES)
 
-For interval-censored distributions, the quantile function returns the value `x` such that
-`P(X ≤ x) = p`, where `X` follows the interval-censored distribution. Due to the discrete
-nature of interval censoring, this is computed numerically by solving the equation
-`cdf(d, x) = p` using optimization.
+Compute the quantile using numerical optimization.
 
 The returned quantile respects the interval structure:
 - For regular intervals: quantiles are multiples of the interval width
 - For arbitrary intervals: quantiles correspond to interval boundary values
 
-# Arguments
-- `d::IntervalCensored`: The interval-censored distribution
-- `p::Real`: The probability level (must be in [0, 1])
-
-# Returns
-The quantile value `x` such that `P(X ≤ x) = p`
-
-# Throws
-- `ArgumentError`: If `p` is not in [0, 1]
-- `ErrorException`: If the optimization fails to converge
-
-# Examples
-```@example
-using CensoredDistributions, Distributions
-
-# Regular intervals with daily censoring
-d = interval_censored(Normal(5, 2), 1.0)
-q25 = quantile(d, 0.25)  # 25th percentile
-q50 = quantile(d, 0.50)  # Median
-q75 = quantile(d, 0.75)  # 75th percentile
-
-# Arbitrary intervals (age groups)
-age_dist = interval_censored(Normal(40, 20), [0, 18, 65, 100])
-median_age = quantile(age_dist, 0.5)  # Median age group boundary
-```
-
-# Implementation Notes
-Uses numerical optimization with the Nelder-Mead algorithm to solve `cdf(d, x) - p = 0`.
-The initial guess is based on the quantile of the underlying continuous distribution.
-The search is constrained to the relevant interval boundaries.
+See also: [`cdf`](@ref)
 "
 function quantile(d::IntervalCensored, p::Real)
     # Post-processing function to snap result to interval boundary
