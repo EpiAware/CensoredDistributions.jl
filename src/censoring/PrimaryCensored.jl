@@ -8,6 +8,27 @@ followed by a delay. The primary event time is not observed directly but is
 known to fall within the censoring distribution's support. The observed time is
 the sum of the primary event time and the delay.
 
+# Method Selection
+
+The CDF computation is handled by `primarycensored_cdf` which automatically
+dispatches between:
+- **Analytical methods**: Available for these distribution pairs with Uniform
+  primary events when `force_numeric=false`:
+  - `Gamma` delay distribution
+  - `LogNormal` delay distribution
+  - `Weibull` delay distribution
+- **Numeric integration**: Falls back to quadrature for all other distribution
+  pairs or when `force_numeric=true`
+
+Set `force_numeric=true` to always use numeric integration, which may be
+necessary for certain AD backends or when debugging.
+
+# Arguments
+- `dist`: The delay distribution from primary event to observation
+- `primary_event`: The distribution of primary event times within the window
+- `solver`: Quadrature solver (default: `QuadGKJL()`)
+- `force_numeric`: Force numeric integration even when analytical available
+
 This is useful for modeling:
 - Infection-to-symptom onset times when infection time is uncertain
 - Exposure-to-outcome delays with uncertain exposure timing
@@ -26,7 +47,13 @@ d = primary_censored(incubation, infection_window)
 pdf_at_2 = pdf(d, 2.0)    # probability density at 2 days
 cdf_at_5 = cdf(d, 5.0)    # cumulative probability by 5 days
 q50 = quantile(d, 0.5)    # median
+
+# Force numeric integration for debugging or AD compatibility
+d_numeric = primary_censored(incubation, infection_window; force_numeric=true)
 ```
+
+# See also
+- [`primarycensored_cdf`](@ref): The underlying CDF computation with method dispatch
 "
 function primary_censored(
         dist::UnivariateDistribution, primary_event::UnivariateDistribution;
@@ -73,7 +100,16 @@ $(TYPEDEF)
 Represents the distribution of observed delays when the primary event time is
 subject to censoring.
 
+The `method` field determines computation strategy:
+- `AnalyticalSolver`: Uses closed-form solutions when available (Gamma,
+  LogNormal, Weibull with Uniform primary), falls back to numeric otherwise
+- `NumericSolver`: Always uses quadrature integration
+
 $(TYPEDFIELDS)
+
+# See also
+- [`primary_censored`](@ref): Constructor function
+- [`primarycensored_cdf`](@ref): CDF computation with method dispatch
 "
 struct PrimaryCensored{
     D1 <: UnivariateDistribution, D2 <: UnivariateDistribution,
