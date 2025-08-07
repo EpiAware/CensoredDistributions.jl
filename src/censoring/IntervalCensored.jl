@@ -206,56 +206,71 @@ function Distributions.pdf(d::IntervalCensored, x::Real)
     if isnan(lower) || isnan(upper)
         return 0.0
     end
-    return cdf(get_dist(d), upper) - cdf(get_dist(d), lower)
+
+    # Handle boundary cases for distributions with bounded support
+    dist_min = minimum(get_dist(d))
+    dist_max = maximum(get_dist(d))
+
+    # For lower bound at or below distribution minimum, CDF is 0
+    cdf_lower = lower <= dist_min ? 0.0 : cdf(get_dist(d), lower)
+
+    # For upper bound at or above distribution maximum, CDF is 1
+    cdf_upper = upper >= dist_max ? 1.0 : cdf(get_dist(d), upper)
+
+    return cdf_upper - cdf_lower
 end
 
 function Distributions.logpdf(d::IntervalCensored, x::Real)
-    # Check support first for type stability
-    if !insupport(d, x)
-        return -Inf
+    try
+        # Check support first for consistency with Distributions.jl
+        if !insupport(d, x)
+            return -Inf
+        end
+
+        pdf_val = pdf(d, x)
+        if pdf_val <= 0.0
+            return -Inf
+        end
+        return log(pdf_val)
+    catch e
+        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
+            return -Inf
+        else
+            rethrow(e)
+        end
     end
-
-    lower, upper = get_interval_bounds(d, x)
-    if isnan(lower) || isnan(upper)
-        return -Inf
-    end
-
-    # Compute log(P(lower < X <= upper)) = log(F(upper) - F(lower))
-    # Use numerical stability approach that's AD-friendly
-    cdf_upper = cdf(get_dist(d), upper)
-    cdf_lower = cdf(get_dist(d), lower)
-    pdf_mass = cdf_upper - cdf_lower
-
-    # Handle edge cases
-    if pdf_mass <= 0.0
-        return -Inf
-    end
-
-    return log(pdf_mass)
 end
 
 # Internal function for efficient cdf/logcdf computation
 function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
-    # Handle edge cases first
-    if x < minimum(get_dist(d))
-        return f === logcdf ? -Inf : 0.0
-    elseif x >= maximum(get_dist(d))
-        return f === logcdf ? 0.0 : 1.0
-    end
-
-    if is_regular_intervals(d)
-        # For regular intervals, use floor behavior from Discretised
-        discretised_x = floor_to_interval(x, interval_width(d))
-        return f(get_dist(d), discretised_x)
-    else
-        # For arbitrary intervals, use the lower bound of the containing interval
-        idx = find_interval_index(x, d.boundaries)
-        if idx == 0
+    try
+        # Handle edge cases first
+        if x < minimum(get_dist(d))
             return f === logcdf ? -Inf : 0.0
-        elseif idx >= length(d.boundaries)
-            return f(get_dist(d), d.boundaries[end])
+        elseif x >= maximum(get_dist(d))
+            return f === logcdf ? 0.0 : 1.0
+        end
+
+        if is_regular_intervals(d)
+            # For regular intervals, use floor behavior from Discretised
+            discretised_x = floor_to_interval(x, interval_width(d))
+            return f(get_dist(d), discretised_x)
         else
-            return f(get_dist(d), d.boundaries[idx])
+            # For arbitrary intervals, use the lower bound of the containing interval
+            idx = find_interval_index(x, d.boundaries)
+            if idx == 0
+                return f === logcdf ? -Inf : 0.0
+            elseif idx >= length(d.boundaries)
+                return f(get_dist(d), d.boundaries[end])
+            else
+                return f(get_dist(d), d.boundaries[idx])
+            end
+        end
+    catch e
+        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
+            return f === logcdf ? -Inf : 0.0
+        else
+            rethrow(e)
         end
     end
 end

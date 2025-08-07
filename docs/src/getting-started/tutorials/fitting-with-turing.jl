@@ -368,8 +368,7 @@ a comparison point between the naive model and the full model.
 @model function interval_only_model(y, n, sws, Ds)
     dist ~ to_submodel(latent_delay_dist())
     icens_dists = map(Ds, sws) do D, sw
-        double_interval_censored(
-            dist; primary_event = Uniform(0, 1e-10), upper = D, interval = sw)
+        truncated(interval_censored(dist, sw), upper = D)
     end
     y ~ weight(icens_dists, n)
 end
@@ -442,7 +441,7 @@ We also see that the posterior means are near the true parameters and the
 
 # ╔═╡ Cell order:
 # ╟─30511a27-984e-40b7-9b1e-34bc87cb8d56
-# ╠═bb9c75db-6638-48fe-afcb-e78c4bcc057d
+# ╟─bb9c75db-6638-48fe-afcb-e78c4bcc057d
 # ╠═3690c122-d630-4fd0-aaf2-aea9226df086
 # ╟─c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
 # ╠═b4409687-7bee-4028-824d-03b209aee68d
