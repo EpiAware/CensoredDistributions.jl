@@ -85,5 +85,6 @@ makedocs(; sitename = "CensoredDistributions.jl",
 
 deploydocs(
     repo = "github.com/EpiAware/CensoredDistributions.jl.git",
-    target = "build"
+    target = "build",
+    push_preview = true
 )

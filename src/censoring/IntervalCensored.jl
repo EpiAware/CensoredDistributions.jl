@@ -222,37 +222,16 @@ end
 
 function Distributions.logpdf(d::IntervalCensored, x::Real)
     try
-        # Check support first for type stability
+        # Check support first for consistency with Distributions.jl
         if !insupport(d, x)
             return -Inf
         end
 
-        lower, upper = get_interval_bounds(d, x)
-        if isnan(lower) || isnan(upper)
+        pdf_val = pdf(d, x)
+        if pdf_val <= 0.0
             return -Inf
         end
-
-        # Compute log(P(lower < X <= upper)) = log(F(upper) - F(lower))
-        # Use numerical stability approach that's AD-friendly
-
-        # Handle boundary cases for distributions with bounded support
-        dist_min = minimum(get_dist(d))
-        dist_max = maximum(get_dist(d))
-
-        # For lower bound at or below distribution minimum, CDF is 0
-        cdf_lower = lower <= dist_min ? 0.0 : cdf(get_dist(d), lower)
-
-        # For upper bound at or above distribution maximum, CDF is 1
-        cdf_upper = upper >= dist_max ? 1.0 : cdf(get_dist(d), upper)
-
-        pdf_mass = cdf_upper - cdf_lower
-
-        # Handle edge cases
-        if pdf_mass <= 0.0
-            return -Inf
-        end
-
-        return log(pdf_mass)
+        return log(pdf_val)
     catch e
         if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
             return -Inf
@@ -297,27 +276,11 @@ function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
 end
 
 function Distributions.cdf(d::IntervalCensored, x::Real)
-    try
-        return _interval_cdf(d, x, cdf)
-    catch e
-        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
-            return 0.0
-        else
-            rethrow(e)
-        end
-    end
+    return _interval_cdf(d, x, cdf)
 end
 
 function Distributions.logcdf(d::IntervalCensored, x::Real)
-    try
-        return _interval_cdf(d, x, logcdf)
-    catch e
-        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
-            return -Inf
-        else
-            rethrow(e)
-        end
-    end
+    return _interval_cdf(d, x, logcdf)
 end
 
 function Distributions.ccdf(d::IntervalCensored, x::Real)
