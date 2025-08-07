@@ -40,9 +40,15 @@
 
     @testset "No template macros in docstrings (handled by template)" begin
         # Template macros should NOT appear in docstrings since they're in src/docstrings.jl
+        # Exception: src/docstrings.jl itself contains the template definitions
         violations = Tuple{String, Int, String}[]  # (file, line_num, line_content)
 
         for file in src_files
+            # Skip the docstring template file itself
+            if endswith(file, "src/docstrings.jl")
+                continue
+            end
+
             lines = readlines(file)
             for (i, line) in enumerate(lines)
                 # Check for template macros in docstring content
@@ -86,7 +92,8 @@
         missing_examples = String[]
 
         for func in constructor_functions
-            doc_str = string(@doc func)
+            # Get the rendered docstring by capturing help output
+            doc_str = sprint(io -> show(io, "text/plain", (@doc func)))
             func_name = string(func)
 
             # Skip if no docstring
@@ -110,7 +117,8 @@
     @testset "Argument documentation completeness" begin
         # Test key functions for argument documentation
         function check_argument_docs(func, expected_args, expected_kwargs = [])
-            doc_str = string(@doc func)
+            # Get the rendered docstring by capturing help output
+            doc_str = sprint(io -> show(io, "text/plain", (@doc func)))
             func_name = string(func)
 
             # Skip if no docstring
@@ -175,7 +183,7 @@
 
         if boundaries_method !== nothing
             # Test the boundaries variant
-            doc_str = string(@doc boundaries_method)
+            doc_str = sprint(io -> show(io, "text/plain", (@doc boundaries_method)))
             if !isempty(doc_str) && !occursin("No documentation found", doc_str)
                 if !occursin("- `dist`:", doc_str)
                     push!(all_missing, "interval_censored missing documentation for argument 'dist'")
@@ -210,7 +218,8 @@
             primary_censored, interval_censored, double_interval_censored, weight, get_dist]
 
         for func in key_functions
-            doc_str = string(@doc func)
+            # Get the rendered docstring by capturing help output
+            doc_str = sprint(io -> show(io, "text/plain", (@doc func)))
             func_name = string(func)
 
             # Skip if no docstring

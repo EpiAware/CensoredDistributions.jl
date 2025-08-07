@@ -49,7 +49,6 @@ struct ExponentiallyTilted{T <: Real} <:
 end
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Create an exponentially tilted distribution.
 
@@ -101,7 +100,6 @@ end
 
 # Probability density function
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the probability density function.
 
@@ -112,7 +110,6 @@ function pdf(d::ExponentiallyTilted, x::Real)
 end
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the log probability density function.
 
@@ -134,7 +131,6 @@ end
 
 # Cumulative distribution function
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the cumulative distribution function.
 
@@ -164,7 +160,6 @@ end
 
 # Log cumulative distribution function
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the log cumulative distribution function.
 
@@ -186,7 +181,6 @@ end
 
 # Quantile function (inverse CDF)
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the quantile function (inverse CDF) using analytical formula.
 
@@ -221,7 +215,6 @@ end
 
 # Random number generation
 @doc "
-$(TYPEDSIGNATURES)
 
 Generate a random sample using inverse transform sampling.
 
@@ -235,7 +228,6 @@ end
 
 # Mean calculation
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the mean of the distribution.
 
@@ -255,7 +247,6 @@ end
 
 # Variance calculation
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the variance of the distribution.
 
@@ -287,7 +278,6 @@ end
 
 # Standard deviation calculation
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the standard deviation of the distribution.
 
@@ -299,7 +289,6 @@ end
 
 # Median calculation
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the median of the distribution.
 

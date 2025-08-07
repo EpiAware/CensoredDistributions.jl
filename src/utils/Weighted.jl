@@ -41,7 +41,6 @@ struct Weighted{D <: UnivariateDistribution, T <: Real} <:
 end
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Create a weighted distribution where the log-probability is scaled by `w`.
 
@@ -69,7 +68,6 @@ end
 
 # For creating an array of weighted distributions with different weights
 @doc "
-$(TYPEDSIGNATURES)
 
 Create a product distribution of weighted distributions, each with a different
 weight.
@@ -97,7 +95,6 @@ end
 
 # For creating weighted distributions from a vector of distributions and weights
 @doc "
-$(TYPEDSIGNATURES)
 
 Create a product distribution of weighted distributions, where each
 distribution has its own weight.
@@ -138,7 +135,6 @@ params(d::Weighted) = (params(get_dist(d))..., d.weight)
 
 # Probability functions
 @doc "
-$(TYPEDSIGNATURES)
 
 Return the probability density from the underlying distribution (unweighted).
 
@@ -149,7 +145,6 @@ function pdf(d::Weighted, x::Real)
 end
 
 @doc "
-$(TYPEDSIGNATURES)
 
 Return the weighted log-probability: `weight * logpdf(dist, x)`.
 
@@ -163,7 +158,6 @@ end
 
 # CDF-based methods - delegate to underlying distribution
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the cumulative distribution function (delegates to underlying
 distribution).
@@ -188,7 +182,6 @@ end
 
 # Quantile function
 @doc "
-$(TYPEDSIGNATURES)
 
 Compute the quantile function (delegates to underlying distribution).
 
@@ -200,7 +193,6 @@ end
 
 # Sampling - delegates to underlying distribution
 @doc "
-$(TYPEDSIGNATURES)
 
 Generate a random sample (delegates to underlying distribution).
 
