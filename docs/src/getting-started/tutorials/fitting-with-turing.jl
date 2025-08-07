@@ -368,8 +368,7 @@ a comparison point between the naive model and the full model.
 @model function interval_only_model(y, n, sws, Ds)
     dist ~ to_submodel(latent_delay_dist())
     icens_dists = map(Ds, sws) do D, sw
-        double_interval_censored(
-            dist; primary_event = Uniform(0, 1e-10), upper = D, interval = sw)
+        truncated(interval_censored(dist, sw), upper = D)
     end
     y ~ weight(icens_dists, n)
 end
