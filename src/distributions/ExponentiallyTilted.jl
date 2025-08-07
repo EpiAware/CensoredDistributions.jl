@@ -35,7 +35,7 @@ When r → 0, all functions reduce to the uniform distribution on [min, max].
 - `r`: Growth rate parameter (tilting parameter)
 "
 struct ExponentiallyTilted{T <: Real} <:
-       Distributions.UnivariateDistribution{Distributions.Continuous}
+       UnivariateDistribution{Continuous}
     "Lower bound of the distribution support."
     min::T
     "Upper bound of the distribution support."
@@ -94,15 +94,15 @@ function ExponentiallyTilted(min::Real, max::Real, r::Real)
 end
 
 # Parameter extraction
-function Distributions.params(d::ExponentiallyTilted)
+function params(d::ExponentiallyTilted)
     return (d.min, d.max, d.r)
 end
 
 # Support and type methods
 Base.eltype(::Type{<:ExponentiallyTilted{T}}) where {T} = T
-Distributions.minimum(d::ExponentiallyTilted) = d.min
-Distributions.maximum(d::ExponentiallyTilted) = d.max
-Distributions.insupport(d::ExponentiallyTilted, x::Real) = d.min ≤ x ≤ d.max
+minimum(d::ExponentiallyTilted) = d.min
+maximum(d::ExponentiallyTilted) = d.max
+insupport(d::ExponentiallyTilted, x::Real) = d.min ≤ x ≤ d.max
 
 # Helper function to compute log normalisation constant
 function _log_normalisation_constant(min::Real, max::Real, r::Real)
@@ -118,11 +118,11 @@ function _log_normalisation_constant(min::Real, max::Real, r::Real)
 end
 
 # Probability density function
-function Distributions.pdf(d::ExponentiallyTilted, x::Real)
+function pdf(d::ExponentiallyTilted, x::Real)
     return exp(logpdf(d, x))
 end
 
-function Distributions.logpdf(d::ExponentiallyTilted, x::Real)
+function logpdf(d::ExponentiallyTilted, x::Real)
     if !insupport(d, x)
         return -Inf
     end
@@ -137,7 +137,7 @@ function Distributions.logpdf(d::ExponentiallyTilted, x::Real)
 end
 
 # Cumulative distribution function
-function Distributions.cdf(d::ExponentiallyTilted, x::Real)
+function cdf(d::ExponentiallyTilted, x::Real)
     if x ≤ d.min
         return 0.0
     elseif x ≥ d.max
@@ -160,7 +160,7 @@ function Distributions.cdf(d::ExponentiallyTilted, x::Real)
 end
 
 # Log cumulative distribution function
-function Distributions.logcdf(d::ExponentiallyTilted, x::Real)
+function logcdf(d::ExponentiallyTilted, x::Real)
     if x ≤ d.min
         return -Inf
     elseif x ≥ d.max
@@ -175,7 +175,7 @@ function Distributions.logcdf(d::ExponentiallyTilted, x::Real)
 end
 
 # Quantile function (inverse CDF)
-function Distributions.quantile(d::ExponentiallyTilted, p::Real)
+function quantile(d::ExponentiallyTilted, p::Real)
     if p < 0.0 || p > 1.0
         throw(ArgumentError("p must be in [0, 1]"))
     end
@@ -210,7 +210,7 @@ function Base.rand(rng::AbstractRNG, d::ExponentiallyTilted)
 end
 
 # Mean calculation
-function Distributions.mean(d::ExponentiallyTilted)
+function mean(d::ExponentiallyTilted)
     if abs(d.r) < 1e-10
         # For r ≈ 0, uniform distribution: (min + max) / 2
         return (d.min + d.max) / 2
@@ -222,7 +222,7 @@ function Distributions.mean(d::ExponentiallyTilted)
 end
 
 # Variance calculation
-function Distributions.var(d::ExponentiallyTilted)
+function var(d::ExponentiallyTilted)
     if abs(d.r) < 1e-10
         # For r ≈ 0, uniform distribution: (max - min)² / 12
         range = d.max - d.min
@@ -246,11 +246,11 @@ function Distributions.var(d::ExponentiallyTilted)
 end
 
 # Standard deviation calculation
-function Distributions.std(d::ExponentiallyTilted)
+function std(d::ExponentiallyTilted)
     return sqrt(var(d))
 end
 
 # Median calculation
-function Distributions.median(d::ExponentiallyTilted)
+function median(d::ExponentiallyTilted)
     return quantile(d, 0.5)
 end
