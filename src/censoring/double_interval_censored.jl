@@ -1,10 +1,5 @@
-@doc raw"""
-    double_interval_censored(dist::UnivariateDistribution;
-                          primary_event::UnivariateDistribution = Uniform(0, 1),
-                          lower::Union{Real, Nothing} = nothing,
-                          upper::Union{Real, Nothing} = nothing,
-                          interval::Union{Real, Nothing} = nothing,
-                          force_numeric::Bool = false)
+@doc """
+
 
 Create a distribution that combines primary interval censoring, optional truncation, and optional secondary interval censoring in the correct order.
 
@@ -16,14 +11,14 @@ This is a convenience function that applies the following transformations in seq
 The order of operations ensures mathematical correctness, particularly that truncation occurs before secondary interval censoring.
 
 # Arguments
-- `dist::UnivariateDistribution`: The delay distribution from primary event to observation
+- `dist`: The delay distribution from primary event to observation
 
 # Keyword Arguments
-- `primary_event::UnivariateDistribution = Uniform(0, 1)`: The primary event time distribution. Defaults to uniform distribution over [0, 1].
-- `lower::Union{Real, Nothing} = nothing`: Lower truncation bound. If `nothing`, no lower truncation is applied.
-- `upper::Union{Real, Nothing} = nothing`: Upper truncation bound (e.g., observation time `D`). If `nothing`, no upper truncation is applied.
-- `interval::Union{Real, Nothing} = nothing`: Secondary censoring interval width (e.g., daily reporting). If `nothing`, no interval censoring is applied.
-- `force_numeric::Bool = false`: Force numerical integration for primary censoring even when analytical solutions exist.
+- `primary_event`: The primary event time distribution. Defaults to uniform distribution over [0, 1].
+- `lower`: Lower truncation bound. If `nothing`, no lower truncation is applied.
+- `upper`: Upper truncation bound (e.g., observation time `D`). If `nothing`, no upper truncation is applied.
+- `interval`: Secondary censoring interval width (e.g., daily reporting). If `nothing`, no interval censoring is applied.
+- `force_numeric`: Force numerical integration for primary censoring even when analytical solutions exist.
 
 # Returns
 A composed distribution that can be used with all standard `Distributions.jl` methods (`rand`, `pdf`, `cdf`, etc.).

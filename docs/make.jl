@@ -79,7 +79,8 @@ makedocs(; sitename = "CensoredDistributions.jl",
         prettyurls = get(ENV, "CI", nothing) == "true",
         mathengine = Documenter.MathJax3(),
         size_threshold = 6000 * 2^10,
-        size_threshold_warn = 2000 * 2^10
+        size_threshold_warn = 2000 * 2^10,
+        collapselevel = 2  # Collapse docstrings at level 2 by default
     )
 )
 

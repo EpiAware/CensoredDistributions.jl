@@ -154,6 +154,52 @@ Key points:
 - Keep lines under 80 characters where possible
 - Use consistent indentation (4 spaces)
 
+### Documentation Standards
+
+All docstrings use the DocStringExtensions.jl template system defined in `src/docstrings.jl`:
+
+**Functions**: Use `$(TYPEDSIGNATURES)` for automatic signature generation:
+```julia
+@doc "
+$(TYPEDSIGNATURES)
+
+Brief description of the function.
+
+# Arguments
+- `param1`: Description (no type annotations needed)
+- `param2`: Description
+
+# Keyword Arguments
+- `kwarg1`: Description
+"
+function my_function(param1, param2; kwarg1=default)
+    # implementation
+end
+```
+
+**Structs**: Use `$(TYPEDEF)` and `$(TYPEDFIELDS)` with inline field documentation:
+```julia
+@doc "
+$(TYPEDEF)
+
+Description of the struct.
+
+$(TYPEDFIELDS)
+"
+struct MyStruct
+    "Description of field1"
+    field1::Type1
+    "Description of field2"
+    field2::Type2
+end
+```
+
+**Key rules**:
+- **Never use `@doc raw"`** - it bypasses the template system
+- **Don't repeat type information** in argument descriptions since `$(TYPEDSIGNATURES)` shows them
+- **Use `@doc "` (not `@doc """`)** to allow macro expansion
+- **Document argument purpose**, not types
+
 ## Code Quality
 
 ### Pre-commit Checklist

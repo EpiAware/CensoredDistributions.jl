@@ -1,15 +1,11 @@
-@doc raw"
+@doc "
 Internal utilities for quantile optimization shared across censored distributions.
 
 Provides common optimization logic for computing quantiles when analytical
 solutions are not available.
 "
 
-@doc raw"
-    _quantile_optimization(d, p;
-                          initial_guess_fn=nothing,
-                          result_postprocess_fn=identity,
-                          check_nan=false)
+@doc "
 
 Internal function for quantile optimization using numerical methods.
 

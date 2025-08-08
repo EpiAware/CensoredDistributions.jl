@@ -94,26 +94,39 @@ The `--skip-notebooks` option is useful during development for quick documentati
 
 ### Q: How do I update docstrings?
 
-**A:** Use the `@doc` macro with raw strings for mathematical content:
+**A:** We use DocStringExtensions.jl for automatic documentation generation. The approach depends on content:
 
+For docstrings with DocStringExtensions macros only:
 ```julia
-@doc raw"""
-    my_function(x::Real) -> Real
+@doc "
+$(TYPEDSIGNATURES)
 
-Compute something with `x`.
+Compute the square of `x`.
+
+# See also
+- [`sqrt`](@ref): Inverse operation
+"
+function my_function(x::Real)
+    return x^2
+end
+```
+
+For docstrings with both macros and LaTeX math:
+```julia
+@doc """
+$(TYPEDSIGNATURES)
+
+Compute the function ``f(x) = x^2``.
 
 # Mathematical formulation
 The function computes: ``f(x) = x^2``
-
-# Examples
-```julia
-result = my_function(2.0)
-```
 """
 function my_function(x::Real)
     return x^2
 end
 ```
+
+**Important:** Never use `@doc raw"` with DocStringExtensions macros as it prevents macro expansion.
 
 ## Code Quality
 
