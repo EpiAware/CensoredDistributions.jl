@@ -63,25 +63,23 @@
 
     # Get public symbols (Julia 1.11+) and exported symbols
     function get_public_symbols()
-        public_syms = Symbol[]
-
         # Get public symbols if available (Julia 1.11+)
         @static if VERSION >= v"1.11"
             if isdefined(CensoredDistributions, :public)
                 try
                     # Try to access public symbols via module metadata
-                    # This is a bit tricky as there's no direct API yet
-                    # For now, we'll rely on manual discovery
-                    public_syms = [
-                        :PrimaryCensored, :IntervalCensored, :DoubleIntervalCensored,
-                        :Weighted, :ExponentiallyTilted, :AnalyticalSolver, :NumericSolver]
+                    # Julia 1.11+ should provide this but API is still developing
+                    # For now, return empty array as public API isn't finalized
+                    return Symbol[]
                 catch
-                    public_syms = Symbol[]
+                    return Symbol[]
                 end
+            else
+                return Symbol[]
             end
+        else
+            return Symbol[]
         end
-
-        return public_syms
     end
 
     # Automatically discover all exports and public symbols
