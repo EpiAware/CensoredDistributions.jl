@@ -30,7 +30,9 @@ end
 "
 struct Weighted{D <: UnivariateDistribution, T <: Real} <:
        UnivariateDistribution{ValueSupport}
+    "The underlying distribution being weighted."
     dist::D
+    "The weight to apply to log-probabilities."
     weight::T
 
     function Weighted(
