@@ -187,9 +187,11 @@ We also need to define our simulated observation windows for each observed delay
 
 # ╔═╡ 35472e04-e096-4948-a218-3de53923f271
 # Define discrete bounds for each observation - Turing will sample from these
-pwindow_bounds = fill((0, 2), n)  # Each observation can have pwindow 0-2
-swindow_bounds = fill((0, 2), n)  # Each observation can have swindow 0-2
-obs_time_bounds = fill((8, 12), n)  # Each observation can have obs_time 8-12
+bounds_df = DataFrame(
+    pwindow_bounds = fill((0, 2), n),  # Each observation can have pwindow 0-2
+    swindow_bounds = fill((0, 2), n),  # Each observation can have swindow 0-2
+    obs_time_bounds = fill((8, 12), n)  # Each observation can have obs_time 8-12
+)
 
 # ╔═╡ b5598cc7-ddd1-4d90-af9b-110a518416ac
 md"### Simulate from the double censored distribution for each individual"
@@ -201,16 +203,14 @@ with DynamicPPL's `fix` function to set parameters to their true values and
 sample from the prior predictive distribution. We first define a set of primary event distributions:"
 
 # ╔═╡ c548931f-f5e3-4de9-9183-eb64575b6bdb
-# Create primary event distributions from pwindows
-@chain simulated_scenario begin
-    @transform! :primary_dist = Uniform.(0.0, :pwindow)
-end;
+md"Primary event distributions are created automatically within the model using `Uniform(0, pw)`."
 
 # ╔═╡ f3568b69-875d-494c-82cf-5a3db767cdaa
 md"Then we can define the model using our observation windows."
 
 # ╔═╡ 8cbb8a46-c090-420f-bbb9-32b971a963f0
-model_for_simulation = CensoredDistributions_model(pwindow_bounds, swindow_bounds, obs_time_bounds)
+model_for_simulation = @with bounds_df CensoredDistributions_model(
+    :pwindow_bounds, :swindow_bounds, :obs_time_bounds)
 
 # ╔═╡ 5516cadb-f2f5-4852-8215-1493b001ab4d
 md"We can then fix our priors based on the known values."
@@ -218,8 +218,8 @@ md"We can then fix our priors based on the known values."
 # ╔═╡ cf588dc1-3ac7-46a2-9fab-38d90aa391c5
 
 # Fix the distribution parameters first, then sample to get both scenarios and observations
-fixed_dist_model = fix(
-    CensoredDistributions_model(pwindow_bounds, swindow_bounds, obs_time_bounds),
+fixed_dist_model = @with bounds_df fix(
+    CensoredDistributions_model(:pwindow_bounds, :swindow_bounds, :obs_time_bounds),
     (
         @varname(dist.mu) => meanlog,
         @varname(dist.sigma) => sdlog
