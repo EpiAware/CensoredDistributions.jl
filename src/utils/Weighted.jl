@@ -396,11 +396,6 @@ function extract_obs(obs::Tuple{<:Any, <:Any})
     return obs  # Joint observation (value, weight)
 end
 
-# Note: StatsBase.AbstractWeights support would be added here:
-# function extract_obs(wv::AbstractWeights)
-#     return (wv.values, wv.weights)
-# end
-
 @doc "
 
 Combine constructor weight with observation weight using dispatch-based rules.

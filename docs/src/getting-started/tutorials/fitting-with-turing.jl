@@ -350,9 +350,7 @@ naive_mdl = @with simulated_counts naive_model() | (obs = (:observed_delay .+ 1e
 
 # ╔═╡ 71900c43-9f52-474d-adc7-becdc74045da
 md"
-Now let's fit the conditioned model. Note how we use weighted observations
-`(values, counts)` with missing constructor weights - this demonstrates
-the new joint observation conditioning pattern where weights are provided at observation time.
+Now let's fit the conditioned model using the joint observation pattern `(values, counts)`.
 "
 
 # ╔═╡ cd26da77-02fb-4b65-bd7b-88060d0c97e8
@@ -400,28 +398,17 @@ end
 md"Create the interval-only model with bounds, fix the window parameters, and condition on observations"
 
 # ╔═╡ 6a274882-df7d-4972-80a6-ea62d932a906
-begin
-    # Create the interval-only model with bounds
-    interval_only_unfixed = interval_only_model(swindow_bounds, obs_time_bounds)
-
-    # Fix window parameters to their true values
-    interval_only_fixed = fix(
-        interval_only_unfixed,
-        (
-            @varname(swindows) => true_swindows,
-            @varname(obs_times) => true_obs_times
-        )
-    )
-
-    # Create weighted observations using FrequencyWeights
-    interval_obs_values = @chain simulated_counts :observed_delay
-    interval_obs_counts = @chain simulated_counts :n
-    interval_weighted_obs = fweights(interval_obs_counts)
-
-    # Condition the model on weighted observations
-    interval_only_mdl = interval_only_fixed |
-                        (obs = (interval_obs_values, interval_weighted_obs),)
-end
+# Use @with and then chain inside for fixing and conditioning
+interval_only_mdl = @with simulated_counts begin
+    @chain interval_only_model(swindow_bounds, obs_time_bounds) begin
+        fix(_,
+            (
+                @varname(swindows) => simulated_scenario.swindows,
+                @varname(obs_times) => simulated_scenario.obs_times
+            ))
+        _ | (obs = (:observed_delay, :n),)
+    end
+end;
 
 # ╔═╡ 38790b6c-4fef-4b28-9442-6bfaab9d3c5a
 md"
@@ -442,7 +429,7 @@ md"Lets plot the posterior compared to the true values again. *Note: An annoying
 plot_fit_with_truth(interval_only_fit, Dict("dist.mu" => meanlog, "dist.sigma" => sdlog))
 
 # ╔═╡ 080c1bca-afcd-46c0-80b8-1708e8d05ae6
-md"## Fitting the full CensoredDistributions model
+md"## Fitting the double censored model
 
 Now we'll fit the full model that accounts for the censoring process.
 Since the CensoredDistributions_model was defined earlier and used for
@@ -450,29 +437,18 @@ simulation, we'll reuse it for fitting - demonstrating the consistency
 of our approach."
 
 # ╔═╡ a59e371a-b671-4648-984d-7bcaac367d32
-begin
-    # Create the full CensoredDistributions model with bounds
-    full_model_unfixed = CensoredDistributions_model(pwindow_bounds, swindow_bounds, obs_time_bounds)
-
-    # Fix window parameters to their true values
-    full_model_fixed = fix(
-        full_model_unfixed,
-        (
-            @varname(pwindows) => true_pwindows,
-            @varname(swindows) => true_swindows,
-            @varname(obs_times) => true_obs_times
-        )
-    )
-
-    # Create weighted observations using FrequencyWeights
-    full_obs_values = @chain simulated_counts :observed_delay
-    full_obs_counts = @chain simulated_counts :n
-    full_weighted_obs = fweights(full_obs_counts)
-
-    # Condition the model on weighted observations
-    CensoredDistributions_mdl = full_model_fixed |
-                                (obs = (full_obs_values, full_weighted_obs),)
-end
+# Use @with and then chain inside for fixing and conditioning
+CensoredDistributions_mdl = @with simulated_counts begin
+    @chain base_model begin
+        fix(_,
+            (
+                @varname(pwindows) => simulated_scenario.pwindows,
+                @varname(swindows) => simulated_scenario.swindows,
+                @varname(obs_times) => simulated_scenario.obs_times
+            ))
+        _ | (obs = (:observed_delay, :n),)
+    end
+end;
 
 # ╔═╡ 691e3d54-1a31-4686-a70d-711c2fc45dc1
 md"
@@ -498,263 +474,6 @@ md"
 We see that the model has converged and the diagnostics look good.
 We also see that the posterior means are near the true parameters and the
 90% credible intervals include the true parameters.
-"
-
-# ╔═╡ 1ba50a36-d7c8-45e9-b2a1-73f89dc4e8b3
-md"
-## Improved models using weight conditioning with joint observations
-
-The weight conditioning functionality implemented in issue #124 enables more
-flexible and efficient model specification patterns. We'll demonstrate three
-key improvements:
-
-1. **Using `fix()` for known window bounds** instead of treating them as parameters
-2. **Joint observation conditioning** with `(value, weight)` tuples
-3. **Missing constructor weights** pattern with `weight(censored_dists)`
-
-### Enhanced data preparation for improved models
-
-First, let's prepare our data in formats that demonstrate the new functionality.
-We'll create window bounds that can be fixed, and prepare joint observations.
-"
-
-# ╔═╡ 2ba50a36-d7c8-45e9-b2a1-73f89dc4e8b4
-md"Define the window bounds that we'll fix in our models rather than treating
-as parameters:"
-
-# ╔═╡ 3ba50a36-d7c8-45e9-b2a1-73f89dc4e8b5
-begin
-    # The bounds were already created earlier - let's display them for reference
-    n_scenarios = length(pwindow_bounds)
-
-    println("Number of scenarios: $n_scenarios")
-    println("Primary window bounds: $pwindow_bounds")
-    println("Secondary window bounds: $swindow_bounds")
-    println("Observation time bounds: $obs_time_bounds")
-end
-
-# ╔═╡ 4ba50a36-d7c8-45e9-b2a1-73f89dc4e8b6
-md"Create aggregated data using DataFramesMeta for consistent data handling:"
-
-# ╔═╡ 5ba50a36-d7c8-45e9-b2a1-73f89dc4e8b7
-begin
-    # Extract values and weights using DataFramesMeta
-    improved_obs_values = @chain simulated_counts :observed_delay
-    improved_obs_counts = @chain simulated_counts :n
-
-    # Create FrequencyWeights for improved models
-    improved_weighted_obs = fweights(improved_obs_counts)
-end;
-
-# ╔═╡ 6ba50a36-d7c8-45e9-b2a1-73f89dc4e8b8
-md"### Improved model with fixed bounds and weighted observations
-
-This model demonstrates the new patterns:
-- Window parameters defined as uniform distributions with specified bounds
-- Using `fix()` to set window parameters rather than treating them as unknowns
-- Weighted observations using StatsBase.FrequencyWeights
-- Missing constructor weights pattern with `weight(censored_dists)`"
-
-# ╔═╡ 7ba50a36-d7c8-45e9-b2a1-73f89dc4e8b9
-@model function improved_double_censored_model(
-        pwindow_bounds, swindow_bounds, obs_time_bounds)
-    # Window parameters as uniform distributions with bounds
-    pwindows ~ arraydist([Uniform(pw[1], pw[2]) for pw in pwindow_bounds])
-    swindows ~ arraydist([Uniform(sw[1], sw[2]) for sw in swindow_bounds])
-    obs_times ~ arraydist([Uniform(ot[1], ot[2]) for ot in obs_time_bounds])
-
-    # Latent delay distribution
-    dist ~ to_submodel(latent_delay_dist())
-
-    # Create censored distributions using obs_times
-    censored_dists = map(pwindows, swindows, obs_times) do pw, sw, ot
-        pe = Uniform(0, pw)
-        double_interval_censored(dist; primary_event = pe, interval = sw, obs_time = ot)
-    end
-
-    # Use missing constructor weights - weights provided via joint observations
-    obs ~ weight(censored_dists)
-
-    return obs
-end
-
-# ╔═╡ 8ba50a36-d7c8-45e9-b2a1-73f89dc4e8b8
-md"### Create scenario mappings for improved model
-
-We need to map our aggregated data back to the window scenarios:"
-
-# ╔═╡ 9ba50a36-d7c8-45e9-b2a1-73f89dc4e8b9
-scenario_mapping = @chain simulated_counts begin
-    @transform :scenario_idx = map(
-        row -> begin
-            findfirst(
-                i -> bounds_data.pwindow[i] == row.pwindow &&
-                     bounds_data.swindow[i] == row.swindow &&
-                     bounds_data.obs_time[i] == row.obs_time,
-                1:n_scenarios)
-        end,
-        eachrow(_))
-end;
-
-# ╔═╡ aba50a36-d7c8-45e9-b2a1-73f89dc4e8ba
-md"Create expanded weighted observations for each scenario:"
-
-# ╔═╡ bba50a36-d7c8-45e9-b2a1-73f89dc4e8bb
-scenario_weighted_obs = map(1:n_scenarios) do i
-    scenario_data = @chain scenario_mapping begin
-        @subset :scenario_idx .== i
-    end
-
-    if nrow(scenario_data) > 0
-        obs_vals = @chain scenario_data :observed_delay
-        obs_counts = @chain scenario_data :n
-        return (obs_vals, fweights(obs_counts))
-    else
-        return (Float64[], fweights(Int[]))  # Empty for unused scenarios
-    end
-end;
-
-# ╔═╡ cba50a36-d7c8-45e9-b2a1-73f89dc4e8bc
-md"### Instantiate and fit the improved model with fixed bounds
-
-Create the model with bounds that will be fixed, then use `fix()` to set
-the window parameters to their true values:"
-
-# ╔═╡ dba50a36-d7c8-45e9-b2a1-73f89dc4e8bd
-begin
-    # Create the model with missing observations for simulation/fitting
-    improved_model_unfixed = improved_double_censored_model(
-        pwindow_bounds, swindow_bounds, obs_time_bounds)
-
-    # Fix the window parameters to their true values from bounds
-    true_pwindows = [pw[2] for pw in pwindow_bounds]  # Upper bounds
-    true_swindows = [sw[2] for sw in swindow_bounds]  # Upper bounds
-    true_obs_times = [(ot[1] + ot[2]) / 2 for ot in obs_time_bounds]  # Midpoints
-
-    improved_model_fixed = fix(
-        improved_model_unfixed,
-        (
-            @varname(pwindows) => true_pwindows,
-            @varname(swindows) => true_swindows,
-            @varname(obs_times) => true_obs_times
-        )
-    )
-end;
-
-# ╔═╡ eba50a36-d7c8-45e9-b2a1-73f89dc4e8be
-md"Check what parameters are fixed:"
-
-# ╔═╡ fba50a36-d7c8-45e9-b2a1-73f89dc4e8bf
-DynamicPPL.fixed(improved_model_fixed)
-
-# ╔═╡ 0ca50a36-d7c8-45e9-b2a1-73f89dc4e8c0
-md"Now condition the model on our weighted observations and fit. This demonstrates
-how weighted observations `(values, FrequencyWeights)` work with missing constructor weights:"
-
-# ╔═╡ 1ca50a36-d7c8-45e9-b2a1-73f89dc4e8c1
-improved_conditioned_model = improved_model_fixed | (obs = scenario_weighted_obs,);
-
-# ╔═╡ 2ca50a36-d7c8-45e9-b2a1-73f89dc4e8c2
-md"Fit the improved model:"
-
-# ╔═╡ 3ca50a36-d7c8-45e9-b2a1-73f89dc4e8c3
-improved_fit = sample(improved_conditioned_model, NUTS(), MCMCThreads(), 500, 4);
-
-# ╔═╡ 4ca50a36-d7c8-45e9-b2a1-73f89dc4e8c4
-summarize(improved_fit)
-
-# ╔═╡ 5ca50a36-d7c8-45e9-b2a1-73f89dc4e8c5
-plot_fit_with_truth(improved_fit, Dict("dist.mu" => meanlog, "dist.sigma" => sdlog))
-
-# ╔═╡ 6ca50a36-d7c8-45e9-b2a1-73f89dc4e8c6
-md"## Alternative patterns with StatsBase.AbstractWeights
-
-The weight system also integrates with StatsBase.jl's AbstractWeights types.
-This section demonstrates alternative approaches using FrequencyWeights."
-
-# ╔═╡ 7ca50a36-d7c8-45e9-b2a1-73f89dc4e8c7
-md"### Prepare data using StatsBase FrequencyWeights"
-
-# ╔═╡ 8ca50a36-d7c8-45e9-b2a1-73f89dc4e8c8
-begin
-    # Extract values and weights for FrequencyWeights
-    obs_values = simulated_counts.observed_delay
-    obs_weights = simulated_counts.n
-
-    # Create FrequencyWeights object
-    weighted_obs = fweights(obs_weights)
-
-    println("FrequencyWeights type: $(typeof(weighted_obs))")
-    println("Values: $(obs_values[1:5])...")
-    println("Weights: $(values(weighted_obs)[1:5])...")
-end
-
-# ╔═╡ 9ca50a36-d7c8-45e9-b2a1-73f89dc4e8c9
-md"### Simple model demonstrating weight patterns
-
-This demonstrates a simpler model using the weight vector approach.
-Note: while FrequencyWeights are used in tuples above, direct AbstractWeights
-integration would require additional `extract_obs` method definitions in the
-Weighted.jl utilities:"
-
-# ╔═╡ aca50a36-d7c8-45e9-b2a1-73f89dc4e8ca
-@model function weights_pattern_model(y_values, weights_vec)
-    dist ~ to_submodel(latent_delay_dist())
-
-    # Create weighted observations - this pattern could be extended for AbstractWeights
-    y_values ~ weight(dist, weights_vec)
-end
-
-# ╔═╡ bca50a36-d7c8-45e9-b2a1-73f89dc4e8cb
-md"Fit the weights pattern model:"
-
-# ╔═╡ cca50a36-d7c8-45e9-b2a1-73f89dc4e8cc
-weights_model = weights_pattern_model(obs_values .+ 1e-6, obs_weights);
-
-# ╔═╡ dca50a36-d7c8-45e9-b2a1-73f89dc4e8cd
-weights_fit = sample(weights_model, NUTS(), MCMCThreads(), 500, 4);
-
-# ╔═╡ eca50a36-d7c8-45e9-b2a1-73f89dc4e8ce
-summarize(weights_fit)
-
-# ╔═╡ fca50a36-d7c8-45e9-b2a1-73f89dc4e8cf
-plot_fit_with_truth(weights_fit, Dict("dist.mu" => meanlog, "dist.sigma" => sdlog))
-
-# ╔═╡ 0da50a36-d7c8-45e9-b2a1-73f89dc4e8d0
-md"
-## Summary: Weight conditioning improvements
-
-This tutorial has demonstrated several key improvements to weight conditioning:
-
-### 1. Fixed parameter patterns with `fix()`
-- Window bounds can be fixed rather than estimated when they are known
-- Use `fix(model, (@varname(param) => value, ...))` to set parameters
-- This is more efficient than conditioning on parameter values
-
-### 2. Weighted observation conditioning
-- Use `(values, FrequencyWeights)` tuples to provide observations with counts
-- Missing constructor weights `weight(distributions)` work with weighted observations
-- Constructor weights and observation weights are combined via multiplication
-
-### 3. Flexible weight specification
-- Constructor weights: `weight(dist, constructor_weight)`
-- Missing constructor weights: `weight(distributions)` for weighted observations
-- Vector weights: `weight(dist, weight_vector)` for multiple observations
-- Distribution vectors: `weight(dist_vector, weight_vector)`
-
-### 4. Integration patterns with StatsBase
-- StatsBase.AbstractWeights types provide structured weight handling
-- FrequencyWeights, ProbabilityWeights, etc. offer semantic weight types
-- Current implementation demonstrates tuple patterns `(values, FrequencyWeights)`
-- Full AbstractWeights integration could be extended for additional flexibility
-
-### 5. Consistent data handling with DataFramesMeta
-- Use `@chain` and `@transform` for consistent data processing
-- Extract values and weights using DataFramesMeta patterns
-- Maintains code readability and consistency across model types
-
-These improvements make model specification more flexible and efficient whilst
-maintaining the same statistical semantics as the original implementation.
 "
 
 # ╔═╡ Cell order:
