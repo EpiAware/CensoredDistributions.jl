@@ -345,14 +345,8 @@ observations with FrequencyWeights from StatsBase.
 "
 
 # ╔═╡ 4cf596f1-0042-4990-8d0a-caa8ba1db0c7
-begin
-    # Create weighted observations using FrequencyWeights
-    obs_values_adj = @chain simulated_counts @transform(:obs_adj = :observed_delay .+ 1e-6) :obs_adj
-    obs_counts = @chain simulated_counts :n
-
-    # Condition on tuple of (values, counts) directly
-    naive_mdl = naive_model() | (obs = (obs_values_adj, obs_counts),)
-end
+# Condition directly from DataFrame using @with - no intermediate allocations needed
+naive_mdl = @with simulated_counts naive_model() | (obs = (:observed_delay .+ 1e-6, :n),)
 
 # ╔═╡ 71900c43-9f52-474d-adc7-becdc74045da
 md"
