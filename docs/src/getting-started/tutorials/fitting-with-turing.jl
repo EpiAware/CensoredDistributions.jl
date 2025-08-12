@@ -175,9 +175,6 @@ truncation. This model uses the `latent_delay_dist()` submodel via
     end
 
     obs ~ weight(pcens_dists)
-
-    return (obs = obs, observed_delay_upper = obs .+ swindows,
-        pwindows = pwindows, swindows = swindows, obs_times = obs_times)
 end
 
 # ╔═╡ 72f12b29-0779-4be8-aa35-9b22aa20c3b3
@@ -188,8 +185,8 @@ We also need to define our simulated observation windows for each observed delay
 # ╔═╡ 35472e04-e096-4948-a218-3de53923f271
 # Define discrete bounds for each observation - Turing will sample from these
 bounds_df = DataFrame(
-    pwindow_bounds = fill((0, 2), n),  # Each observation can have pwindow 0-2
-    swindow_bounds = fill((0, 2), n),  # Each observation can have swindow 0-2
+    pwindow_bounds = fill((1, 2), n),  # Each observation can have pwindow 1-2
+    swindow_bounds = fill((1, 2), n),  # Each observation can have swindow 1-2
     obs_time_bounds = fill((8, 12), n)  # Each observation can have obs_time 8-12
 )
 
@@ -248,10 +245,7 @@ md"Merge sampled parameters with execution results into complete DataFrame:"
 # ╔═╡ 50757759-9ec3-42d0-a765-df212642885b
 simulated_data = DataFrame(merge(sampled_params, simulation_result))
 
-# ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
-md"The simulated data now contains all window parameters and observations in a single DataFrame."
-
-# ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
+# ╔═╡ 6fd01b5c-e374-4f5c-9f1c-ea75d06132af
 md"""
 ### Visualise the simulated data
 
@@ -259,10 +253,10 @@ To make handling the data easier and later to speed up our models we first creat
 combinations and count occurrences.
 """
 
-# ╔═╡ 6fd01b5c-e374-4f5c-9f1c-ea75d06132af
+# ╔═╡ 6fd01b5c-e374-4f5c-9f1c-ea75d06132aa
 simulated_counts = @chain simulated_data begin
     @groupby All()
-    @combine :n = length(:pwindow)
+    @combine :n = length(:pwindows)
 end
 
 # ╔═╡ 993f1f74-4a55-47a7-9e3e-c725cba13c0a
@@ -272,12 +266,12 @@ distribution. First let's calculate the empirical CDF:
 """
 
 # ╔═╡ ccd8dd8e-c361-43ba-b4f1-2444ec6008fc
-empirical_cdf_obs = @with(simulated_counts, ecdf(:observed_delay, weights = :n));
+empirical_cdf_obs = @with(simulated_counts, ecdf(:observed_delay_upper, weights = :n));
 
 # ╔═╡ 2b773594-5187-45bc-96f4-22a3d726b7d2
 # Create a sequence of x values for the theoretical CDF
 x_seq = @with simulated_counts begin
-    range(minimum(:observed_delay), stop = maximum(:observed_delay) + 2, length = 100);
+    range(minimum(:observed_delay_upper), stop = maximum(:observed_delay_upper) + 2, length = 100);
 end
 
 # ╔═╡ a5b04acc-acc5-4d4d-8871-09d54caab185
@@ -317,7 +311,8 @@ let
     )
     lines!(ax, x_seq, theoretical_cdf, label = "Theoretical CDF",
         color = :black, linewidth = 2)
-    vlines!(ax, [mean(simulated_data.observed_delay)], color = :blue, linestyle = :dash,
+    vlines!(
+        ax, [mean(simulated_data.observed_delay_upper)], color = :blue, linestyle = :dash,
         label = "Censored mean", linewidth = 2)
     vlines!(ax, [mean(uncensored_samples)], color = :red, linestyle = :dash,
         label = "Uncensored mean", linewidth = 2)
@@ -353,7 +348,7 @@ using tuple format `(values, counts)` which enables joint observation conditioni
 
 # ╔═╡ 4cf596f1-0042-4990-8d0a-caa8ba1db0c7
 naive_mdl = @with simulated_counts begin
-    condition(naive_model(), obs = (:observed_delay .+ 1e-6, :n))
+    condition(naive_model(), obs = (:obs .+ 1e-6, :n))
 end
 
 # ╔═╡ 71900c43-9f52-474d-adc7-becdc74045da
@@ -407,12 +402,12 @@ md"Create the interval-only model with bounds, fix the window parameters, and co
 
 # ╔═╡ 6a274882-df7d-4972-80a6-ea62d932a906
 interval_only_mdl = @with simulated_counts begin
-    @chain interval_only_model(swindow_bounds, obs_time_bounds) begin
+    @with simulated_data @chain interval_only_model(:swindow_bounds, :obs_time_bounds) begin
         fix((
             @varname(swindows) => :swindows,
             @varname(obs_times) => :obs_times
         ))
-        condition(obs = (:observed_delay, :n))
+        condition(obs = (:obs, :n))
     end
 end;
 
@@ -443,15 +438,18 @@ simulation, we'll reuse it for fitting."
 
 # ╔═╡ a59e371a-b671-4648-984d-7bcaac367d32
 CensoredDistributions_mdl = @with simulated_counts begin
-    @chain base_model begin
+    @with simulated_data @chain base_model begin
         fix((
             @varname(pwindows) => :pwindows,
             @varname(swindows) => :swindows,
             @varname(obs_times) => :obs_times
         ))
-        condition(obs = (:observed_delay, :n))
+        condition(obs = (:obs, :n))
     end
 end;
+
+# ╔═╡ 57c51354-8ea1-439e-858e-12299275f8e2
+CensoredDistributions_mdl()
 
 # ╔═╡ 691e3d54-1a31-4686-a70d-711c2fc45dc1
 md"
@@ -480,7 +478,7 @@ We also see that the posterior means are near the true parameters and the
 "
 
 # ╔═╡ Cell order:
-# ╟─bb9c75db-6638-48fe-afcb-e78c4bcc057d
+# ╠═bb9c75db-6638-48fe-afcb-e78c4bcc057d
 # ╠═3690c122-d630-4fd0-aaf2-aea9226df086
 # ╟─30511a27-984e-40b7-9b1e-34bc87cb8d56
 # ╟─c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
@@ -518,9 +516,8 @@ We also see that the posterior means are near the true parameters and the
 # ╠═a52a18c5-7625-4d9d-a7f7-bce5cb6ccb3f
 # ╟─50757759-9ec3-42d0-a765-df212642885a
 # ╠═50757759-9ec3-42d0-a765-df212642885b
-# ╟─50757759-9ec3-42d0-a765-df212642885a
-# ╟─50757759-9ec3-42d0-a765-df212642885a
-# ╠═6fd01b5c-e374-4f5c-9f1c-ea75d06132af
+# ╟─6fd01b5c-e374-4f5c-9f1c-ea75d06132af
+# ╠═6fd01b5c-e374-4f5c-9f1c-ea75d06132aa
 # ╟─993f1f74-4a55-47a7-9e3e-c725cba13c0a
 # ╠═ccd8dd8e-c361-43ba-b4f1-2444ec6008fc
 # ╠═2b773594-5187-45bc-96f4-22a3d726b7d2
@@ -546,6 +543,7 @@ We also see that the posterior means are near the true parameters and the
 # ╠═01a37638-6494-4ce5-a02d-9d7f76f39ab7
 # ╟─080c1bca-afcd-46c0-80b8-1708e8d05ae6
 # ╠═a59e371a-b671-4648-984d-7bcaac367d32
+# ╠═57c51354-8ea1-439e-858e-12299275f8e2
 # ╟─691e3d54-1a31-4686-a70d-711c2fc45dc1
 # ╠═b5cd8b13-e3db-4ed1-80ce-e3ac1c57932c
 # ╠═a53a78b3-dcbe-4b62-a336-a26e647dc8c8

@@ -271,6 +271,36 @@ function logpdf(d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weight
 end
 
 # ============================================================================
+# Log-likelihood Methods for Weighted Distributions
+# ============================================================================
+
+@doc "
+
+Compute log-likelihood for single Weighted distribution with joint observations.
+
+Handles joint observations `(value, weight)` format.
+
+See also: [`logpdf`](@ref)
+"
+function loglikelihood(d::Weighted, obs::Tuple{T, S}) where {T, S}
+    return logpdf(d, obs)
+end
+
+@doc "
+
+Compute log-likelihood for Product{<:ValueSupport, <:Weighted} with joint observations.
+
+Handles joint observations `(values, weights)` format.
+
+See also: [`logpdf`](@ref)
+"
+function loglikelihood(
+        d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
+        obs::Tuple{T, S}) where {T, S}
+    return logpdf(d, obs)
+end
+
+# ============================================================================
 # Other Distribution Interface Methods (delegate to underlying distribution)
 # ============================================================================
 
