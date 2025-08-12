@@ -191,6 +191,15 @@ function pdf(d::Weighted, x::Real)
     return pdf(get_dist(d), x)
 end
 
+# Helper function for weighted logpdf computation with proper validation
+function _logpdf(dist, value, weight)
+    # Handle missing or zero weights to avoid NaN from 0 * -Inf operations
+    if ismissing(weight) || weight == 0
+        return -Inf
+    end
+    return weight * logpdf(dist, value)
+end
+
 @doc "
 
 Return the weighted log-probability for scalar observations.
@@ -198,11 +207,7 @@ Return the weighted log-probability for scalar observations.
 See also: [`pdf`](@ref)
 "
 function logpdf(d::Weighted, x::Real)
-    # Handle missing or zero weights to avoid NaN from 0 * -Inf operations
-    if ismissing(d.weight) || d.weight == 0
-        return -Inf
-    end
-    return d.weight * logpdf(get_dist(d), x)
+    return _logpdf(get_dist(d), x, d.weight)
 end
 
 @doc "
@@ -216,29 +221,17 @@ See also: [`pdf`](@ref)
 function logpdf(d::Weighted, obs::Tuple{T, S}) where {T, S}
     value, obs_weight = obs
     final_weight = combine_weights(d.weight, obs_weight)
-    # Handle missing or zero weights to avoid NaN from 0 * -Inf operations
-    if ismissing(final_weight) || final_weight == 0
-        return -Inf
-    end
-    return final_weight * logpdf(get_dist(d), value)
+    return _logpdf(get_dist(d), value, final_weight)
 end
 
 # ============================================================================
 # Product Distribution logpdf Methods
 # ============================================================================
 
-@doc "
-
-Efficient vectorised log-probability computation for Product{<:ValueSupport, <:Weighted}.
-
-Handles joint observations and weight stacking without extraction loops.
-
-See also: [`logpdf`](@ref)
-"
-function logpdf(d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
-        obs::Tuple{T, S}) where {T, S}
-    values, obs_weights = extract_obs(obs)
-
+# Helper function for Product logpdf computation
+function _logpdf_product(
+        d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
+        values, obs_weights)
     # Compute base logpdfs and extract constructor weights
     logpdfs = [logpdf(wd.dist, v) for (wd, v) in zip(d.v, values)]
     constructor_weights = [wd.weight for wd in d.v]
@@ -252,21 +245,29 @@ function logpdf(d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weight
     return sum(final_weights .* logpdfs)
 end
 
+@doc "
+
+Efficient vectorised log-probability computation for Product{<:ValueSupport, <:Weighted} with joint observations.
+
+Handles joint observations and weight stacking.
+
+See also: [`logpdf`](@ref)
+"
+function logpdf(d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
+        obs::Tuple{T, S}) where {T, S}
+    values, obs_weights = obs  # Joint observation (value, weight)
+    return _logpdf_product(d, values, obs_weights)
+end
+
+@doc "
+
+Efficient vectorised log-probability computation for Product{<:ValueSupport, <:Weighted} with vector observations.
+
+See also: [`logpdf`](@ref)
+"
 function logpdf(d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
         x::AbstractVector{<:Real})
-    values, obs_weights = extract_obs(x)
-
-    # Compute base logpdfs and extract constructor weights
-    logpdfs = [logpdf(wd.dist, v) for (wd, v) in zip(d.v, values)]
-    constructor_weights = [wd.weight for wd in d.v]
-
-    # Combine weights and compute final result
-    final_weights = combine_weights(constructor_weights, obs_weights)
-    # Handle missing or zero weights - return -Inf if any found
-    if any(ismissing, final_weights) || any(w -> w == 0, final_weights)
-        return -Inf
-    end
-    return sum(final_weights .* logpdfs)
+    return _logpdf_product(d, x, missing)  # No observation weights
 end
 
 # ============================================================================
@@ -319,27 +320,6 @@ sampler(d::Weighted) = Weighted(sampler(get_dist(d)), d.weight)
 # ============================================================================
 # Helper Functions for Observation and Weight Processing
 # ============================================================================
-
-@doc "
-
-Extract observation values and weights from different input formats.
-
-Supports:
-- Scalar observations: returns `(obs, missing)`
-- Vector observations: returns `(obs, missing)`
-- Tuple observations `(value, weight)`: returns the tuple as-is
-"
-function extract_obs(obs::Real)
-    return (obs, missing)
-end
-
-function extract_obs(obs::AbstractVector)
-    return (obs, missing)
-end
-
-function extract_obs(obs::Tuple{<:Any, <:Any})
-    return obs  # Joint observation (value, weight)
-end
 
 @doc "
 

@@ -216,11 +216,15 @@ model_for_simulation = @with bounds_df CensoredDistributions_model(
 md"We can then fix our priors based on the known values."
 
 # ╔═╡ cf588dc1-3ac7-46a2-9fab-38d90aa391c5
-# Create the base model (unfixed) - we'll use this for both simulation and fitting
+md"Create the base model (unfixed) - we'll use this for both simulation and fitting:"
+
+# ╔═╡ cf588dc1-3ac7-46a2-9fab-38d90aa391c6
 base_model = @with bounds_df CensoredDistributions_model(:pwindow_bounds, :swindow_bounds, :obs_time_bounds)
 
 # ╔═╡ fcc1d4ba-13ca-41be-8451-7d035c8ff4a2
-# For simulation, fix the distribution parameters to known true values
+md"For simulation, fix the distribution parameters to known true values:"
+
+# ╔═╡ fcc1d4ba-13ca-41be-8451-7d035c8ff4a3
 simulation_model = fix(
     base_model,
     (
@@ -230,25 +234,22 @@ simulation_model = fix(
 )
 
 # ╔═╡ 2a0c4692-3ac5-4c46-9ac0-a057256a0b37
-# Get the sampled parameters (stochastic variables only)
+md"Sample the stochastic window parameters and execute the model:"
+
+# ╔═╡ 2a0c4692-3ac5-4c46-9ac0-a057256a0b38
 sampled_params = rand(simulation_model)
 
 # ╔═╡ a52a18c5-7625-4d9d-a7f7-bce5cb6ccb3f
-# Execute the model to get complete results including computed values
 simulation_result = simulation_model()
 
 # ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
-# Create complete simulated data DataFrame
-simulated_data = DataFrame(simulation_result)
+md"Merge sampled parameters with execution results into complete DataFrame:"
+
+# ╔═╡ 50757759-9ec3-42d0-a765-df212642885b
+simulated_data = DataFrame(merge(sampled_params, simulation_result))
 
 # ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
 md"The simulated data now contains all window parameters and observations in a single DataFrame."
-
-# ╔═╡ 2a0c4692-3ac5-4c46-9ac0-a057256a0b37
-md"To simulate from this model all we need to do is call it:"
-
-# ╔═╡ a52a18c5-7625-4d9d-a7f7-bce5cb6ccb3f
-md"The simulated data is now completely self-contained from the model call above."
 
 # ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
 md"""
@@ -351,8 +352,9 @@ using tuple format `(values, counts)` which enables joint observation conditioni
 "
 
 # ╔═╡ 4cf596f1-0042-4990-8d0a-caa8ba1db0c7
-# Condition directly from DataFrame using @with - no intermediate allocations needed
-naive_mdl = @with simulated_counts naive_model() | (obs = (:observed_delay .+ 1e-6, :n),)
+naive_mdl = @with simulated_counts begin
+    condition(naive_model(), obs = (:observed_delay .+ 1e-6, :n))
+end
 
 # ╔═╡ 71900c43-9f52-474d-adc7-becdc74045da
 md"
@@ -404,14 +406,13 @@ end
 md"Create the interval-only model with bounds, fix the window parameters, and condition on observations"
 
 # ╔═╡ 6a274882-df7d-4972-80a6-ea62d932a906
-# Use @with and then chain inside for fixing and conditioning
 interval_only_mdl = @with simulated_counts begin
-    @with simulated_data @chain interval_only_model(swindow_bounds, obs_time_bounds) begin
-        fix(_, (
+    @chain interval_only_model(swindow_bounds, obs_time_bounds) begin
+        fix((
             @varname(swindows) => :swindows,
             @varname(obs_times) => :obs_times
         ))
-        _ | (obs = (:observed_delay, :n),)
+        condition(obs = (:observed_delay, :n))
     end
 end;
 
@@ -438,20 +439,17 @@ md"## Fitting the double censored model
 
 Now we'll fit the full model that accounts for the censoring process.
 Since the CensoredDistributions_model was defined earlier and used for
-simulation, we'll reuse it for fitting - demonstrating the consistency
-of our approach."
+simulation, we'll reuse it for fitting."
 
 # ╔═╡ a59e371a-b671-4648-984d-7bcaac367d32
-# Use @with and then chain inside for fixing and conditioning
 CensoredDistributions_mdl = @with simulated_counts begin
-    @with simulated_data @chain base_model begin
-        fix(_,
-            (
-                @varname(pwindows) => :pwindows,
-                @varname(swindows) => :swindows,
-                @varname(obs_times) => :obs_times
-            ))
-        _ | (obs = (:observed_delay, :n),)
+    @chain base_model begin
+        fix((
+            @varname(pwindows) => :pwindows,
+            @varname(swindows) => :swindows,
+            @varname(obs_times) => :obs_times
+        ))
+        condition(obs = (:observed_delay, :n))
     end
 end;
 
@@ -482,9 +480,9 @@ We also see that the posterior means are near the true parameters and the
 "
 
 # ╔═╡ Cell order:
-# ╟─30511a27-984e-40b7-9b1e-34bc87cb8d56
 # ╟─bb9c75db-6638-48fe-afcb-e78c4bcc057d
 # ╠═3690c122-d630-4fd0-aaf2-aea9226df086
+# ╟─30511a27-984e-40b7-9b1e-34bc87cb8d56
 # ╟─c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
 # ╠═b4409687-7bee-4028-824d-03b209aee68d
 # ╟─30e99e77-aad1-43e8-9284-ab0bf8ae741f
@@ -507,16 +505,20 @@ We also see that the posterior means are near the true parameters and the
 # ╠═35472e04-e096-4948-a218-3de53923f271
 # ╟─b5598cc7-ddd1-4d90-af9b-110a518416ac
 # ╟─2e04be98-625f-45f4-bf5e-a0074ea1ea01
-# ╠═c548931f-f5e3-4de9-9183-eb64575b6bdb
+# ╟─c548931f-f5e3-4de9-9183-eb64575b6bdb
 # ╟─f3568b69-875d-494c-82cf-5a3db767cdaa
 # ╠═8cbb8a46-c090-420f-bbb9-32b971a963f0
 # ╟─5516cadb-f2f5-4852-8215-1493b001ab4d
-# ╠═cf588dc1-3ac7-46a2-9fab-38d90aa391c5
-# ╠═fcc1d4ba-13ca-41be-8451-7d035c8ff4a2
+# ╟─cf588dc1-3ac7-46a2-9fab-38d90aa391c5
+# ╠═cf588dc1-3ac7-46a2-9fab-38d90aa391c6
+# ╟─fcc1d4ba-13ca-41be-8451-7d035c8ff4a2
+# ╠═fcc1d4ba-13ca-41be-8451-7d035c8ff4a3
 # ╟─2a0c4692-3ac5-4c46-9ac0-a057256a0b37
+# ╠═2a0c4692-3ac5-4c46-9ac0-a057256a0b38
 # ╠═a52a18c5-7625-4d9d-a7f7-bce5cb6ccb3f
-# ╟─8e3ff244-c4d5-4562-99a5-7e63c6860a1e
-# ╠═f4ed78e2-cdbb-4534-890a-fb346dd65f36
+# ╟─50757759-9ec3-42d0-a765-df212642885a
+# ╠═50757759-9ec3-42d0-a765-df212642885b
+# ╟─50757759-9ec3-42d0-a765-df212642885a
 # ╟─50757759-9ec3-42d0-a765-df212642885a
 # ╠═6fd01b5c-e374-4f5c-9f1c-ea75d06132af
 # ╟─993f1f74-4a55-47a7-9e3e-c725cba13c0a
@@ -549,35 +551,3 @@ We also see that the posterior means are near the true parameters and the
 # ╠═a53a78b3-dcbe-4b62-a336-a26e647dc8c8
 # ╠═f0c02e4a-c0cc-41de-b1bf-f5fad7e7dfdb
 # ╟─c045caa6-a44d-4a54-b122-1e50b1e0fe75
-# ╟─1ba50a36-d7c8-45e9-b2a1-73f89dc4e8b3
-# ╟─2ba50a36-d7c8-45e9-b2a1-73f89dc4e8b4
-# ╠═3ba50a36-d7c8-45e9-b2a1-73f89dc4e8b5
-# ╟─4ba50a36-d7c8-45e9-b2a1-73f89dc4e8b6
-# ╠═5ba50a36-d7c8-45e9-b2a1-73f89dc4e8b7
-# ╟─6ba50a36-d7c8-45e9-b2a1-73f89dc4e8b8
-# ╠═7ba50a36-d7c8-45e9-b2a1-73f89dc4e8b9
-# ╟─8ba50a36-d7c8-45e9-b2a1-73f89dc4e8b8
-# ╠═9ba50a36-d7c8-45e9-b2a1-73f89dc4e8b9
-# ╟─aba50a36-d7c8-45e9-b2a1-73f89dc4e8ba
-# ╠═bba50a36-d7c8-45e9-b2a1-73f89dc4e8bb
-# ╟─cba50a36-d7c8-45e9-b2a1-73f89dc4e8bc
-# ╠═dba50a36-d7c8-45e9-b2a1-73f89dc4e8bd
-# ╟─eba50a36-d7c8-45e9-b2a1-73f89dc4e8be
-# ╠═fba50a36-d7c8-45e9-b2a1-73f89dc4e8bf
-# ╟─0ca50a36-d7c8-45e9-b2a1-73f89dc4e8c0
-# ╠═1ca50a36-d7c8-45e9-b2a1-73f89dc4e8c1
-# ╟─2ca50a36-d7c8-45e9-b2a1-73f89dc4e8c2
-# ╠═3ca50a36-d7c8-45e9-b2a1-73f89dc4e8c3
-# ╠═4ca50a36-d7c8-45e9-b2a1-73f89dc4e8c4
-# ╠═5ca50a36-d7c8-45e9-b2a1-73f89dc4e8c5
-# ╟─6ca50a36-d7c8-45e9-b2a1-73f89dc4e8c6
-# ╟─7ca50a36-d7c8-45e9-b2a1-73f89dc4e8c7
-# ╠═8ca50a36-d7c8-45e9-b2a1-73f89dc4e8c8
-# ╟─9ca50a36-d7c8-45e9-b2a1-73f89dc4e8c9
-# ╠═aca50a36-d7c8-45e9-b2a1-73f89dc4e8ca
-# ╟─bca50a36-d7c8-45e9-b2a1-73f89dc4e8cb
-# ╠═cca50a36-d7c8-45e9-b2a1-73f89dc4e8cc
-# ╠═dca50a36-d7c8-45e9-b2a1-73f89dc4e8cd
-# ╠═eca50a36-d7c8-45e9-b2a1-73f89dc4e8ce
-# ╠═fca50a36-d7c8-45e9-b2a1-73f89dc4e8cf
-# ╟─0da50a36-d7c8-45e9-b2a1-73f89dc4e8d0

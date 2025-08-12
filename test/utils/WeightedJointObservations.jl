@@ -48,26 +48,6 @@ end
     @test combine_weights(0, 5.0) == 0
 end
 
-@testitem "Test extract_obs function" begin
-    using Distributions
-    using CensoredDistributions: extract_obs
-
-    # Test scalar observation
-    val, weight = extract_obs(2.5)
-    @test val == 2.5
-    @test ismissing(weight)
-
-    # Test vector observation
-    vals = [1.0, 2.0, 3.0]
-    val2, weight2 = extract_obs(vals)
-    @test val2 == vals
-    @test ismissing(weight2)
-
-    # Test joint observation tuple
-    joint = ([1.0, 2.0], [3.0, 4.0])
-    @test extract_obs(joint) == joint
-end
-
 @testitem "Test weight() constructor with missing weights" begin
     using Distributions
 
