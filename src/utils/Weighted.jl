@@ -177,6 +177,68 @@ function pdf(d::Weighted, x::Real)
     return pdf(get_dist(d), x)
 end
 
+# Helper functions to compute weighted logpdf with proper weight validation
+@doc "
+
+Compute weighted logpdf with proper weight validation and edge case handling.
+
+Returns -Inf for missing or zero weights to avoid NaN from 0 * -Inf operations.
+"
+function _weighted_logpdf(weight, base_logpdf::Real)
+    # Handle missing weight
+    if ismissing(weight)
+        return -Inf
+    end
+
+    # Handle zero weights to avoid 0 * -Inf = NaN
+    if weight == 0
+        return -Inf
+    end
+
+    return weight * base_logpdf
+end
+
+@doc "
+
+Compute vectorised weighted logpdf with proper weight validation.
+
+Returns -Inf if any weights are missing or zero to avoid NaN operations.
+"
+function _weighted_logpdf_vectorised(weights::AbstractVector, base_logpdfs::AbstractVector)
+    # Handle missing weights - if any final weight is missing, return -Inf
+    if any(ismissing, weights)
+        return -Inf
+    end
+
+    # Handle zero weights - if any final weight is zero, return -Inf
+    if any(w -> w == 0, weights)
+        return -Inf
+    end
+
+    # Dot product for final result
+    return sum(weights .* base_logpdfs)
+end
+
+@doc "
+
+Combine constructor weights with observation weights for Product distributions.
+
+Handles vectorised, scalar, and missing observation weights appropriately.
+"
+function _combine_product_weights(constructor_weights::AbstractVector, obs_weights)
+    # Handle vectorised weight combination
+    if obs_weights isa AbstractVector
+        # Vectorised weight combination via broadcasting
+        return combine_weights.(constructor_weights, obs_weights)
+    elseif ismissing(obs_weights)
+        # obs_weight is missing - just use constructor weights
+        return constructor_weights
+    else
+        # Scalar obs_weight - broadcast to all components
+        return [combine_weights(cw, obs_weights) for cw in constructor_weights]
+    end
+end
+
 # More specific method signatures to avoid ambiguities with Distributions.jl
 
 @doc "
@@ -186,19 +248,7 @@ Return the weighted log-probability for scalar observations.
 See also: [`pdf`](@ref)
 "
 function logpdf(d::Weighted, x::Real)
-    final_weight = d.weight
-
-    # Handle missing final weight
-    if ismissing(final_weight)
-        return -Inf
-    end
-
-    # Handle zero weights to avoid 0 * -Inf = NaN
-    if final_weight == 0
-        return -Inf
-    end
-
-    return final_weight * logpdf(get_dist(d), x)
+    return _weighted_logpdf(d.weight, logpdf(get_dist(d), x))
 end
 
 @doc "
@@ -212,18 +262,7 @@ See also: [`pdf`](@ref)
 function logpdf(d::Weighted, obs::Tuple{T, S}) where {T, S}
     value, obs_weight = obs
     final_weight = combine_weights(d.weight, obs_weight)
-
-    # Handle missing final weight
-    if ismissing(final_weight)
-        return -Inf
-    end
-
-    # Handle zero weights to avoid 0 * -Inf = NaN
-    if final_weight == 0
-        return -Inf
-    end
-
-    return final_weight * logpdf(get_dist(d), value)
+    return _weighted_logpdf(final_weight, logpdf(get_dist(d), value))
 end
 
 @doc "
@@ -233,19 +272,7 @@ Return the weighted log-probability for vector observations.
 See also: [`pdf`](@ref)
 "
 function logpdf(d::Weighted, x::AbstractVector{<:Real})
-    final_weight = d.weight
-
-    # Handle missing final weight
-    if ismissing(final_weight)
-        return -Inf
-    end
-
-    # Handle zero weights to avoid 0 * -Inf = NaN
-    if final_weight == 0
-        return -Inf
-    end
-
-    return final_weight * logpdf(get_dist(d), x)
+    return _weighted_logpdf(d.weight, logpdf(get_dist(d), x))
 end
 
 # CDF-based methods - delegate to underlying distribution
@@ -308,35 +335,13 @@ function logpdf(d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weight
         obs::Tuple{T, S}) where {T, S}
     values, obs_weights = extract_obs(obs)
 
-    # Direct computation on weighted components (no extraction loop)
-    # Each d.v[i] is a Weighted distribution with .weight and .dist fields
+    # Compute base logpdfs and extract constructor weights
     logpdfs = [logpdf(wd.dist, v) for (wd, v) in zip(d.v, values)]
     constructor_weights = [wd.weight for wd in d.v]
 
-    # Handle vectorised weight combination
-    if obs_weights isa AbstractVector
-        # Vectorised weight combination via broadcasting
-        final_weights = combine_weights.(constructor_weights, obs_weights)
-    elseif ismissing(obs_weights)
-        # obs_weight is missing - just use constructor weights
-        final_weights = constructor_weights
-    else
-        # Scalar obs_weight - broadcast to all components
-        final_weights = [combine_weights(cw, obs_weights) for cw in constructor_weights]
-    end
-
-    # Handle missing weights - if any final weight is missing, return -Inf
-    if any(ismissing, final_weights)
-        return -Inf
-    end
-
-    # Handle zero weights - if any final weight is zero, return -Inf
-    if any(w -> w == 0, final_weights)
-        return -Inf
-    end
-
-    # Dot product for final result
-    return sum(final_weights .* logpdfs)
+    # Combine weights and compute final result
+    final_weights = _combine_product_weights(constructor_weights, obs_weights)
+    return _weighted_logpdf_vectorised(final_weights, logpdfs)
 end
 
 # More specific method for AbstractVector observations to avoid ambiguity
@@ -344,35 +349,13 @@ function logpdf(d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weight
         x::AbstractVector{<:Real})
     values, obs_weights = extract_obs(x)
 
-    # Direct computation on weighted components (no extraction loop)
-    # Each d.v[i] is a Weighted distribution with .weight and .dist fields
+    # Compute base logpdfs and extract constructor weights
     logpdfs = [logpdf(wd.dist, v) for (wd, v) in zip(d.v, values)]
     constructor_weights = [wd.weight for wd in d.v]
 
-    # Handle vectorised weight combination
-    if obs_weights isa AbstractVector
-        # Vectorised weight combination via broadcasting
-        final_weights = combine_weights.(constructor_weights, obs_weights)
-    elseif ismissing(obs_weights)
-        # obs_weight is missing - just use constructor weights
-        final_weights = constructor_weights
-    else
-        # Scalar obs_weight - broadcast to all components
-        final_weights = [combine_weights(cw, obs_weights) for cw in constructor_weights]
-    end
-
-    # Handle missing weights - if any final weight is missing, return -Inf
-    if any(ismissing, final_weights)
-        return -Inf
-    end
-
-    # Handle zero weights - if any final weight is zero, return -Inf
-    if any(w -> w == 0, final_weights)
-        return -Inf
-    end
-
-    # Dot product for final result
-    return sum(final_weights .* logpdfs)
+    # Combine weights and compute final result
+    final_weights = _combine_product_weights(constructor_weights, obs_weights)
+    return _weighted_logpdf_vectorised(final_weights, logpdfs)
 end
 
 # Specific method for AbstractArray{<:AbstractVector{<:Real}} to avoid ambiguity
@@ -381,35 +364,13 @@ function logpdf(
         x::AbstractArray{<:AbstractVector{<:Real}})
     values, obs_weights = extract_obs(x)
 
-    # Direct computation on weighted components (no extraction loop)
-    # Each d.v[i] is a Weighted distribution with .weight and .dist fields
+    # Compute base logpdfs and extract constructor weights
     logpdfs = [logpdf(wd.dist, v) for (wd, v) in zip(d.v, values)]
     constructor_weights = [wd.weight for wd in d.v]
 
-    # Handle vectorised weight combination
-    if obs_weights isa AbstractVector
-        # Vectorised weight combination via broadcasting
-        final_weights = combine_weights.(constructor_weights, obs_weights)
-    elseif ismissing(obs_weights)
-        # obs_weight is missing - just use constructor weights
-        final_weights = constructor_weights
-    else
-        # Scalar obs_weight - broadcast to all components
-        final_weights = [combine_weights(cw, obs_weights) for cw in constructor_weights]
-    end
-
-    # Handle missing weights - if any final weight is missing, return -Inf
-    if any(ismissing, final_weights)
-        return -Inf
-    end
-
-    # Handle zero weights - if any final weight is zero, return -Inf
-    if any(w -> w == 0, final_weights)
-        return -Inf
-    end
-
-    # Dot product for final result
-    return sum(final_weights .* logpdfs)
+    # Combine weights and compute final result
+    final_weights = _combine_product_weights(constructor_weights, obs_weights)
+    return _weighted_logpdf_vectorised(final_weights, logpdfs)
 end
 
 # Helper functions for observation handling and weight operations
