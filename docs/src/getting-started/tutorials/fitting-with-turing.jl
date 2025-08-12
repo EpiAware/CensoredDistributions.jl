@@ -229,17 +229,11 @@ fixed_dist_model = @with bounds_df fix(
 # Now sample from the fixed model to get both scenarios and observations in one go
 simulation_result = fixed_dist_model()
 
-# Create complete simulated data DataFrame with everything self-contained
-simulated_data = DataFrame(
-    pwindow = simulation_result.pwindows,
-    swindow = simulation_result.swindows,
-    obs_time = simulation_result.obs_times,
-    observed_delay = simulation_result.obs,
-    observed_delay_upper = simulation_result.observed_delay_upper
-)
+# Create complete simulated data DataFrame - DataFrame constructor handles NamedTuple automatically
+simulated_data = DataFrame(simulation_result)
 
 # ╔═╡ fcc1d4ba-13ca-41be-8451-7d035c8ff4a2
-DynamicPPL.fixed(fixed_dist_model)
+md"The simulated data now contains all window parameters and observations in a single DataFrame."
 
 # ╔═╡ 2a0c4692-3ac5-4c46-9ac0-a057256a0b37
 md"To simulate from this model all we need to do is call it:"
