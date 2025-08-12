@@ -191,3 +191,30 @@ end
     @test logpdf(wd_real, 0.0) isa Float64
     @test logpdf(wd_missing, 0.0) isa Float64  # -Inf is Float64
 end
+
+@testitem "Test Product distribution with zero weights in vector" begin
+    using Distributions
+
+    # Test the edge case where final_weights contains zeros after combination
+    dists = [Normal(0, 1), Normal(1, 1), Normal(2, 1)]
+    constructor_weights = [2.0, 3.0, 1.0]
+    weighted_dists = weight(dists, constructor_weights)
+
+    # Test case 1: observation weight of 0 makes final weight zero
+    values = [0.5, 1.5, 2.5]
+    obs_weights = [1.0, 0.0, 1.0]  # Middle weight is zero
+    joint_obs = (values, obs_weights)
+
+    # Should return -Inf because one final weight is zero
+    @test logpdf(weighted_dists, joint_obs) == -Inf
+
+    # Test case 2: constructor weight of 0 makes final weight zero
+    d1 = Normal(0, 1)
+    d2 = Normal(1, 1)
+    wd1 = weight(d1, 2.0)
+    wd2 = weight(d2, 0.0)  # Zero constructor weight
+    mixed_zero = product_distribution([wd1, wd2])
+
+    values2 = [0.5, 1.5]
+    @test logpdf(mixed_zero, values2) == -Inf
+end

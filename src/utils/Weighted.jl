@@ -7,6 +7,14 @@ This is primarily used where observations have associated counts or weights.
 Only the `logpdf` method is affected by the weight - all other methods (pdf,
 cdf, sampling, etc.) delegate directly to the underlying distribution.
 
+# Weight Types Supported
+
+The `Weighted` struct supports three different weight scenarios:
+
+1. **Real weights**: Constructor weight is a specific value (e.g., `2.5`)
+2. **Missing weights**: Constructor weight is `missing`, allowing weights to be
+   provided at observation time via joint observations `(value, weight)`
+3. **Zero weights**: Handled specially to return `-Inf` and avoid NaN from `0 * -Inf`
 
 # Examples
 ```@example
@@ -45,6 +53,10 @@ struct Weighted{D <: UnivariateDistribution, T <: Union{Real, Missing}} <:
     end
 end
 
+# ============================================================================
+# Constructor Functions
+# ============================================================================
+
 @doc "
 
 Create a weighted distribution where the log-probability is scaled by `w`.
@@ -71,7 +83,6 @@ function weight(dist::UnivariateDistribution, w::Real)
     return Weighted(dist, w)
 end
 
-# For creating an array of weighted distributions with different weights
 @doc "
 
 Create a product distribution of weighted distributions, each with a different
@@ -98,7 +109,6 @@ function weight(dist::UnivariateDistribution, weights::AbstractVector{<:Real})
     return product_distribution([Weighted(dist, w) for w in weights])
 end
 
-# For creating weighted distributions from a vector of distributions and weights
 @doc "
 
 Create a product distribution of weighted distributions, where each
@@ -157,16 +167,20 @@ function weight(dists::AbstractVector{<:UnivariateDistribution})
     )
 end
 
-# Distributions.jl interface implementation
+# ============================================================================
+# Distributions.jl Interface - Basic Properties
+# ============================================================================
 
-# Basic properties
 Base.eltype(::Type{<:Weighted{D, T}}) where {D, T} = eltype(D)  # Weight doesn't affect element type
 minimum(d::Weighted) = minimum(get_dist(d))
 maximum(d::Weighted) = maximum(get_dist(d))
 insupport(d::Weighted, x::Real) = insupport(get_dist(d), x)
 params(d::Weighted) = (params(get_dist(d))..., d.weight)
 
-# Probability functions
+# ============================================================================
+# Probability Density Functions
+# ============================================================================
+
 @doc "
 
 Return the probability density from the underlying distribution (unweighted).
@@ -177,70 +191,6 @@ function pdf(d::Weighted, x::Real)
     return pdf(get_dist(d), x)
 end
 
-# Helper functions to compute weighted logpdf with proper weight validation
-@doc "
-
-Compute weighted logpdf with proper weight validation and edge case handling.
-
-Returns -Inf for missing or zero weights to avoid NaN from 0 * -Inf operations.
-"
-function _weighted_logpdf(weight, base_logpdf::Real)
-    # Handle missing weight
-    if ismissing(weight)
-        return -Inf
-    end
-
-    # Handle zero weights to avoid 0 * -Inf = NaN
-    if weight == 0
-        return -Inf
-    end
-
-    return weight * base_logpdf
-end
-
-@doc "
-
-Compute vectorised weighted logpdf with proper weight validation.
-
-Returns -Inf if any weights are missing or zero to avoid NaN operations.
-"
-function _weighted_logpdf_vectorised(weights::AbstractVector, base_logpdfs::AbstractVector)
-    # Handle missing weights - if any final weight is missing, return -Inf
-    if any(ismissing, weights)
-        return -Inf
-    end
-
-    # Handle zero weights - if any final weight is zero, return -Inf
-    if any(w -> w == 0, weights)
-        return -Inf
-    end
-
-    # Dot product for final result
-    return sum(weights .* base_logpdfs)
-end
-
-@doc "
-
-Combine constructor weights with observation weights for Product distributions.
-
-Handles vectorised, scalar, and missing observation weights appropriately.
-"
-function _combine_product_weights(constructor_weights::AbstractVector, obs_weights)
-    # Handle vectorised weight combination
-    if obs_weights isa AbstractVector
-        # Vectorised weight combination via broadcasting
-        return combine_weights.(constructor_weights, obs_weights)
-    elseif ismissing(obs_weights)
-        # obs_weight is missing - just use constructor weights
-        return constructor_weights
-    else
-        # Scalar obs_weight - broadcast to all components
-        return [combine_weights(cw, obs_weights) for cw in constructor_weights]
-    end
-end
-
-# More specific method signatures to avoid ambiguities with Distributions.jl
-
 @doc "
 
 Return the weighted log-probability for scalar observations.
@@ -248,7 +198,11 @@ Return the weighted log-probability for scalar observations.
 See also: [`pdf`](@ref)
 "
 function logpdf(d::Weighted, x::Real)
-    return _weighted_logpdf(d.weight, logpdf(get_dist(d), x))
+    # Handle missing or zero weights to avoid NaN from 0 * -Inf operations
+    if ismissing(d.weight) || d.weight == 0
+        return -Inf
+    end
+    return d.weight * logpdf(get_dist(d), x)
 end
 
 @doc "
@@ -262,20 +216,63 @@ See also: [`pdf`](@ref)
 function logpdf(d::Weighted, obs::Tuple{T, S}) where {T, S}
     value, obs_weight = obs
     final_weight = combine_weights(d.weight, obs_weight)
-    return _weighted_logpdf(final_weight, logpdf(get_dist(d), value))
+    # Handle missing or zero weights to avoid NaN from 0 * -Inf operations
+    if ismissing(final_weight) || final_weight == 0
+        return -Inf
+    end
+    return final_weight * logpdf(get_dist(d), value)
 end
+
+# ============================================================================
+# Product Distribution logpdf Methods
+# ============================================================================
 
 @doc "
 
-Return the weighted log-probability for vector observations.
+Efficient vectorised log-probability computation for Product{<:ValueSupport, <:Weighted}.
 
-See also: [`pdf`](@ref)
+Handles joint observations and weight stacking without extraction loops.
+
+See also: [`logpdf`](@ref)
 "
-function logpdf(d::Weighted, x::AbstractVector{<:Real})
-    return _weighted_logpdf(d.weight, logpdf(get_dist(d), x))
+function logpdf(d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
+        obs::Tuple{T, S}) where {T, S}
+    values, obs_weights = extract_obs(obs)
+
+    # Compute base logpdfs and extract constructor weights
+    logpdfs = [logpdf(wd.dist, v) for (wd, v) in zip(d.v, values)]
+    constructor_weights = [wd.weight for wd in d.v]
+
+    # Combine weights and compute final result
+    final_weights = combine_weights(constructor_weights, obs_weights)
+    # Handle missing or zero weights - return -Inf if any found
+    if any(ismissing, final_weights) || any(w -> w == 0, final_weights)
+        return -Inf
+    end
+    return sum(final_weights .* logpdfs)
 end
 
-# CDF-based methods - delegate to underlying distribution
+function logpdf(d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
+        x::AbstractVector{<:Real})
+    values, obs_weights = extract_obs(x)
+
+    # Compute base logpdfs and extract constructor weights
+    logpdfs = [logpdf(wd.dist, v) for (wd, v) in zip(d.v, values)]
+    constructor_weights = [wd.weight for wd in d.v]
+
+    # Combine weights and compute final result
+    final_weights = combine_weights(constructor_weights, obs_weights)
+    # Handle missing or zero weights - return -Inf if any found
+    if any(ismissing, final_weights) || any(w -> w == 0, final_weights)
+        return -Inf
+    end
+    return sum(final_weights .* logpdfs)
+end
+
+# ============================================================================
+# Other Distribution Interface Methods (delegate to underlying distribution)
+# ============================================================================
+
 @doc "
 
 Compute the cumulative distribution function (delegates to underlying
@@ -299,7 +296,6 @@ function logccdf(d::Weighted, x::Real)
     return logccdf(get_dist(d), x)
 end
 
-# Quantile function
 @doc "
 
 Compute the quantile function (delegates to underlying distribution).
@@ -310,7 +306,6 @@ function quantile(d::Weighted, p::Real)
     return quantile(get_dist(d), p)
 end
 
-# Sampling - delegates to underlying distribution
 @doc "
 
 Generate a random sample (delegates to underlying distribution).
@@ -319,61 +314,11 @@ See also: [`quantile`](@ref)
 "
 Base.rand(rng::AbstractRNG, d::Weighted) = rand(rng, get_dist(d))
 
-# Sampler method for efficient sampling
 sampler(d::Weighted) = Weighted(sampler(get_dist(d)), d.weight)
 
-# Efficient vectorised logpdf for Product of Weighted distributions
-@doc "
-
-Efficient vectorised log-probability computation for Product{<:ValueSupport, <:Weighted}.
-
-Handles joint observations and weight stacking without extraction loops.
-
-See also: [`logpdf`](@ref)
-"
-function logpdf(d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
-        obs::Tuple{T, S}) where {T, S}
-    values, obs_weights = extract_obs(obs)
-
-    # Compute base logpdfs and extract constructor weights
-    logpdfs = [logpdf(wd.dist, v) for (wd, v) in zip(d.v, values)]
-    constructor_weights = [wd.weight for wd in d.v]
-
-    # Combine weights and compute final result
-    final_weights = _combine_product_weights(constructor_weights, obs_weights)
-    return _weighted_logpdf_vectorised(final_weights, logpdfs)
-end
-
-# More specific method for AbstractVector observations to avoid ambiguity
-function logpdf(d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
-        x::AbstractVector{<:Real})
-    values, obs_weights = extract_obs(x)
-
-    # Compute base logpdfs and extract constructor weights
-    logpdfs = [logpdf(wd.dist, v) for (wd, v) in zip(d.v, values)]
-    constructor_weights = [wd.weight for wd in d.v]
-
-    # Combine weights and compute final result
-    final_weights = _combine_product_weights(constructor_weights, obs_weights)
-    return _weighted_logpdf_vectorised(final_weights, logpdfs)
-end
-
-# Specific method for AbstractArray{<:AbstractVector{<:Real}} to avoid ambiguity
-function logpdf(
-        d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
-        x::AbstractArray{<:AbstractVector{<:Real}})
-    values, obs_weights = extract_obs(x)
-
-    # Compute base logpdfs and extract constructor weights
-    logpdfs = [logpdf(wd.dist, v) for (wd, v) in zip(d.v, values)]
-    constructor_weights = [wd.weight for wd in d.v]
-
-    # Combine weights and compute final result
-    final_weights = _combine_product_weights(constructor_weights, obs_weights)
-    return _weighted_logpdf_vectorised(final_weights, logpdfs)
-end
-
-# Helper functions for observation handling and weight operations
+# ============================================================================
+# Helper Functions for Observation and Weight Processing
+# ============================================================================
 
 @doc "
 
@@ -406,6 +351,13 @@ Weight combination rules:
 - `missing, w2 → w2` (use observation weight)
 - `w1, w2 → w1 * w2` (multiply weights)
 
+# Vector Extensions
+
+For Product distributions, additional methods handle vectorised weight combinations:
+- `Vector, Vector → combine_weights.(vector1, vector2)` (element-wise combination)
+- `Vector, missing → Vector` (keep constructor weights)
+- `Vector, scalar → [combine_weights(w, scalar) for w in Vector]` (broadcast scalar)
+
 "
 function combine_weights(::Missing, ::Missing)
     return missing
@@ -424,4 +376,13 @@ function combine_weights(w1, w2)
     w1 == 0 && return zero(typeof(w1))
     w2 == 0 && return zero(typeof(w2))
     return w1 * w2
+end
+
+# Vector extensions for Product distributions
+function combine_weights(constructor_weights::AbstractVector, obs_weights::AbstractVector)
+    return combine_weights.(constructor_weights, obs_weights)
+end
+
+function combine_weights(constructor_weights::AbstractVector, ::Missing)
+    return constructor_weights
 end

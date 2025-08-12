@@ -216,10 +216,10 @@ model_for_simulation = @with bounds_df CensoredDistributions_model(
 md"We can then fix our priors based on the known values."
 
 # ╔═╡ cf588dc1-3ac7-46a2-9fab-38d90aa391c5
-
 # Create the base model (unfixed) - we'll use this for both simulation and fitting
 base_model = @with bounds_df CensoredDistributions_model(:pwindow_bounds, :swindow_bounds, :obs_time_bounds)
 
+# ╔═╡ fcc1d4ba-13ca-41be-8451-7d035c8ff4a2
 # For simulation, fix the distribution parameters to known true values
 simulation_model = fix(
     base_model,
@@ -229,13 +229,19 @@ simulation_model = fix(
     )
 )
 
-# Now sample from the simulation model to get both scenarios and observations in one go
+# ╔═╡ 2a0c4692-3ac5-4c46-9ac0-a057256a0b37
+# Get the sampled parameters (stochastic variables only)
+sampled_params = rand(simulation_model)
+
+# ╔═╡ a52a18c5-7625-4d9d-a7f7-bce5cb6ccb3f
+# Execute the model to get complete results including computed values
 simulation_result = simulation_model()
 
-# Create complete simulated data DataFrame - DataFrame constructor handles NamedTuple automatically
+# ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
+# Create complete simulated data DataFrame
 simulated_data = DataFrame(simulation_result)
 
-# ╔═╡ fcc1d4ba-13ca-41be-8451-7d035c8ff4a2
+# ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
 md"The simulated data now contains all window parameters and observations in a single DataFrame."
 
 # ╔═╡ 2a0c4692-3ac5-4c46-9ac0-a057256a0b37
@@ -400,12 +406,11 @@ md"Create the interval-only model with bounds, fix the window parameters, and co
 # ╔═╡ 6a274882-df7d-4972-80a6-ea62d932a906
 # Use @with and then chain inside for fixing and conditioning
 interval_only_mdl = @with simulated_counts begin
-    @chain interval_only_model(swindow_bounds, obs_time_bounds) begin
-        fix(_,
-            (
-                @varname(swindows) => simulated_scenario.swindows,
-                @varname(obs_times) => simulated_scenario.obs_times
-            ))
+    @with simulated_data @chain interval_only_model(swindow_bounds, obs_time_bounds) begin
+        fix(_, (
+            @varname(swindows) => :swindows,
+            @varname(obs_times) => :obs_times
+        ))
         _ | (obs = (:observed_delay, :n),)
     end
 end;
@@ -439,12 +444,12 @@ of our approach."
 # ╔═╡ a59e371a-b671-4648-984d-7bcaac367d32
 # Use @with and then chain inside for fixing and conditioning
 CensoredDistributions_mdl = @with simulated_counts begin
-    @chain base_model begin
+    @with simulated_data @chain base_model begin
         fix(_,
             (
-                @varname(pwindows) => simulated_scenario.pwindows,
-                @varname(swindows) => simulated_scenario.swindows,
-                @varname(obs_times) => simulated_scenario.obs_times
+                @varname(pwindows) => :pwindows,
+                @varname(swindows) => :swindows,
+                @varname(obs_times) => :obs_times
             ))
         _ | (obs = (:observed_delay, :n),)
     end
