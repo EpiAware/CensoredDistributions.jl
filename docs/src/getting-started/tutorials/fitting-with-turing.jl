@@ -217,17 +217,20 @@ md"We can then fix our priors based on the known values."
 
 # ╔═╡ cf588dc1-3ac7-46a2-9fab-38d90aa391c5
 
-# Fix the distribution parameters first, then sample to get both scenarios and observations
-fixed_dist_model = @with bounds_df fix(
-    CensoredDistributions_model(:pwindow_bounds, :swindow_bounds, :obs_time_bounds),
+# Create the base model (unfixed) - we'll use this for both simulation and fitting
+base_model = @with bounds_df CensoredDistributions_model(:pwindow_bounds, :swindow_bounds, :obs_time_bounds)
+
+# For simulation, fix the distribution parameters to known true values
+simulation_model = fix(
+    base_model,
     (
         @varname(dist.mu) => meanlog,
         @varname(dist.sigma) => sdlog
     )
 )
 
-# Now sample from the fixed model to get both scenarios and observations in one go
-simulation_result = fixed_dist_model()
+# Now sample from the simulation model to get both scenarios and observations in one go
+simulation_result = simulation_model()
 
 # Create complete simulated data DataFrame - DataFrame constructor handles NamedTuple automatically
 simulated_data = DataFrame(simulation_result)
