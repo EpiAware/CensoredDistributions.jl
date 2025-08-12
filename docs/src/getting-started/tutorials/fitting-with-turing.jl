@@ -161,10 +161,10 @@ truncation. This model uses the `latent_delay_dist()` submodel via
 
 # ╔═╡ a8f036dd-fd59-4834-8422-f1ea7da616e0
 @model function CensoredDistributions_model(pwindow_bounds, swindow_bounds, obs_time_bounds)
-    # Window parameters as uniform distributions with bounds
-    pwindows ~ arraydist([Uniform(pw[1], pw[2]) for pw in pwindow_bounds])
-    swindows ~ arraydist([Uniform(sw[1], sw[2]) for sw in swindow_bounds])
-    obs_times ~ arraydist([Uniform(ot[1], ot[2]) for ot in obs_time_bounds])
+    # Window parameters as discrete uniform distributions with integer bounds
+    pwindows ~ arraydist([DiscreteUniform(pw[1], pw[2]) for pw in pwindow_bounds])
+    swindows ~ arraydist([DiscreteUniform(sw[1], sw[2]) for sw in swindow_bounds])
+    obs_times ~ arraydist([DiscreteUniform(ot[1], ot[2]) for ot in obs_time_bounds])
 
     dist ~ to_submodel(latent_delay_dist())
 
@@ -175,7 +175,9 @@ truncation. This model uses the `latent_delay_dist()` submodel via
     end
 
     obs ~ weight(pcens_dists)
-    return obs
+
+    return (obs = obs, observed_delay_upper = obs .+ swindows,
+        pwindows = pwindows, swindows = swindows, obs_times = obs_times)
 end
 
 # ╔═╡ 72f12b29-0779-4be8-aa35-9b22aa20c3b3
@@ -184,21 +186,10 @@ We also need to define our simulated observation windows for each observed delay
 """
 
 # ╔═╡ 35472e04-e096-4948-a218-3de53923f271
-# Define scenario bounds first (these represent our knowledge about the scenarios)
-pwindow_bounds = [(0.0, 1.0), (0.0, 2.0)]  # Two primary window scenarios
-swindow_bounds = [(0.0, 1.0), (0.0, 2.0)]  # Two secondary window scenarios
-obs_time_bounds = [(7.0, 9.0), (9.0, 11.0), (11.0, 13.0)]  # Three observation time scenarios
-
-# Create scenario assignments for each observation
-n_scenarios_p = length(pwindow_bounds)
-n_scenarios_s = length(swindow_bounds)
-n_scenarios_o = length(obs_time_bounds)
-
-simulated_scenario = DataFrame(
-    pwindow_idx = rand(1:n_scenarios_p, n),
-    swindow_idx = rand(1:n_scenarios_s, n),
-    obs_time_idx = rand(1:n_scenarios_o, n)
-)
+# Define discrete bounds for each observation - Turing will sample from these
+pwindow_bounds = fill((0, 2), n)  # Each observation can have pwindow 0-2
+swindow_bounds = fill((0, 2), n)  # Each observation can have swindow 0-2
+obs_time_bounds = fill((8, 12), n)  # Each observation can have obs_time 8-12
 
 # ╔═╡ b5598cc7-ddd1-4d90-af9b-110a518416ac
 md"### Simulate from the double censored distribution for each individual"
@@ -226,54 +217,35 @@ md"We can then fix our priors based on the known values."
 
 # ╔═╡ cf588dc1-3ac7-46a2-9fab-38d90aa391c5
 
-# Use Turing to simulate window parameters from bounds, then fix to specific values
-# First, sample from the window parameter priors
-window_samples = sample(
+# Fix the distribution parameters first, then sample to get both scenarios and observations
+fixed_dist_model = fix(
     CensoredDistributions_model(pwindow_bounds, swindow_bounds, obs_time_bounds),
-    Prior(),
-    1
-)
-
-# Extract the simulated window values
-true_pwindows = window_samples[:pwindows][1]
-true_swindows = window_samples[:swindows][1]
-true_obs_times = window_samples[:obs_times][1]
-
-# Now fix the model with these simulated window values
-fixed_model = fix(
-    model_for_simulation,
     (
         @varname(dist.mu) => meanlog,
-        @varname(dist.sigma) => sdlog,
-        @varname(pwindows) => true_pwindows,
-        @varname(swindows) => true_swindows,
-        @varname(obs_times) => true_obs_times
+        @varname(dist.sigma) => sdlog
     )
 )
 
+# Now sample from the fixed model to get both scenarios and observations in one go
+simulation_result = fixed_dist_model()
+
+# Create complete simulated data DataFrame with everything self-contained
+simulated_data = DataFrame(
+    pwindow = simulation_result.pwindows,
+    swindow = simulation_result.swindows,
+    obs_time = simulation_result.obs_times,
+    observed_delay = simulation_result.obs,
+    observed_delay_upper = simulation_result.observed_delay_upper
+)
+
 # ╔═╡ fcc1d4ba-13ca-41be-8451-7d035c8ff4a2
-DynamicPPL.fixed(fixed_model)
+DynamicPPL.fixed(fixed_dist_model)
 
 # ╔═╡ 2a0c4692-3ac5-4c46-9ac0-a057256a0b37
 md"To simulate from this model all we need to do is call it:"
 
 # ╔═╡ a52a18c5-7625-4d9d-a7f7-bce5cb6ccb3f
-begin
-    # Simulate from the fixed model by calling it directly
-    simulated_obs = fixed_model()
-
-    # Extract the observed delays for use in data frame
-    observed_delays = simulated_obs
-end
-
-# ╔═╡ 8e3ff244-c4d5-4562-99a5-7e63c6860a1e
-md"Now lets create a simulated data frame using our scenarios data frame and simulated data."
-
-# ╔═╡ f4ed78e2-cdbb-4534-890a-fb346dd65f36
-simulated_data = @chain simulated_scenario begin
-    @transform :observed_delay = observed_delays
-    @transform :observed_delay_upper = :observed_delay .+ :swindow
-end;
+md"The simulated data is now completely self-contained from the model call above."
 
 # ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
 md"""
