@@ -234,16 +234,7 @@ simulation_model = fix(
 md"Sample the stochastic window parameters and execute the model:"
 
 # ╔═╡ 2a0c4692-3ac5-4c46-9ac0-a057256a0b38
-sampled_params = rand(simulation_model)
-
-# ╔═╡ a52a18c5-7625-4d9d-a7f7-bce5cb6ccb3f
-simulation_result = simulation_model()
-
-# ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
-md"Merge sampled parameters with execution results into complete DataFrame:"
-
-# ╔═╡ 50757759-9ec3-42d0-a765-df212642885b
-simulated_data = DataFrame(merge(sampled_params, simulation_result))
+simulated_data = DataFrame(rand(simulation_model))
 
 # ╔═╡ 6fd01b5c-e374-4f5c-9f1c-ea75d06132af
 md"""
@@ -438,7 +429,7 @@ simulation, we'll reuse it for fitting."
 
 # ╔═╡ a59e371a-b671-4648-984d-7bcaac367d32
 CensoredDistributions_mdl = @with simulated_counts begin
-    @with simulated_data @chain base_model begin
+    @chain base_model begin
         fix((
             @varname(pwindows) => :pwindows,
             @varname(swindows) => :swindows,
