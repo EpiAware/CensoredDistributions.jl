@@ -184,37 +184,21 @@ We also need to define our simulated observation windows for each observed delay
 """
 
 # ╔═╡ 35472e04-e096-4948-a218-3de53923f271
+# Define scenario bounds first (these represent our knowledge about the scenarios)
+pwindow_bounds = [(0.0, 1.0), (0.0, 2.0)]  # Two primary window scenarios
+swindow_bounds = [(0.0, 1.0), (0.0, 2.0)]  # Two secondary window scenarios
+obs_time_bounds = [(7.0, 9.0), (9.0, 11.0), (11.0, 13.0)]  # Three observation time scenarios
+
+# Create scenario assignments for each observation
+n_scenarios_p = length(pwindow_bounds)
+n_scenarios_s = length(swindow_bounds)
+n_scenarios_o = length(obs_time_bounds)
+
 simulated_scenario = DataFrame(
-    pwindow = rand(1:2, n),
-    swindow = rand(1:2, n),
-    obs_time = rand(8:12, n)
+    pwindow_idx = rand(1:n_scenarios_p, n),
+    swindow_idx = rand(1:n_scenarios_s, n),
+    obs_time_idx = rand(1:n_scenarios_o, n)
 )
-
-# Create bounds for the window parameters (used throughout the tutorial)
-bounds_data = @chain simulated_scenario begin
-    @select(:pwindow, :swindow, :obs_time)
-    unique
-end
-
-pwindow_bounds = @chain bounds_data begin
-    @transform :bounds = [(0.0, :pwindow)]
-    :bounds
-end
-
-swindow_bounds = @chain bounds_data begin
-    @transform :bounds = [(0.0, :swindow)]
-    :bounds
-end
-
-obs_time_bounds = @chain bounds_data begin
-    @transform :bounds = [(:obs_time - 1.0, :obs_time + 1.0)]
-    :bounds
-end
-
-# True values for fixing parameters
-true_pwindows = @chain bounds_data :pwindow
-true_swindows = @chain bounds_data :swindow
-true_obs_times = @chain bounds_data :obs_time
 
 # ╔═╡ b5598cc7-ddd1-4d90-af9b-110a518416ac
 md"### Simulate from the double censored distribution for each individual"
@@ -242,6 +226,20 @@ md"We can then fix our priors based on the known values."
 
 # ╔═╡ cf588dc1-3ac7-46a2-9fab-38d90aa391c5
 
+# Use Turing to simulate window parameters from bounds, then fix to specific values
+# First, sample from the window parameter priors
+window_samples = sample(
+    CensoredDistributions_model(pwindow_bounds, swindow_bounds, obs_time_bounds),
+    Prior(),
+    1
+)
+
+# Extract the simulated window values
+true_pwindows = window_samples[:pwindows][1]
+true_swindows = window_samples[:swindows][1]
+true_obs_times = window_samples[:obs_times][1]
+
+# Now fix the model with these simulated window values
 fixed_model = fix(
     model_for_simulation,
     (
@@ -383,11 +381,8 @@ begin
     obs_values_adj = @chain simulated_counts @transform(:obs_adj = :observed_delay .+ 1e-6) :obs_adj
     obs_counts = @chain simulated_counts :n
 
-    # Create FrequencyWeights for conditioning
-    weighted_obs = fweights(obs_counts)
-
-    # Condition the model on weighted observations
-    naive_mdl = naive_model() | (obs = (obs_values_adj, weighted_obs),)
+    # Condition on tuple of (values, counts) directly
+    naive_mdl = naive_model() | (obs = (obs_values_adj, obs_counts),)
 end
 
 # ╔═╡ 71900c43-9f52-474d-adc7-becdc74045da
