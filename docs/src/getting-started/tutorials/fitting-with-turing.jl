@@ -340,8 +340,8 @@ end
 # ╔═╡ 49846128-379c-4c3b-9ec1-567ffa92e079
 md"
 Now let's instantiate and condition this model using weighted observations. We use a
-small constant to avoid issues at zero for this simple model and create weighted
-observations with FrequencyWeights from StatsBase.
+small constant to avoid issues at zero for this simple model and condition directly
+using tuple format `(values, counts)` which enables joint observation conditioning.
 "
 
 # ╔═╡ 4cf596f1-0042-4990-8d0a-caa8ba1db0c7
@@ -351,8 +351,8 @@ naive_mdl = @with simulated_counts naive_model() | (obs = (:observed_delay .+ 1e
 # ╔═╡ 71900c43-9f52-474d-adc7-becdc74045da
 md"
 Now let's fit the conditioned model. Note how we use weighted observations
-`(values, FrequencyWeights)` with missing constructor weights - this demonstrates
-the new weight conditioning pattern where weights are provided at observation time.
+`(values, counts)` with missing constructor weights - this demonstrates
+the new joint observation conditioning pattern where weights are provided at observation time.
 "
 
 # ╔═╡ cd26da77-02fb-4b65-bd7b-88060d0c97e8
