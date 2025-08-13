@@ -409,3 +409,126 @@ end
     @test result_missing ≈ expected_missing
     @test result_missing == sum([w * logpdf(d, v) for (v, w) in zip(values, weights)])
 end
+
+@testitem "Test weight(dist) constructor with missing weight" begin
+    using Distributions
+
+    # Test the single-argument weight() constructor
+    d = Normal(2.0, 1.0)
+    wd = weight(d)
+
+    # Should create Weighted with missing weight
+    @test wd isa CensoredDistributions.Weighted
+    @test wd.dist === d
+    @test ismissing(wd.weight)
+
+    # Test with different distribution types
+    wd_exp = weight(Exponential(3.0))
+    @test wd_exp.dist isa Exponential
+    @test ismissing(wd_exp.weight)
+
+    # Test logpdf with missing constructor weight returns -Inf
+    @test logpdf(wd, 1.0) == -Inf
+
+    # Test joint observation uses observation weight directly
+    @test logpdf(wd, (value = 1.0, weight = 5.0)) == 5.0 * logpdf(d, 1.0)
+
+    # Test with zero observation weight
+    @test logpdf(wd, (value = 1.0, weight = 0.0)) == -Inf
+end
+
+@testitem "Test loglikelihood for single Weighted with scalar joint observations" begin
+    using Distributions
+
+    d = Normal(1.0, 0.5)
+    wd = weight(d, 3.0)
+
+    # Test loglikelihood with single joint observation
+    joint_obs = (value = 2.0, weight = 4.0)
+    expected = logpdf(wd, joint_obs)
+    result = loglikelihood(wd, joint_obs)
+
+    @test result == expected
+    @test result == 3.0 * 4.0 * logpdf(d, 2.0)
+
+    # Test with missing constructor weight
+    wd_missing = weight(d)
+    expected_missing = logpdf(wd_missing, joint_obs)
+    result_missing = loglikelihood(wd_missing, joint_obs)
+
+    @test result_missing == expected_missing
+    @test result_missing == 4.0 * logpdf(d, 2.0)
+end
+
+@testitem "Test loglikelihood for Product distribution with joint observations" begin
+    using Distributions
+
+    # Test Product distribution loglikelihood
+    dists = [Normal(0, 1), Normal(1, 1), Normal(2, 1)]
+    constructor_weights = [2.0, 3.0, 1.5]
+    weighted_dists = weight(dists, constructor_weights)
+
+    values = [0.5, 1.2, 2.8]
+    obs_weights = [1.0, 2.0, 0.5]
+    joint_obs = (values = values, weights = obs_weights)
+
+    # loglikelihood should delegate to logpdf for Product distributions
+    expected = logpdf(weighted_dists, joint_obs)
+    result = loglikelihood(weighted_dists, joint_obs)
+
+    @test result == expected
+
+    # Verify the actual computation
+    expected_manual = sum([constructor_weights[i] * obs_weights[i] *
+                           logpdf(dists[i], values[i])
+                           for i in 1:3])
+    @test result ≈ expected_manual
+
+    # Test with missing constructor weights
+    weighted_dists_missing = weight(dists)
+    joint_obs_missing = (values = values, weights = obs_weights)
+
+    expected_missing = logpdf(weighted_dists_missing, joint_obs_missing)
+    result_missing = loglikelihood(weighted_dists_missing, joint_obs_missing)
+
+    @test result_missing == expected_missing
+    @test result_missing ≈ sum([obs_weights[i] * logpdf(dists[i], values[i]) for i in 1:3])
+end
+
+@testitem "Test comprehensive weight() method coverage" begin
+    using Distributions
+
+    d = LogNormal(1.0, 0.5)
+
+    # Test all weight() constructor variants
+    wd_with_weight = weight(d, 2.5)
+    @test wd_with_weight.weight == 2.5
+
+    wd_missing = weight(d)
+    @test ismissing(wd_missing.weight)
+
+    # Test vector variants
+    dists = [d, Normal(0, 1)]
+    weights_vec = [1.0, 2.0]
+
+    # weight(dists, weights)
+    wd_vec_weighted = weight(dists, weights_vec)
+    @test wd_vec_weighted isa Product
+    @test length(wd_vec_weighted) == 2
+    @test wd_vec_weighted.v[1].weight == 1.0
+    @test wd_vec_weighted.v[2].weight == 2.0
+
+    # weight(dists) - missing weights
+    wd_vec_missing = weight(dists)
+    @test wd_vec_missing isa Product
+    @test length(wd_vec_missing) == 2
+    @test ismissing(wd_vec_missing.v[1].weight)
+    @test ismissing(wd_vec_missing.v[2].weight)
+
+    # Test vector of single distribution
+    weights_single = [3.0, 4.0, 5.0]
+    wd_single_vec = weight(d, weights_single)
+    @test wd_single_vec isa Product
+    @test length(wd_single_vec) == 3
+    @test all([wd_single_vec.v[i].weight == weights_single[i] for i in 1:3])
+end
