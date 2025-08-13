@@ -14,26 +14,24 @@ The `Weighted` struct supports three different weight scenarios:
 1. **Real weights**: Constructor weight is a specific value (e.g., `2.5`)
 2. **Missing weights**: Constructor weight is `missing`, allowing weights to be
    provided at observation time via joint observations `(value = x, weight = w)`
-3. **Zero weights**: Handled specially to return `-Inf` and avoid NaN from `0 * -Inf`
+3. **Zero weights**: Handled specially to return `-Inf` and avoid NaN from
+   `0 * -Inf`
 
 # Examples
 ```@example
-using CensoredDistributions, Distributions, Turing
+using CensoredDistributions, Distributions
 
 # Single weighted observation
 d = LogNormal(1.5, 0.5)
 wd = weight(d, 10.0)  # Observation with weight/count of 10
 
-# In a Turing model
-@model function example_model(y, n)
-    μ ~ Normal(0, 1)
-    σ ~ truncated(Normal(0.5, 0.5); lower = 0)
-    d = LogNormal(μ, σ)
+# Weighted log-probability calculation
+observed_value = 2.0
+weighted_logpdf = logpdf(wd, observed_value)
 
-    # Instead of: Turing.@addlogprob! n * logpdf(d, y)
-    # You can use:
-    y ~ weight(d, n)
-end
+# Compare with manual calculation
+manual_logpdf = 10.0 * logpdf(d, observed_value)
+# weighted_logpdf ≈ manual_logpdf
 ```
 "
 struct Weighted{D <: UnivariateDistribution, T <: Union{Real, Missing}} <:
@@ -61,8 +59,8 @@ end
 
 Create a weighted distribution where the log-probability is scaled by `w`.
 
-A `Weighted` distribution that when used in Turing.jl will contribute
-`w * logpdf(dist, x)` to the log-probability.
+A `Weighted` distribution will contribute `w * logpdf(dist, x)` to the
+log-probability when evaluating `logpdf(weighted_dist, x)`.
 
 # Examples
 ```@example
@@ -70,13 +68,12 @@ A `Weighted` distribution that when used in Turing.jl will contribute
 y_obs = 3.5  # Observed value
 n_count = 25  # Number of times this value was observed
 
-@model function count_model(y_obs, n_count)
-    μ ~ Normal(2, 1)
-    σ ~ Exponential(1)
-    d = Normal(μ, σ)
+d = Normal(2.0, 1.0)
+weighted_d = weight(d, n_count)
 
-    y_obs ~ weight(d, n_count)
-end
+# Weighted log-probability calculation
+weighted_logpdf = logpdf(weighted_d, y_obs)
+# equivalent to: n_count * logpdf(d, y_obs)
 ```
 "
 function weight(dist::UnivariateDistribution, w::Real)
@@ -96,13 +93,12 @@ observations.
 y_obs = [3.5, 4.2, 3.8]  # Observed values
 n_counts = [25, 10, 15]  # Counts for each observation
 
-@model function vectorized_model(y_obs, n_counts)
-    μ ~ Normal(2, 1)
-    σ ~ Exponential(1)
-    d = Normal(μ, σ)
+d = Normal(2.0, 1.0)
+weighted_dists = weight(d, n_counts)
 
-    y_obs ~ weight(d, n_counts)
-end
+# Weighted log-probability calculation
+weighted_logpdf = logpdf(weighted_dists, y_obs)
+# equivalent to: sum(n_counts .* logpdf.(d, y_obs))
 ```
 "
 function weight(dist::UnivariateDistribution, weights::AbstractVector{<:Real})
@@ -132,7 +128,9 @@ function weight(
         weights::AbstractVector{<:Real})
     length(dists) == length(weights) ||
         throw(
-            ArgumentError("Number of distributions must equal number of weights")
+            ArgumentError(
+            "Number of distributions must equal number of weights"
+        )
         )
     return product_distribution(
         [Weighted(d, w) for (d, w) in zip(dists, weights)]
@@ -143,8 +141,9 @@ end
 
 Create a weighted distribution with missing constructor weight.
 
-Useful for creating distributions where weights will be provided at observation time.
-Uses `missing` as constructor weight, enabling observation weight to be used directly.
+Useful for creating distributions where weights will be provided at observation
+time. Uses `missing` as constructor weight, enabling observation weight to be
+used directly.
 
 # Examples
 ```@example
@@ -165,11 +164,12 @@ end
 
 @doc "
 
-Create a product distribution of weighted distributions with missing constructor weights.
+Create a product distribution of weighted distributions with missing constructor
+weights.
 
-Useful for creating distributions where weights will be provided at observation time.
-Each distribution uses `missing` as constructor weight, enabling observation weight
-to be used directly.
+Useful for creating distributions where weights will be provided at observation
+time. Each distribution uses `missing` as constructor weight, enabling
+observation weight to be used directly.
 
 # Examples
 ```@example
@@ -195,7 +195,8 @@ end
 # Distributions.jl Interface - Basic Properties
 # ============================================================================
 
-Base.eltype(::Type{<:Weighted{D, T}}) where {D, T} = eltype(D)  # Weight doesn't affect element type
+# Weight doesn't affect element type
+Base.eltype(::Type{<:Weighted{D, T}}) where {D, T} = eltype(D)
 minimum(d::Weighted) = minimum(get_dist(d))
 maximum(d::Weighted) = maximum(get_dist(d))
 insupport(d::Weighted, x::Real) = insupport(get_dist(d), x)
@@ -271,25 +272,29 @@ end
 
 @doc "
 
-Efficient vectorised log-probability computation for Product{<:ValueSupport, <:Weighted} with joint observations.
+Efficient vectorised log-probability computation for
+Product{<:ValueSupport, <:Weighted} with joint observations.
 
 Handles joint observations and weight stacking.
 Expected format: `(values = [...], weights = [...])`.
 
 See also: [`logpdf`](@ref)
 "
-function logpdf(d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
+function logpdf(
+        d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
         obs::NamedTuple{(:values, :weights)})
     return _logpdf_product(d, obs.values, obs.weights)
 end
 
 @doc "
 
-Efficient vectorised log-probability computation for Product{<:ValueSupport, <:Weighted} with vector observations.
+Efficient vectorised log-probability computation for
+Product{<:ValueSupport, <:Weighted} with vector observations.
 
 See also: [`logpdf`](@ref)
 "
-function logpdf(d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
+function logpdf(
+        d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
         x::AbstractVector{<:Real})
     return _logpdf_product(d, x, missing)  # No observation weights
 end
@@ -312,22 +317,25 @@ end
 
 @doc "
 
-Compute log-likelihood for single Weighted distribution with vectorized joint observations.
+Compute log-likelihood for single Weighted distribution with vectorized joint
+observations.
 
 Handles joint observations as NamedTuple: `(values = [...], weights = [...])`.
-This is useful when a single weighted distribution is used with multiple observations.
+This is useful when a single weighted distribution is used with multiple
+observations.
 
 See also: [`logpdf`](@ref)
 "
 function loglikelihood(d::Weighted, obs::NamedTuple{(:values, :weights)})
-    # For a single distribution with multiple observations, sum the logpdf results
+    # For single distribution with multiple observations, sum logpdf results
     return sum(logpdf(d, (value = v, weight = w))
     for (v, w) in zip(obs.values, obs.weights))
 end
 
 @doc "
 
-Compute log-likelihood for Product{<:ValueSupport, <:Weighted} with joint observations.
+Compute log-likelihood for Product{<:ValueSupport, <:Weighted} with joint
+observations.
 
 Handles joint observations as NamedTuple: `(values = [...], weights = [...])`.
 
@@ -354,14 +362,35 @@ function cdf(d::Weighted, x::Real)
     return cdf(get_dist(d), x)
 end
 
+@doc "
+
+Compute the log cumulative distribution function (delegates to underlying
+distribution).
+
+See also: [`cdf`](@ref)
+"
 function logcdf(d::Weighted, x::Real)
     return logcdf(get_dist(d), x)
 end
 
+@doc "
+
+Compute the complementary cumulative distribution function (delegates to
+underlying distribution).
+
+See also: [`cdf`](@ref)
+"
 function ccdf(d::Weighted, x::Real)
     return ccdf(get_dist(d), x)
 end
 
+@doc "
+
+Compute the log complementary cumulative distribution function (delegates to
+underlying distribution).
+
+See also: [`logcdf`](@ref)
+"
 function logccdf(d::Weighted, x::Real)
     return logccdf(get_dist(d), x)
 end
@@ -384,6 +413,12 @@ See also: [`quantile`](@ref)
 "
 Base.rand(rng::AbstractRNG, d::Weighted) = rand(rng, get_dist(d))
 
+@doc "
+
+Create a sampler for efficient sampling (delegates to underlying distribution).
+
+See also: [`rand`](@ref)
+"
 sampler(d::Weighted) = Weighted(sampler(get_dist(d)), d.weight)
 
 # ============================================================================
@@ -402,10 +437,13 @@ Weight combination rules:
 
 # Vector Extensions
 
-For Product distributions, additional methods handle vectorised weight combinations:
-- `Vector, Vector → combine_weights.(vector1, vector2)` (element-wise combination)
+For Product distributions, additional methods handle vectorised weight
+combinations:
+- `Vector, Vector → combine_weights.(vector1, vector2)` (element-wise
+  combination)
 - `Vector, missing → Vector` (keep constructor weights)
-- `Vector, scalar → [combine_weights(w, scalar) for w in Vector]` (broadcast scalar)
+- `Vector, scalar → [combine_weights(w, scalar) for w in Vector]` (broadcast
+  scalar)
 
 "
 function combine_weights(::Missing, ::Missing)
@@ -428,7 +466,8 @@ function combine_weights(w1, w2)
 end
 
 # Vector extensions for Product distributions
-function combine_weights(constructor_weights::AbstractVector, obs_weights::AbstractVector)
+function combine_weights(
+        constructor_weights::AbstractVector, obs_weights::AbstractVector)
     return combine_weights.(constructor_weights, obs_weights)
 end
 
