@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.13
+# v0.20.14
 
 using Markdown
 using InteractiveUtils
@@ -161,7 +161,6 @@ truncation. This model uses the `latent_delay_dist()` submodel via
 
 # ╔═╡ a8f036dd-fd59-4834-8422-f1ea7da616e0
 @model function CensoredDistributions_model(pwindow_bounds, swindow_bounds, obs_time_bounds)
-    # Window parameters as discrete uniform distributions with integer bounds
     pwindows ~ arraydist([DiscreteUniform(pw[1], pw[2]) for pw in pwindow_bounds])
     swindows ~ arraydist([DiscreteUniform(sw[1], sw[2]) for sw in swindow_bounds])
     obs_times ~ arraydist([DiscreteUniform(ot[1], ot[2]) for ot in obs_time_bounds])
@@ -184,8 +183,8 @@ We also need to define our simulated observation window bounds for each observed
 
 # ╔═╡ 35472e04-e096-4948-a218-3de53923f271
 bounds_df = DataFrame(
-    pwindow_bounds = fill((1, 2), n),  # Each observation can have pwindow 1-2
-    swindow_bounds = fill((1, 2), n),  # Each observation can have swindow 1-2
+    pwindow_bounds = fill((1, 3), n),  # Each observation can have pwindow 1-3
+    swindow_bounds = fill((1, 3), n),  # Each observation can have swindow 1-3
     obs_time_bounds = fill((8, 12), n)  # Each observation can have obs_time 8-12
 )
 
@@ -380,7 +379,6 @@ a comparison point between the naive model and the full model.
 
 # ╔═╡ c3afeed1-20ec-44c8-933c-ca0e75cda788
 @model function interval_only_model(swindow_bounds, obs_time_bounds)
-    # Window parameters as uniform distributions with bounds
     swindows ~ arraydist([Uniform(sw[1], sw[2]) for sw in swindow_bounds])
     obs_times ~ arraydist([Uniform(ot[1], ot[2]) for ot in obs_time_bounds])
 
@@ -395,11 +393,6 @@ end
 
 # ╔═╡ 4fc543fa-dca5-40c3-810b-979c536dfe0d
 md"Create the interval-only model with bounds, fix the window parameters, and condition on observations"
-
-# ╔═╡ a35efcbd-1779-4add-b348-082596675465
-simulated_counts
-
-# ╔═╡ d1d9b547-c8af-4d5c-af56-98c97816f643
 
 # ╔═╡ 6a274882-df7d-4972-80a6-ea62d932a906
 interval_only_mdl = @with simulated_counts begin
@@ -533,8 +526,6 @@ We also see that the posterior means are near the true parameters and the
 # ╟─4cb137e3-93e9-43bf-a39f-b063dd6daac6
 # ╠═c3afeed1-20ec-44c8-933c-ca0e75cda788
 # ╟─4fc543fa-dca5-40c3-810b-979c536dfe0d
-# ╠═a35efcbd-1779-4add-b348-082596675465
-# ╠═d1d9b547-c8af-4d5c-af56-98c97816f643
 # ╠═6a274882-df7d-4972-80a6-ea62d932a906
 # ╟─38790b6c-4fef-4b28-9442-6bfaab9d3c5a
 # ╠═8e1764ec-345a-453a-830c-748c2a077eb7
