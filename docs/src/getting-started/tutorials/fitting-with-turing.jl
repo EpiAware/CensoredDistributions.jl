@@ -205,8 +205,9 @@ md"Primary event distributions are created automatically within the model using 
 md"Then we can define the model using our observation windows."
 
 # ╔═╡ 8cbb8a46-c090-420f-bbb9-32b971a963f0
-model_for_simulation = @with bounds_df CensoredDistributions_model(
-    :pwindow_bounds, :swindow_bounds, :obs_time_bounds)
+model_for_simulation = @with bounds_df begin
+    CensoredDistributions_model(:pwindow_bounds, :swindow_bounds, :obs_time_bounds)
+end
 
 # ╔═╡ 5516cadb-f2f5-4852-8215-1493b001ab4d
 md"We can then fix our priors based on the known values."
@@ -215,7 +216,9 @@ md"We can then fix our priors based on the known values."
 md"Create the base model (unfixed) - we'll use this for both simulation and fitting:"
 
 # ╔═╡ cf588dc1-3ac7-46a2-9fab-38d90aa391c6
-base_model = @with bounds_df CensoredDistributions_model(:pwindow_bounds, :swindow_bounds, :obs_time_bounds)
+base_model = @with bounds_df begin
+    CensoredDistributions_model(:pwindow_bounds, :swindow_bounds, :obs_time_bounds)
+end
 
 # ╔═╡ fcc1d4ba-13ca-41be-8451-7d035c8ff4a2
 md"For simulation, fix the distribution parameters to known true values:"
@@ -336,17 +339,17 @@ end
 md"
 Now let's instantiate and condition this model using weighted observations. We use a
 small constant to avoid issues at zero for this simple model and condition directly
-using tuple format `(values, counts)` which enables joint observation conditioning.
+using NamedTuple format `(values = values, weights = counts)` which enables joint observation conditioning.
 "
 
 # ╔═╡ 4cf596f1-0042-4990-8d0a-caa8ba1db0c7
 naive_mdl = @with simulated_counts begin
-    condition(naive_model(), obs = (:obs .+ 1e-6, :n))
+    condition(naive_model(), obs = (values = :obs .+ 1e-6, weights = :n))
 end
 
 # ╔═╡ 71900c43-9f52-474d-adc7-becdc74045da
 md"
-Now let's fit the conditioned model using the joint observation pattern `(values, counts)`.
+Now let's fit the conditioned model using the joint observation pattern `(values = values, weights = counts)`.
 "
 
 # ╔═╡ cd26da77-02fb-4b65-bd7b-88060d0c97e8
@@ -405,7 +408,7 @@ interval_only_mdl = @with simulated_counts begin
             @varname(swindows) => :swindows,
             @varname(obs_times) => :obs_times
         ))
-        condition(obs = (:obs, :n))
+        condition(obs = (values = :obs, weights = :n))
     end
 end;
 
@@ -442,7 +445,7 @@ CensoredDistributions_mdl = @with simulated_counts begin
             @varname(swindows) => :swindows,
             @varname(obs_times) => :obs_times
         ))
-        condition(obs = (:obs, :n))
+        condition(obs = (values = :obs, weights = :n))
     end
 end;
 

@@ -13,7 +13,7 @@ The `Weighted` struct supports three different weight scenarios:
 
 1. **Real weights**: Constructor weight is a specific value (e.g., `2.5`)
 2. **Missing weights**: Constructor weight is `missing`, allowing weights to be
-   provided at observation time via joint observations `(value, weight)`
+   provided at observation time via joint observations `(value = x, weight = w)`
 3. **Zero weights**: Handled specially to return `-Inf` and avoid NaN from `0 * -Inf`
 
 # Examples
@@ -156,7 +156,7 @@ d = Normal(2.0, 0.5)
 weighted_dist = weight(d)
 
 # Weight provided at observation time via joint observations
-logpdf(weighted_dist, (3.5, 25))
+logpdf(weighted_dist, (value = 3.5, weight = 25))
 ```
 "
 function weight(dist::UnivariateDistribution)
@@ -182,7 +182,7 @@ dists = [Normal(2.0, 0.5), Normal(2.5, 0.8), Normal(1.8, 0.6)]
 weighted_dists = weight(dists)
 
 # Weights provided at observation time via joint observations
-logpdf(weighted_dists, (y_obs, [25, 10, 15]))
+logpdf(weighted_dists, (values = y_obs, weights = [25, 10, 15]))
 ```
 "
 function weight(dists::AbstractVector{<:UnivariateDistribution})
@@ -236,16 +236,16 @@ end
 
 @doc "
 
-Return the weighted log-probability for joint observations `(value, weight)`.
+Return the weighted log-probability for joint observations as NamedTuple.
 
 Combines constructor weight with observation weight via multiplication.
+Expected format: `(value = x, weight = w)`.
 
 See also: [`pdf`](@ref)
 "
-function logpdf(d::Weighted, obs::Tuple{T, S}) where {T, S}
-    value, obs_weight = obs
-    final_weight = combine_weights(d.weight, obs_weight)
-    return _logpdf(get_dist(d), value, final_weight)
+function logpdf(d::Weighted, obs::NamedTuple{(:value, :weight)})
+    final_weight = combine_weights(d.weight, obs.weight)
+    return _logpdf(get_dist(d), obs.value, final_weight)
 end
 
 # ============================================================================
@@ -274,13 +274,13 @@ end
 Efficient vectorised log-probability computation for Product{<:ValueSupport, <:Weighted} with joint observations.
 
 Handles joint observations and weight stacking.
+Expected format: `(values = [...], weights = [...])`.
 
 See also: [`logpdf`](@ref)
 "
 function logpdf(d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
-        obs::Tuple{T, S}) where {T, S}
-    values, obs_weights = obs  # Joint observation (value, weight)
-    return _logpdf_product(d, values, obs_weights)
+        obs::NamedTuple{(:values, :weights)})
+    return _logpdf_product(d, obs.values, obs.weights)
 end
 
 @doc "
@@ -302,25 +302,40 @@ end
 
 Compute log-likelihood for single Weighted distribution with joint observations.
 
-Handles joint observations `(value, weight)` format.
+Handles joint observations as NamedTuple: `(value = x, weight = w)`.
 
 See also: [`logpdf`](@ref)
 "
-function loglikelihood(d::Weighted, obs::Tuple{T, S}) where {T, S}
+function loglikelihood(d::Weighted, obs::NamedTuple{(:value, :weight)})
     return logpdf(d, obs)
+end
+
+@doc "
+
+Compute log-likelihood for single Weighted distribution with vectorized joint observations.
+
+Handles joint observations as NamedTuple: `(values = [...], weights = [...])`.
+This is useful when a single weighted distribution is used with multiple observations.
+
+See also: [`logpdf`](@ref)
+"
+function loglikelihood(d::Weighted, obs::NamedTuple{(:values, :weights)})
+    # For a single distribution with multiple observations, sum the logpdf results
+    return sum(logpdf(d, (value = v, weight = w))
+    for (v, w) in zip(obs.values, obs.weights))
 end
 
 @doc "
 
 Compute log-likelihood for Product{<:ValueSupport, <:Weighted} with joint observations.
 
-Handles joint observations `(values, weights)` format.
+Handles joint observations as NamedTuple: `(values = [...], weights = [...])`.
 
 See also: [`logpdf`](@ref)
 "
 function loglikelihood(
         d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
-        obs::Tuple{T, S}) where {T, S}
+        obs::NamedTuple{(:values, :weights)})
     return logpdf(d, obs)
 end
 
