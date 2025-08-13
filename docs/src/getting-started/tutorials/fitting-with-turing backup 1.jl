@@ -14,7 +14,7 @@ begin
     end
 end
 
-# ╔═╡ c11eafc1-6896-46fe-9e7a-fe228aba866a
+# ╔═╡ 3690c122-d630-4fd0-aaf2-aea9226df086
 begin
     using DataFramesMeta
     using Turing
@@ -179,10 +179,11 @@ end
 
 # ╔═╡ 72f12b29-0779-4be8-aa35-9b22aa20c3b3
 md"""
-We also need to define our simulated observation window bounds for each observed delay as well as the bounds on the amount of censored time in which events have been observed (required to adjust for truncation). We will then combine these bounds with the model in order to simulate data.
+We also need to define our simulated observation windows for each observed delay and the amount of censored time in which events have been observed (required to adjust for truncation). We do this in a data frame.
 """
 
 # ╔═╡ 35472e04-e096-4948-a218-3de53923f271
+# Define discrete bounds for each observation - Turing will sample from these
 bounds_df = DataFrame(
     pwindow_bounds = fill((1, 2), n),  # Each observation can have pwindow 1-2
     swindow_bounds = fill((1, 2), n),  # Each observation can have swindow 1-2
@@ -230,13 +231,10 @@ simulation_model = fix(
 )
 
 # ╔═╡ 2a0c4692-3ac5-4c46-9ac0-a057256a0b37
-md"Now we can sample from the model using `rand` to get simmulated observations with their observation windows and relative observation time:"
+md"Sample the stochastic window parameters and execute the model:"
 
 # ╔═╡ 2a0c4692-3ac5-4c46-9ac0-a057256a0b38
-simulated_data = @chain simulation_model begin
-    rand
-    DataFrame
-end
+simulated_data = DataFrame(rand(simulation_model))
 
 # ╔═╡ 6fd01b5c-e374-4f5c-9f1c-ea75d06132af
 md"""
@@ -248,7 +246,6 @@ combinations and count occurrences.
 
 # ╔═╡ 6fd01b5c-e374-4f5c-9f1c-ea75d06132aa
 simulated_counts = @chain simulated_data begin
-    @transform :obs_upper = :obs .+ :swindows
     @groupby All()
     @combine :n = length(:pwindows)
 end
@@ -330,6 +327,7 @@ delay distribution, providing a baseline for comparison.
 @model function naive_model()
     dist ~ to_submodel(latent_delay_dist())
     obs ~ weight(dist)
+    return obs
 end
 
 # ╔═╡ 49846128-379c-4c3b-9ec1-567ffa92e079
@@ -393,14 +391,9 @@ end
 # ╔═╡ 4fc543fa-dca5-40c3-810b-979c536dfe0d
 md"Create the interval-only model with bounds, fix the window parameters, and condition on observations"
 
-# ╔═╡ a35efcbd-1779-4add-b348-082596675465
-simulated_counts
-
-# ╔═╡ d1d9b547-c8af-4d5c-af56-98c97816f643
-
 # ╔═╡ 6a274882-df7d-4972-80a6-ea62d932a906
 interval_only_mdl = @with simulated_counts begin
-    @chain interval_only_model(bounds_df.swindow_bounds, bounds_df.obs_time_bounds) begin
+    @with simulated_data @chain interval_only_model(:swindow_bounds, :obs_time_bounds) begin
         fix((
             @varname(swindows) => :swindows,
             @varname(obs_times) => :obs_times
@@ -476,9 +469,9 @@ We also see that the posterior means are near the true parameters and the
 "
 
 # ╔═╡ Cell order:
-# ╟─bb9c75db-6638-48fe-afcb-e78c4bcc057d
+# ╠═bb9c75db-6638-48fe-afcb-e78c4bcc057d
+# ╠═3690c122-d630-4fd0-aaf2-aea9226df086
 # ╟─30511a27-984e-40b7-9b1e-34bc87cb8d56
-# ╠═c11eafc1-6896-46fe-9e7a-fe228aba866a
 # ╟─c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
 # ╠═b4409687-7bee-4028-824d-03b209aee68d
 # ╟─30e99e77-aad1-43e8-9284-ab0bf8ae741f
@@ -511,6 +504,9 @@ We also see that the posterior means are near the true parameters and the
 # ╠═fcc1d4ba-13ca-41be-8451-7d035c8ff4a3
 # ╟─2a0c4692-3ac5-4c46-9ac0-a057256a0b37
 # ╠═2a0c4692-3ac5-4c46-9ac0-a057256a0b38
+# ╠═a52a18c5-7625-4d9d-a7f7-bce5cb6ccb3f
+# ╟─50757759-9ec3-42d0-a765-df212642885a
+# ╠═50757759-9ec3-42d0-a765-df212642885b
 # ╟─6fd01b5c-e374-4f5c-9f1c-ea75d06132af
 # ╠═6fd01b5c-e374-4f5c-9f1c-ea75d06132aa
 # ╟─993f1f74-4a55-47a7-9e3e-c725cba13c0a
@@ -530,8 +526,6 @@ We also see that the posterior means are near the true parameters and the
 # ╟─4cb137e3-93e9-43bf-a39f-b063dd6daac6
 # ╠═c3afeed1-20ec-44c8-933c-ca0e75cda788
 # ╟─4fc543fa-dca5-40c3-810b-979c536dfe0d
-# ╠═a35efcbd-1779-4add-b348-082596675465
-# ╠═d1d9b547-c8af-4d5c-af56-98c97816f643
 # ╠═6a274882-df7d-4972-80a6-ea62d932a906
 # ╟─38790b6c-4fef-4b28-9442-6bfaab9d3c5a
 # ╠═8e1764ec-345a-453a-830c-748c2a077eb7

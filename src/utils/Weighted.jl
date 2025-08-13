@@ -141,6 +141,30 @@ end
 
 @doc "
 
+Create a weighted distribution with missing constructor weight.
+
+Useful for creating distributions where weights will be provided at observation time.
+Uses `missing` as constructor weight, enabling observation weight to be used directly.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+d = Normal(2.0, 0.5)
+
+# Create weighted distribution with missing constructor weight
+weighted_dist = weight(d)
+
+# Weight provided at observation time via joint observations
+logpdf(weighted_dist, (3.5, 25))
+```
+"
+function weight(dist::UnivariateDistribution)
+    return Weighted(dist, missing)
+end
+
+@doc "
+
 Create a product distribution of weighted distributions with missing constructor weights.
 
 Useful for creating distributions where weights will be provided at observation time.
