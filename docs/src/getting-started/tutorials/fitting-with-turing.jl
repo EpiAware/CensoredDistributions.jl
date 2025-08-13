@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.13
+# v0.20.14
 
 using Markdown
 using InteractiveUtils
@@ -14,7 +14,7 @@ begin
     end
 end
 
-# ╔═╡ 3690c122-d630-4fd0-aaf2-aea9226df086
+# ╔═╡ c11eafc1-6896-46fe-9e7a-fe228aba866a
 begin
     using DataFramesMeta
     using Turing
@@ -47,6 +47,8 @@ We'll cover the following key points:
 6. Fitting a model that accounts for secondary event censoring and truncation but not primary event censoring.
 7. Fitting the full model that accounts for double censoring and right
    truncation.
+8. Using improved weight conditioning with joint observations and fix() patterns
+9. Demonstrating StatsBase.AbstractWeights integration patterns
 
 ## What might I need to know before starting
 
@@ -158,28 +160,32 @@ truncation. This model uses the `latent_delay_dist()` submodel via
 `to_submodel()` to include the delay distribution parameters. It also uses our `double_interval_censored()` function to define each double censored and right truncated delay:"
 
 # ╔═╡ a8f036dd-fd59-4834-8422-f1ea7da616e0
-@model function CensoredDistributions_model(y, n, primary_dists, sws, Ds)
+@model function CensoredDistributions_model(pwindow_bounds, swindow_bounds, obs_time_bounds)
+    pwindows ~ arraydist([DiscreteUniform(pw[1], pw[2]) for pw in pwindow_bounds])
+    swindows ~ arraydist([DiscreteUniform(sw[1], sw[2]) for sw in swindow_bounds])
+    obs_times ~ arraydist([DiscreteUniform(ot[1], ot[2]) for ot in obs_time_bounds])
+
     dist ~ to_submodel(latent_delay_dist())
 
-    pcens_dists = map(primary_dists, Ds, sws) do pe, D, sw
+    pcens_dists = map(pwindows, obs_times, swindows) do pw, D, sw
+        pe = Uniform(0, pw)
         double_interval_censored(
             dist; primary_event = pe, upper = D, interval = sw)
     end
 
-    y ~ weight(pcens_dists, n)
-    return y
+    obs ~ weight(pcens_dists)
 end
 
 # ╔═╡ 72f12b29-0779-4be8-aa35-9b22aa20c3b3
 md"""
-We also need to define our simulated observation windows for each observed delay and the amount of censored time in which events have been observed (required to adjust for truncation). We do this in a data frame.
+We also need to define our simulated observation window bounds for each observed delay as well as the bounds on the amount of censored time in which events have been observed (required to adjust for truncation). We will then combine these bounds with the model in order to simulate data.
 """
 
 # ╔═╡ 35472e04-e096-4948-a218-3de53923f271
-simulated_scenario = DataFrame(
-    pwindow = rand(1:2, n),
-    swindow = rand(1:2, n),
-    obs_time = rand(8:12, n)
+bounds_df = DataFrame(
+    pwindow_bounds = fill((1, 3), n),  # Each observation can have pwindow 1-3
+    swindow_bounds = fill((1, 3), n),  # Each observation can have swindow 1-3
+    obs_time_bounds = fill((8, 12), n)  # Each observation can have obs_time 8-12
 )
 
 # ╔═╡ b5598cc7-ddd1-4d90-af9b-110a518416ac
@@ -192,48 +198,49 @@ with DynamicPPL's `fix` function to set parameters to their true values and
 sample from the prior predictive distribution. We first define a set of primary event distributions:"
 
 # ╔═╡ c548931f-f5e3-4de9-9183-eb64575b6bdb
-# Create primary event distributions from pwindows
-@chain simulated_scenario begin
-    @transform! :primary_dist = Uniform.(0.0, :pwindow)
-end;
+md"Primary event distributions are created automatically within the model using `Uniform(0, pw)`."
 
 # ╔═╡ f3568b69-875d-494c-82cf-5a3db767cdaa
 md"Then we can define the model using our observation windows."
 
 # ╔═╡ 8cbb8a46-c090-420f-bbb9-32b971a963f0
-model_for_simulation = @with simulated_scenario begin
-    CensoredDistributions_model(
-        missing, ones(n), :primary_dist, :swindow, :obs_time)
+model_for_simulation = @with bounds_df begin
+    CensoredDistributions_model(:pwindow_bounds, :swindow_bounds, :obs_time_bounds)
 end
 
 # ╔═╡ 5516cadb-f2f5-4852-8215-1493b001ab4d
 md"We can then fix our priors based on the known values."
 
 # ╔═╡ cf588dc1-3ac7-46a2-9fab-38d90aa391c5
+md"Create the base model (unfixed) - we'll use this for both simulation and fitting:"
 
-fixed_model = fix(
-    model_for_simulation,
-    (@varname(dist.mu) => meanlog, @varname(dist.sigma) => sdlog))
+# ╔═╡ cf588dc1-3ac7-46a2-9fab-38d90aa391c6
+base_model = @with bounds_df begin
+    CensoredDistributions_model(:pwindow_bounds, :swindow_bounds, :obs_time_bounds)
+end
 
 # ╔═╡ fcc1d4ba-13ca-41be-8451-7d035c8ff4a2
-DynamicPPL.fixed(fixed_model)
+md"For simulation, fix the distribution parameters to known true values:"
+
+# ╔═╡ fcc1d4ba-13ca-41be-8451-7d035c8ff4a3
+simulation_model = fix(
+    base_model,
+    (
+        @varname(dist.mu) => meanlog,
+        @varname(dist.sigma) => sdlog
+    )
+)
 
 # ╔═╡ 2a0c4692-3ac5-4c46-9ac0-a057256a0b37
-md"To simulate from this model all we need to do is call it:"
+md"Now we can sample from the model using `rand` to get simmulated observations with their observation windows and relative observation time:"
 
-# ╔═╡ a52a18c5-7625-4d9d-a7f7-bce5cb6ccb3f
-observed_delays = fixed_model()
+# ╔═╡ 2a0c4692-3ac5-4c46-9ac0-a057256a0b38
+simulated_data = @chain simulation_model begin
+    rand
+    DataFrame
+end
 
-# ╔═╡ 8e3ff244-c4d5-4562-99a5-7e63c6860a1e
-md"Now lets create a simulated data frame using our scenarios data frame and simulated data."
-
-# ╔═╡ f4ed78e2-cdbb-4534-890a-fb346dd65f36
-simulated_data = @chain simulated_scenario begin
-    @transform :observed_delay = observed_delays
-    @transform :observed_delay_upper = :observed_delay .+ :swindow
-end;
-
-# ╔═╡ 50757759-9ec3-42d0-a765-df212642885a
+# ╔═╡ 6fd01b5c-e374-4f5c-9f1c-ea75d06132af
 md"""
 ### Visualise the simulated data
 
@@ -241,10 +248,11 @@ To make handling the data easier and later to speed up our models we first creat
 combinations and count occurrences.
 """
 
-# ╔═╡ 6fd01b5c-e374-4f5c-9f1c-ea75d06132af
+# ╔═╡ 6fd01b5c-e374-4f5c-9f1c-ea75d06132aa
 simulated_counts = @chain simulated_data begin
+    @transform :obs_upper = :obs .+ :swindows
     @groupby All()
-    @combine :n = length(:pwindow)
+    @combine :n = length(:pwindows)
 end
 
 # ╔═╡ 993f1f74-4a55-47a7-9e3e-c725cba13c0a
@@ -254,12 +262,12 @@ distribution. First let's calculate the empirical CDF:
 """
 
 # ╔═╡ ccd8dd8e-c361-43ba-b4f1-2444ec6008fc
-empirical_cdf_obs = @with(simulated_counts, ecdf(:observed_delay, weights = :n));
+empirical_cdf_obs = @with(simulated_counts, ecdf(:obs, weights = :n));
 
 # ╔═╡ 2b773594-5187-45bc-96f4-22a3d726b7d2
 # Create a sequence of x values for the theoretical CDF
 x_seq = @with simulated_counts begin
-    range(minimum(:observed_delay), stop = maximum(:observed_delay) + 2, length = 100);
+    range(minimum(:obs), stop = maximum(:obs) + 2, length = 100);
 end
 
 # ╔═╡ a5b04acc-acc5-4d4d-8871-09d54caab185
@@ -299,7 +307,8 @@ let
     )
     lines!(ax, x_seq, theoretical_cdf, label = "Theoretical CDF",
         color = :black, linewidth = 2)
-    vlines!(ax, [mean(simulated_data.observed_delay)], color = :blue, linestyle = :dash,
+    vlines!(
+        ax, [mean(simulated_data.obs)], color = :blue, linestyle = :dash,
         label = "Censored mean", linewidth = 2)
     vlines!(ax, [mean(uncensored_samples)], color = :red, linestyle = :dash,
         label = "Uncensored mean", linewidth = 2)
@@ -320,22 +329,26 @@ delay distribution, providing a baseline for comparison.
 "
 
 # ╔═╡ a257ce07-efbe-45e1-a8b0-ada40c29de8d
-@model function naive_model(y, n)
+@model function naive_model()
     dist ~ to_submodel(latent_delay_dist())
-    y ~ weight(dist, n)
+    obs ~ weight(dist)
 end
 
 # ╔═╡ 49846128-379c-4c3b-9ec1-567ffa92e079
 md"
-Now lets instantiate this model with data. Note we add a small constant to avoid issues at zero for this simple model.
+Now let's instantiate and condition this model using weighted observations. We use a
+small constant to avoid issues at zero for this simple model and condition directly
+using NamedTuple format `(values = values, weights = counts)` which enables joint observation conditioning.
 "
 
 # ╔═╡ 4cf596f1-0042-4990-8d0a-caa8ba1db0c7
-naive_mdl = @with(simulated_counts, naive_model(:observed_delay .+ 1e-6, :n))
+naive_mdl = @with simulated_counts begin
+    condition(naive_model(), obs = (values = :obs .+ 1e-6, weights = :n))
+end
 
 # ╔═╡ 71900c43-9f52-474d-adc7-becdc74045da
 md"
-and now let's fit the compiled model.
+Now let's fit the conditioned model using the joint observation pattern `(values = values, weights = counts)`.
 "
 
 # ╔═╡ cd26da77-02fb-4b65-bd7b-88060d0c97e8
@@ -365,21 +378,32 @@ a comparison point between the naive model and the full model.
 "
 
 # ╔═╡ c3afeed1-20ec-44c8-933c-ca0e75cda788
-@model function interval_only_model(y, n, sws, Ds)
+@model function interval_only_model(swindow_bounds, obs_time_bounds)
+    swindows ~ arraydist([Uniform(sw[1], sw[2]) for sw in swindow_bounds])
+    obs_times ~ arraydist([Uniform(ot[1], ot[2]) for ot in obs_time_bounds])
+
     dist ~ to_submodel(latent_delay_dist())
-    icens_dists = map(Ds, sws) do D, sw
+
+    icens_dists = map(obs_times, swindows) do D, sw
         truncated(interval_censored(dist, sw), upper = D)
     end
-    y ~ weight(icens_dists, n)
+    obs ~ weight(icens_dists)
+    return obs
 end
 
 # ╔═╡ 4fc543fa-dca5-40c3-810b-979c536dfe0d
-md"Instantiate the interval only model"
+md"Create the interval-only model with bounds, fix the window parameters, and condition on observations"
 
 # ╔═╡ 6a274882-df7d-4972-80a6-ea62d932a906
 interval_only_mdl = @with simulated_counts begin
-    interval_only_model(:observed_delay, :n, :swindow, :obs_time)
-end
+    @chain interval_only_model(bounds_df.swindow_bounds, bounds_df.obs_time_bounds) begin
+        fix((
+            @varname(swindows) => :swindows,
+            @varname(obs_times) => :obs_times
+        ))
+        condition(obs = (values = :obs, weights = :n))
+    end
+end;
 
 # ╔═╡ 38790b6c-4fef-4b28-9442-6bfaab9d3c5a
 md"
@@ -400,18 +424,26 @@ md"Lets plot the posterior compared to the true values again. *Note: An annoying
 plot_fit_with_truth(interval_only_fit, Dict("dist.mu" => meanlog, "dist.sigma" => sdlog))
 
 # ╔═╡ 080c1bca-afcd-46c0-80b8-1708e8d05ae6
-md"## Fitting the full CensoredDistributions model
+md"## Fitting the double censored model
 
 Now we'll fit the full model that accounts for the censoring process.
 Since the CensoredDistributions_model was defined earlier and used for
-simulation, we'll reuse it for fitting - demonstrating the consistency
-of our approach."
+simulation, we'll reuse it for fitting."
 
 # ╔═╡ a59e371a-b671-4648-984d-7bcaac367d32
 CensoredDistributions_mdl = @with simulated_counts begin
-    CensoredDistributions_model(:observed_delay, :n, :primary_dist,
-        :swindow, :obs_time)
-end
+    @chain base_model begin
+        fix((
+            @varname(pwindows) => :pwindows,
+            @varname(swindows) => :swindows,
+            @varname(obs_times) => :obs_times
+        ))
+        condition(obs = (values = :obs, weights = :n))
+    end
+end;
+
+# ╔═╡ 57c51354-8ea1-439e-858e-12299275f8e2
+CensoredDistributions_mdl()
 
 # ╔═╡ 691e3d54-1a31-4686-a70d-711c2fc45dc1
 md"
@@ -440,9 +472,9 @@ We also see that the posterior means are near the true parameters and the
 "
 
 # ╔═╡ Cell order:
-# ╟─30511a27-984e-40b7-9b1e-34bc87cb8d56
 # ╟─bb9c75db-6638-48fe-afcb-e78c4bcc057d
-# ╠═3690c122-d630-4fd0-aaf2-aea9226df086
+# ╟─30511a27-984e-40b7-9b1e-34bc87cb8d56
+# ╠═c11eafc1-6896-46fe-9e7a-fe228aba866a
 # ╟─c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
 # ╠═b4409687-7bee-4028-824d-03b209aee68d
 # ╟─30e99e77-aad1-43e8-9284-ab0bf8ae741f
@@ -465,18 +497,18 @@ We also see that the posterior means are near the true parameters and the
 # ╠═35472e04-e096-4948-a218-3de53923f271
 # ╟─b5598cc7-ddd1-4d90-af9b-110a518416ac
 # ╟─2e04be98-625f-45f4-bf5e-a0074ea1ea01
-# ╠═c548931f-f5e3-4de9-9183-eb64575b6bdb
+# ╟─c548931f-f5e3-4de9-9183-eb64575b6bdb
 # ╟─f3568b69-875d-494c-82cf-5a3db767cdaa
 # ╠═8cbb8a46-c090-420f-bbb9-32b971a963f0
 # ╟─5516cadb-f2f5-4852-8215-1493b001ab4d
-# ╠═cf588dc1-3ac7-46a2-9fab-38d90aa391c5
-# ╠═fcc1d4ba-13ca-41be-8451-7d035c8ff4a2
+# ╟─cf588dc1-3ac7-46a2-9fab-38d90aa391c5
+# ╠═cf588dc1-3ac7-46a2-9fab-38d90aa391c6
+# ╟─fcc1d4ba-13ca-41be-8451-7d035c8ff4a2
+# ╠═fcc1d4ba-13ca-41be-8451-7d035c8ff4a3
 # ╟─2a0c4692-3ac5-4c46-9ac0-a057256a0b37
-# ╠═a52a18c5-7625-4d9d-a7f7-bce5cb6ccb3f
-# ╟─8e3ff244-c4d5-4562-99a5-7e63c6860a1e
-# ╠═f4ed78e2-cdbb-4534-890a-fb346dd65f36
-# ╟─50757759-9ec3-42d0-a765-df212642885a
-# ╠═6fd01b5c-e374-4f5c-9f1c-ea75d06132af
+# ╠═2a0c4692-3ac5-4c46-9ac0-a057256a0b38
+# ╟─6fd01b5c-e374-4f5c-9f1c-ea75d06132af
+# ╠═6fd01b5c-e374-4f5c-9f1c-ea75d06132aa
 # ╟─993f1f74-4a55-47a7-9e3e-c725cba13c0a
 # ╠═ccd8dd8e-c361-43ba-b4f1-2444ec6008fc
 # ╠═2b773594-5187-45bc-96f4-22a3d726b7d2
@@ -502,6 +534,7 @@ We also see that the posterior means are near the true parameters and the
 # ╠═01a37638-6494-4ce5-a02d-9d7f76f39ab7
 # ╟─080c1bca-afcd-46c0-80b8-1708e8d05ae6
 # ╠═a59e371a-b671-4648-984d-7bcaac367d32
+# ╠═57c51354-8ea1-439e-858e-12299275f8e2
 # ╟─691e3d54-1a31-4686-a70d-711c2fc45dc1
 # ╠═b5cd8b13-e3db-4ed1-80ce-e3ac1c57932c
 # ╠═a53a78b3-dcbe-4b62-a336-a26e647dc8c8

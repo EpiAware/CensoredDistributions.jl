@@ -8,7 +8,8 @@ using Random: AbstractRNG
 # Explicit imports approach for issue #121
 # Import functions that we extend (for method extension)
 import Distributions: params, insupport, pdf, logpdf, cdf, logcdf,
-                      ccdf, logccdf, quantile, mean, var, std, median, sampler
+                      ccdf, logccdf, quantile, mean, var, std, median, sampler,
+                      loglikelihood
 # Import from Base for functions we extend that are re-exported by Distributions
 import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
