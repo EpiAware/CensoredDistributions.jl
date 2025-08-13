@@ -474,3 +474,7 @@ end
 function combine_weights(constructor_weights::AbstractVector, ::Missing)
     return constructor_weights
 end
+
+function combine_weights(constructor_weights::AbstractVector, obs_weight::Real)
+    return [combine_weights(w, obs_weight) for w in constructor_weights]
+end

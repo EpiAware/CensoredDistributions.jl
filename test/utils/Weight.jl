@@ -229,6 +229,31 @@ end
     @test combine_weights(0.0, 5.0) == 0.0
     @test combine_weights(5.0, 0.0) == 0.0
     @test combine_weights(0, 5.0) == 0
+
+    # Test vector combinations
+    constructor_weights = [2.0, 3.0, 1.0]
+    obs_weights = [1.0, 2.0, 4.0]
+
+    # Vector, Vector → element-wise combination
+    result_vec = combine_weights(constructor_weights, obs_weights)
+    @test result_vec == [2.0, 6.0, 4.0]
+
+    # Vector, missing → keep constructor weights
+    result_missing = combine_weights(constructor_weights, missing)
+    @test result_missing == constructor_weights
+
+    # Vector, scalar → broadcast scalar to all elements
+    result_scalar = combine_weights(constructor_weights, 2.0)
+    @test result_scalar == [4.0, 6.0, 2.0]
+
+    # Test with zero scalar weight
+    result_zero = combine_weights(constructor_weights, 0.0)
+    @test result_zero == [0.0, 0.0, 0.0]
+
+    # Test with mixed missing constructor weights and scalar observation weight
+    mixed_weights = [2.0, missing, 3.0]
+    result_mixed = combine_weights(mixed_weights, 5.0)
+    @test result_mixed == [10.0, 5.0, 15.0]
 end
 
 @testitem "Test weight() constructor with missing weights" begin
