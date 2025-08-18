@@ -369,3 +369,144 @@ end
 
 # Sampler method for efficient sampling
 sampler(d::IntervalCensored) = d
+
+#### Vectorised PDF optimization
+
+"""
+    _collect_unique_boundaries(d::IntervalCensored, x::AbstractArray)
+
+Collect all unique interval boundaries needed for vectorised PDF computation.
+
+Returns a sorted vector of unique boundaries with appropriate type promotion.
+"""
+function _collect_unique_boundaries(d::IntervalCensored, x::AbstractArray{<:Real})
+    # Determine promoted type for type stability
+    T = promote_type(eltype(x), eltype(d.boundaries))
+    boundaries = T[]
+
+    # Collect all unique boundaries needed
+    if is_regular_intervals(d)
+        interval = interval_width(d)
+        for xi in x
+            lower = floor_to_interval(xi, interval)
+            upper = lower + interval
+            push!(boundaries, lower, upper)
+        end
+    else
+        # For arbitrary intervals, collect all boundaries that could be needed
+        for xi in x
+            lower, upper = get_interval_bounds(d, xi)
+            if !isnan(lower) && !isnan(upper)
+                push!(boundaries, lower, upper)
+            end
+        end
+    end
+
+    # Return sorted unique boundaries
+    return sort!(unique!(boundaries))
+end
+
+"""
+    _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractArray, cdf_lookup::Dict)
+
+Compute PDFs efficiently using cached CDF values.
+
+Uses the same boundary case handling as the scalar method.
+"""
+function _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractArray{<:Real}, cdf_lookup::Dict)
+    T = promote_type(eltype(x), eltype(d))
+    pdfs = Vector{T}(undef, length(x))
+
+    # Get distribution bounds once for boundary case handling
+    dist_min = minimum(get_dist(d))
+    dist_max = maximum(get_dist(d))
+
+    for (i, xi) in enumerate(x)
+        lower, upper = get_interval_bounds(d, xi)
+
+        if isnan(lower) || isnan(upper)
+            pdfs[i] = zero(T)
+            continue
+        end
+
+        # Handle boundary cases for distributions with bounded support
+        # For lower bound at or below distribution minimum, CDF is 0
+        cdf_lower = lower <= dist_min ? zero(T) : cdf_lookup[lower]
+
+        # For upper bound at or above distribution maximum, CDF is 1
+        cdf_upper = upper >= dist_max ? one(T) : cdf_lookup[upper]
+
+        pdfs[i] = cdf_upper - cdf_lower
+    end
+
+    return pdfs
+end
+
+@doc "
+
+Compute probability masses for an array of values using optimised vectorisation.
+
+This method collects unique interval boundaries, computes CDFs once, then uses
+cached values for efficient PDF computation across the array.
+
+See also: [`pdf`](@ref), [`logpdf`](@ref)
+"
+function pdf(d::IntervalCensored, x::AbstractArray{<:Real})
+    # Collect all unique boundaries needed
+    boundaries = _collect_unique_boundaries(d, x)
+
+    # Compute CDFs once for all unique boundaries
+    T = promote_type(eltype(x), eltype(d.boundaries))
+    cdf_lookup = Dict{T, T}()
+
+    for boundary in boundaries
+        cdf_lookup[boundary] = cdf(get_dist(d), boundary)
+    end
+
+    # Use cached values to compute PDFs efficiently
+    return _compute_pdfs_with_cache(d, x, cdf_lookup)
+end
+
+@doc "
+
+Compute log probability masses for an array of values using optimised PDF computation.
+
+See also: [`pdf`](@ref), [`logpdf`](@ref)
+"
+function logpdf(d::IntervalCensored, x::AbstractArray{<:Real})
+    # Use vectorised PDF computation then handle logs with proper error handling
+    pdf_vals = pdf(d, x)
+
+    T = promote_type(eltype(x), eltype(d))
+    logpdfs = Vector{T}(undef, length(x))
+
+    for (i, (xi, pdf_val)) in enumerate(zip(x, pdf_vals))
+        try
+            # Check support first for consistency with Distributions.jl
+            if !insupport(d, xi)
+                logpdfs[i] = T(-Inf)
+            elseif pdf_val <= 0.0
+                logpdfs[i] = T(-Inf)
+            else
+                logpdfs[i] = log(pdf_val)
+            end
+        catch e
+            if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
+                logpdfs[i] = T(-Inf)
+            else
+                rethrow(e)
+            end
+        end
+    end
+
+    return logpdfs
+end
+
+# Resolve ambiguity with Distributions.jl for 0-dimensional arrays
+function pdf(d::IntervalCensored, x::AbstractArray{<:Real, 0})
+    return pdf(d, x[])  # Extract scalar and delegate to scalar method
+end
+
+function logpdf(d::IntervalCensored, x::AbstractArray{<:Real, 0})
+    return logpdf(d, x[])  # Extract scalar and delegate to scalar method
+end

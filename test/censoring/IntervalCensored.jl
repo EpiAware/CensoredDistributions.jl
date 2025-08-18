@@ -504,6 +504,272 @@ end
     end
 end
 
+@testitem "Test vectorised PDF methods - performance benchmark" begin
+    using Distributions
+    using BenchmarkTools
+
+    # Set up test distribution and data
+    d = Normal(5.0, 2.0)
+    ic_regular = interval_censored(d, 0.5)
+    ic_arbitrary = interval_censored(d, [0.0, 2.0, 4.0, 6.0, 8.0, 10.0])
+
+    # Test with various array sizes
+    test_sizes = [100, 1000]
+
+    for n in test_sizes
+        # Generate test data with some adjacent values for best-case optimization
+        base_vals = [2.0, 2.5, 3.0, 3.5]
+        adjacent_size = min(n ÷ 8, length(base_vals))
+        x_regular = vcat(
+            rand(d, n - adjacent_size),  # Random values
+            base_vals[1:adjacent_size] .+ rand(adjacent_size)  # Some adjacent values
+        )
+
+        base_vals_arb = [3.0, 3.1, 3.2, 3.3]
+        adjacent_size_arb = min(n ÷ 8, length(base_vals_arb))
+        x_arbitrary = vcat(
+            rand(d, n - adjacent_size_arb),  # Random values
+            base_vals_arb[1:adjacent_size_arb] .+ rand(adjacent_size_arb)  # Values in same interval
+        )
+
+        # Benchmark regular intervals
+        time_broadcast = @belapsed pdf.($ic_regular, $x_regular)
+        time_vectorised = @belapsed pdf($ic_regular, $x_regular)
+
+        # Calculate speedup - performance may vary based on boundary reuse patterns
+        speedup_regular = time_broadcast / time_vectorised
+        @test speedup_regular > 0.1  # Should not be orders of magnitude slower
+
+        # The optimization provides an alternative efficient code path
+        # Performance benefits depend on input patterns and distribution characteristics
+        # Main benefit is avoiding repeated CDF computations for shared boundaries
+
+        # Benchmark arbitrary intervals
+        time_broadcast_arb = @belapsed pdf.($ic_arbitrary, $x_arbitrary)
+        time_vectorised_arb = @belapsed pdf($ic_arbitrary, $x_arbitrary)
+
+        speedup_arbitrary = time_broadcast_arb / time_vectorised_arb
+        @test speedup_arbitrary > 0.1  # Should not be orders of magnitude slower
+
+        # For arbitrary intervals, optimization is most beneficial when many values
+        # fall in the same intervals, reducing unique boundary calculations
+    end
+end
+
+@testitem "Test vectorised PDF methods - correctness" begin
+    using Distributions
+
+    # Test regular intervals
+    d = Normal(3.0, 1.5)
+    ic_regular = interval_censored(d, 0.25)
+
+    # Test various arrays including edge cases
+    test_arrays = [
+        Float64[],  # Empty array
+        [2.5],      # Single value
+        [1.0, 2.0, 3.0],  # Simple case
+        [1.0, 1.25, 1.5, 1.75, 2.0],  # Adjacent intervals
+        [-5.0, 10.0],  # Extreme values
+        [1.0, 1.0, 2.0, 2.0],  # Duplicates
+        collect(range(0.0, 5.0, 101))  # Large range
+    ]
+
+    for x_vec in test_arrays
+        # Test pdf correctness
+        pdf_broadcast = pdf.(ic_regular, x_vec)
+        pdf_vectorised = pdf(ic_regular, x_vec)
+
+        @test length(pdf_vectorised) == length(x_vec)
+        @test pdf_vectorised ≈ pdf_broadcast rtol=1e-14
+
+        # Test logpdf correctness
+        logpdf_broadcast = logpdf.(ic_regular, x_vec)
+        logpdf_vectorised = logpdf(ic_regular, x_vec)
+
+        @test length(logpdf_vectorised) == length(x_vec)
+        @test logpdf_vectorised ≈ logpdf_broadcast rtol=1e-14
+
+        # Test type consistency
+        @test eltype(pdf_vectorised) ==
+              promote_type(eltype(x_vec), eltype(ic_regular.boundaries))
+        @test eltype(logpdf_vectorised) ==
+              promote_type(eltype(x_vec), eltype(ic_regular.boundaries))
+    end
+
+    # Test arbitrary intervals
+    intervals = [0.0, 1.5, 4.0, 7.0, 10.0]
+    ic_arbitrary = interval_censored(d, intervals)
+
+    for x_vec in test_arrays
+        # Test pdf correctness
+        pdf_broadcast = pdf.(ic_arbitrary, x_vec)
+        pdf_vectorised = pdf(ic_arbitrary, x_vec)
+
+        @test length(pdf_vectorised) == length(x_vec)
+        @test pdf_vectorised ≈ pdf_broadcast rtol=1e-14
+
+        # Test logpdf correctness
+        logpdf_broadcast = logpdf.(ic_arbitrary, x_vec)
+        logpdf_vectorised = logpdf(ic_arbitrary, x_vec)
+
+        @test length(logpdf_vectorised) == length(x_vec)
+        @test logpdf_vectorised ≈ logpdf_broadcast rtol=1e-14
+    end
+end
+
+@testitem "Test vectorised PDF methods - optimisation scenarios" begin
+    using Distributions
+
+    d = Normal(5.0, 2.0)
+
+    # Scenario 1: Regular intervals with adjacent values (best case optimization)
+    ic_regular = interval_censored(d, 1.0)
+    x_adjacent = [3.0, 3.2, 3.7, 4.1, 4.3, 4.9]  # Multiple values in adjacent intervals
+
+    pdf_broadcast = pdf.(ic_regular, x_adjacent)
+    pdf_vectorised = pdf(ic_regular, x_adjacent)
+
+    @test pdf_vectorised ≈ pdf_broadcast
+    @test all(pdf_vectorised .≥ 0.0)
+    @test sum(pdf_broadcast) ≈ sum(pdf_vectorised)  # Conservation check
+
+    # Scenario 2: All values in same interval (extreme optimization case)
+    x_same_interval = [3.1, 3.2, 3.3, 3.4, 3.5]  # All in interval [3,4)
+
+    pdf_broadcast_same = pdf.(ic_regular, x_same_interval)
+    pdf_vectorised_same = pdf(ic_regular, x_same_interval)
+
+    @test pdf_vectorised_same ≈ pdf_broadcast_same
+    @test all(pdf_val == pdf_broadcast_same[1] for pdf_val in pdf_vectorised_same)  # All same value
+
+    # Scenario 3: Arbitrary intervals with mixed scenarios
+    intervals = [0.0, 2.0, 5.0, 8.0]
+    ic_arbitrary = interval_censored(d, intervals)
+
+    # Values spanning different intervals
+    x_mixed = [1.0, 1.5, 3.0, 3.5, 6.0, 6.5, 9.0]  # Some in each interval, some outside
+
+    pdf_broadcast_mixed = pdf.(ic_arbitrary, x_mixed)
+    pdf_vectorised_mixed = pdf(ic_arbitrary, x_mixed)
+
+    @test pdf_vectorised_mixed ≈ pdf_broadcast_mixed
+    @test pdf_vectorised_mixed[end] ≈ 0.0  # Last value outside intervals
+
+    # Values all in first interval
+    x_first_interval = [0.5, 1.0, 1.5, 1.9]
+    pdf_broadcast_first = pdf.(ic_arbitrary, x_first_interval)
+    pdf_vectorised_first = pdf(ic_arbitrary, x_first_interval)
+
+    @test pdf_vectorised_first ≈ pdf_broadcast_first
+    @test all(pdf_val == pdf_broadcast_first[1] for pdf_val in pdf_vectorised_first)  # All same interval
+end
+
+@testitem "Test vectorised PDF methods - edge cases and boundary conditions" begin
+    using Distributions
+
+    d = Normal(0.0, 1.0)
+
+    # Test with regular intervals at boundaries
+    ic_regular = interval_censored(d, 1.0)
+
+    # Boundary values exactly at interval edges
+    x_boundaries = [-2.0, -1.0, 0.0, 1.0, 2.0]
+
+    pdf_broadcast = pdf.(ic_regular, x_boundaries)
+    pdf_vectorised = pdf(ic_regular, x_boundaries)
+    logpdf_broadcast = logpdf.(ic_regular, x_boundaries)
+    logpdf_vectorised = logpdf(ic_regular, x_boundaries)
+
+    @test pdf_vectorised ≈ pdf_broadcast
+    @test logpdf_vectorised ≈ logpdf_broadcast
+    @test all(isfinite.(pdf_vectorised))
+    @test all(x -> isfinite(x) || x == -Inf, logpdf_vectorised)
+
+    # Test with arbitrary intervals and boundary conditions
+    intervals = [-3.0, -1.0, 1.0, 3.0]
+    ic_arbitrary = interval_censored(d, intervals)
+
+    # Values at exact boundaries and outside intervals
+    x_edge_cases = [-5.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 5.0]
+
+    pdf_broadcast_edge = pdf.(ic_arbitrary, x_edge_cases)
+    pdf_vectorised_edge = pdf(ic_arbitrary, x_edge_cases)
+    logpdf_broadcast_edge = logpdf.(ic_arbitrary, x_edge_cases)
+    logpdf_vectorised_edge = logpdf(ic_arbitrary, x_edge_cases)
+
+    @test pdf_vectorised_edge ≈ pdf_broadcast_edge
+    @test logpdf_vectorised_edge ≈ logpdf_broadcast_edge
+
+    # Values outside intervals should have zero pdf and -Inf logpdf
+    @test pdf_vectorised_edge[1] ≈ 0.0  # -5.0 outside intervals
+    @test pdf_vectorised_edge[end] ≈ 0.0  # 5.0 outside intervals
+    @test logpdf_vectorised_edge[1] == -Inf  # -5.0 outside intervals
+    @test logpdf_vectorised_edge[end] == -Inf  # 5.0 outside intervals
+
+    # Test with extreme distribution parameters
+    extreme_d = Normal(1e6, 1e-3)  # Very concentrated distribution
+    ic_extreme = interval_censored(extreme_d, 1.0)
+
+    x_extreme = [1e6 - 1, 1e6, 1e6 + 1]
+
+    pdf_broadcast_extreme = pdf.(ic_extreme, x_extreme)
+    pdf_vectorised_extreme = pdf(ic_extreme, x_extreme)
+
+    @test pdf_vectorised_extreme ≈ pdf_broadcast_extreme
+    @test all(isfinite.(pdf_vectorised_extreme))
+end
+
+@testitem "Test vectorised PDF helper functions" begin
+    using Distributions
+
+    d = Normal(3.0, 1.0)
+
+    # Test _collect_unique_boundaries for regular intervals
+    ic_regular = interval_censored(d, 0.5)
+    x_regular = [2.0, 2.3, 2.7, 3.0, 3.2]
+
+    boundaries_regular = CensoredDistributions._collect_unique_boundaries(ic_regular, x_regular)
+
+    @test issorted(boundaries_regular)
+    @test length(unique(boundaries_regular)) == length(boundaries_regular)  # All unique
+    @test 2.0 in boundaries_regular  # Lower bound for 2.0-2.5 interval
+    @test 2.5 in boundaries_regular  # Upper bound for 2.0-2.5 interval
+    @test 3.0 in boundaries_regular  # Lower bound for 3.0-3.5 interval
+    @test 3.5 in boundaries_regular  # Upper bound for 3.0-3.5 interval
+
+    # Test _collect_unique_boundaries for arbitrary intervals
+    intervals = [0.0, 2.0, 5.0, 8.0]
+    ic_arbitrary = interval_censored(d, intervals)
+    x_arbitrary = [1.0, 3.0, 6.0, 9.0]  # One in each interval, one outside
+
+    boundaries_arbitrary = CensoredDistributions._collect_unique_boundaries(ic_arbitrary, x_arbitrary)
+
+    @test issorted(boundaries_arbitrary)
+    @test length(unique(boundaries_arbitrary)) == length(boundaries_arbitrary)
+    @test 0.0 in boundaries_arbitrary  # For value 1.0 in [0,2)
+    @test 2.0 in boundaries_arbitrary  # For value 1.0 in [0,2) and value 3.0 in [2,5)
+    @test 5.0 in boundaries_arbitrary  # For value 3.0 in [2,5) and value 6.0 in [5,8)
+    @test 8.0 in boundaries_arbitrary  # For value 6.0 in [5,8)
+
+    # Test _compute_pdfs_with_cache
+    cdf_lookup = Dict{Float64, Float64}()
+    for boundary in boundaries_regular
+        cdf_lookup[boundary] = cdf(d, boundary)
+    end
+
+    pdfs_cached = CensoredDistributions._compute_pdfs_with_cache(ic_regular, x_regular, cdf_lookup)
+    pdfs_direct = pdf.(ic_regular, x_regular)
+
+    @test pdfs_cached ≈ pdfs_direct
+    @test length(pdfs_cached) == length(x_regular)
+    @test all(pdfs_cached .≥ 0.0)
+
+    # Test type promotion in helper functions
+    x_int = [2, 3, 4]  # Integer array
+    boundaries_promoted = CensoredDistributions._collect_unique_boundaries(ic_regular, x_int)
+    @test eltype(boundaries_promoted) == promote_type(Int, Float64)  # Should be Float64
+end
+
 @testitem "Test quantile - regular intervals" begin
     using Distributions
 
