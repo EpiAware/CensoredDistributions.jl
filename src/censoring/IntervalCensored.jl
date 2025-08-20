@@ -240,13 +240,13 @@ end
 #### Vectorised PDF optimization
 
 """
-    _collect_unique_boundaries(d::IntervalCensored, x::AbstractArray)
+    _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector)
 
 Collect all unique interval boundaries needed for vectorised PDF computation.
 
 Returns a sorted vector of unique boundaries with appropriate type promotion.
 """
-function _collect_unique_boundaries(d::IntervalCensored, x::AbstractArray{<:Real})
+function _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector{<:Real})
     # Determine promoted type for type stability
     T = promote_type(eltype(x), eltype(d.boundaries))
     boundaries = T[]
@@ -274,39 +274,35 @@ function _collect_unique_boundaries(d::IntervalCensored, x::AbstractArray{<:Real
 end
 
 """
-    _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractArray, cdf_lookup::Dict)
+    _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector, cdf_lookup::Dict)
 
 Compute PDFs efficiently using cached CDF values.
 
 Uses the same boundary case handling as the scalar method.
 """
-function _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractArray{<:Real}, cdf_lookup::Dict)
-    T = promote_type(eltype(x), eltype(d))
-    pdfs = Vector{T}(undef, length(x))
-
+function _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector{<:Real}, cdf_lookup::Dict)
     # Get distribution bounds once for boundary case handling
     dist_min = minimum(get_dist(d))
     dist_max = maximum(get_dist(d))
 
-    for (i, xi) in enumerate(x)
+    return map(x) do xi
         lower, upper = get_interval_bounds(d, xi)
 
         if isnan(lower) || isnan(upper)
-            pdfs[i] = zero(T)
-            continue
+            return zero(promote_type(eltype(x), eltype(d)))
         end
 
         # Handle boundary cases for distributions with bounded support
         # For lower bound at or below distribution minimum, CDF is 0
-        cdf_lower = lower <= dist_min ? zero(T) : cdf_lookup[lower]
+        cdf_lower = lower <= dist_min ? zero(promote_type(eltype(x), eltype(d))) :
+                    cdf_lookup[lower]
 
         # For upper bound at or above distribution maximum, CDF is 1
-        cdf_upper = upper >= dist_max ? one(T) : cdf_lookup[upper]
+        cdf_upper = upper >= dist_max ? one(promote_type(eltype(x), eltype(d))) :
+                    cdf_lookup[upper]
 
-        pdfs[i] = cdf_upper - cdf_lower
+        return cdf_upper - cdf_lower
     end
-
-    return pdfs
 end
 
 @doc "
@@ -318,7 +314,7 @@ cached values for efficient PDF computation across the array.
 
 See also: [`pdf`](@ref), [`logpdf`](@ref)
 "
-function pdf(d::IntervalCensored, x::AbstractArray{<:Real})
+function pdf(d::IntervalCensored, x::AbstractVector{<:Real})
     # Collect all unique boundaries needed
     boundaries = _collect_unique_boundaries(d, x)
 
@@ -340,7 +336,7 @@ Compute log probability masses for an array of values using optimised PDF comput
 
 See also: [`pdf`](@ref), [`logpdf`](@ref)
 "
-function logpdf(d::IntervalCensored, x::AbstractArray{<:Real})
+function logpdf(d::IntervalCensored, x::AbstractVector{<:Real})
     # Use vectorised PDF computation then handle logs with proper error handling
     pdf_vals = pdf(d, x)
 
@@ -367,15 +363,6 @@ function logpdf(d::IntervalCensored, x::AbstractArray{<:Real})
     end
 
     return logpdfs
-end
-
-# Resolve ambiguity with Distributions.jl for 0-dimensional arrays
-function pdf(d::IntervalCensored, x::AbstractArray{<:Real, 0})
-    return pdf(d, x[])  # Extract scalar and delegate to scalar method
-end
-
-function logpdf(d::IntervalCensored, x::AbstractArray{<:Real, 0})
-    return logpdf(d, x[])  # Extract scalar and delegate to scalar method
 end
 
 # Internal function for efficient cdf/logcdf computation
