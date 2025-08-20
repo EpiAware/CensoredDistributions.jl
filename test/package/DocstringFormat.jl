@@ -2,6 +2,7 @@
 @testsnippet DocstringHelpers begin
     using CensoredDistributions
     using Distributions
+    using Markdown
 
     # Helper function to get docstring content as string
     function get_docstring_content(obj)
