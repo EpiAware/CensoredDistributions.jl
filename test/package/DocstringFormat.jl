@@ -7,8 +7,37 @@
     # Helper function to get docstring content as string
     function get_docstring_content(obj)
         doc = @doc obj
+
+        # Safety check: if doc is Nothing, return empty string
+        if doc === nothing
+            return ""
+        end
+
         if doc isa Markdown.MD
-            return sprint(show, MIME("text/plain"), doc)
+            try
+                return sprint(show, MIME("text/plain"), doc)
+            catch
+                return string(doc)
+            end
+        elseif doc isa Base.Docs.DocStr
+            # Handle DocStr objects (from DocStringExtensions)
+            try
+                # Try to extract the meaningful text parts
+                text_parts = String[]
+                for item in doc.text
+                    if isa(item, String)
+                        push!(text_parts, strip(item))
+                    end
+                end
+                if !isempty(text_parts)
+                    result = join(text_parts, "\n\n")
+                    return isempty(strip(result)) ? string(doc) : result
+                else
+                    return string(doc)
+                end
+            catch
+                return string(doc)
+            end
         else
             return string(doc)
         end
