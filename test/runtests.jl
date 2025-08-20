@@ -11,8 +11,12 @@ end
 Logging.min_enabled_level(logger::FilteredLogger) = Logging.min_enabled_level(logger.logger)
 
 function Logging.shouldlog(logger::FilteredLogger, level, _module, group, id)
-    # Filter out HypergeometricFunctions warnings
-    if level >= Logging.Warn && _module == :HypergeometricFunctions
+    # Filter out HypergeometricFunctions warnings - check both symbol and module type
+    module_name = string(_module)
+    if level >= Logging.Warn && (
+        _module == :HypergeometricFunctions ||
+        contains(module_name, "HypergeometricFunctions")
+    )
         return false
     end
     return Logging.shouldlog(logger.logger, level, _module, group, id)
