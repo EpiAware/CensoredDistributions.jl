@@ -528,14 +528,14 @@ end
     time_vectorised_reg = @belapsed pdf($ic_regular, $x_regular)
     speedup_regular = time_vectorised_reg / time_broadcast_reg
     @info "Regular intervals speedup: $(round(speedup_regular, digits=1))x ($(round(time_vectorised_reg*1000, digits=6)) ms vs $(round(time_broadcast_reg*1000, digits=6)) ms)"
-    @test speedup_regular > 1.1
+    @test speedup_regular > 5.0
 
     # Test arbitrary intervals (array lookup boundary calculation)
     time_broadcast_arb = @belapsed pdf.($ic_arbitrary, $x_arbitrary)
     time_vectorised_arb = @belapsed pdf($ic_arbitrary, $x_arbitrary)
     speedup_arbitrary = time_vectorised_arb / time_broadcast_arb
     @info "Arbitrary intervals speedup: $(round(speedup_arbitrary, digits=1))x ($(round(time_vectorised_arb*1000, digits=6)) ms vs $(round(time_broadcast_arb*1000, digits=6)) ms)"
-    @test speedup_arbitrary > 1.1
+    @test speedup_arbitrary > 5.0
 
     # Test correctness for both approaches
     @test pdf(ic_regular, x_regular) ≈ pdf.(ic_regular, x_regular)
@@ -630,10 +630,10 @@ end
     @test 8.0 in boundaries_arbitrary  # For value 6.0 in [5,8)
 
     # Test _compute_pdfs_with_cache
-    cdf_lookup = Dict{Float64, Float64}()
-    for boundary in boundaries_regular
-        cdf_lookup[boundary] = cdf(d, boundary)
+    cdf_pairs = map(boundaries_regular) do boundary
+        boundary => cdf(d, boundary)
     end
+    cdf_lookup = Dict{Float64, Float64}(cdf_pairs)
 
     pdfs_cached = CensoredDistributions._compute_pdfs_with_cache(ic_regular, x_regular, cdf_lookup)
     pdfs_direct = pdf.(ic_regular, x_regular)

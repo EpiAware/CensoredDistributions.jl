@@ -249,28 +249,34 @@ Returns a sorted vector of unique boundaries with appropriate type promotion.
 function _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector{<:Real})
     # Determine promoted type for type stability
     T = promote_type(eltype(x), eltype(d.boundaries))
-    boundaries = T[]
 
-    # Collect all unique boundaries needed
+    # Collect all unique boundaries needed using functional approach
     if is_regular_intervals(d)
         interval = interval_width(d)
-        for xi in x
+        boundary_pairs = map(x) do xi
             lower = floor_to_interval(xi, interval)
             upper = lower + interval
-            push!(boundaries, lower, upper)
+            (T(lower), T(upper))
         end
+        boundaries = vcat([collect(pair) for pair in boundary_pairs]...)
     else
         # For arbitrary intervals, collect all boundaries that could be needed
-        for xi in x
+        boundary_pairs = map(x) do xi
             lower, upper = get_interval_bounds(d, xi)
             if !isnan(lower) && !isnan(upper)
-                push!(boundaries, lower, upper)
+                (T(lower), T(upper))
+            else
+                ()  # Empty tuple for invalid bounds
             end
         end
+        # Filter out empty tuples and flatten
+        valid_pairs = filter(!isempty, boundary_pairs)
+        boundaries = isempty(valid_pairs) ? T[] :
+                     vcat([collect(pair) for pair in valid_pairs]...)
     end
 
-    # Return sorted unique boundaries
-    return sort!(unique!(boundaries))
+    # Return sorted unique boundaries without mutation
+    return sort(unique(boundaries))
 end
 
 """
@@ -318,13 +324,12 @@ function pdf(d::IntervalCensored, x::AbstractVector{<:Real})
     # Collect all unique boundaries needed
     boundaries = _collect_unique_boundaries(d, x)
 
-    # Compute CDFs once for all unique boundaries
+    # Compute CDFs once for all unique boundaries using functional approach
     T = promote_type(eltype(x), eltype(d.boundaries))
-    cdf_lookup = Dict{T, T}()
-
-    for boundary in boundaries
-        cdf_lookup[boundary] = cdf(get_dist(d), boundary)
+    cdf_pairs = map(boundaries) do boundary
+        boundary => cdf(get_dist(d), boundary)
     end
+    cdf_lookup = Dict{T, T}(cdf_pairs)
 
     # Use cached values to compute PDFs efficiently
     return _compute_pdfs_with_cache(d, x, cdf_lookup)
@@ -341,28 +346,25 @@ function logpdf(d::IntervalCensored, x::AbstractVector{<:Real})
     pdf_vals = pdf(d, x)
 
     T = promote_type(eltype(x), eltype(d))
-    logpdfs = Vector{T}(undef, length(x))
 
-    for (i, (xi, pdf_val)) in enumerate(zip(x, pdf_vals))
+    return map(zip(x, pdf_vals)) do (xi, pdf_val)
         try
             # Check support first for consistency with Distributions.jl
             if !insupport(d, xi)
-                logpdfs[i] = T(-Inf)
+                T(-Inf)
             elseif pdf_val <= 0.0
-                logpdfs[i] = T(-Inf)
+                T(-Inf)
             else
-                logpdfs[i] = log(pdf_val)
+                T(log(pdf_val))
             end
         catch e
             if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
-                logpdfs[i] = T(-Inf)
+                T(-Inf)
             else
                 rethrow(e)
             end
         end
     end
-
-    return logpdfs
 end
 
 # Internal function for efficient cdf/logcdf computation
