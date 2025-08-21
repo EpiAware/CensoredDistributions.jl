@@ -88,6 +88,10 @@ weight.
 A `Product` distribution of `Weighted` distributions suitable for vectorized
 observations.
 
+# Arguments
+- `dist`: The univariate distribution to be replicated and weighted for each observation
+- `weights`: Vector of weights to apply to each copy of the distribution
+
 # Examples
 ```@example
 y_obs = [3.5, 4.2, 3.8]  # Observed values
@@ -100,6 +104,9 @@ weighted_dists = weight(d, n_counts)
 weighted_logpdf = logpdf(weighted_dists, y_obs)
 # equivalent to: sum(n_counts .* logpdf.(d, y_obs))
 ```
+
+# See also
+- [`Weighted`](@ref): The underlying weighted distribution type
 "
 function weight(dist::UnivariateDistribution, weights::AbstractVector{<:Real})
     return product_distribution([Weighted(dist, w) for w in weights])

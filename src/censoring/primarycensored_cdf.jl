@@ -37,6 +37,8 @@ Solver that always uses numerical integration.
 
 Forces numerical computation even when analytical solutions are available,
 useful for testing and validation.
+
+The `solver` field contains the numerical integration solver to use.
 "
 struct NumericSolver{S} <: AbstractSolverMethod
     solver::S
@@ -61,6 +63,23 @@ even when analytical solutions exist (useful for testing and validation).
 
 # Returns
 The cumulative probability P(X ≤ x) where X is the observed delay time.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, Integrals
+
+# Analytical solution for Gamma with Uniform primary event
+gamma_dist = Gamma(2.0, 1.5)
+primary_uniform = Uniform(0, 2)
+analytical_method = AnalyticalSolver(QuadGKJL())
+
+cdf_val = primarycensored_cdf(gamma_dist, primary_uniform, 3.0, analytical_method)
+
+# Force numerical integration
+numeric_method = NumericSolver(QuadGKJL())
+cdf_numeric = primarycensored_cdf(gamma_dist, primary_uniform, 3.0, numeric_method)
+```
+
 "
 function primarycensored_cdf(
         dist::D1, primary_event::D2,
@@ -387,7 +406,33 @@ end
 
 Compute the log CDF of a primary event censored distribution.
 
+Dispatches to either analytical or numerical implementation based on the solver method.
 Computes log(CDF) with appropriate handling for edge cases where CDF = 0.
+Returns -Inf when the probability is zero or when numerical issues occur.
+
+# Arguments
+- `dist`: The delay distribution from primary event to observation
+- `primary_event`: The primary event time distribution
+- `x`: Evaluation point for the log CDF
+- `method`: Solver method (`AnalyticalSolver` or `NumericSolver`)
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+# Create a Gamma delay with uniform primary event
+dist = Gamma(2.0, 1.5)
+primary_event = Uniform(0.0, 3.0)
+method = AnalyticalSolver(nothing)
+
+# Compute log CDF at x = 5.0
+log_prob = primarycensored_logcdf(dist, primary_event, 5.0, method)
+```
+
+# See also
+- [`primarycensored_cdf`](@ref): The underlying CDF computation
+- [`cdf`](@ref): Interface method for PrimaryCensored distributions
+- [`logcdf`](@ref): Interface method for PrimaryCensored distributions
 "
 function primarycensored_logcdf(
         dist::D1, primary_event::D2,
