@@ -251,14 +251,13 @@ function _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector{<:Rea
     T = promote_type(eltype(x), eltype(d.boundaries))
 
     # Collect all unique boundaries needed using functional approach
-    if is_regular_intervals(d)
+    boundary_pairs = if is_regular_intervals(d)
         interval = interval_width(d)
-        boundary_pairs = map(x) do xi
+        map(x) do xi
             lower = floor_to_interval(xi, interval)
             upper = lower + interval
             (T(lower), T(upper))
         end
-        boundaries = vcat([collect(pair) for pair in boundary_pairs]...)
     else
         # For arbitrary intervals, collect all boundaries that could be needed
         boundary_pairs = map(x) do xi
@@ -269,11 +268,13 @@ function _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector{<:Rea
                 ()  # Empty tuple for invalid bounds
             end
         end
-        # Filter out empty tuples and flatten
-        valid_pairs = filter(!isempty, boundary_pairs)
-        boundaries = isempty(valid_pairs) ? T[] :
-                     vcat([collect(pair) for pair in valid_pairs]...)
+        # Filter out empty tuples
+        filter(!isempty, boundary_pairs)
     end
+
+    # Flatten pairs to boundaries (single vcat operation)
+    boundaries = isempty(boundary_pairs) ? T[] :
+                 vcat([collect(pair) for pair in boundary_pairs]...)
 
     # Return sorted unique boundaries without mutation
     return sort(unique(boundaries))
@@ -324,12 +325,14 @@ function pdf(d::IntervalCensored, x::AbstractVector{<:Real})
     # Collect all unique boundaries needed
     boundaries = _collect_unique_boundaries(d, x)
 
-    # Compute CDFs once for all unique boundaries using functional approach
+    # Handle empty boundaries case (all x values outside intervals)
     T = promote_type(eltype(x), eltype(d.boundaries))
-    cdf_pairs = map(boundaries) do boundary
-        boundary => cdf(get_dist(d), boundary)
+    if isempty(boundaries)
+        return fill(zero(T), length(x))
     end
-    cdf_lookup = Dict{T, T}(cdf_pairs)
+
+    # Compute CDFs once for all unique boundaries using functional approach
+    cdf_lookup = Dict(boundary => T(cdf(get_dist(d), boundary)) for boundary in boundaries)
 
     # Use cached values to compute PDFs efficiently
     return _compute_pdfs_with_cache(d, x, cdf_lookup)
