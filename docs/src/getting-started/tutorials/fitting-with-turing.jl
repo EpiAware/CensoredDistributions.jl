@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.14
+# v0.20.16
 
 using Markdown
 using InteractiveUtils
@@ -76,9 +76,6 @@ The proper Turing simulation approach:
 4. Sample from the prior predictive distribution by calling the model as a function
 """
 
-# ╔═╡ b4409687-7bee-4028-824d-03b209aee68d
-Random.seed!(123) # Set seed for reproducibility
-
 # ╔═╡ 30e99e77-aad1-43e8-9284-ab0bf8ae741f
 md"### Define the true parameters for generating synthetic data"
 
@@ -145,6 +142,8 @@ before seeing any data."
 
 # ╔═╡ 767a5900-9d7b-41db-a488-10f98a777479
 begin
+    Random.seed!(123);
+
     # Sample from the latent delay distribution prior
     latent_prior_samples = sample(latent_delay_dist(), Prior(), 1000)
 
@@ -193,26 +192,12 @@ md"### Simulate from the double censored distribution for each individual"
 
 # ╔═╡ 2e04be98-625f-45f4-bf5e-a0074ea1ea01
 md"Using the double censored model, we simulate data by sampling from the
-model using known true parameters. We use Turing's proper simulation approach
+model using known true parameters. We use Turing's simulation approach
 with DynamicPPL's `fix` function to set parameters to their true values and
-sample from the prior predictive distribution. We first define a set of primary event distributions:"
-
-# ╔═╡ c548931f-f5e3-4de9-9183-eb64575b6bdb
-md"Primary event distributions are created automatically within the model using `Uniform(0, pw)`."
-
-# ╔═╡ f3568b69-875d-494c-82cf-5a3db767cdaa
-md"Then we can define the model using our observation windows."
-
-# ╔═╡ 8cbb8a46-c090-420f-bbb9-32b971a963f0
-model_for_simulation = @with bounds_df begin
-    CensoredDistributions_model(:pwindow_bounds, :swindow_bounds, :obs_time_bounds)
-end
-
-# ╔═╡ 5516cadb-f2f5-4852-8215-1493b001ab4d
-md"We can then fix our priors based on the known values."
+sample from the prior predictive distribution. This means we can use the same model for simulation and inference."
 
 # ╔═╡ cf588dc1-3ac7-46a2-9fab-38d90aa391c5
-md"Create the base model (unfixed) - we'll use this for both simulation and fitting:"
+md"We first create the base model which only specifies bounds to sample for the observations processes - we'll use this for both simulation and fitting:"
 
 # ╔═╡ cf588dc1-3ac7-46a2-9fab-38d90aa391c6
 base_model = @with bounds_df begin
@@ -268,7 +253,7 @@ empirical_cdf_obs = @with(simulated_counts, ecdf(:obs, weights = :n));
 # Create a sequence of x values for the theoretical CDF
 x_seq = @with simulated_counts begin
     range(minimum(:obs), stop = maximum(:obs) + 2, length = 100);
-end
+end;
 
 # ╔═╡ a5b04acc-acc5-4d4d-8871-09d54caab185
 begin
@@ -337,7 +322,7 @@ end
 # ╔═╡ 49846128-379c-4c3b-9ec1-567ffa92e079
 md"
 Now let's instantiate and condition this model using weighted observations. We use a
-small constant to avoid issues at zero for this simple model and condition directly
+small constant to avoid issues at zero (a hint that this model is misspecified) and condition directly
 using NamedTuple format `(values = values, weights = counts)` which enables joint observation conditioning.
 "
 
@@ -428,7 +413,7 @@ md"## Fitting the double censored model
 
 Now we'll fit the full model that accounts for the censoring process.
 Since the CensoredDistributions_model was defined earlier and used for
-simulation, we'll reuse it for fitting."
+simulation, we'll reuse it for fitting. Here we fix the censoring windows and observation time based on the observed data and then condition on the weighted observations."
 
 # ╔═╡ a59e371a-b671-4648-984d-7bcaac367d32
 CensoredDistributions_mdl = @with simulated_counts begin
@@ -476,7 +461,6 @@ We also see that the posterior means are near the true parameters and the
 # ╟─30511a27-984e-40b7-9b1e-34bc87cb8d56
 # ╠═c11eafc1-6896-46fe-9e7a-fe228aba866a
 # ╟─c5ec0d58-ce3d-4b0b-a261-dbd37b119f71
-# ╠═b4409687-7bee-4028-824d-03b209aee68d
 # ╟─30e99e77-aad1-43e8-9284-ab0bf8ae741f
 # ╟─2fff24bf-74d3-47b8-be3f-f9d866d85903
 # ╠═28bcd612-19f6-4e25-b6df-cb43df4f2a73
@@ -497,10 +481,6 @@ We also see that the posterior means are near the true parameters and the
 # ╠═35472e04-e096-4948-a218-3de53923f271
 # ╟─b5598cc7-ddd1-4d90-af9b-110a518416ac
 # ╟─2e04be98-625f-45f4-bf5e-a0074ea1ea01
-# ╟─c548931f-f5e3-4de9-9183-eb64575b6bdb
-# ╟─f3568b69-875d-494c-82cf-5a3db767cdaa
-# ╠═8cbb8a46-c090-420f-bbb9-32b971a963f0
-# ╟─5516cadb-f2f5-4852-8215-1493b001ab4d
 # ╟─cf588dc1-3ac7-46a2-9fab-38d90aa391c5
 # ╠═cf588dc1-3ac7-46a2-9fab-38d90aa391c6
 # ╟─fcc1d4ba-13ca-41be-8451-7d035c8ff4a2

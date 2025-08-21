@@ -237,6 +237,139 @@ function logpdf(d::IntervalCensored, x::Real)
     end
 end
 
+#### Vectorised PDF optimization
+
+"""
+    _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector)
+
+Collect all unique interval boundaries needed for vectorised PDF computation.
+
+Returns a sorted vector of unique boundaries with appropriate type promotion.
+"""
+function _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector{<:Real})
+    # Determine promoted type for type stability
+    T = promote_type(eltype(x), eltype(d.boundaries))
+
+    # Collect all unique boundaries needed using functional approach
+    boundary_pairs = if is_regular_intervals(d)
+        interval = interval_width(d)
+        map(x) do xi
+            lower = floor_to_interval(xi, interval)
+            upper = lower + interval
+            (T(lower), T(upper))
+        end
+    else
+        # For arbitrary intervals, collect all boundaries that could be needed
+        boundary_pairs = map(x) do xi
+            lower, upper = get_interval_bounds(d, xi)
+            if !isnan(lower) && !isnan(upper)
+                (T(lower), T(upper))
+            else
+                ()  # Empty tuple for invalid bounds
+            end
+        end
+        # Filter out empty tuples
+        filter(!isempty, boundary_pairs)
+    end
+
+    # Flatten pairs to boundaries (single vcat operation)
+    boundaries = isempty(boundary_pairs) ? T[] :
+                 vcat([collect(pair) for pair in boundary_pairs]...)
+
+    # Return sorted unique boundaries without mutation
+    return sort(unique(boundaries))
+end
+
+"""
+    _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector, cdf_lookup::Dict)
+
+Compute PDFs efficiently using cached CDF values.
+
+Uses the same boundary case handling as the scalar method.
+"""
+function _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector{<:Real}, cdf_lookup::Dict)
+    # Get distribution bounds once for boundary case handling
+    dist_min = minimum(get_dist(d))
+    dist_max = maximum(get_dist(d))
+
+    return map(x) do xi
+        lower, upper = get_interval_bounds(d, xi)
+
+        if isnan(lower) || isnan(upper)
+            return zero(promote_type(eltype(x), eltype(d)))
+        end
+
+        # Handle boundary cases for distributions with bounded support
+        # For lower bound at or below distribution minimum, CDF is 0
+        cdf_lower = lower <= dist_min ? zero(promote_type(eltype(x), eltype(d))) :
+                    cdf_lookup[lower]
+
+        # For upper bound at or above distribution maximum, CDF is 1
+        cdf_upper = upper >= dist_max ? one(promote_type(eltype(x), eltype(d))) :
+                    cdf_lookup[upper]
+
+        return cdf_upper - cdf_lower
+    end
+end
+
+@doc "
+
+Compute probability masses for an array of values using optimised vectorisation.
+
+This method collects unique interval boundaries, computes CDFs once, then uses
+cached values for efficient PDF computation across the array.
+
+See also: [`pdf`](@ref), [`logpdf`](@ref)
+"
+function pdf(d::IntervalCensored, x::AbstractVector{<:Real})
+    # Collect all unique boundaries needed
+    boundaries = _collect_unique_boundaries(d, x)
+
+    # Handle empty boundaries case (all x values outside intervals)
+    T = promote_type(eltype(x), eltype(d.boundaries))
+    if isempty(boundaries)
+        return fill(zero(T), length(x))
+    end
+
+    # Compute CDFs once for all unique boundaries using functional approach
+    cdf_lookup = Dict(boundary => T(cdf(get_dist(d), boundary)) for boundary in boundaries)
+
+    # Use cached values to compute PDFs efficiently
+    return _compute_pdfs_with_cache(d, x, cdf_lookup)
+end
+
+@doc "
+
+Compute log probability masses for an array of values using optimised PDF computation.
+
+See also: [`pdf`](@ref), [`logpdf`](@ref)
+"
+function logpdf(d::IntervalCensored, x::AbstractVector{<:Real})
+    # Use vectorised PDF computation then handle logs with proper error handling
+    pdf_vals = pdf(d, x)
+
+    T = promote_type(eltype(x), eltype(d))
+
+    return map(zip(x, pdf_vals)) do (xi, pdf_val)
+        try
+            # Check support first for consistency with Distributions.jl
+            if !insupport(d, xi)
+                T(-Inf)
+            elseif pdf_val <= 0.0
+                T(-Inf)
+            else
+                T(log(pdf_val))
+            end
+        catch e
+            if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
+                T(-Inf)
+            else
+                rethrow(e)
+            end
+        end
+    end
+end
+
 # Internal function for efficient cdf/logcdf computation
 function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
     try

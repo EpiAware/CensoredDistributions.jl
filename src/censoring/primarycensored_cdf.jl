@@ -1,17 +1,70 @@
-# Analytical CDF solutions for PrimaryCensored distributions
+@doc "
 
-# AD-compatible gamma CDF using HypergeometricFunctions
-# Based on the identity: γ(a,z) = z^a/a * M(a, a+1, -z)
-# where γ is the lower incomplete gamma function and M is the confluent hypergeometric function
+AD-compatible gamma CDF using HypergeometricFunctions.
+
+Based on the identity: γ(a,z) = z^a/a * M(a, a+1, -z)
+where γ is the lower incomplete gamma function and M is the confluent hypergeometric function.
+
+Uses the same approach as the Weibull g function: P(a,z) = γ(a,z)/Γ(a) = z^a/a * M(a, a+1, -z) / Γ(a).
+For integer a, Γ(a) = (a-1)!, but uses gamma(k) for generality.
+
+# Arguments
+- `k::Real`: Shape parameter
+- `θ::Real`: Scale parameter
+- `x::Real`: Evaluation point
+
+# Returns
+The gamma CDF value at x with shape k and scale θ.
+"
 function _gamma_cdf_ad_safe(k::Real, θ::Real, x::Real)
     if x <= 0
         return 0.0
     end
     z = x / θ
-    # Use the same approach as in weibull_g function
-    # P(a,z) = γ(a,z)/Γ(a) = z^a/a * M(a, a+1, -z) / Γ(a)
-    # For integer a, Γ(a) = (a-1)!, but we use gamma(k) for generality
     return (z^k / k * M(k, k + 1, -z)) / gamma(k)
+end
+
+@doc "
+
+Function factory for optimized Weibull g function.
+
+Creates a specialized function with pre-computed constants for g(t; k, λ) = γ(1 + 1/k, (t/λ)^k)
+where γ is the lower incomplete gamma function.
+
+Pre-computes `inv_k = 1/k` and `a = 1 + inv_k` to avoid repeated computation
+in the returned specialized function.
+
+# Arguments
+- `k::Real`: Weibull shape parameter
+- `λ::Real`: Weibull scale parameter
+
+# Returns
+A specialized function `weibull_g_specialized(t::Real)` that efficiently computes
+the Weibull g function using pre-computed constants.
+
+# Examples
+```julia
+weibull_g_func = _make_weibull_g(2.0, 1.5)
+g_val = weibull_g_func(3.0)
+```
+"
+function _make_weibull_g(k::Real, λ::Real)
+    inv_k = 1 / k
+    a = 1 + inv_k
+
+    function weibull_g_specialized(t::Real)
+        if t <= 0
+            return 0.0
+        end
+        x = (t / λ)^k
+        # Use AD-compatible confluent hypergeometric function instead of gamma_inc
+        # γ(a,z) = z^a/a * M(a, a+1, -z) where M is the confluent hypergeometric function
+        # See: https://github.com/JuliaMath/HypergeometricFunctions.jl/issues/50#issuecomment-1397363491
+        # This avoids gamma_inc which causes AD issues
+        return x^a / a * M(a, a + 1, -x)
+    end
+
+    return weibull_g_specialized
 end
 
 @doc "
@@ -37,6 +90,8 @@ Solver that always uses numerical integration.
 
 Forces numerical computation even when analytical solutions are available,
 useful for testing and validation.
+
+The `solver` field contains the numerical integration solver to use.
 "
 struct NumericSolver{S} <: AbstractSolverMethod
     solver::S
@@ -61,6 +116,23 @@ even when analytical solutions exist (useful for testing and validation).
 
 # Returns
 The cumulative probability P(X ≤ x) where X is the observed delay time.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, Integrals
+
+# Analytical solution for Gamma with Uniform primary event
+gamma_dist = Gamma(2.0, 1.5)
+primary_uniform = Uniform(0, 2)
+analytical_method = AnalyticalSolver(QuadGKJL())
+
+cdf_val = primarycensored_cdf(gamma_dist, primary_uniform, 3.0, analytical_method)
+
+# Force numerical integration
+numeric_method = NumericSolver(QuadGKJL())
+cdf_numeric = primarycensored_cdf(gamma_dist, primary_uniform, 3.0, numeric_method)
+```
+
 "
 function primarycensored_cdf(
         dist::D1, primary_event::D2,
@@ -323,27 +395,15 @@ function primarycensored_cdf(
     # Compute CDFs using Distributions.jl
     F_t = cdf(dist, t)
 
-    # Helper function for g(t; k, λ) = γ(1 + 1/k, (t/λ)^k)
-    # where γ is the lower incomplete gamma function
-    function weibull_g(t::Real, k::Real, λ::Real)
-        if t <= 0
-            return 0.0
-        end
-        x = (t / λ)^k
-        a = 1 + 1/k
-        # Use AD-compatible confluent hypergeometric function instead of gamma_inc
-        # γ(a,z) = z^a/a * M(a, a+1, -z) where M is the confluent hypergeometric function
-        # See: https://github.com/JuliaMath/HypergeometricFunctions.jl/issues/50#issuecomment-1397363491
-        # This avoids gamma_inc which causes AD issues
-        return x^a / a * M(a, a + 1, -x)
-    end
+    # Create optimized g function with pre-computed constants
+    weibull_g_func = _make_weibull_g(k, λ)
 
-    # Compute g values
-    g_t = weibull_g(t, k, λ)
+    # Compute g values using optimized function
+    g_t = weibull_g_func(t)
 
     if q > 0
         F_q = cdf(dist, q)
-        g_q = weibull_g(q, k, λ)
+        g_q = weibull_g_func(q)
 
         # Compute differences
         ΔF = F_t - F_q
@@ -387,7 +447,33 @@ end
 
 Compute the log CDF of a primary event censored distribution.
 
+Dispatches to either analytical or numerical implementation based on the solver method.
 Computes log(CDF) with appropriate handling for edge cases where CDF = 0.
+Returns -Inf when the probability is zero or when numerical issues occur.
+
+# Arguments
+- `dist`: The delay distribution from primary event to observation
+- `primary_event`: The primary event time distribution
+- `x`: Evaluation point for the log CDF
+- `method`: Solver method (`AnalyticalSolver` or `NumericSolver`)
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+# Create a Gamma delay with uniform primary event
+dist = Gamma(2.0, 1.5)
+primary_event = Uniform(0.0, 3.0)
+method = AnalyticalSolver(nothing)
+
+# Compute log CDF at x = 5.0
+log_prob = primarycensored_logcdf(dist, primary_event, 5.0, method)
+```
+
+# See also
+- [`primarycensored_cdf`](@ref): The underlying CDF computation
+- [`cdf`](@ref): Interface method for PrimaryCensored distributions
+- [`logcdf`](@ref): Interface method for PrimaryCensored distributions
 "
 function primarycensored_logcdf(
         dist::D1, primary_event::D2,

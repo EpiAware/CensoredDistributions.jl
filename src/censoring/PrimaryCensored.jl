@@ -99,11 +99,12 @@ end
 Represents the distribution of observed delays when the primary event time is
 subject to censoring.
 
+The `dist` field contains the delay distribution from primary event to observation.
+The `primary_event` field contains the primary event time distribution.
 The `method` field determines computation strategy:
 - `AnalyticalSolver`: Uses closed-form solutions when available (Gamma,
   LogNormal, Weibull with Uniform primary), falls back to numeric otherwise
 - `NumericSolver`: Always uses quadrature integration
-
 
 # See also
 - [`primary_censored`](@ref): Constructor function
