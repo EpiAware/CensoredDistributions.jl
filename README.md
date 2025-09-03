@@ -51,7 +51,7 @@ censored = double_interval_censored(original; upper = 15, interval = 1)
 # Compare the distributions
 x = 0:0.01:20
 plot(x, pdf.(original, x), label = "Original Gamma", lw = 2)
-plot!(x, pdf.(censored, x), label="Double Censored and right truncated", lw = 2)
+plot!(x, pdf.(censored, x), label = "Double Censored and right truncated", lw = 2)
 ```
 
 You can fit censored distributions to data using Turing.jl for both Bayesian inference and MLE methods, as well as other optimization-based approaches:
