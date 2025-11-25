@@ -1,6 +1,7 @@
 using Pkg: Pkg
 Pkg.instantiate()
 
+using DocumenterVitepress
 using Documenter
 using CensoredDistributions
 
@@ -20,7 +21,8 @@ if !skip_notebooks
     build("getting-started/tutorials")
     println("✓ Notebook processing complete")
 else
-    println("⚠ Skipping Pluto notebook processing (--skip-notebooks or SKIP_NOTEBOOKS=true)")
+    println("⚠ Skipping Pluto notebook processing (--skip-notebooks or " *
+            "SKIP_NOTEBOOKS=true)")
     include("pages.jl")
 end
 
@@ -28,7 +30,9 @@ end
 open(joinpath(joinpath(@__DIR__, "src"), "index.md"), "w") do io
     println(io, "```@meta")
     println(io,
-        "EditURL = \"https://github.com/EpiAware/CensoredDistributions.jl/blob/main/README.md\"")
+        "EditURL = " *
+        "\"https://github.com/EpiAware/CensoredDistributions.jl/blob/main/" *
+        "README.md\"")
     println(io, "```")
 
     for line in eachline(joinpath(dirname(@__DIR__), "README.md"))
@@ -38,7 +42,8 @@ open(joinpath(joinpath(@__DIR__, "src"), "index.md"), "w") do io
             # Remove logo from title line for documentation
         elseif contains(line, "docs/src/assets/logo.svg")
             # Remove the entire logo img tag from the title
-            println(io, replace(line, r"\s*<img[^>]*docs/src/assets/logo\.svg[^>]*>" => ""))
+            println(io, replace(line,
+                r"\s*<img[^>]*docs/src/assets/logo\.svg[^>]*>" => ""))
         else
             println(io, line)
         end
@@ -66,8 +71,8 @@ else
     println("⚠ NEWS.md not found in project root")
 end
 
-DocMeta.setdocmeta!(
-    CensoredDistributions, :DocTestSetup, :(using CensoredDistributions); recursive = true)
+DocMeta.setdocmeta!(CensoredDistributions, :DocTestSetup,
+    :(using CensoredDistributions); recursive = true)
 
 makedocs(; sitename = "CensoredDistributions.jl",
     authors = "Sam Abbott, and contributors",
@@ -75,17 +80,17 @@ makedocs(; sitename = "CensoredDistributions.jl",
     warnonly = [:docs_block, :missing_docs, :linkcheck, :autodocs_block],
     modules = [CensoredDistributions],
     pages = pages,
-    format = Documenter.HTML(
-        prettyurls = get(ENV, "CI", nothing) == "true",
-        mathengine = Documenter.MathJax3(),
-        size_threshold = 6000 * 2^10,
-        size_threshold_warn = 2000 * 2^10,
-        collapselevel = 2  # Collapse docstrings at level 2 by default
+    format = DocumenterVitepress.MarkdownVitepress(
+        repo = "github.com/EpiAware/CensoredDistributions.jl",
+        devbranch = "main",
+        devurl = "dev"
     )
 )
 
-deploydocs(
-    repo = "github.com/EpiAware/CensoredDistributions.jl.git",
+DocumenterVitepress.deploydocs(
+    repo = "github.com/EpiAware/CensoredDistributions.jl",
     target = "build",
+    branch = "gh-pages",
+    devbranch = "main",
     push_preview = true
 )
