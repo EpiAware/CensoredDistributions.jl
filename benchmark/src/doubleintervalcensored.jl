@@ -9,10 +9,10 @@ let
     primary = Uniform(0, 1)
 
     d = double_interval_censored(delay; primary_event = primary, upper = 10, interval = 1)
-    SUITE["DoubleIntervalCensored"]["LogNormal+Uniform"]["cdf"] = @benchmarkable cdf($d, $TEST_X)
-    SUITE["DoubleIntervalCensored"]["LogNormal+Uniform"]["pdf"] = @benchmarkable pdf($d, $TEST_X)
-    SUITE["DoubleIntervalCensored"]["LogNormal+Uniform"]["logpdf"] = @benchmarkable logpdf($d, $TEST_X)
-    SUITE["DoubleIntervalCensored"]["LogNormal+Uniform"]["rand"] = @benchmarkable rand($d)
+    SUITE["DoubleIntervalCensored"]["LogNormal+Uniform"]["cdf"] = @benchmarkable cdf.($d, $TEST_XS)
+    SUITE["DoubleIntervalCensored"]["LogNormal+Uniform"]["pdf"] = @benchmarkable pdf.($d, $TEST_XS)
+    SUITE["DoubleIntervalCensored"]["LogNormal+Uniform"]["logpdf"] = @benchmarkable logpdf.($d, $TEST_XS)
+    SUITE["DoubleIntervalCensored"]["LogNormal+Uniform"]["rand"] = @benchmarkable rand($d, 100)
 end
 
 # --- Exponential + Uniform ---
@@ -24,8 +24,8 @@ let
     primary = Uniform(0, 1)
 
     d = double_interval_censored(delay; primary_event = primary, upper = 10, interval = 1)
-    SUITE["DoubleIntervalCensored"]["Exponential+Uniform"]["cdf"] = @benchmarkable cdf($d, $TEST_X)
-    SUITE["DoubleIntervalCensored"]["Exponential+Uniform"]["pdf"] = @benchmarkable pdf($d, $TEST_X)
-    SUITE["DoubleIntervalCensored"]["Exponential+Uniform"]["logpdf"] = @benchmarkable logpdf($d, $TEST_X)
-    SUITE["DoubleIntervalCensored"]["Exponential+Uniform"]["rand"] = @benchmarkable rand($d)
+    SUITE["DoubleIntervalCensored"]["Exponential+Uniform"]["cdf"] = @benchmarkable cdf.($d, $TEST_XS)
+    SUITE["DoubleIntervalCensored"]["Exponential+Uniform"]["pdf"] = @benchmarkable pdf.($d, $TEST_XS)
+    SUITE["DoubleIntervalCensored"]["Exponential+Uniform"]["logpdf"] = @benchmarkable logpdf.($d, $TEST_XS)
+    SUITE["DoubleIntervalCensored"]["Exponential+Uniform"]["rand"] = @benchmarkable rand($d, 100)
 end
