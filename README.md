@@ -9,8 +9,6 @@
 
 **Websites**: [Organization Website](https://epiaware.org/) | [Documentation](https://CensoredDistributions.epiaware.org/)
 
-CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shields.io/github/stars/EpiAware/CensoredDistributions.jl?style=social)
-
 ## Why CensoredDistributions.jl?
 
 - **Primary event censoring**: Model delay distributions where the initial event occurs within a time window (e.g., exposure periods in epidemiology).
@@ -108,6 +106,22 @@ CensoredDistributions.jl also works well with `truncated()` from Distributions.j
 - Want to chat with someone about `CensoredDistributions`? Post on our [GitHub Discussions](https://github.com/EpiAware/CensoredDistributions.jl/discussions).
 - Want to contribute to `CensoredDistributions`? Check out our [Developer Documentation](https://www.CensoredDistributions.epiaware.org/dev/developer/).
 - Want to see our code? Check out our [GitHub Repository](https://github.com/EpiAware/CensoredDistributions.jl/).
+
+## Supporting and Citing
+
+If you would like to help support CensoredDistributions.jl, please star the repository as such metrics may help us secure funding in the future.
+
+If you use CensoredDistributions.jl in your work, please cite it:
+
+```bibtex
+@software{CensoredDistributions_jl,
+  author       = {Sam Abbott and contributors},
+  title        = {CensoredDistributions.jl},
+  year         = {2025},
+  doi          = {10.5281/zenodo.18474652},
+  url          = {https://github.com/EpiAware/CensoredDistributions.jl}
+}
+```
 
 ## Contributing
 
