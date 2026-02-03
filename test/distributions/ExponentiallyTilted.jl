@@ -461,7 +461,6 @@ end
     using Distributions
     using Random
     using Statistics
-    using StatsBase
     using HypothesisTests
 
     # Set seed for reproducible tests
