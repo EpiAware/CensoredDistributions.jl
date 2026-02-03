@@ -162,11 +162,25 @@ tasks:
 
   # === BENCHMARKS ===
   benchmark:
-    desc: Run complete benchmark suite
+    desc: Run benchmark suite using AirspeedVelocity
     cmds:
       - echo "⚡ Running benchmark suite..."
-      - julia --project=benchmark benchmark/runbenchmarks.jl
+      - julia -e 'using Pkg; Pkg.add("AirspeedVelocity"); using AirspeedVelocity; AirspeedVelocity.benchmark(".")'
       - echo "✅ Benchmarks completed successfully"
+
+  benchmark-compare:
+    desc: Compare benchmarks against main branch
+    cmds:
+      - echo "⚡ Comparing benchmarks against main..."
+      - julia -e 'using Pkg; Pkg.add("AirspeedVelocity"); using AirspeedVelocity; AirspeedVelocity.benchmark(".", rev="main", rev_target="HEAD")'
+      - echo "✅ Benchmark comparison completed"
+
+  benchmark-quick:
+    desc: Run quick benchmark (single sample)
+    cmds:
+      - echo "⚡ Running quick benchmark..."
+      - julia -e 'using Pkg; Pkg.add("AirspeedVelocity"); using AirspeedVelocity; AirspeedVelocity.benchmark(".", samples=1, evals=1)'
+      - echo "✅ Quick benchmark completed"
 
   # === DEVELOPMENT WORKFLOWS ===
   dev:
