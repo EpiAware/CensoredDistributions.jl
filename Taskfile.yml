@@ -162,25 +162,33 @@ tasks:
 
   # === BENCHMARKS ===
   benchmark:
-    desc: Run benchmark suite using AirspeedVelocity
+    desc: Run benchmarks on current state using benchpkg CLI
     cmds:
-      - echo "⚡ Running benchmark suite..."
-      - julia -e 'using Pkg; Pkg.add("AirspeedVelocity"); using AirspeedVelocity; AirspeedVelocity.benchmark(".")'
-      - echo "✅ Benchmarks completed successfully"
+      - echo "⚡ Running benchmarks on current state..."
+      - benchpkg --rev=dirty
+      - echo "✅ Benchmarks completed"
 
   benchmark-compare:
-    desc: Compare benchmarks against main branch
+    desc: Compare benchmarks between main and current state
     cmds:
-      - echo "⚡ Comparing benchmarks against main..."
-      - julia -e 'using Pkg; Pkg.add("AirspeedVelocity"); using AirspeedVelocity; AirspeedVelocity.benchmark(".", rev="main", rev_target="HEAD")'
+      - echo "⚡ Comparing benchmarks (main vs current)..."
+      - benchpkg --rev=main,dirty
       - echo "✅ Benchmark comparison completed"
 
-  benchmark-quick:
-    desc: Run quick benchmark (single sample)
+  benchmark-tune:
+    desc: Run benchmarks with tuning enabled
     cmds:
-      - echo "⚡ Running quick benchmark..."
-      - julia -e 'using Pkg; Pkg.add("AirspeedVelocity"); using AirspeedVelocity; AirspeedVelocity.benchmark(".", samples=1, evals=1)'
-      - echo "✅ Quick benchmark completed"
+      - echo "⚡ Running benchmarks with tuning..."
+      - benchpkg --rev=dirty --tune
+      - echo "✅ Tuned benchmarks completed"
+
+  benchmark-install:
+    desc: Install AirspeedVelocity benchpkg CLI (one-time setup)
+    cmds:
+      - echo "📦 Installing AirspeedVelocity CLI to ~/.julia/bin..."
+      - julia -e 'using Pkg; Pkg.activate(temp=true); Pkg.add("AirspeedVelocity"); Pkg.build("AirspeedVelocity")'
+      - echo "✅ AirspeedVelocity installed"
+      - echo "   Ensure ~/.julia/bin is on your PATH"
 
   # === DEVELOPMENT WORKFLOWS ===
   dev:
