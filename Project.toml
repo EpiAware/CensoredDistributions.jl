@@ -16,9 +16,14 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
+[weakdeps]
+DynamicPPL = "366bfd00-2699-11ea-058f-f148b4cae6d8"
+Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
+
 [compat]
 Distributions = "0.25"
 DocStringExtensions = "0.9"
+DynamicPPL = "0.39"
 HypergeometricFunctions = "0.3"
 Integrals = "4"
 LogExpFunctions = "0.3"
@@ -27,6 +32,7 @@ OptimizationOptimJL = "0.4.3"
 Random = "1"
 SpecialFunctions = "2"
 Statistics = "1"
+Turing = "0.42"
 julia = "1.10, 1.11, 1.12"
 
 [workspace]
