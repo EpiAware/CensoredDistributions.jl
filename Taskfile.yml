@@ -161,22 +161,49 @@ tasks:
         echo "✅ Package added successfully"
 
   # === BENCHMARKS ===
+  # Helper to find main repo (works in both main repo and worktrees)
+  _benchmark-repo-path:
+    internal: true
+    cmds:
+      - |
+        git_dir=$(git rev-parse --git-dir)
+        if [[ "$git_dir" == *"/worktrees/"* ]]; then
+          dirname $(dirname $(dirname "$git_dir"))
+        else
+          git rev-parse --show-toplevel
+        fi
+    silent: true
+
   benchmark:
     desc: "Run benchmarks (usage: task benchmark -- --filter=PrimaryCensored)"
     cmds:
       - echo "⚡ Running benchmarks..."
-      - ~/.julia/bin/benchpkg --rev=dirty --script=benchmark/benchmarks.jl {{.CLI_ARGS}}
+      - |
+        git_dir=$(git rev-parse --git-dir)
+        if [[ "$git_dir" == *"/worktrees/"* ]]; then
+          REPO_PATH=$(dirname $(dirname $(dirname "$git_dir")))
+        else
+          REPO_PATH=$(git rev-parse --show-toplevel)
+        fi
+        ~/.julia/bin/benchpkg --rev=dirty --path="$REPO_PATH" --script="$(pwd)/benchmark/benchmarks.jl" {{.CLI_ARGS}}
 
   benchmark-compare:
     desc: "Compare main vs current (usage: task benchmark-compare -- --filter=analytical)"
     cmds:
       - echo "⚡ Comparing benchmarks (main vs current)..."
-      - ~/.julia/bin/benchpkg --rev=main,dirty --script=benchmark/benchmarks.jl {{.CLI_ARGS}}
+      - |
+        git_dir=$(git rev-parse --git-dir)
+        if [[ "$git_dir" == *"/worktrees/"* ]]; then
+          REPO_PATH=$(dirname $(dirname $(dirname "$git_dir")))
+        else
+          REPO_PATH=$(git rev-parse --show-toplevel)
+        fi
+        ~/.julia/bin/benchpkg --rev=main,dirty --path="$REPO_PATH" --script="$(pwd)/benchmark/benchmarks.jl" {{.CLI_ARGS}}
 
   benchmark-table:
-    desc: Show benchmark results table
+    desc: "Show benchmark results table (usage: task benchmark-table -- --rev=dirty)"
     cmds:
-      - ~/.julia/bin/benchpkgtable CensoredDistributions
+      - ~/.julia/bin/benchpkgtable CensoredDistributions {{.CLI_ARGS}}
 
   benchmark-install:
     desc: Install benchpkg CLI to global environment (one-time)
