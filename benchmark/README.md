@@ -82,14 +82,14 @@ Results are posted as PR comments.
 ## Direct CLI Usage
 
 ```bash
-# Run benchmarks (must specify script and add Distributions)
-benchpkg --rev=dirty --script=benchmark/benchmarks.jl --add=Distributions
+# Run benchmarks
+benchpkg --rev=dirty --script=benchmark/benchmarks.jl
 
 # Compare specific revisions
-benchpkg --rev=main,dirty --script=benchmark/benchmarks.jl --add=Distributions
+benchpkg --rev=main,dirty --script=benchmark/benchmarks.jl
 
 # Run with tuning (slower, more precise)
-benchpkg --rev=dirty --script=benchmark/benchmarks.jl --add=Distributions --tune
+benchpkg --rev=dirty --script=benchmark/benchmarks.jl --tune
 
 # View results
 benchpkgtable CensoredDistributions

@@ -54,6 +54,7 @@ build/
 # benchmark ignore
 /.benchmarkci
 /benchmark/*.json
+results_*.json*
 .vscode
 
 # Helpers

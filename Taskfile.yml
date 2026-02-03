@@ -165,19 +165,19 @@ tasks:
     desc: "Run benchmarks (usage: task benchmark -- --filter=PrimaryCensored)"
     cmds:
       - echo "⚡ Running benchmarks..."
-      - benchpkg --rev=dirty --script=benchmark/benchmarks.jl --add=Distributions {{.CLI_ARGS}}
+      - ~/.julia/bin/benchpkg --rev=dirty --script=benchmark/benchmarks.jl {{.CLI_ARGS}}
 
   benchmark-compare:
     desc: "Compare main vs current (usage: task benchmark-compare -- --filter=analytical)"
     cmds:
       - echo "⚡ Comparing benchmarks (main vs current)..."
-      - benchpkg --rev=main,dirty --script=benchmark/benchmarks.jl --add=Distributions {{.CLI_ARGS}}
+      - ~/.julia/bin/benchpkg --rev=main,dirty --script=benchmark/benchmarks.jl {{.CLI_ARGS}}
 
   benchmark-install:
     desc: Install benchpkg CLI to global environment (one-time)
     cmds:
       - julia -e 'using Pkg; Pkg.add("AirspeedVelocity")'
-      - echo "✅ benchpkg installed to ~/.julia/bin (ensure it is on PATH)"
+      - echo "✅ benchpkg installed to ~/.julia/bin"
 
   # === DEVELOPMENT WORKFLOWS ===
   dev:

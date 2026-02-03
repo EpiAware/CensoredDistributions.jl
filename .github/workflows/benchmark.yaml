@@ -22,4 +22,3 @@ jobs:
         with:
           julia-version: '1'
           mode: 'time,memory'
-          extra-pkgs: 'Distributions'
