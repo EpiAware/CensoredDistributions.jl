@@ -270,30 +270,31 @@ end
     @test all(simulated_data.obs_times .<= 12)
 end
 
-@testitem "Turing.jl model evaluation matches manual construction" tags=[:turing] begin
+@testitem "Turing.jl double_interval_censored logpdf is valid" tags=[:turing] begin
     using Distributions
     using Random
 
     Random.seed!(555)
 
-    # Test that the model produces the same logpdf as manual construction
+    # Test that double_interval_censored produces valid logpdf values
+    # This verifies the distribution works correctly when used in Turing models
     delay_dist = LogNormal(1.5, 0.75)
     pwindow = 2
     swindow = 1
     obs_time = 10
 
-    # Manual construction
+    # Construct distribution as used in Turing models
     primary_event = Uniform(0, pwindow)
-    manual_dist = double_interval_censored(
+    dist = double_interval_censored(
         delay_dist; primary_event = primary_event, upper = obs_time, interval = swindow
     )
 
     # Test at a specific observation value
     test_obs = 3.0
-    manual_logpdf = logpdf(manual_dist, test_obs)
+    lp = logpdf(dist, test_obs)
 
-    @test isfinite(manual_logpdf)
-    @test manual_logpdf <= 0.0
+    @test isfinite(lp)
+    @test lp <= 0.0
 end
 
 @testitem "Turing.jl weighted observations" tags=[:turing] begin
