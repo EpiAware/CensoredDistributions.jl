@@ -23,6 +23,8 @@ jobs:
         include:
           - julia-version: 'pre'
             experimental: true
+    env:
+      JULIA_CI_EXPERIMENTAL: ${{ matrix.experimental || false }}
     steps:
       - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v2
