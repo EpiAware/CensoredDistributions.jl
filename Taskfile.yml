@@ -174,10 +174,10 @@ tasks:
       - benchpkg --rev=main,dirty {{.CLI_ARGS}}
 
   benchmark-install:
-    desc: Install benchpkg CLI (one-time, requires ~/.julia/bin on PATH)
+    desc: Install benchpkg CLI to global environment (one-time)
     cmds:
-      - julia -e 'using Pkg; Pkg.activate(temp=true); Pkg.add("AirspeedVelocity"); Pkg.build("AirspeedVelocity")'
-      - echo "✅ benchpkg installed to ~/.julia/bin"
+      - julia -e 'using Pkg; Pkg.add("AirspeedVelocity")'
+      - echo "✅ benchpkg installed to ~/.julia/bin (ensure it is on PATH)"
 
   # === DEVELOPMENT WORKFLOWS ===
   dev:

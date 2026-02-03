@@ -7,10 +7,11 @@ vs numerical methods where applicable.
 
 ### One-time Setup
 
-Install the `benchpkg` CLI:
+Install the `benchpkg` CLI to your global Julia environment:
 
 ```bash
 task benchmark-install
+# Or: julia -e 'using Pkg; Pkg.add("AirspeedVelocity")'
 ```
 
 Ensure `~/.julia/bin` is on your PATH.
