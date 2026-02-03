@@ -1,30 +1,24 @@
-name: Run benchmarks
+name: Benchmark
 
 on:
-  pull_request:
+  pull_request_target:
+    branches: [main]
     paths:
       - 'src/**'
       - 'benchmark/**'
+
+permissions:
+  pull-requests: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  Benchmark:
+  benchmark:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: julia-actions/setup-julia@v2
-      - uses: julia-actions/cache@v2
-      - run: |
-          julia --project=benchmark -e '
-            using Pkg
-            Pkg.develop(PackageSpec(path=pwd()))
-            Pkg.instantiate()'
-      - name: Run benchmarks
-        run: julia --project=benchmark -e 'using BenchmarkCI; BenchmarkCI.judge(; baseline = "origin/main", retune = true)'
-      - name: Post results
-        run: julia --project=benchmark -e 'using BenchmarkCI; BenchmarkCI.postjudge()'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: MilesCranmer/AirspeedVelocity.jl@action-v1
+        with:
+          julia-version: '1'
+          mode: 'time,memory'
