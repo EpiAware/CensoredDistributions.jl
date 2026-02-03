@@ -162,33 +162,22 @@ tasks:
 
   # === BENCHMARKS ===
   benchmark:
-    desc: Run benchmarks on current state using benchpkg CLI
+    desc: "Run benchmarks (usage: task benchmark -- --filter=PrimaryCensored)"
     cmds:
-      - echo "⚡ Running benchmarks on current state..."
-      - benchpkg --rev=dirty
-      - echo "✅ Benchmarks completed"
+      - echo "⚡ Running benchmarks..."
+      - benchpkg --rev=dirty {{.CLI_ARGS}}
 
   benchmark-compare:
-    desc: Compare benchmarks between main and current state
+    desc: "Compare main vs current (usage: task benchmark-compare -- --filter=analytical)"
     cmds:
       - echo "⚡ Comparing benchmarks (main vs current)..."
-      - benchpkg --rev=main,dirty
-      - echo "✅ Benchmark comparison completed"
-
-  benchmark-tune:
-    desc: Run benchmarks with tuning enabled
-    cmds:
-      - echo "⚡ Running benchmarks with tuning..."
-      - benchpkg --rev=dirty --tune
-      - echo "✅ Tuned benchmarks completed"
+      - benchpkg --rev=main,dirty {{.CLI_ARGS}}
 
   benchmark-install:
-    desc: Install AirspeedVelocity benchpkg CLI (one-time setup)
+    desc: Install benchpkg CLI (one-time, requires ~/.julia/bin on PATH)
     cmds:
-      - echo "📦 Installing AirspeedVelocity CLI to ~/.julia/bin..."
       - julia -e 'using Pkg; Pkg.activate(temp=true); Pkg.add("AirspeedVelocity"); Pkg.build("AirspeedVelocity")'
-      - echo "✅ AirspeedVelocity installed"
-      - echo "   Ensure ~/.julia/bin is on your PATH"
+      - echo "✅ benchpkg installed to ~/.julia/bin"
 
   # === DEVELOPMENT WORKFLOWS ===
   dev:
