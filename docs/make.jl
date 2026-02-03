@@ -41,9 +41,13 @@ open(joinpath(joinpath(@__DIR__, "src"), "index.md"), "w") do io
             println(io, "```@example readme")
             # Remove logo from title line for documentation
         elseif contains(line, "docs/src/assets/logo.svg")
-            # Remove the entire logo img tag from the title
             println(io, replace(line,
                 r"\s*<img[^>]*docs/src/assets/logo\.svg[^>]*>" => ""))
+            # Skip badge table and Websites line (keep only GitHub stars on docs)
+        elseif startswith(line, "|")  # Table rows
+            continue
+        elseif startswith(line, "**Websites**")
+            continue
         else
             println(io, line)
         end
