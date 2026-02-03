@@ -83,7 +83,8 @@ makedocs(; sitename = "CensoredDistributions.jl",
     format = DocumenterVitepress.MarkdownVitepress(
         repo = "github.com/EpiAware/CensoredDistributions.jl",
         devbranch = "main",
-        devurl = "dev"
+        devurl = "dev",
+        deploy_url = "censoreddistributions.epiaware.org"
     )
 )
 
