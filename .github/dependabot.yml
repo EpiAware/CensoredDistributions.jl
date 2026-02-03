@@ -16,3 +16,19 @@ updates:
     commit-message:
       prefix: "ci"
       include: "scope"
+
+  # Enable version updates for Julia dependencies
+  # Uses workspace feature (Julia 1.12+) to coordinate updates across
+  # main package, test/, docs/, and benchmark/ environments
+  - package-ecosystem: "julia"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "seabbs"
+    assignees:
+      - "seabbs"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
