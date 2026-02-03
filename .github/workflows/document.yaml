@@ -33,6 +33,7 @@ jobs:
       - uses: julia-actions/julia-docdeploy@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
       - name: Comment PR with docs preview
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v8
