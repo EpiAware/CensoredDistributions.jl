@@ -14,7 +14,7 @@
     Random.seed!(123)
 
     # Sample from the latent delay distribution prior
-    samples = sample(latent_delay_dist(), Prior(), 100)
+    samples = sample(latent_delay_dist(), Prior(), 100; progress = false)
 
     # Test that sampling succeeds
     @test size(samples, 1) == 100
@@ -54,7 +54,7 @@ end
     )
 
     # Test MCMC sampling (short chain for speed)
-    chain = sample(conditioned_model, NUTS(), 100)
+    chain = sample(conditioned_model, NUTS(), 100; progress = false)
 
     @test size(chain, 1) == 100
 
@@ -121,7 +121,7 @@ end
     )
 
     # Test MCMC sampling (short chain for speed)
-    chain = sample(conditioned_model, NUTS(), 100)
+    chain = sample(conditioned_model, NUTS(), 100; progress = false)
 
     @test size(chain, 1) == 100
 
@@ -186,7 +186,7 @@ end
     )
 
     # Test MCMC sampling (short chain for speed)
-    chain = sample(conditioned_model, NUTS(), 100)
+    chain = sample(conditioned_model, NUTS(), 100; progress = false)
 
     @test size(chain, 1) == 100
 
@@ -327,7 +327,7 @@ end
     )
 
     # Test MCMC sampling (verifies weighted likelihood works)
-    chain = sample(conditioned_model, NUTS(), 100)
+    chain = sample(conditioned_model, NUTS(), 100; progress = false)
 
     @test size(chain, 1) == 100
 
