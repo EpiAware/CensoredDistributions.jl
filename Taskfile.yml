@@ -173,6 +173,11 @@ tasks:
       - echo "⚡ Comparing benchmarks (main vs current)..."
       - ~/.julia/bin/benchpkg --rev=main,dirty --script=benchmark/benchmarks.jl {{.CLI_ARGS}}
 
+  benchmark-table:
+    desc: Show benchmark results table
+    cmds:
+      - ~/.julia/bin/benchpkgtable CensoredDistributions
+
   benchmark-install:
     desc: Install benchpkg CLI to global environment (one-time)
     cmds:
