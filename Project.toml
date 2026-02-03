@@ -34,3 +34,6 @@ SpecialFunctions = "2"
 Statistics = "1"
 Turing = "0.42"
 julia = "1.10, 1.11, 1.12"
+
+[workspace]
+projects = ["test", "docs"]
