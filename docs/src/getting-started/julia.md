@@ -15,6 +15,7 @@ This isn't a comprehensive guide to learning Julia programming. Instead, we prov
 - [Julia Documentation - getting started](https://docs.julialang.org/en/v1/manual/getting-started/)
 - [Julia learning resources](https://julialang.org/learning/)
 - [Julia Discourse](https://discourse.julialang.org/) - community forum
+- [Modern Julia Workflows](https://modernjuliaworkflows.org/) - best practices for Julia development
 
 ## Julia Installation with juliaup
 
