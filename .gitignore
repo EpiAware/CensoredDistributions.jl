@@ -66,7 +66,7 @@ distributions-knowledge-base.md
 lcov.info
 worktree-*
 
-# Node.js dependencies and package files
+# Documentation dependencies
 docs/node_modules/
 docs/package-lock.json
 docs/package.json
