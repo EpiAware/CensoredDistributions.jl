@@ -165,13 +165,13 @@ tasks:
     desc: "Run benchmarks (usage: task benchmark -- --filter=PrimaryCensored)"
     cmds:
       - echo "⚡ Running benchmarks..."
-      - benchpkg --rev=dirty {{.CLI_ARGS}}
+      - benchpkg --rev=dirty --script=benchmark/benchmarks.jl --add=Distributions {{.CLI_ARGS}}
 
   benchmark-compare:
     desc: "Compare main vs current (usage: task benchmark-compare -- --filter=analytical)"
     cmds:
       - echo "⚡ Comparing benchmarks (main vs current)..."
-      - benchpkg --rev=main,dirty {{.CLI_ARGS}}
+      - benchpkg --rev=main,dirty --script=benchmark/benchmarks.jl --add=Distributions {{.CLI_ARGS}}
 
   benchmark-install:
     desc: Install benchpkg CLI to global environment (one-time)
