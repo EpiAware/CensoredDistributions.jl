@@ -1,0 +1,7 @@
+[deps]
+CensoredDistributions = "b2eeebe4-5992-4301-9193-7ebc9f62c855"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
+
+[sources]
+CensoredDistributions = {path = "../.."}
