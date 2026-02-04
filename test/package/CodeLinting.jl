@@ -5,18 +5,28 @@
         # This prevents JET version conflicts from breaking package resolution
         jet_env = joinpath(@__DIR__, "..", "jet")
         if isdir(jet_env) && isfile(joinpath(jet_env, "Project.toml"))
-            # Instantiate the JET environment first
-            inst_result = run(ignorestatus(
-                `julia --project=$jet_env -e "import Pkg; Pkg.instantiate()"`
-            ))
+            # Instantiate the JET environment first (suppress output)
+            inst_result = run(
+                pipeline(
+                    `julia --project=$jet_env -e "import Pkg; Pkg.instantiate()"`,
+                    devnull
+                );
+                wait = true
+            )
             if inst_result.exitcode == 0
                 # Run JET tests in the isolated environment
-                result = run(ignorestatus(
-                    `julia --project=$jet_env $(joinpath(jet_env, "runtests.jl"))`
-                ))
+                # Pipe output to show JET results in test logs
+                result = run(
+                    pipeline(
+                        `julia --project=$jet_env $(joinpath(jet_env, "runtests.jl"))`,
+                        stdout = stdout,
+                        stderr = stderr
+                    );
+                    wait = true
+                )
                 @test result.exitcode == 0
             else
-                @info "JET environment instantiation failed, skipping JET tests" VERSION
+                @info "JET environment instantiation failed, skipping" VERSION
             end
         else
             @warn "JET test environment not found at $jet_env"
