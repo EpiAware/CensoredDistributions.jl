@@ -29,6 +29,22 @@ tasks:
       - julia --project=. --quiet -e 'using Pkg; Pkg.test(test_args=["quality_only"])'
       - echo "✅ Quality checks completed"
 
+  test-jet:
+    desc: Run JET static analysis directly
+    cmds:
+      - echo "🔍 Running JET static analysis..."
+      - julia --project=test/jet -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=test/jet test/jet/runtests.jl
+      - echo "✅ JET analysis completed"
+
+  test-formatting:
+    desc: Run JuliaFormatter check directly
+    cmds:
+      - echo "🎨 Checking code formatting..."
+      - julia --project=test/formatter -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=test/formatter test/formatter/runtests.jl
+      - echo "✅ Formatting check completed"
+
   test-extensions:
     desc: Test package extensions with OptimizationExt
     cmds:
@@ -39,16 +55,9 @@ tasks:
     desc: Format code with JuliaFormatter (fixes formatting issues)
     cmds:
       - echo "🎨 Formatting code with JuliaFormatter..."
-      - julia --project=test --quiet -e 'using JuliaFormatter; format(".", verbose=false, overwrite=true)'
+      - julia --project=test/formatter -e 'using Pkg; Pkg.instantiate()' 2>/dev/null
+      - julia --project=test/formatter --quiet -e 'using JuliaFormatter; format("src", verbose=false, overwrite=true); format("test", verbose=false, overwrite=true); format("docs", verbose=false, overwrite=true); format("benchmark", verbose=false, overwrite=true)'
       - echo "✅ Code formatting completed"
-
-  format-check:
-    desc: Check code formatting without making changes
-    cmds:
-      - echo "🔍 Checking code formatting..."
-      - |
-        julia --project=test --quiet -e 'using JuliaFormatter; success = format(".", verbose=false, overwrite=false); success || error("Code needs formatting - run: task format")'
-      - echo "✅ Code formatting is correct"
 
   coverage:
     desc: Run tests with coverage and generate coverage report
@@ -89,6 +98,10 @@ tasks:
       - julia --project=. -e 'using Pkg; Pkg.instantiate()'
       - echo "📦 Installing test environment dependencies..."
       - julia --project=test -e 'using Pkg; Pkg.instantiate()'
+      - echo "📦 Installing JET environment dependencies..."
+      - julia --project=test/jet -e 'using Pkg; Pkg.instantiate()'
+      - echo "📦 Installing formatter environment dependencies..."
+      - julia --project=test/formatter -e 'using Pkg; Pkg.instantiate()'
       - echo "📦 Installing docs environment dependencies..."
       - julia --project=docs -e 'using Pkg; Pkg.instantiate()'
       - echo "📦 Installing benchmark environment dependencies..."
