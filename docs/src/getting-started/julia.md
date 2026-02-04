@@ -9,7 +9,7 @@ This guide helps you set up Julia for working effectively with CensoredDistribut
 
 ## What this guide is and isn't
 
-This isn't a comprehensive guide to learning Julia programming. Instead, we provide practical setup advice to get you working productively with CensoredDistributions.jl quickly.
+This isn't a complete guide to learning Julia programming. Instead, we provide practical setup advice to get you working productively with CensoredDistributions.jl quickly.
 
 **To learn Julia programming, we recommend:**
 - [Julia Documentation - getting started](https://docs.julialang.org/en/v1/manual/getting-started/)
@@ -23,7 +23,7 @@ This isn't a comprehensive guide to learning Julia programming. Instead, we prov
 
 2. **Verify Installation**: Open a terminal and type `julia` to start the Julia REPL. You should see a Julia prompt `julia>`.
 
-**Why juliaup?** Easy version management, automatic updates, and seamless switching between Julia versions for different projects.
+**Why juliaup?** Easy version management, automatic updates, and simple switching between Julia versions for different projects.
 
 👉 **Learn more**: [juliaup GitHub repository](https://github.com/JuliaLang/juliaup) for detailed usage instructions.
 

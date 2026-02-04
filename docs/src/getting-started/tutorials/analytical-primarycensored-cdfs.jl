@@ -399,7 +399,7 @@ The analytical CDF solutions in CensoredDistributions.jl provide:
 1. **Automatic optimization**: The package automatically uses analytical solutions when available
 2. **Significant speedup**: 15-100x performance improvement over numerical integration
 3. **Machine precision accuracy**: Errors typically < 1e-15
-4. **Seamless integration**: Same API whether using analytical or numerical methods
+4. **Consistent API**: Same interface whether using analytical or numerical methods
 5. **Flexibility**: Can force numerical methods or use custom solvers when needed
 
 ### References

@@ -191,7 +191,7 @@ end
     @test count_middle > length(samples_multi) * 0.3  # At least 30% in middle interval
 end
 
-@testitem "Test IntervalCensored with negative boundaries - comprehensive" begin
+@testitem "Test IntervalCensored with negative boundaries" begin
     using Distributions
     using Random
 
