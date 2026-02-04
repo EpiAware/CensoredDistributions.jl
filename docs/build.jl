@@ -7,6 +7,12 @@ This handles two scenarios:
 2. Already-processed content (markdown fences + unwrapped HTML)
 """
 function postprocess_pluto_markdown(content::AbstractString)
+    # Remove PlutoStaticHTML markers and state block
+    content = replace(content, r"<!-- PlutoStaticHTML\.Begin -->\s*" => "")
+    content = replace(content, r"<!-- PlutoStaticHTML\.End -->\s*" => "")
+    content = replace(content,
+        r"<!--\s*# This information is used for caching\..*?\[PlutoStaticHTML\.State\].*?-->\s*"s => "")
+
     # Remove the outer ```@raw html wrapper if present
     content = replace(content, r"^```@raw html\n"m => "")
     content = replace(content, r"\n```\s*$"m => "")
