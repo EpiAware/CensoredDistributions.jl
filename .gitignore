@@ -70,4 +70,3 @@ worktree-*
 # Documentation dependencies
 docs/node_modules/
 docs/package-lock.json
-docs/package.json

@@ -3,6 +3,7 @@ Pkg.instantiate()
 
 using DocumenterVitepress
 using Documenter
+using DocumenterCitations
 using CensoredDistributions
 
 # Check for skip notebooks option
@@ -78,6 +79,12 @@ end
 DocMeta.setdocmeta!(CensoredDistributions, :DocTestSetup,
     :(using CensoredDistributions); recursive = true)
 
+# Set up citations
+bib = CitationBibliography(
+    joinpath(@__DIR__, "src", "refs.bib");
+    style = :numeric
+)
+
 makedocs(; sitename = "CensoredDistributions.jl",
     authors = "Sam Abbott, and contributors",
     clean = true, doctest = false, linkcheck = true,
@@ -89,7 +96,8 @@ makedocs(; sitename = "CensoredDistributions.jl",
         devbranch = "main",
         devurl = "dev",
         deploy_url = "censoreddistributions.epiaware.org"
-    )
+    ),
+    plugins = [bib]
 )
 
 DocumenterVitepress.deploydocs(
