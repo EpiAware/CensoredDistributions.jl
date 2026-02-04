@@ -417,7 +417,7 @@ end
     end
 end
 
-@testitem "Test DoubleIntervalCensored logpdf error handling and robustness" begin
+@testitem "Test DoubleIntervalCensored logpdf error handling and edge cases" begin
     using Distributions
 
     # Test with edge case parameters that might cause numerical issues

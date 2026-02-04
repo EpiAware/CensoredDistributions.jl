@@ -520,7 +520,7 @@ end
     @test result_missing ≈ sum([obs_weights[i] * logpdf(dists[i], values[i]) for i in 1:3])
 end
 
-@testitem "Test comprehensive weight() method coverage" begin
+@testitem "Test weight() method coverage" begin
     using Distributions
 
     d = LogNormal(1.0, 0.5)

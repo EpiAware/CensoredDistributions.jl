@@ -9,9 +9,9 @@ tasks:
 
   # === TESTING WORKFLOWS ===
   test:
-    desc: Run comprehensive test suite including quality checks
+    desc: Run test suite including quality checks
     cmds:
-      - echo "🧪 Running comprehensive test suite..."
+      - echo "🧪 Running test suite..."
       - julia --project=. --quiet -e 'using Pkg; Pkg.test()'
       - echo "✅ All tests completed successfully"
 
@@ -238,7 +238,7 @@ tasks:
       - echo "✅ Pre-commit formatting completed"
 
   ci:
-    desc: Simulate CI pipeline locally (comprehensive testing)
+    desc: Simulate CI pipeline locally
     cmds:
       - echo "🤖 Running CI simulation..."
       - task: precommit

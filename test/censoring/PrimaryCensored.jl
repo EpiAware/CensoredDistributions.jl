@@ -126,7 +126,7 @@ end
 @testitem "Test logpdf extreme value handling and -Inf edge cases" begin
     using Distributions
 
-    # Test with various distribution types for robustness
+    # Test with various distribution types for coverage
     test_distributions = [
         (LogNormal(1.5, 0.75), Uniform(0, 1)),
         (Gamma(2.0, 3.0), Uniform(0.5, 1.5)),

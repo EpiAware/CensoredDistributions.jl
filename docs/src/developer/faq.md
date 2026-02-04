@@ -168,7 +168,7 @@ pc = primary_censored(Gamma(2, 1), Uniform(0, 1))
 @benchmark cdf(pc, 5.0)
 ```
 
-For comprehensive benchmarking:
+For benchmarking:
 
 ```bash
 julia --project=benchmark benchmark/runbenchmarks.jl

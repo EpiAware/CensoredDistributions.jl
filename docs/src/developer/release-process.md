@@ -9,7 +9,7 @@ combining the Julia ecosystem's standard practices with a news file for major re
 - **Semantic versioning**: Follow [SemVer](https://semver.org/) strictly
 - **Hybrid changelog approach**: Use NEWS.md for major releases, GitHub
   releases for all releases
-- **Automated tooling**: Leverage standard Julia ecosystem tools
+- **Automated tooling**: Use standard Julia ecosystem tools
 - **SciML ecosystem alignment**: Follow established patterns from the
   broader scientific computing ecosystem
 
@@ -53,7 +53,7 @@ We use the same tools as major Julia packages:
 1. **Plan breaking changes** carefully with issue discussion
 2. **Create NEWS.md entry** following the template above:
    - Document all breaking changes with before/after examples
-   - Provide comprehensive migration guidance
+   - Provide clear migration guidance
    - Include rationale for major changes
    - Acknowledge significant contributors
 3. **Update version** with major version bump (e.g., `1.5.2` → `2.0.0`)
@@ -96,7 +96,7 @@ traditional NEWS.md files and GitHub releases:
    - Links to commits and PRs for detailed change tracking
 
 2. **NEWS.md**: Used for major releases and significant milestones
-   - Provides comprehensive context for breaking changes
+   - Provides context for breaking changes
    - Offers detailed migration guidance
    - Follows SciML ecosystem conventions for major version documentation
 
