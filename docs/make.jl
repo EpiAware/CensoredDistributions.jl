@@ -97,6 +97,5 @@ DocumenterVitepress.deploydocs(
     target = "build",
     branch = "gh-pages",
     devbranch = "main",
-    push_preview = true,
-    versions = ["stable" => "v^", "v#.#", "dev" => "dev"]
+    push_preview = true
 )
