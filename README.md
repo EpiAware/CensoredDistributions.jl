@@ -1,15 +1,13 @@
 # CensoredDistributions.jl <img src="docs/src/assets/logo.svg" width="150" alt="CensoredDistributions.jl logo" align="right">
 
-| | | | |
-|:---:|:---:|:---:|:---:|
+| **Documentation** | **Build Status** | **Code Quality** | **License** |
+|:-----------------:|:----------------:|:----------------:|:-----------:|
 | [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://www.CensoredDistributions.epiaware.org/) | [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://www.CensoredDistributions.epiaware.org/dev/) | [![Test](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/test.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/test.yaml) | [![codecov](https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg)](https://codecov.io/gh/EpiAware/CensoredDistributions.jl) |
 | [![SciML Code Style](https://img.shields.io/static/v1?label=code%20style&message=SciML&color=9558b2&labelColor=389826)](https://github.com/SciML/SciMLStyle) | [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl) | [![JET](https://img.shields.io/badge/%E2%9C%88%EF%B8%8F%20tested%20with%20-%20JET.jl%20-%20red)](https://github.com/aviatesk/JET.jl) | [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) |
 
 *Additional censored event tools for Distributions.jl*
 
 **Websites**: [Organization Website](https://epiaware.org/) | [Documentation](https://CensoredDistributions.epiaware.org/)
-
-CensoredDistributions.jl Stats: ![CensoredDistributions Stars](https://img.shields.io/github/stars/EpiAware/CensoredDistributions.jl?style=social)
 
 ## Why CensoredDistributions.jl?
 
@@ -108,6 +106,22 @@ CensoredDistributions.jl also works well with `truncated()` from Distributions.j
 - Want to chat with someone about `CensoredDistributions`? Post on our [GitHub Discussions](https://github.com/EpiAware/CensoredDistributions.jl/discussions).
 - Want to contribute to `CensoredDistributions`? Check out our [Developer Documentation](https://www.CensoredDistributions.epiaware.org/dev/developer/).
 - Want to see our code? Check out our [GitHub Repository](https://github.com/EpiAware/CensoredDistributions.jl/).
+
+## Supporting and Citing
+
+If you would like to help support CensoredDistributions.jl, please star the repository as such metrics may help us secure funding in the future.
+
+If you use CensoredDistributions.jl in your work, please cite it:
+
+```bibtex
+@software{CensoredDistributions_jl,
+  author       = {Sam Abbott and contributors},
+  title        = {CensoredDistributions.jl},
+  year         = {2025},
+  doi          = {10.5281/zenodo.18474652},
+  url          = {https://github.com/EpiAware/CensoredDistributions.jl}
+}
+```
 
 ## Contributing
 
