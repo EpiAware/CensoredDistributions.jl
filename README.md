@@ -6,8 +6,6 @@
 
 *Additional censored event tools for Distributions.jl*
 
-**Websites**: [Organization Website](https://epiaware.org/) | [Documentation](https://CensoredDistributions.epiaware.org/)
-
 ## Why CensoredDistributions.jl?
 
 - **Primary event censoring**: Model delay distributions where the initial event occurs within a time window (e.g., exposure periods in epidemiology).
