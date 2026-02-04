@@ -59,24 +59,6 @@ tasks:
       - julia --project=test/formatter --quiet -e 'using JuliaFormatter; format("src", verbose=false, overwrite=true); format("test", verbose=false, overwrite=true); format("docs", verbose=false, overwrite=true); format("benchmark", verbose=false, overwrite=true)'
       - echo "✅ Code formatting completed"
 
-  format-check:
-    desc: Check code formatting without making changes
-    cmds:
-      - echo "🔍 Checking code formatting..."
-      - julia --project=test/formatter -e 'using Pkg; Pkg.instantiate()' 2>/dev/null
-      - |
-        julia --project=test/formatter --quiet -e '
-          using JuliaFormatter
-          ok = all([
-            format("src", verbose=false, overwrite=false),
-            format("test", verbose=false, overwrite=false),
-            format("docs", verbose=false, overwrite=false),
-            format("benchmark", verbose=false, overwrite=false)
-          ])
-          ok || error("Code needs formatting - run: task format")
-        '
-      - echo "✅ Code formatting is correct"
-
   coverage:
     desc: Run tests with coverage and generate coverage report
     cmds:
