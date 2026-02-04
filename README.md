@@ -115,7 +115,7 @@ If you use CensoredDistributions.jl in your work, please cite it:
 
 ```bibtex
 @software{CensoredDistributions_jl,
-  author       = {Sam Abbott and contributors},
+  author       = {Abbott, Sam and Bayer, Damon and Brand, Sam and DeWitt, Michael and Lemaitre, Joseph},
   title        = {CensoredDistributions.jl},
   year         = {2025},
   doi          = {10.5281/zenodo.18474652},
