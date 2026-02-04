@@ -6,7 +6,6 @@
 
 *Primary event censored distributions for Distributions.jl*
 
-**Websites**: [Organization Website](https://epiaware.org/) | [Documentation](https://censoreddistributions.epiaware.org/stable/)
 
 ## Why CensoredDistributions.jl?
 
