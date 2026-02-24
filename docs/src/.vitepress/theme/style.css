@@ -1,0 +1,9 @@
+/* Hide the default VitePress social links since we have StarUs component */
+.VPNavBarSocialLinks.social-links {
+  display: none !important;
+}
+
+/* Also hide in the extra menu */
+.VPNavBarExtra .social-links-list {
+  display: none !important;
+}
