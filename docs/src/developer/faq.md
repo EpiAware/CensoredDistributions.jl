@@ -73,7 +73,7 @@ end
 **A:** Use the documentation environment:
 
 ```bash
-# Full build (includes Pluto notebook processing - slow)
+# Full build (includes Literate tutorial processing)
 julia --project=docs docs/make.jl
 
 # Fast build for development (skips notebook processing)
@@ -83,13 +83,13 @@ julia --project=docs docs/make.jl --skip-notebooks
 SKIP_NOTEBOOKS=true julia --project=docs docs/make.jl
 ```
 
-The `--skip-notebooks` option is useful during development for quick documentation checks without waiting for slow Pluto notebook processing.
+The `--skip-notebooks` option is useful during development for quick documentation checks without waiting for Literate tutorial processing.
 
-### Q: How do I add a new Pluto notebook tutorial?
+### Q: How do I add a new Literate.jl tutorial?
 
 **A:**
-1. Create the `.jl` notebook in `docs/src/getting-started/tutorials/`
-2. Add a `build("getting-started/tutorials")` call in `docs/make.jl` if not already present
+1. Create a `.jl` file in `docs/src/getting-started/tutorials/` using `md"""..."""` blocks for markdown
+2. Add a `Literate.markdown()` call in `docs/make.jl`
 3. Add the generated `.md` file path to `docs/pages.jl`
 
 ### Q: How do I update docstrings?
@@ -215,16 +215,16 @@ julia --project=benchmark benchmark/runbenchmarks.jl
 
 **A:** Common issues:
 - Check that all cross-references are valid
-- Ensure Pluto notebooks run without errors
+- Ensure Literate tutorials run without errors
 - Verify all `@example` blocks execute successfully
 - Check for missing dependencies in `docs/Project.toml`
 
-### Q: Pluto notebooks won't start
+### Q: Tutorial processing fails during docs build
 
 **A:**
 - Ensure you're using the docs environment: `julia --project=docs`
-- Check that Pluto is installed: `] add Pluto`
-- Try the shell script: `docs/pluto-scripts.sh`
+- Check that Literate is installed: `] add Literate`
+- Try running the tutorial script directly: `julia --project=docs docs/src/getting-started/tutorials/my-tutorial.jl`
 
 ### Q: I'm getting precompilation errors
 
