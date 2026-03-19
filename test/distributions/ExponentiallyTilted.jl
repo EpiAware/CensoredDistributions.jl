@@ -243,10 +243,15 @@ end
 
     # Test different parameter values
     test_cases = [
-        (0.0, 1.0, 2.0),    # Increasing
-        (0.0, 1.0, -1.5),   # Decreasing
-        (-1.0, 2.0, 0.8),   # Different bounds
-        (0.0, 1.0, 1e-10)  # Near uniform
+        (0.0, 1.0, 2.0),     # Increasing, min=0
+        (0.0, 1.0, -1.5),    # Decreasing, min=0
+        (-1.0, 2.0, 0.8),    # Negative min
+        (0.0, 1.0, 1e-10),   # Near uniform
+        (2.0, 5.0, 1.5),     # Non-zero min, positive r
+        (2.0, 5.0, -1.5),    # Non-zero min, negative r
+        (10.0, 20.0, 0.3),   # Large non-zero min
+        (-5.0, -1.0, 2.0),   # Negative support
+        (0.5, 0.7, 5.0)     # Narrow interval, non-zero min
     ]
 
     for (min_val, max_val, r_val) in test_cases
@@ -285,6 +290,17 @@ end
     @test isfinite(pdf(d_large_r, 1.0))
     @test pdf(d_large_r, 0.0) >= 0.0
     @test pdf(d_large_r, 1.0) >= 0.0
+
+    # Test with non-zero min values
+    d_shifted = ExponentiallyTilted(5.0, 10.0, 2.0)
+    @test isfinite(pdf(d_shifted, 7.0))
+    @test isfinite(cdf(d_shifted, 7.0))
+    @test 0.0 <= cdf(d_shifted, 7.0) <= 1.0
+
+    d_neg_support = ExponentiallyTilted(-10.0, -5.0, -3.0)
+    @test isfinite(pdf(d_neg_support, -7.0))
+    @test isfinite(cdf(d_neg_support, -7.0))
+    @test 0.0 <= cdf(d_neg_support, -7.0) <= 1.0
 end
 
 @testitem "ExponentiallyTilted reduces to uniform when r ≈ 0" begin
@@ -423,8 +439,6 @@ end
     using Distributions
     using Integrals
 
-    d = ExponentiallyTilted(0.0, 1.0, 1.5)
-
     # Test that CDF is the integral of PDF using Integrals.jl
     function numerical_cdf(dist, x)
         if x <= minimum(dist)
@@ -441,19 +455,50 @@ end
         return sol.u
     end
 
-    test_points = [0.1, 0.3, 0.5, 0.7, 0.9]
-    for x in test_points
-        numerical_val = numerical_cdf(d, x)
-        analytical_val = cdf(d, x)
-        @test abs(numerical_val - analytical_val) < 1e-8
-    end
+    # Test different parameter configurations
+    # including non-zero min
+    test_dists = [
+        ExponentiallyTilted(0.0, 1.0, 1.5),
+        ExponentiallyTilted(2.0, 5.0, 1.0),
+        ExponentiallyTilted(-3.0, -1.0, -0.8),
+        ExponentiallyTilted(10.0, 12.0, 2.0)
+    ]
 
-    # Test derivative relationship: d/dx CDF(x) ≈ PDF(x)
-    eps = 1e-6
-    for x in [0.2, 0.5, 0.8]
-        numerical_derivative = (cdf(d, x + eps) - cdf(d, x - eps)) / (2 * eps)
-        analytical_pdf = pdf(d, x)
-        @test abs(numerical_derivative - analytical_pdf) < 1e-4
+    for d in test_dists
+        lo = minimum(d)
+        hi = maximum(d)
+        range = hi - lo
+        # Test points at 10%, 30%, 50%, 70%, 90%
+        # of the support
+        test_points = [lo + frac * range
+                       for frac in [0.1, 0.3, 0.5, 0.7, 0.9]]
+
+        @testset "$(d.min) to $(d.max), r=$(d.r)" begin
+            # Test that CDF is the integral of PDF
+            for x in test_points
+                numerical_val = numerical_cdf(d, x)
+                analytical_val = cdf(d, x)
+                @test abs(
+                    numerical_val - analytical_val
+                ) < 1e-8
+            end
+
+            # Test derivative relationship:
+            # d/dx CDF(x) ≈ PDF(x)
+            eps = 1e-6
+            # Use middle points to avoid boundaries
+            for x in test_points[2:4]
+                numerical_derivative = (
+                    cdf(d, x + eps) -
+                    cdf(d, x - eps)
+                ) / (2 * eps)
+                analytical_pdf = pdf(d, x)
+                @test abs(
+                    numerical_derivative -
+                    analytical_pdf
+                ) < 1e-4
+            end
+        end
     end
 end
 
@@ -468,12 +513,16 @@ end
 
     # Test parameters: (min, max, r)
     test_cases = [
-        (0.0, 1.0, 0.0),    # Uniform case (r = 0)
-        (0.0, 1.0, 1.0),    # Moderate positive tilting
-        (0.0, 1.0, -0.5),   # Negative tilting
-        (-1.0, 2.0, 0.8),   # Different bounds with positive tilting
-        (0.0, 1.0, 2.5),    # Strong positive tilting
-        (0.0, 1.0, -2.0)    # Strong negative tilting
+        (0.0, 1.0, 0.0),     # Uniform case (r = 0)
+        (0.0, 1.0, 1.0),     # Moderate positive tilting
+        (0.0, 1.0, -0.5),    # Negative tilting
+        (-1.0, 2.0, 0.8),    # Different bounds
+        (0.0, 1.0, 2.5),     # Strong positive tilting
+        (0.0, 1.0, -2.0),    # Strong negative tilting
+        (2.0, 5.0, 1.0),     # Non-zero min, positive r
+        (2.0, 5.0, -1.0),    # Non-zero min, negative r
+        (10.0, 12.0, 0.5),   # Large non-zero min
+        (-3.0, -1.0, 1.5)   # Negative support
     ]
 
     n_samples = 15000  # Large sample size for stability
