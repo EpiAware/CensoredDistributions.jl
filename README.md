@@ -15,6 +15,16 @@
 - **Distribution fitting**: Integrates with [Turing.jl](https://github.com/TuringLang/Turing.jl) for both Bayesian inference and MLE of censored distributions.
 - **Analytical solutions**: Provides analytical solutions where possible with numerical fallbacks for efficiency.
 
+## What can I do with CensoredDistributions.jl?
+
+- Create distributions that are modified to account for primary event censoring and interval censoring.
+- Apply interval censoring to continuous distributions (both regular and arbitrary intervals).
+- Generate random samples from censored distributions.
+- Calculate the probability density function (PDF) and cumulative distribution function (CDF) of censored event distributions.
+- Calculate the PDF of interval-censored distributions.
+- Calculate the mean, variance, and other moments of censored event distributions.
+- Fit censored event distributions using Turing.jl for both Bayesian inference and MLE methods.
+
 ## Getting Started
 
 For tutorials and guides, see our [Getting Started documentation](https://censoreddistributions.epiaware.org/stable/getting-started/).
@@ -59,10 +69,14 @@ weights = [count(==(val), data) for val in values]
     values ~ weight(censored_dist, weights)
 end
 
-# Fit using MCMC
+# Fit using MCMC for Bayesian inference
 model = double_censored_model(values, weights)
 chain = sample(model, NUTS(), MCMCThreads(), 1000, 2; progress = false)
 summarystats(chain)
+
+# Or fit using MLE
+mle_result = maximum_likelihood(model)
+
 ```
 
 ## Relationship to Distributions.jl
