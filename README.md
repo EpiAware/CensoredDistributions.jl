@@ -15,19 +15,9 @@
 - **Distribution fitting**: Integrates with [Turing.jl](https://github.com/TuringLang/Turing.jl) for both Bayesian inference and MLE of censored distributions.
 - **Analytical solutions**: Provides analytical solutions where possible with numerical fallbacks for efficiency.
 
-## What can I do with CensoredDistributions.jl?
-
-- Create distributions that are modified to account for primary event censoring and interval censoring.
-- Apply interval censoring to continuous distributions (both regular and arbitrary intervals).
-- Generate random samples from censored distributions.
-- Calculate the probability density function (PDF) and cumulative distribution function (CDF) of censored event distributions.
-- Calculate the PDF of interval-censored distributions.
-- Calculate the mean, variance, and other moments of censored event distributions.
-- Fit censored event distributions using Turing.jl for both Bayesian inference and MLE methods.
-
 ## Getting Started
 
-For tutorials and guides, see our [Getting Started documentation](https://censoreddistributions.epiaware.org/stable/getting-started/).
+For a detailed walkthrough of primary censoring, truncation, interval censoring, and all supported distribution operations (PDF, CDF, quantiles, moments, sampling, fitting), see the [Getting Started documentation](https://censoreddistributions.epiaware.org/stable/getting-started/).
 
 The following example demonstrates how to create a double interval censored distribution (combines primary event, interval censoring, and right truncation (using `Distributions.truncated`)):
 
