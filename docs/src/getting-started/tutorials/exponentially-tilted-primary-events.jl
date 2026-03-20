@@ -285,10 +285,12 @@ md"""
 
 ## References
 
-- Park et al. (2024): "Estimating epidemiological delay
-  distributions for infectious diseases"
-- Charniga et al. (2024): "Primary event censoring in
-  infectious disease surveillance"
+- [Park et al. (2024)](https://doi.org/10.1371/journal.pcbi.1012520):
+  "Estimating epidemiological delay distributions for
+  infectious diseases"
+- [Charniga et al. (2024)](https://doi.org/10.48550/arXiv.2405.08841):
+  "Best practices for estimating and reporting
+  epidemiological delay distributions"
 - [SISMID Tutorial][sismid]: Interactive bias
   demonstrations
 

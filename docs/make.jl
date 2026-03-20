@@ -71,6 +71,10 @@ open(joinpath(joinpath(@__DIR__, "src"), "index.md"), "w") do io
         elseif startswith(line, "**Websites**")
             continue
         else
+            # Convert absolute doc URLs to relative paths
+            # so links stay within the current docs version
+            line = replace(line,
+                r"https://censoreddistributions\.epiaware\.org/stable/" => "")
             println(io, line)
         end
     end

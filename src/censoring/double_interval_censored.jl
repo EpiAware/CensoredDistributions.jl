@@ -53,15 +53,11 @@ dist5 = double_interval_censored(LogNormal(1.5, 0.75); primary_event=Uniform(0, 
 ```
 
 # Mathematical Background
-This function implements the complete workflow for handling censored delay distributions as described in Park et al. (2024) and Charniga et al. (2024):
+This function implements the complete workflow for handling censored delay distributions as described in [park2024estimating](@cite) and [charniga2024best](@cite):
 
 1. **Primary censoring**: Accounts for uncertainty in the primary event timing
 2. **Truncation**: Handles observation windows and finite study periods
 3. **Secondary censoring**: Models interval censoring effects (e.g., daily reporting)
-
-# References
-- Park et al. (2024): "Estimating epidemiological delay distributions for infectious diseases"
-- Charniga et al. (2024): "Best practices for estimating and reporting epidemiological delay distributions"
 """
 function double_interval_censored(
         dist::UnivariateDistribution;

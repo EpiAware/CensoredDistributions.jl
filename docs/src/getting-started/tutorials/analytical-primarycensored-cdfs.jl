@@ -461,6 +461,7 @@ CensoredDistributions.jl provide:
   Reference implementation with mathematical derivations
 - [Analytical solutions vignette](https://primarycensored.epinowcast.org/articles/analytic-solutions.html):
   Detailed mathematical formulations
-- Park et al. (2024) and Cori et al. (2013):
+- [Park et al. (2024)](https://doi.org/10.1371/journal.pcbi.1012520)
+  and [Cori et al. (2013)](https://doi.org/10.1093/aje/kwt133):
   Original research papers
 """
