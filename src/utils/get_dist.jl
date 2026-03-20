@@ -18,18 +18,18 @@ using CensoredDistributions, Distributions
 
 # Base distribution - returns unchanged
 d1 = Normal(0, 1)
-get_dist(d1) == d1  # true
+get_dist(d1)
 
 # Primary censored distribution
 delay = LogNormal(1.5, 0.75)
 window = Uniform(0, 1)
 pc = primary_censored(delay, window)
-get_dist(pc) == delay  # true
+get_dist(pc)
 
 # Interval censored distribution
 continuous = Normal(5, 2)
 ic = interval_censored(continuous, 1.0)
-get_dist(ic) == continuous  # true
+get_dist(ic)
 ```
 "
 function get_dist(d)
@@ -82,12 +82,12 @@ using Distributions
 # Extract Normal from truncated Normal
 base = Normal(0, 1)
 trunc_dist = truncated(base, -2, 2)
-get_dist(trunc_dist) === base  # true
+get_dist(trunc_dist)
 
 # Works with any truncated distribution
 gamma_base = Gamma(2, 1)
 trunc_gamma = truncated(gamma_base, 0.1, 5.0)
-get_dist(trunc_gamma) === gamma_base  # true
+get_dist(trunc_gamma)
 ```
 "
 function get_dist(d::Truncated)
@@ -125,12 +125,12 @@ using Distributions
 # Extract Normal from censored Normal
 base = Normal(0, 1)
 censored_dist = censored(base, -2, 2)
-get_dist(censored_dist) === base  # true
+get_dist(censored_dist)
 
 # Works with any censored distribution
 gamma_base = Gamma(2, 1)
 censored_gamma = censored(gamma_base, 0.1, 5.0)
-get_dist(censored_gamma) === gamma_base  # true
+get_dist(censored_gamma)
 ```
 "
 function get_dist(d::Censored)
@@ -160,37 +160,22 @@ using CensoredDistributions, Distributions
 delay = LogNormal(1.5, 0.75)
 window = Uniform(0, 1)
 pc = primary_censored(delay, window)
-get_dist_recursive(pc) == delay  # true
+get_dist_recursive(pc)
 
 # Nested wrappers
 continuous = Normal(5, 2)
 ic = interval_censored(continuous, 1.0)
 weighted = weight(ic, 2.0)
-get_dist_recursive(weighted) == continuous  # true
-
-# Truncated nested wrappers
-base = Normal(0, 1)
-trunc_dist = truncated(base, -2, 2)
-weighted_trunc = weight(trunc_dist, 2.0)
-get_dist_recursive(weighted_trunc) == base  # true
-
-# Censored nested wrappers
-censored_dist = censored(Normal(0, 1), -2, 2)
-weighted_censored = weight(censored_dist, 2.0)
-get_dist_recursive(weighted_censored) == base  # true
+get_dist_recursive(weighted)
 
 # Double interval censored distributions (fully recursive)
 delay = LogNormal(1.5, 0.75)
 full_double = double_interval_censored(delay; upper=10, interval=1)
-get_dist_recursive(full_double) == delay  # true
-
-# Weighted double interval censored
-weighted_double = weight(full_double, 2.0)
-get_dist_recursive(weighted_double) == delay  # true
+get_dist_recursive(full_double)
 
 # Base distribution - returns unchanged
 d = Normal(0, 1)
-get_dist_recursive(d) == d  # true
+get_dist_recursive(d)
 ```
 
 # Note

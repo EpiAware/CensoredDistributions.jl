@@ -12,22 +12,12 @@
 - **Primary event censoring**: Model delay distributions where the initial event occurs within a time window (e.g., exposure periods in epidemiology).
 - **Interval censoring**: Bin continuous distributions into discrete intervals (e.g., daily reporting) when exact values are not observed.
 - **Double interval censoring**: Combines both primary event and interval censoring for complex observation processes.
-- **Distribution fitting**: Extends Distributions.jl's `fit` support with MLE fitting for primary censored and interval censored distributions (potentially truncated), plus Turing.jl integration for Bayesian inference.
+- **Distribution fitting**: Integrates with [Turing.jl](https://github.com/TuringLang/Turing.jl) for both Bayesian inference and MLE of censored distributions.
 - **Analytical solutions**: Provides analytical solutions where possible with numerical fallbacks for efficiency.
-
-## What can I do with CensoredDistributions.jl?
-
-- Create distributions that are modified to account for primary event censoring and interval censoring.
-- Apply interval censoring to continuous distributions (both regular and arbitrary intervals).
-- Generate random samples from censored distributions.
-- Calculate the probability density function (PDF) and cumulative distribution function (CDF) of censored event distributions.
-- Calculate the PDF of interval-censored distributions.
-- Calculate the mean, variance, and other moments of censored event distributions.
-- Fit censored event distributions using Turing.jl for both Bayesian inference and MLE methods.
 
 ## Getting Started
 
-For tutorials and guides, see our [Getting Started documentation](https://censoreddistributions.epiaware.org/stable/getting-started/).
+For a detailed walkthrough of primary censoring, truncation, interval censoring, and all supported distribution operations (PDF, CDF, quantiles, moments, sampling, fitting), see the [Getting Started documentation](https://censoreddistributions.epiaware.org/stable/getting-started/).
 
 The following example demonstrates how to create a double interval censored distribution (combines primary event, interval censoring, and right truncation (using `Distributions.truncated`)):
 
@@ -44,7 +34,7 @@ plot(x, pdf.(original, x), label = "Original Gamma", lw = 2)
 plot!(x, pdf.(censored, x), label = "Double Censored and right truncated", lw = 2)
 ```
 
-You can fit censored distributions to data using Turing.jl for both Bayesian inference and MLE methods, as well as other optimization-based approaches:
+You can fit censored distributions to data using [Turing.jl](https://github.com/TuringLang/Turing.jl) for both Bayesian inference and MLE:
 
 ```julia
 using Turing
@@ -69,12 +59,14 @@ weights = [count(==(val), data) for val in values]
     values ~ weight(censored_dist, weights)
 end
 
-# Fit using MLE or other methods
-model = double_censored_model(values, weights)
-
 # Fit using MCMC for Bayesian inference
+model = double_censored_model(values, weights)
 chain = sample(model, NUTS(), MCMCThreads(), 1000, 2; progress = false)
-summarize(chain)
+summarystats(chain)
+
+# Or fit using MLE
+mle_result = maximum_likelihood(model)
+
 ```
 
 ## Relationship to Distributions.jl

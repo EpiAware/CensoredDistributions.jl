@@ -219,8 +219,9 @@ end
 
 Analytical CDF for Gamma delay with Uniform primary event distribution.
 
-Implements the closed-form solution derived in Park et al. (2024) and
-originally in Cori et al. (2013). Uses the partial expectation of the
+Implements the closed-form solution derived in
+[park2024estimating](@cite) and originally in
+[cori2013new](@cite). Uses the partial expectation of the
 Gamma distribution to avoid numerical integration.
 
 The formula involves CDFs of Gamma distributions with shape parameters
