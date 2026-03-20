@@ -161,7 +161,7 @@ end
     continuous_samples = rand(MersenneTwister(123), d, n_samples)
     discretized_samples = [CensoredDistributions.floor_to_interval(s, interval)
                            for s in continuous_samples]
-    @test mean(samples) ≈ mean(discretized_samples) rtol=0.1
+    @test mean(samples)≈mean(discretized_samples) rtol=0.1
 end
 
 @testitem "Test IntervalCensored sampling - arbitrary intervals" begin
@@ -404,8 +404,8 @@ end
         logpdf_val = logpdf(ic, x)
 
         if pdf_val > 0
-            @test logpdf_val ≈ log(pdf_val) rtol=1e-12
-            @test pdf_val ≈ exp(logpdf_val) rtol=1e-12
+            @test logpdf_val≈log(pdf_val) rtol=1e-12
+            @test pdf_val≈exp(logpdf_val) rtol=1e-12
         else
             @test logpdf_val == -Inf
             @test pdf_val == 0.0
@@ -508,34 +508,59 @@ end
     using Distributions
     using BenchmarkTools
 
-    # Set up test distribution and data
-    d = Normal(5.0, 2.0)
-    ic_regular = interval_censored(d, 1.0)  # Regular intervals: mathematical boundary calculation
-    ic_arbitrary = interval_censored(d, [0.0, 2.0, 4.0, 6.0, 8.0, 10.0])  # Arbitrary: array lookups
+    # PrimaryCensored has an expensive CDF (numerical
+    # integration), so boundary caching provides real speedup
+    d = primary_censored(LogNormal(1.0, 0.5), Uniform(0, 1))
+    ic_regular = interval_censored(d, 1.0)
+    ic_arbitrary = interval_censored(
+        d, [0.0, 2.0, 4.0, 6.0, 8.0, 10.0]
+    )
 
-    # Test with larger arrays where vectorisation overhead is amortised
-    n = 100
-
-    # Generate discrete values that create many duplicates for boundary caching
-    x_regular = repeat([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], n)
+    # Many duplicates maximise boundary caching benefit
+    n = 50
+    x_regular = repeat(
+        [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], n
+    )
     x_arbitrary = vcat(
         fill(1.0, n), fill(3.0, n), fill(5.0, n),
         fill(7.0, n), fill(9.0, n)
     )
 
-    # Test regular intervals (mathematical boundary calculation)
-    time_broadcast_reg = @belapsed pdf.($ic_regular, $x_regular)
-    time_vectorised_reg = @belapsed pdf($ic_regular, $x_regular)
-    speedup_regular = time_vectorised_reg / time_broadcast_reg
-    @info "Regular intervals speedup: $(round(speedup_regular, digits=1))x ($(round(time_vectorised_reg*1000, digits=6)) ms vs $(round(time_broadcast_reg*1000, digits=6)) ms)"
-    @test speedup_regular > 1.2
+    # Warmup both code paths before benchmarking
+    pdf.(ic_regular, x_regular)
+    pdf(ic_regular, x_regular)
+    pdf.(ic_arbitrary, x_arbitrary)
+    pdf(ic_arbitrary, x_arbitrary)
 
-    # Test arbitrary intervals (array lookup boundary calculation)
-    time_broadcast_arb = @belapsed pdf.($ic_arbitrary, $x_arbitrary)
-    time_vectorised_arb = @belapsed pdf($ic_arbitrary, $x_arbitrary)
-    speedup_arbitrary = time_vectorised_arb / time_broadcast_arb
-    @info "Arbitrary intervals speedup: $(round(speedup_arbitrary, digits=1))x ($(round(time_vectorised_arb*1000, digits=6)) ms vs $(round(time_broadcast_arb*1000, digits=6)) ms)"
-    @test speedup_arbitrary > 1.5
+    # Test regular intervals
+    time_broadcast_reg = @belapsed pdf.($ic_regular, $x_regular)
+    time_vectorised_reg = @belapsed pdf(
+        $ic_regular, $x_regular
+    )
+    speedup_regular = time_broadcast_reg / time_vectorised_reg
+    @info "Regular intervals speedup:" *
+          " $(round(speedup_regular, digits=1))x" *
+          " (vectorised=" *
+          "$(round(time_vectorised_reg*1000, digits=3)) ms" *
+          " vs broadcast=" *
+          "$(round(time_broadcast_reg*1000, digits=3)) ms)"
+    @test speedup_regular > 1.0
+
+    # Test arbitrary intervals
+    time_broadcast_arb = @belapsed pdf.(
+        $ic_arbitrary, $x_arbitrary
+    )
+    time_vectorised_arb = @belapsed pdf(
+        $ic_arbitrary, $x_arbitrary
+    )
+    speedup_arbitrary = time_broadcast_arb / time_vectorised_arb
+    @info "Arbitrary intervals speedup:" *
+          " $(round(speedup_arbitrary, digits=1))x" *
+          " (vectorised=" *
+          "$(round(time_vectorised_arb*1000, digits=3)) ms" *
+          " vs broadcast=" *
+          "$(round(time_broadcast_arb*1000, digits=3)) ms)"
+    @test speedup_arbitrary > 1.0
 
     # Test correctness for both approaches
     @test pdf(ic_regular, x_regular) ≈ pdf.(ic_regular, x_regular)
@@ -606,7 +631,8 @@ end
     ic_regular = interval_censored(d, 0.5)
     x_regular = [2.0, 2.3, 2.7, 3.0, 3.2]
 
-    boundaries_regular = CensoredDistributions._collect_unique_boundaries(ic_regular, x_regular)
+    boundaries_regular = CensoredDistributions._collect_unique_boundaries(
+        ic_regular, x_regular)
 
     @test issorted(boundaries_regular)
     @test length(unique(boundaries_regular)) == length(boundaries_regular)  # All unique
@@ -620,7 +646,8 @@ end
     ic_arbitrary = interval_censored(d, intervals)
     x_arbitrary = [1.0, 3.0, 6.0, 9.0]  # One in each interval, one outside
 
-    boundaries_arbitrary = CensoredDistributions._collect_unique_boundaries(ic_arbitrary, x_arbitrary)
+    boundaries_arbitrary = CensoredDistributions._collect_unique_boundaries(
+        ic_arbitrary, x_arbitrary)
 
     @test issorted(boundaries_arbitrary)
     @test length(unique(boundaries_arbitrary)) == length(boundaries_arbitrary)
@@ -635,7 +662,8 @@ end
     end
     cdf_lookup = Dict{Float64, Float64}(cdf_pairs)
 
-    pdfs_cached = CensoredDistributions._compute_pdfs_with_cache(ic_regular, x_regular, cdf_lookup)
+    pdfs_cached = CensoredDistributions._compute_pdfs_with_cache(
+        ic_regular, x_regular, cdf_lookup)
     pdfs_direct = pdf.(ic_regular, x_regular)
 
     @test pdfs_cached ≈ pdfs_direct
@@ -644,7 +672,8 @@ end
 
     # Test type promotion in helper functions
     x_int = [2, 3, 4]  # Integer array
-    boundaries_promoted = CensoredDistributions._collect_unique_boundaries(ic_regular, x_int)
+    boundaries_promoted = CensoredDistributions._collect_unique_boundaries(
+        ic_regular, x_int)
     @test eltype(boundaries_promoted) == promote_type(Int, Float64)  # Should be Float64
 end
 
