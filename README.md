@@ -12,12 +12,12 @@
 - **Primary event censoring**: Model delay distributions where the initial event occurs within a time window (e.g., exposure periods in epidemiology).
 - **Interval censoring**: Bin continuous distributions into discrete intervals (e.g., daily reporting) when exact values are not observed.
 - **Double interval censoring**: Combines both primary event and interval censoring for complex observation processes.
-- **Distribution fitting**: Integrates with [Turing.jl](https://github.com/TuringLang/Turing.jl) for Bayesian inference of censored distributions.
+- **Distribution fitting**: Integrates with [Turing.jl](https://github.com/TuringLang/Turing.jl) for both Bayesian inference and MLE of censored distributions.
 - **Analytical solutions**: Provides analytical solutions where possible with numerical fallbacks for efficiency.
 
 ## Getting Started
 
-For a detailed walkthrough of primary censoring, truncation, and interval censoring, see the [Getting Started documentation](https://censoreddistributions.epiaware.org/stable/getting-started/).
+For tutorials and guides, see our [Getting Started documentation](https://censoreddistributions.epiaware.org/stable/getting-started/).
 
 The following example demonstrates how to create a double interval censored distribution (combines primary event, interval censoring, and right truncation (using `Distributions.truncated`)):
 
@@ -34,7 +34,7 @@ plot(x, pdf.(original, x), label = "Original Gamma", lw = 2)
 plot!(x, pdf.(censored, x), label = "Double Censored and right truncated", lw = 2)
 ```
 
-You can fit censored distributions to data using [Turing.jl](https://github.com/TuringLang/Turing.jl) for Bayesian inference:
+You can fit censored distributions to data using [Turing.jl](https://github.com/TuringLang/Turing.jl) for both Bayesian inference and MLE:
 
 ```julia
 using Turing

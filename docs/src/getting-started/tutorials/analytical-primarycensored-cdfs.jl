@@ -128,8 +128,8 @@ function benchmark_cdf_methods(
     numerical_times = Float64[]
 
     for x in x_values
-        bench_analytical = @benchmark(cdf($d_analytical, $x), samples = 100)
-        bench_numerical = @benchmark(cdf($d_numerical, $x), samples = 100)
+        bench_analytical = @benchmark(cdf($d_analytical, $x), samples=100)
+        bench_numerical = @benchmark(cdf($d_numerical, $x), samples=100)
 
         ## Extract times in microseconds
         time_analytical = median(
@@ -461,7 +461,5 @@ CensoredDistributions.jl provide:
   Reference implementation with mathematical derivations
 - [Analytical solutions vignette](https://primarycensored.epinowcast.org/articles/analytic-solutions.html):
   Detailed mathematical formulations
-- [Park et al. (2024)](https://doi.org/10.1371/journal.pcbi.1012520)
-  and [Cori et al. (2013)](https://doi.org/10.1093/aje/kwt133):
-  Original research papers
+- [park2024estimating](@cite) and [cori2013new](@cite): Original research papers
 """

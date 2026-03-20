@@ -80,8 +80,8 @@ scenarios_df = @chain DataFrame(
 end
 
 @chain scenarios_df begin
-    @transform!(:primary_event = ExponentiallyTilted.(0.0, :window, :r))
-    @transform!(:uniform_ref = Uniform.(0.0, :window))
+    @transform!(:primary_event=ExponentiallyTilted.(0.0, :window, :r))
+    @transform!(:uniform_ref=Uniform.(0.0, :window))
 end
 
 md"""
@@ -141,7 +141,7 @@ censoring_windows_df = @chain scenarios_df begin
                   row.primary_event, n_samples
               )
           ) for row in eachrow(_)]...)
-    @transform(:effective_window = secondary_window .- :primary_time)
+    @transform(:effective_window=secondary_window .- :primary_time)
 end;
 
 md"""
@@ -160,7 +160,7 @@ p2 = plot(
 
 for scenario_name in unique(censoring_windows_df.name)
     scenario_data = @subset(censoring_windows_df,
-        :name .== scenario_name)
+        :name.==scenario_name)
     scenario_color = scenario_data.color[1]
 
     density!(p2, scenario_data.effective_window,
@@ -183,7 +183,7 @@ also be censored.
 """
 
 @chain scenarios_df begin
-    @transform!(:censored_dist = primary_censored.(
+    @transform!(:censored_dist=primary_censored.(
         Ref(true_delay), :primary_event
     ))
 end
@@ -218,7 +218,7 @@ Here we show the CDF.
 """
 
 @chain scenarios_df begin
-    @rtransform!(:double_censored_dist = double_interval_censored(
+    @rtransform!(:double_censored_dist=double_interval_censored(
         true_delay;
         primary_event = :primary_event,
         interval = secondary_window
@@ -285,14 +285,7 @@ md"""
 
 ## References
 
-- [Park et al. (2024)](https://doi.org/10.1371/journal.pcbi.1012520):
-  "Estimating epidemiological delay distributions for
-  infectious diseases"
-- [Charniga et al. (2024)](https://doi.org/10.48550/arXiv.2405.08841):
-  "Best practices for estimating and reporting
-  epidemiological delay distributions"
-- [SISMID Tutorial][sismid]: Interactive bias
-  demonstrations
-
-[sismid]: https://nfidd.github.io/sismid/sessions/biases-in-delay-distributions.html
+- [park2024estimating](@cite): "Estimating epidemiological delay distributions for infectious diseases"
+- [charniga2024best](@cite): "Best practices for estimating and reporting epidemiological delay distributions"
+- [SISMID Tutorial](https://nfidd.github.io/sismid/sessions/biases-in-delay-distributions.html): Interactive bias demonstrations
 """
