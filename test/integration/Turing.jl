@@ -255,19 +255,19 @@ end
     simulated_data = rand(simulation_model)
 
     # Test that data was generated
-    @test length(simulated_data.obs) == n
-    @test length(simulated_data.pwindows) == n
-    @test length(simulated_data.swindows) == n
-    @test length(simulated_data.obs_times) == n
+    @test length(simulated_data[@varname(obs)]) == n
+    @test length(simulated_data[@varname(pwindows)]) == n
+    @test length(simulated_data[@varname(swindows)]) == n
+    @test length(simulated_data[@varname(obs_times)]) == n
 
     # Test that observations are reasonable
-    @test all(simulated_data.obs .>= 0)
-    @test all(simulated_data.pwindows .>= 1)
-    @test all(simulated_data.pwindows .<= 3)
-    @test all(simulated_data.swindows .>= 1)
-    @test all(simulated_data.swindows .<= 3)
-    @test all(simulated_data.obs_times .>= 8)
-    @test all(simulated_data.obs_times .<= 12)
+    @test all(simulated_data[@varname(obs)] .>= 0)
+    @test all(simulated_data[@varname(pwindows)] .>= 1)
+    @test all(simulated_data[@varname(pwindows)] .<= 3)
+    @test all(simulated_data[@varname(swindows)] .>= 1)
+    @test all(simulated_data[@varname(swindows)] .<= 3)
+    @test all(simulated_data[@varname(obs_times)] .>= 8)
+    @test all(simulated_data[@varname(obs_times)] .<= 12)
 end
 
 @testitem "Turing.jl double_interval_censored logpdf is valid" tags=[:turing] begin

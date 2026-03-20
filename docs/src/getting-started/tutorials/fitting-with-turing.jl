@@ -111,7 +111,7 @@ us to reuse the same prior structure across all our models:"
 
 # ╔═╡ 767a5900-9d7b-41db-a488-10f98a777476
 @model function latent_delay_dist()
-    mu ~ Normal(1.0, 2.0);
+    mu ~ Normal(1.0, 2.0)
     sigma ~ truncated(Normal(0.5, 1); lower = 0.0)
     return LogNormal(mu, sigma)
 end
@@ -142,7 +142,7 @@ before seeing any data."
 
 # ╔═╡ 767a5900-9d7b-41db-a488-10f98a777479
 begin
-    Random.seed!(123);
+    Random.seed!(123)
 
     # Sample from the latent delay distribution prior
     latent_prior_samples = sample(latent_delay_dist(), Prior(), 1000)
@@ -222,6 +222,7 @@ md"Now we can sample from the model using `rand` to get simmulated observations 
 # ╔═╡ 2a0c4692-3ac5-4c46-9ac0-a057256a0b38
 simulated_data = @chain simulation_model begin
     rand
+    NamedTuple
     DataFrame
 end
 
@@ -252,7 +253,7 @@ empirical_cdf_obs = @with(simulated_counts, ecdf(:obs, weights = :n));
 # ╔═╡ 2b773594-5187-45bc-96f4-22a3d726b7d2
 # Create a sequence of x values for the theoretical CDF
 x_seq = @with simulated_counts begin
-    range(minimum(:obs), stop = maximum(:obs) + 2, length = 100);
+    range(minimum(:obs), stop = maximum(:obs) + 2, length = 100)
 end;
 
 # ╔═╡ a5b04acc-acc5-4d4d-8871-09d54caab185
@@ -260,11 +261,11 @@ begin
     # Calculate theoretical CDF using true log-normal distribution
     theoretical_cdf = @chain x_seq begin
         cdf.(true_dist, _)
-    end;
+    end
 
     # Generate uncensored samples from the true distribution for comparison
-    uncensored_samples = rand(true_dist, n);
-    empirical_cdf_uncensored = ecdf(uncensored_samples);
+    uncensored_samples = rand(true_dist, n)
+    empirical_cdf_uncensored = ecdf(uncensored_samples)
 end
 
 # ╔═╡ fb6dc898-21a9-4f8d-aa14-5b45974c2242

@@ -23,7 +23,7 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 [compat]
 Distributions = "0.25"
 DocStringExtensions = "0.9"
-DynamicPPL = "0.39"
+DynamicPPL = "0.39, 0.40"
 HypergeometricFunctions = "0.3"
 Integrals = "4"
 LogExpFunctions = "0.3"
@@ -32,7 +32,7 @@ OptimizationOptimJL = "0.4.3"
 Random = "1"
 SpecialFunctions = "2"
 Statistics = "1"
-Turing = "0.42"
+Turing = "0.42, 0.43"
 julia = "1.10, 1.11, 1.12"
 
 [workspace]
