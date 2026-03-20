@@ -52,7 +52,7 @@ task precommit # Pre-commit validation
 
 # Individual workflows
 task test-fast    # Quick testing
-task docs-pluto   # Start Pluto notebook server
+task docs         # Full docs including Literate tutorials
 task benchmark    # Run benchmarks
 ```
 
@@ -70,7 +70,7 @@ julia --project=test test/runtests.jl
 # Skip quality tests for faster development iteration
 julia --project=test test/runtests.jl skip_quality
 
-# Build complete documentation (includes Pluto notebook conversion)
+# Build complete documentation (includes Literate tutorial processing)
 julia --project=docs docs/make.jl
 
 # Execute benchmark suite
@@ -102,34 +102,37 @@ julia --project=test test/runtests.jl skip_quality
 
 ## Documentation
 
-### Pluto Notebooks
+### Literate.jl Tutorials
 
-The tutorials use [Pluto.jl](https://plutojl.org/) notebooks located in `docs/src/getting-started/tutorials/`.
+The tutorials use [Literate.jl](https://fredrikekre.github.io/Literate.jl/) scripts located in `docs/src/getting-started/tutorials/`.
 These are converted to markdown during the documentation build.
 
-#### Working with Pluto notebooks
+#### Working with tutorials
 
-1. **Start Pluto**: Use the task command:
-   ```bash
-   task docs-pluto
-   ```
+Tutorials are plain Julia `.jl` files using `md"""..."""` blocks for markdown.
+You can run them directly in the REPL or as scripts.
 
-2. **Environment setup**: Notebooks should use the docs environment and develop the local package:
-   ```julia
-   # In notebook setup cell
-   let
-       docs_dir = (dirname ∘ dirname ∘ dirname)(@__DIR__)
-       using Pkg: Pkg
-       Pkg.activate(docs_dir)
-       Pkg.develop(PackageSpec(path=dirname(docs_dir)))
-       Pkg.instantiate()
-   end
-   ```
-
-3. **Adding new notebooks**:
-   - Add the notebook file to `docs/src/getting-started/tutorials/`
-   - Add build call in `docs/make.jl`
+1. **Adding new tutorials**:
+   - Create a `.jl` file in `docs/src/getting-started/tutorials/`
+   - Add a `Literate.markdown()` call in `docs/make.jl`
    - Add the generated `.md` file to `docs/pages.jl`
+
+2. **Tutorial format**:
+   ```julia
+   md"""
+   # Tutorial Title
+
+   Introduction text.
+   """
+
+   using SomePackage
+
+   md"""
+   ## Section
+   """
+
+   code_here()
+   ```
 
 ### Documentation Structure
 

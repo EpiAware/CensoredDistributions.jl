@@ -70,7 +70,7 @@ tasks:
 
   # === DOCUMENTATION WORKFLOWS ===
   docs:
-    desc: Build complete documentation including Pluto notebooks (slow)
+    desc: Build complete documentation including Literate tutorials (slow)
     cmds:
       - echo "📚 Building complete documentation (including notebooks)..."
       - julia --project=docs docs/make.jl
@@ -82,12 +82,6 @@ tasks:
       - echo "📚 Building documentation (skipping notebooks)..."
       - julia --project=docs docs/make.jl --skip-notebooks
       - echo "✅ Fast documentation build completed"
-
-  docs-pluto:
-    desc: Start Pluto server for interactive notebook development
-    cmds:
-      - echo "🚀 Starting Pluto server for interactive development..."
-      - julia --project=docs -e 'using Pluto; Pluto.run()'
 
   # === DEVELOPMENT SETUP ===
   setup:
@@ -166,7 +160,7 @@ tasks:
         if [ -z "{{.CLI_ARGS}}" ]; then
           echo "Usage: task pkg:add ENV=<environment> -- <PackageName>"
           echo "Environments: . (root), test, docs, benchmark"
-          echo "Example: task pkg:add ENV=docs -- PlutoStaticHTML"
+          echo "Example: task pkg:add ENV=docs -- Literate"
           exit 1
         fi
         echo "📦 Adding {{.CLI_ARGS}} to $ENV_VAR environment..."
@@ -261,11 +255,6 @@ tasks:
       - echo "✅ CI simulation completed successfully"
 
   # === UTILITIES ===
-  utils-uuid:
-    desc: Generate UUID for Pluto notebooks
-    cmds:
-      - julia -e "using UUIDs; println(uuid4())"
-
   clean:
     desc: Clean build artifacts and temporary files
     interactive: true

@@ -13,16 +13,12 @@ This page contains frequently asked questions about CensoredDistributions.jl. If
 - Paste into your Julia REPL or script
 - Modify as needed for your analysis
 
-**Option 2: Interactive notebooks**
-1. Install Pluto: `] add Pluto`
-2. Clone the repository: `git clone https://github.com/EpiAware/CensoredDistributions.jl.git`
-3. Start Julia in the repository directory: `julia --project=docs`
-4. Start Pluto: `using Pluto; Pluto.run()`
-5. Open the `.jl` files in `docs/src/getting-started/tutorials/`
+**Option 2: Run tutorial scripts directly**
+1. Clone the repository: `git clone https://github.com/EpiAware/CensoredDistributions.jl.git`
+2. Start Julia in the repository directory: `julia --project=docs`
+3. Run a tutorial: `include("docs/src/getting-started/tutorials/analytical-primarycensored-cdfs.jl")`
 
-### Q: What are Pluto notebooks?
-
-**A:** [Pluto.jl](https://plutojl.org/) notebooks are reactive - when you change one cell, all dependent cells automatically update. This is different from Jupyter notebooks. Each cell contains either a single expression or code wrapped in `begin...end` or `let...end` blocks.
+The tutorial `.jl` files are plain Julia scripts that can be run top-to-bottom in the REPL or executed as scripts.
 
 ## Using the Package
 

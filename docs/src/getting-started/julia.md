@@ -130,7 +130,7 @@ julia> primary_censored(Gamma(2, 1), Uniform(0, 1))
 
 ### Working with the tutorials
 
-The [tutorials](@ref tutorials) include interactive Pluto notebooks. See the [FAQ](@ref faq) for detailed instructions on running the notebooks vs. copying code.
+The [tutorials](@ref tutorials) are Literate.jl scripts that can be run directly in the REPL or as standalone Julia scripts. See the [FAQ](@ref faq) for instructions on running the tutorials.
 
 ### Development workflow (for contributors)
 
