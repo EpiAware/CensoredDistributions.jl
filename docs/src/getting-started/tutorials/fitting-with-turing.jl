@@ -160,9 +160,10 @@ truncation. This model uses the `latent_delay_dist()` submodel via
 
 # ╔═╡ a8f036dd-fd59-4834-8422-f1ea7da616e0
 @model function CensoredDistributions_model(pwindow_bounds, swindow_bounds, obs_time_bounds)
-    pwindows ~ arraydist([DiscreteUniform(pw[1], pw[2]) for pw in pwindow_bounds])
-    swindows ~ arraydist([DiscreteUniform(sw[1], sw[2]) for sw in swindow_bounds])
-    obs_times ~ arraydist([DiscreteUniform(ot[1], ot[2]) for ot in obs_time_bounds])
+    pwindows ~ product_distribution([DiscreteUniform(pw[1], pw[2]) for pw in pwindow_bounds])
+    swindows ~ product_distribution([DiscreteUniform(sw[1], sw[2]) for sw in swindow_bounds])
+    obs_times ~ product_distribution([DiscreteUniform(ot[1], ot[2])
+                                      for ot in obs_time_bounds])
 
     dist ~ to_submodel(latent_delay_dist())
 
@@ -365,8 +366,8 @@ a comparison point between the naive model and the full model.
 
 # ╔═╡ c3afeed1-20ec-44c8-933c-ca0e75cda788
 @model function interval_only_model(swindow_bounds, obs_time_bounds)
-    swindows ~ arraydist([Uniform(sw[1], sw[2]) for sw in swindow_bounds])
-    obs_times ~ arraydist([Uniform(ot[1], ot[2]) for ot in obs_time_bounds])
+    swindows ~ product_distribution([Uniform(sw[1], sw[2]) for sw in swindow_bounds])
+    obs_times ~ product_distribution([Uniform(ot[1], ot[2]) for ot in obs_time_bounds])
 
     dist ~ to_submodel(latent_delay_dist())
 
