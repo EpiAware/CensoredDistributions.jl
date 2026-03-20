@@ -145,11 +145,11 @@ end
 
     @model function double_censored_model(pwindow_bounds, swindow_bounds, obs_time_bounds)
         pwindows ~ product_distribution([DiscreteUniform(pw[1], pw[2])
-                                         for pw in pwindow_bounds])
+                              for pw in pwindow_bounds])
         swindows ~ product_distribution([DiscreteUniform(sw[1], sw[2])
-                                         for sw in swindow_bounds])
+                              for sw in swindow_bounds])
         obs_times ~ product_distribution([DiscreteUniform(ot[1], ot[2])
-                                          for ot in obs_time_bounds])
+                              for ot in obs_time_bounds])
 
         dist ~ to_submodel(latent_delay_dist())
 
@@ -220,11 +220,11 @@ end
 
     @model function double_censored_model(pwindow_bounds, swindow_bounds, obs_time_bounds)
         pwindows ~ product_distribution([DiscreteUniform(pw[1], pw[2])
-                                         for pw in pwindow_bounds])
+                              for pw in pwindow_bounds])
         swindows ~ product_distribution([DiscreteUniform(sw[1], sw[2])
-                                         for sw in swindow_bounds])
+                              for sw in swindow_bounds])
         obs_times ~ product_distribution([DiscreteUniform(ot[1], ot[2])
-                                          for ot in obs_time_bounds])
+                              for ot in obs_time_bounds])
 
         dist ~ to_submodel(latent_delay_dist())
 

@@ -160,10 +160,12 @@ truncation. This model uses the `latent_delay_dist()` submodel via
 
 # ╔═╡ a8f036dd-fd59-4834-8422-f1ea7da616e0
 @model function CensoredDistributions_model(pwindow_bounds, swindow_bounds, obs_time_bounds)
-    pwindows ~ product_distribution([DiscreteUniform(pw[1], pw[2]) for pw in pwindow_bounds])
-    swindows ~ product_distribution([DiscreteUniform(sw[1], sw[2]) for sw in swindow_bounds])
+    pwindows ~
+    product_distribution([DiscreteUniform(pw[1], pw[2]) for pw in pwindow_bounds])
+    swindows ~
+    product_distribution([DiscreteUniform(sw[1], sw[2]) for sw in swindow_bounds])
     obs_times ~ product_distribution([DiscreteUniform(ot[1], ot[2])
-                                      for ot in obs_time_bounds])
+                          for ot in obs_time_bounds])
 
     dist ~ to_submodel(latent_delay_dist())
 
