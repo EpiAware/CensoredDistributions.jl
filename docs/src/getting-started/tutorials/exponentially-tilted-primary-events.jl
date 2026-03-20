@@ -160,7 +160,7 @@ p2 = plot(
 
 for scenario_name in unique(censoring_windows_df.name)
     scenario_data = @subset(censoring_windows_df,
-        :name.==scenario_name)
+        :name .== scenario_name)
     scenario_color = scenario_data.color[1]
 
     density!(p2, scenario_data.effective_window,
