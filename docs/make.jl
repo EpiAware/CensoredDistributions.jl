@@ -10,21 +10,39 @@ using CensoredDistributions
 skip_notebooks = "--skip-notebooks" in ARGS ||
                  get(ENV, "SKIP_NOTEBOOKS", "false") == "true"
 
+include("pages.jl")
+
 if !skip_notebooks
-    using Pluto: Configuration.CompilerOptions
-    using PlutoStaticHTML
+    using Literate
 
-    include("pages.jl")
-    include("build.jl")
+    tutorials_dir = joinpath(
+        @__DIR__, "src", "getting-started", "tutorials"
+    )
+    tutorial_files = [
+        "analytical-primarycensored-cdfs.jl",
+        "exponentially-tilted-primary-events.jl",
+        "fitting-with-turing.jl"
+    ]
 
-    println("Building Pluto notebooks (this may take several minutes)...")
-    build("getting-started")
-    build("getting-started/tutorials")
-    println("✓ Notebook processing complete")
+    println(
+        "Building Literate tutorials " *
+        "(this may take several minutes)..."
+    )
+    for file in tutorial_files
+        Literate.markdown(
+            joinpath(tutorials_dir, file),
+            tutorials_dir;
+            flavor = Literate.DocumenterFlavor(),
+            mdstrings = true,
+            credit = false
+        )
+    end
+    println("Literate tutorial processing complete")
 else
-    println("⚠ Skipping Pluto notebook processing (--skip-notebooks or " *
-            "SKIP_NOTEBOOKS=true)")
-    include("pages.jl")
+    println(
+        "Skipping Literate tutorial processing " *
+        "(--skip-notebooks or SKIP_NOTEBOOKS=true)"
+    )
 end
 
 # Generate index.md from README.md
@@ -32,19 +50,22 @@ open(joinpath(joinpath(@__DIR__, "src"), "index.md"), "w") do io
     println(io, "```@meta")
     println(io,
         "EditURL = " *
-        "\"https://github.com/EpiAware/CensoredDistributions.jl/blob/main/" *
+        "\"https://github.com/EpiAware/" *
+        "CensoredDistributions.jl/blob/main/" *
         "README.md\"")
     println(io, "```")
 
-    for line in eachline(joinpath(dirname(@__DIR__), "README.md"))
+    for line in eachline(
+        joinpath(dirname(@__DIR__), "README.md")
+    )
         # Replace ```julia with ```@example readme
         if startswith(line, "```julia")
             println(io, "```@example readme")
-            # Remove logo from title line for documentation
+            # Remove logo from title line for docs
         elseif contains(line, "docs/src/assets/logo.svg")
             println(io, replace(line,
                 r"\s*<img[^>]*docs/src/assets/logo\.svg[^>]*>" => ""))
-            # Skip badge table and Websites line (keep only GitHub stars on docs)
+            # Skip badge table and Websites line
         elseif startswith(line, "|")  # Table rows
             continue
         elseif startswith(line, "**Websites**")
@@ -59,7 +80,9 @@ end
 include("release_notes_header.jl")
 
 news_src = joinpath(dirname(@__DIR__), "NEWS.md")
-release_notes_dest = joinpath(joinpath(@__DIR__, "src"), "release-notes.md")
+release_notes_dest = joinpath(
+    joinpath(@__DIR__, "src"), "release-notes.md"
+)
 
 if isfile(news_src)
     open(release_notes_dest, "w") do io
@@ -71,9 +94,9 @@ if isfile(news_src)
             println(io, line)
         end
     end
-    println("✓ Generated release-notes.md from header + NEWS.md")
+    println("Generated release-notes.md from header + NEWS.md")
 else
-    println("⚠ NEWS.md not found in project root")
+    println("NEWS.md not found in project root")
 end
 
 DocMeta.setdocmeta!(CensoredDistributions, :DocTestSetup,
@@ -88,11 +111,15 @@ bib = CitationBibliography(
 makedocs(; sitename = "CensoredDistributions.jl",
     authors = "Sam Abbott, and contributors",
     clean = true, doctest = false, linkcheck = true,
-    warnonly = [:docs_block, :missing_docs, :linkcheck, :autodocs_block],
+    warnonly = [
+        :docs_block, :missing_docs,
+        :linkcheck, :autodocs_block
+    ],
     modules = [CensoredDistributions],
     pages = pages,
     format = DocumenterVitepress.MarkdownVitepress(
-        repo = "github.com/EpiAware/CensoredDistributions.jl",
+        repo = "github.com/EpiAware/" *
+               "CensoredDistributions.jl",
         devbranch = "main",
         devurl = "dev",
         deploy_url = "censoreddistributions.epiaware.org"
