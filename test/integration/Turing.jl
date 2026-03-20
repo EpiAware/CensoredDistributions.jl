@@ -84,8 +84,8 @@ end
     end
 
     @model function interval_only_model(swindow_bounds, obs_time_bounds)
-        swindows ~ arraydist([Uniform(sw[1], sw[2]) for sw in swindow_bounds])
-        obs_times ~ arraydist([Uniform(ot[1], ot[2]) for ot in obs_time_bounds])
+        swindows ~ product_distribution([Uniform(sw[1], sw[2]) for sw in swindow_bounds])
+        obs_times ~ product_distribution([Uniform(ot[1], ot[2]) for ot in obs_time_bounds])
 
         dist ~ to_submodel(latent_delay_dist())
 
@@ -144,9 +144,12 @@ end
     end
 
     @model function double_censored_model(pwindow_bounds, swindow_bounds, obs_time_bounds)
-        pwindows ~ arraydist([DiscreteUniform(pw[1], pw[2]) for pw in pwindow_bounds])
-        swindows ~ arraydist([DiscreteUniform(sw[1], sw[2]) for sw in swindow_bounds])
-        obs_times ~ arraydist([DiscreteUniform(ot[1], ot[2]) for ot in obs_time_bounds])
+        pwindows ~ product_distribution([DiscreteUniform(pw[1], pw[2])
+                              for pw in pwindow_bounds])
+        swindows ~ product_distribution([DiscreteUniform(sw[1], sw[2])
+                              for sw in swindow_bounds])
+        obs_times ~ product_distribution([DiscreteUniform(ot[1], ot[2])
+                              for ot in obs_time_bounds])
 
         dist ~ to_submodel(latent_delay_dist())
 
@@ -216,9 +219,12 @@ end
     end
 
     @model function double_censored_model(pwindow_bounds, swindow_bounds, obs_time_bounds)
-        pwindows ~ arraydist([DiscreteUniform(pw[1], pw[2]) for pw in pwindow_bounds])
-        swindows ~ arraydist([DiscreteUniform(sw[1], sw[2]) for sw in swindow_bounds])
-        obs_times ~ arraydist([DiscreteUniform(ot[1], ot[2]) for ot in obs_time_bounds])
+        pwindows ~ product_distribution([DiscreteUniform(pw[1], pw[2])
+                              for pw in pwindow_bounds])
+        swindows ~ product_distribution([DiscreteUniform(sw[1], sw[2])
+                              for sw in swindow_bounds])
+        obs_times ~ product_distribution([DiscreteUniform(ot[1], ot[2])
+                              for ot in obs_time_bounds])
 
         dist ~ to_submodel(latent_delay_dist())
 
@@ -255,19 +261,19 @@ end
     simulated_data = rand(simulation_model)
 
     # Test that data was generated
-    @test length(simulated_data.obs) == n
-    @test length(simulated_data.pwindows) == n
-    @test length(simulated_data.swindows) == n
-    @test length(simulated_data.obs_times) == n
+    @test length(simulated_data[@varname(obs)]) == n
+    @test length(simulated_data[@varname(pwindows)]) == n
+    @test length(simulated_data[@varname(swindows)]) == n
+    @test length(simulated_data[@varname(obs_times)]) == n
 
     # Test that observations are reasonable
-    @test all(simulated_data.obs .>= 0)
-    @test all(simulated_data.pwindows .>= 1)
-    @test all(simulated_data.pwindows .<= 3)
-    @test all(simulated_data.swindows .>= 1)
-    @test all(simulated_data.swindows .<= 3)
-    @test all(simulated_data.obs_times .>= 8)
-    @test all(simulated_data.obs_times .<= 12)
+    @test all(simulated_data[@varname(obs)] .>= 0)
+    @test all(simulated_data[@varname(pwindows)] .>= 1)
+    @test all(simulated_data[@varname(pwindows)] .<= 3)
+    @test all(simulated_data[@varname(swindows)] .>= 1)
+    @test all(simulated_data[@varname(swindows)] .<= 3)
+    @test all(simulated_data[@varname(obs_times)] .>= 8)
+    @test all(simulated_data[@varname(obs_times)] .<= 12)
 end
 
 @testitem "Turing.jl double_interval_censored logpdf is valid" tags=[:turing] begin

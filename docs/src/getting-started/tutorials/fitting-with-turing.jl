@@ -155,13 +155,13 @@ each double censored and right truncated delay:
 @model function CensoredDistributions_model(
         pwindow_bounds, swindow_bounds, obs_time_bounds
 )
-    pwindows ~ arraydist(
+    pwindows ~ product_distribution(
         [DiscreteUniform(pw[1], pw[2]) for pw in pwindow_bounds]
     )
-    swindows ~ arraydist(
+    swindows ~ product_distribution(
         [DiscreteUniform(sw[1], sw[2]) for sw in swindow_bounds]
     )
-    obs_times ~ arraydist(
+    obs_times ~ product_distribution(
         [DiscreteUniform(ot[1], ot[2]) for ot in obs_time_bounds]
     )
 
@@ -244,6 +244,7 @@ time:
 
 simulated_data = @chain simulation_model begin
     rand
+    NamedTuple
     DataFrame
 end;
 
@@ -396,10 +397,10 @@ and the full model.
 @model function interval_only_model(
         swindow_bounds, obs_time_bounds
 )
-    swindows ~ arraydist(
+    swindows ~ product_distribution(
         [Uniform(sw[1], sw[2]) for sw in swindow_bounds]
     )
-    obs_times ~ arraydist(
+    obs_times ~ product_distribution(
         [Uniform(ot[1], ot[2]) for ot in obs_time_bounds]
     )
 
