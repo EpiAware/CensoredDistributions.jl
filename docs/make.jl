@@ -76,7 +76,7 @@ open(joinpath(joinpath(@__DIR__, "src"), "index.md"), "w") do io
             line = replace(line,
                 "[Getting Started documentation](https://censoreddistributions.epiaware.org/stable/getting-started/)" => "[Getting Started documentation](@ref getting-started)",
                 "[Getting Started Tutorials](https://censoreddistributions.epiaware.org/stable/getting-started/)" => "[Getting Started Tutorials](@ref getting-started)",
-                "[API Reference](https://censoreddistributions.epiaware.org/stable/lib/public/)" => "[API Reference](@ref public-api)",
+                "[API Reference](https://censoreddistributions.epiaware.org/stable/lib/public)" => "[API Reference](@ref public-api)",
                 "[Developer Documentation](https://censoreddistributions.epiaware.org/stable/developer/)" => "[Developer Documentation](@ref developer)",
                 "[developer documentation](https://censoreddistributions.epiaware.org/stable/developer/)" => "[developer documentation](@ref developer)")
             println(io, line)
@@ -121,7 +121,7 @@ makedocs(; sitename = "CensoredDistributions.jl",
     clean = true, doctest = false, linkcheck = true,
     warnonly = [
         :docs_block, :missing_docs,
-        :linkcheck, :autodocs_block
+        :autodocs_block
     ],
     modules = [CensoredDistributions],
     pages = pages,
