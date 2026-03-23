@@ -4,7 +4,7 @@ CensoredDistributions.jl extends Distributions.jl to support primary event
 censoring and interval censoring, enabling modelling of scenarios where
 observation times are subject to various forms of censoring and truncation.
 
-### Core Functionality
+### Core functionality
 
 **Distribution Constructors**
 - `primary_censored(dist, primary_event)`: Creates primary event censored
@@ -33,7 +33,7 @@ observation times are subject to various forms of censoring and truncation.
 - `weight(dist, weights)`: Creates weighted distributions for efficient
   likelihood computation
 
-### Distributions.jl Interface
+### Distributions.jl interface
 
 Partial implementation of Distributions.jl interface including:
 - `pdf`, `logpdf`: Probability density functions
@@ -43,7 +43,7 @@ Partial implementation of Distributions.jl interface including:
 - `minimum`, `maximum`, `insupport`: Support queries
 - `mean`, `var`, `std`: Moments (where analytically tractable)
 
-### Migration from primarycensored R Package
+### Migration from primarycensored R package
 
 CensoredDistributions.jl provides a Julia-native implementation with enhanced
 functionality compared to the primarycensored R package:

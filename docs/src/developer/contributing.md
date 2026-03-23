@@ -2,7 +2,7 @@
 
 This page details the guidelines that should be followed when contributing to CensoredDistributions.jl.
 
-## Getting Started
+## Getting started
 
 Before contributing, please:
 1. Read the [Getting Started with Julia](@ref julia) guide if you're new to Julia development
@@ -13,7 +13,7 @@ Before contributing, please:
 3. Check out the [developer documentation](@ref developer) for advanced workflows
 4. Review the project structure and development commands below
 
-## Project Structure
+## Project structure
 
 CensoredDistributions.jl uses multiple environments for different purposes:
 
@@ -35,11 +35,11 @@ CensoredDistributions.jl/
     └── runbenchmarks.jl   # Benchmark suite
 ```
 
-## Development Commands
+## Development commands
 
 This project includes a Taskfile for streamlined development workflows.
 
-### Quick Start with Tasks
+### Quick start with tasks
 
 ```bash
 # Discover all available tasks
@@ -56,7 +56,7 @@ task docs         # Full docs including Literate tutorials
 task benchmark    # Run benchmarks
 ```
 
-### Detailed Commands
+### Detailed commands
 
 For advanced usage or when tasks don't cover specific needs, use the underlying Julia commands:
 
@@ -77,9 +77,9 @@ julia --project=docs docs/make.jl
 julia --project=benchmark benchmark/runbenchmarks.jl
 ```
 
-## Testing Strategy
+## Testing strategy
 
-### Test Organisation
+### Test organisation
 
 - **Unit tests**: Located in `test/censoring/` for each distribution type
 - **Integration tests**: Test interactions between components
@@ -88,7 +88,7 @@ julia --project=benchmark benchmark/runbenchmarks.jl
   - DocTest.jl for documentation examples
   - Code formatting and linting checks
 
-### Test Environment
+### Test environment
 
 The test environment (`test/Project.toml`) includes:
 - Test-specific dependencies (TestItemRunner.jl, Test.jl)
@@ -102,7 +102,7 @@ julia --project=test test/runtests.jl skip_quality
 
 ## Documentation
 
-### Literate.jl Tutorials
+### Literate.jl tutorials
 
 The tutorials use [Literate.jl](https://fredrikekre.github.io/Literate.jl/) scripts located in `docs/src/getting-started/tutorials/`.
 These are converted to markdown during the documentation build.
@@ -120,7 +120,7 @@ You can run them directly in the REPL or as scripts.
 2. **Tutorial format**:
    ```julia
    md"""
-   # Tutorial Title
+   # Tutorial title
 
    Introduction text.
    """
@@ -134,19 +134,19 @@ You can run them directly in the REPL or as scripts.
    code_here()
    ```
 
-### Documentation Structure
+### Documentation structure
 
 - `docs/src/getting-started/`: User-facing documentation
 - `docs/src/lib/`: API documentation (auto-generated)
 - `docs/src/developer/`: Developer and contributor documentation
 
-## Branches and Workflow
+## Branches and workflow
 
 - **Feature branches**: Create feature branches for new development
 - **Main branch**: Features are merged into `main` when ready
 - **Releases**: Automatic releases are created when versions are tagged
 
-## Style Guide
+## Style guide
 
 This project follows the [SciML style guide](https://github.com/SciML/SciMLStyle).
 
@@ -157,7 +157,7 @@ Key points:
 - Keep lines under 80 characters where possible
 - Use consistent indentation (4 spaces)
 
-### Documentation Standards
+### Documentation standards
 
 All docstrings use the DocStringExtensions.jl template system defined in `src/docstrings.jl`:
 
@@ -203,9 +203,9 @@ end
 - **Use `@doc "` (not `@doc """`)** to allow macro expansion
 - **Document argument purpose**, not types
 
-## Code Quality
+## Code quality
 
-### Pre-commit Checklist
+### Pre-commit checklist
 
 Before submitting a pull request:
 
@@ -220,14 +220,14 @@ Before submitting a pull request:
    task docs-fast  # Build documentation
    ```
 
-### Quality Tools
+### Quality tools
 
 The project includes several quality assurance tools:
 - **Aqua.jl**: Checks for common package issues
 - **JET.jl**: Static analysis for type stability (available in developer environment)
 - **DocTest.jl**: Ensures documentation examples work
 
-## Adding New Features
+## Adding new features
 
 1. **Write tests first**: Add tests in appropriate `test/` subdirectory
 2. **Implement feature**: Add implementation in `src/`
@@ -235,7 +235,7 @@ The project includes several quality assurance tools:
 4. **Test thoroughly**: Run full test suite
 5. **Update changelog**: Add entry describing the change
 
-## Advanced Development Resources
+## Advanced development resources
 
 For advanced Julia development techniques beyond this project:
 
@@ -244,7 +244,7 @@ For advanced Julia development techniques beyond this project:
 - **[ProfileView.jl](https://github.com/timholy/ProfileView.jl)**: Visual profiling for performance analysis
 - **[PkgTemplates.jl](https://github.com/JuliaCI/PkgTemplates.jl)**: Best practices for Julia package structure
 
-## Getting Help
+## Getting help
 
 - **Questions**: Open a GitHub discussion
 - **Bugs**: File a GitHub issue with minimal reproducible example

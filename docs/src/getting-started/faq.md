@@ -2,7 +2,7 @@
 
 This page contains frequently asked questions about CensoredDistributions.jl. If you have a question that is not answered here, please open a discussion on the GitHub repository.
 
-## Working with Tutorials
+## Working with tutorials
 
 ### Q: How can I run the tutorial notebooks?
 
@@ -20,7 +20,7 @@ This page contains frequently asked questions about CensoredDistributions.jl. If
 
 The tutorial `.jl` files are plain Julia scripts that can be run top-to-bottom in the REPL or executed as scripts.
 
-## Using the Package
+## Using the package
 
 ### Q: How do I create a primary censored distribution?
 
@@ -58,7 +58,7 @@ censored_dist = primary_censored(delay_dist, primary_dist)
 
 **A:** Yes! The package supports ForwardDiff.jl, ReverseDiff.jl, Zygote.jl, and Enzyme.jl for use with Turing.jl and other AD-based workflows.
 
-## Common Issues
+## Common issues
 
 ### Q: I get "Package not found" errors
 
@@ -79,7 +79,7 @@ Pkg.add("CensoredDistributions")  # Add the package if needed
 
 **A:** See the [Developer FAQ](@ref developer-faq) and [Contributing Guide](@ref contributing) for development-specific questions and guidelines.
 
-## Getting Help
+## Getting help
 
 Still have questions?
 

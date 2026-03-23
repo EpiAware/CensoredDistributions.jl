@@ -164,7 +164,7 @@ plot!(x, cdf.(int_censored_dist, x), label="Truncated, primary censored, and int
 
 Neither the primary censored nor the interval censored distributions match the true distribution due to the censoring effects and truncation at the maximum observable delay, which biases both observed distributions towards shorter delays.
 
-## Convenience Function: `double_interval_censored`
+## Convenience function: `double_interval_censored`
 
 For common workflows involving the complete pipeline of primary censoring, truncation, and secondary interval censoring, the package provides a convenient `double_interval_censored` function that applies all transformations in the correct order (primary censoring → truncation → interval censoring):
 
@@ -182,7 +182,7 @@ rand(double_censored_dist, 10)
 
 or do any of the other common distribution operations.
 
-## Key Package Features
+## Key package features
 
 In addition to these main functions, the package also includes:
 
@@ -200,11 +200,11 @@ In addition to these main functions, the package also includes:
 
 For more information on the package and its integration with other packages, see the tutorials in this getting started section:
 
-- **[Analytical CDF Solutions](tutorials/analytical-primarycensored-cdfs.md)**: Understanding analytical solutions for common distribution pairs
+- **[Analytical CDF solutions](tutorials/analytical-primarycensored-cdfs.md)**: Understanding analytical solutions for common distribution pairs
 - **[Fitting with Turing.jl](tutorials/fitting-with-turing.md)**: Bayesian inference with censored distributions
-- **[Exponentially Tilted Primary Events](tutorials/exponentially-tilted-primary-events.md)**: Understanding the impact of exponentially tilted primary events on primary event timing and the knock on impact to primary event censored distributions
+- **[Exponentially tilted primary events](tutorials/exponentially-tilted-primary-events.md)**: Understanding the impact of exponentially tilted primary events on primary event timing and the knock on impact to primary event censored distributions
 
-### Methodological Background
+### Methodological background
 
 For methodological background on delay distributions and censoring methods, see:
 

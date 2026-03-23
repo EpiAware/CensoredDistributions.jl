@@ -2,8 +2,8 @@ getting_started_pages = Any[
 "Overview" => "getting-started/index.md",
 "Installation" => "getting-started/installation.md",
 "Tutorials" => [
-    "Analytical CDF Solutions" => "getting-started/tutorials/analytical-primarycensored-cdfs.md",
-    "Exponentially Tilted Primary Events" => "getting-started/tutorials/exponentially-tilted-primary-events.md",
+    "Analytical CDF solutions" => "getting-started/tutorials/analytical-primarycensored-cdfs.md",
+    "Exponentially tilted primary events" => "getting-started/tutorials/exponentially-tilted-primary-events.md",
     "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md"
 ],
 "Julia" => "getting-started/julia.md",
@@ -19,7 +19,7 @@ dev_pages = [
     "Overview" => "developer/index.md",
     "Contributing" => "developer/contributing.md",
     "Developer FAQ" => "developer/faq.md",
-    "Release Process" => "developer/release-process.md"
+    "Release process" => "developer/release-process.md"
 ]
 
 pages = [

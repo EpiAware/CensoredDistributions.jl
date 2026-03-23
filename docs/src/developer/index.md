@@ -12,7 +12,7 @@ New to contributing? Start here:
 
 For general Julia development setup, see [Getting Started with Julia](@ref julia) in the Getting Started section.
 
-## Frequently Asked Questions
+## Frequently asked questions
 
 ### How do I run tests faster during development?
 
