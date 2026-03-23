@@ -95,7 +95,7 @@ CensoredDistributions.jl also works well with `truncated()` from Distributions.j
 ## Where to learn more
 
 - Want to get started running code? Check out the [Getting Started Tutorials](https://censoreddistributions.epiaware.org/stable/getting-started/).
-- Want to understand the API? Check out our [API Reference](https://censoreddistributions.epiaware.org/stable/lib/public/).
+- Want to understand the API? Check out our [API Reference](https://censoreddistributions.epiaware.org/stable/lib/public).
 - Want to chat with someone about `CensoredDistributions`? Post on our [GitHub Discussions](https://github.com/EpiAware/CensoredDistributions.jl/discussions).
 - Want to contribute to `CensoredDistributions`? Check out our [Developer Documentation](https://censoreddistributions.epiaware.org/stable/developer/).
 - Want to see our code? Check out our [GitHub Repository](https://github.com/EpiAware/CensoredDistributions.jl/).

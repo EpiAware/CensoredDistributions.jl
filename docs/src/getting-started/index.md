@@ -77,7 +77,7 @@ $$F_{\text{cens}}(q) = \int_{0}^{1} F(q - p) \cdot f_{\text{primary}}(p) \, dp$$
 
 where $F$ is the CDF of the delay distribution and $f_{\text{primary}}$ is the PDF of the primary event times.
 
-For theory explained in more detail, see the [primary_censored](https://primary_censored.epinowcast.org/dev/articles/primary_censored.html) documentation.
+For theory explained in more detail, see the [primary_censored](https://primarycensored.epinowcast.org/dev/articles/primarycensored.html) documentation.
 
 We can now generate a random sample from the primary distribution
 
