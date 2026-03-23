@@ -208,8 +208,13 @@ For more information on the package and its integration with other packages, see
 
 For methodological background on delay distributions and censoring methods, see:
 
-- **Park et al. (2024)**: ["Estimating epidemiological delay distributions for infectious diseases"](https://doi.org/10.1101/2024.01.12.24301247) - Provides detailed mathematical foundations and methodological guidance for delay distribution estimation.
+- [park2024estimating](@cite) - Provides detailed mathematical foundations and methodological guidance for delay distribution estimation.
 
-- **Charniga et al. (2024)**: ["Best practices for estimating and reporting epidemiological delay distributions of infectious diseases using public health surveillance and healthcare data"](https://doi.org/10.48550/arXiv.2405.08841) - Offers best practices and practical advice when estimating delay distributions from real-world data.
+- [charniga2024best](@cite) - Offers best practices and practical advice when estimating delay distributions from real-world data.
 
 - The [primarycensored R package documentation](https://primarycensored.epinowcast.org/dev/articles/primarycensored.html) provides additional theoretical context and examples.
+
+## References
+
+```@bibliography
+```

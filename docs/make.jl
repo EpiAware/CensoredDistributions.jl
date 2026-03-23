@@ -71,6 +71,14 @@ open(joinpath(joinpath(@__DIR__, "src"), "index.md"), "w") do io
         elseif startswith(line, "**Websites**")
             continue
         else
+            # Convert absolute doc URLs to @ref links
+            # so links stay within the current version
+            line = replace(line,
+                "[Getting Started documentation](https://censoreddistributions.epiaware.org/stable/getting-started/)" => "[Getting Started documentation](@ref getting-started)",
+                "[Getting Started Tutorials](https://censoreddistributions.epiaware.org/stable/getting-started/)" => "[Getting Started Tutorials](@ref getting-started)",
+                "[API Reference](https://censoreddistributions.epiaware.org/stable/lib/public/)" => "[API Reference](@ref public-api)",
+                "[Developer Documentation](https://censoreddistributions.epiaware.org/stable/developer/)" => "[Developer Documentation](@ref developer)",
+                "[developer documentation](https://censoreddistributions.epiaware.org/stable/developer/)" => "[developer documentation](@ref developer)")
             println(io, line)
         end
     end

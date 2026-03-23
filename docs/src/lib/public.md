@@ -1,4 +1,4 @@
-# Public Documentation
+# [Public Documentation](@id public-api)
 
 Documentation for `CensoredDistributions.jl`'s public interface.
 
