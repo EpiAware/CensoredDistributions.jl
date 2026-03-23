@@ -219,9 +219,10 @@ end
 
 Analytical CDF for Gamma delay with Uniform primary event distribution.
 
-Implements the closed-form solution derived in
-@placeholder. Uses the partial expectation of the
-Gamma distribution to avoid numerical integration.
+Uses the partial expectation of the Gamma distribution to
+avoid numerical integration. See the
+[primarycensored R package](https://primarycensored.epinowcast.org/articles/analytic-solutions.html)
+for the derivation.
 
 The formula involves CDFs of Gamma distributions with shape parameters
 k and k+1, computed in log-space for numerical stability.
@@ -298,7 +299,9 @@ end
 Analytical CDF for LogNormal delay with Uniform primary event distribution.
 
 Uses a parameter shift approach where the partial expectation of LogNormal(μ, σ)
-can be expressed using the CDF of LogNormal(μ + σ², σ).
+can be expressed using the CDF of LogNormal(μ + σ², σ). See the
+[primarycensored R package](https://primarycensored.epinowcast.org/articles/analytic-solutions.html)
+for the derivation.
 "
 function primarycensored_cdf(
         dist::LogNormal, primary_event::Uniform, x::Real, ::AnalyticalSolver
@@ -370,7 +373,9 @@ end
 Analytical CDF for Weibull delay with Uniform primary event distribution.
 
 Uses the lower incomplete gamma function to express the partial expectation
-of the Weibull distribution analytically.
+of the Weibull distribution analytically. See the
+[primarycensored R package](https://primarycensored.epinowcast.org/articles/analytic-solutions.html)
+for the derivation.
 "
 function primarycensored_cdf(
         dist::Weibull, primary_event::Uniform, x::Real, ::AnalyticalSolver
