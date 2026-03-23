@@ -15,7 +15,7 @@
 - **Distribution fitting**: Integrates with [Turing.jl](https://github.com/TuringLang/Turing.jl) for both Bayesian inference and MLE of censored distributions.
 - **Analytical solutions**: Provides analytical solutions where possible with numerical fallbacks for efficiency.
 
-## Getting Started
+## Getting started
 
 For a detailed walkthrough of primary censoring, truncation, interval censoring, and all supported distribution operations (PDF, CDF, quantiles, moments, sampling, fitting), see the [Getting Started documentation](https://censoreddistributions.epiaware.org/stable/getting-started/).
 
@@ -94,13 +94,13 @@ CensoredDistributions.jl also works well with `truncated()` from Distributions.j
 
 ## Where to learn more
 
-- Want to get started running code? Check out the [Getting Started Tutorials](https://censoreddistributions.epiaware.org/stable/getting-started/).
+- Want to get started running code? Check out the [Getting started tutorials](https://censoreddistributions.epiaware.org/stable/getting-started/).
 - Want to understand the API? Check out our [API Reference](https://censoreddistributions.epiaware.org/stable/lib/public).
 - Want to chat with someone about `CensoredDistributions`? Post on our [GitHub Discussions](https://github.com/EpiAware/CensoredDistributions.jl/discussions).
 - Want to contribute to `CensoredDistributions`? Check out our [Developer Documentation](https://censoreddistributions.epiaware.org/stable/developer/).
 - Want to see our code? Check out our [GitHub Repository](https://github.com/EpiAware/CensoredDistributions.jl/).
 
-## Supporting and Citing
+## Supporting and citing
 
 If you would like to help support CensoredDistributions.jl, please star the repository as such metrics may help us secure funding in the future.
 
@@ -122,6 +122,6 @@ We welcome contributions and new contributors!
 We particularly appreciate help on [identifying and identified issues](https://github.com/EpiAware/CensoredDistributions.jl/issues).
 Please check and add to the issues, and/or add a [pull request](https://github.com/EpiAware/CensoredDistributions.jl/pulls) and see our [developer documentation](https://censoreddistributions.epiaware.org/stable/developer/) for more information.
 
-## Code of Conduct
+## Code of conduct
 
 Please note that the `CensoredDistributions` project is released with a [Contributor Code of Conduct](https://github.com/EpiAware/.github/blob/main/CODE_OF_CONDUCT.md). By contributing to this project, you agree to abide by its terms.

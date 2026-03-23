@@ -1,5 +1,5 @@
 md"""
-# Analytical CDF Solutions for Primary Censored Distributions
+# Analytical CDF solutions for primary censored distributions
 
 This tutorial demonstrates the analytical CDF solutions
 available in CensoredDistributions.jl.
@@ -21,7 +21,7 @@ when available for optimal performance.
 """
 
 md"""
-## Currently Supported Analytical Solutions
+## Currently supported analytical solutions
 
 | Delay Distribution | Primary Distribution | Status |
 |-------------------|---------------------|---------|
@@ -52,7 +52,7 @@ using Statistics
 using Integrals
 
 md"""
-## Automatic Method Selection
+## Automatic method selection
 
 CensoredDistributions.jl automatically selects the
 appropriate method:
@@ -102,7 +102,7 @@ plot!(x_compare, cdf_numerical_vals,
     linestyle = :dash, color = :red)
 
 md"""
-## Performance Comparison
+## Performance comparison
 
 Let's benchmark the performance difference between
 analytical and numerical methods:
@@ -252,7 +252,7 @@ end
 plot(p1, p2, p3, layout = (3, 1), size = (700, 900))
 
 md"""
-## Accuracy Verification
+## Accuracy verification
 
 The analytical solutions maintain machine precision
 accuracy. Let's verify this:
@@ -358,7 +358,7 @@ plot(
 )
 
 md"""
-## Exploring Available Methods
+## Exploring available methods
 
 You can use Julia's `methods` function to discover which
 distribution combinations have analytical solutions:
@@ -381,7 +381,7 @@ combinations have analytical solutions implemented.
 """
 
 md"""
-## Custom Solver Options
+## Custom solver options
 
 You can also customise the numerical solver when needed:
 """
@@ -416,7 +416,7 @@ solver_info = (
 )
 
 md"""
-## Implementing New Analytical Solutions
+## Implementing new analytical solutions
 
 If you have derived an analytical solution for a new
 distribution combination, you can extend the package by

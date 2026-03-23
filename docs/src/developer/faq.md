@@ -2,7 +2,7 @@
 
 This page contains frequently asked questions for developers and contributors to CensoredDistributions.jl.
 
-## Development Environment
+## Development environment
 
 ### Q: My code changes aren't reflecting when developing
 
@@ -128,7 +128,7 @@ end
 
 **Important:** Never use `@doc raw"` with DocStringExtensions macros as it prevents macro expansion.
 
-## Code Quality
+## Code quality
 
 ### Q: How do I run code quality checks?
 
@@ -233,7 +233,7 @@ julia --project=benchmark benchmark/runbenchmarks.jl
 - Reset environments: remove `Manifest.toml` and run `] instantiate`
 - Check for version conflicts: `] resolve`
 
-## Getting Help
+## Getting help
 
 For development-specific questions:
 

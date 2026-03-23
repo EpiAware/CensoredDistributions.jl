@@ -1,5 +1,5 @@
 md"""
-
+# How exponentially tilted primary events affect observed delay distributions
 
 ## Introduction
 
@@ -60,11 +60,9 @@ We'll examine epidemic phase bias using a realistic scenario:
 true_delay = Gamma(4.0, 1.5);
 
 md"""
-## Part 1: Exponentially Tilted vs Uniform Primary Events
+## Part 1: Exponentially tilted vs uniform primary events
 
-First, we compare how Exponentially tilted distributions
-with different growth rates shape primary event timing
-compared to uniform (steady state) patterns.
+First, we compare how exponentially tilted distributions with different growth rates shape primary event timing compared to uniform (steady state) patterns.
 """
 
 window_length = 7
@@ -116,7 +114,7 @@ plot!(p1, x_primary, y_uniform,
 p1
 
 md"""
-## Part 2: Double Interval Censoring - Primary + Secondary Windows
+## Part 2: Double interval censoring - primary + secondary windows
 
 Now we demonstrate the **double interval censoring**
 concept: primary events occur within surveillance-defined
@@ -173,7 +171,7 @@ end
 p2
 
 md"""
-## Part 3: Impact on Censored Delay Distributions
+## Part 3: Impact on censored delay distributions
 
 Now we examine how epidemic phase bias affects the delays
 we might observe. We start with the primary censored delay
@@ -253,7 +251,7 @@ end
 p4
 
 md"""
-## Key Insights
+## Key insights
 
 1. **Primary event bias is distinct from truncation bias:**
    - Occurs regardless of the primary event distribution

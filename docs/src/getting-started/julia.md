@@ -17,7 +17,7 @@ This isn't a complete guide to learning Julia programming. Instead, we provide p
 - [Julia Discourse](https://discourse.julialang.org/) - community forum
 - [Modern Julia Workflows](https://modernjuliaworkflows.org/) - best practices for Julia development
 
-## Julia Installation with juliaup
+## Julia installation with juliaup
 
 1. **Download juliaup**: This is the official cross-platform installer/updater for Julia. Go to the [juliaup GitHub repository](https://github.com/JuliaLang/juliaup) for installation instructions.
 
@@ -27,7 +27,7 @@ This isn't a complete guide to learning Julia programming. Instead, we provide p
 
 👉 **Learn more**: [juliaup GitHub repository](https://github.com/JuliaLang/juliaup) for detailed usage instructions.
 
-## Editor Setup: VSCode with Julia Extension
+## Editor setup: VSCode with Julia extension
 
 **Recommended setup:**
 
@@ -43,7 +43,7 @@ This isn't a complete guide to learning Julia programming. Instead, we provide p
 
 👉 **Learn more**: [Julia VSCode documentation](https://www.julia-vscode.org/docs/stable/)
 
-## Julia Environments
+## Julia environments
 
 Julia uses [**environments**](https://docs.julialang.org/en/v1/manual/code-loading/#Environments-1) to manage project dependencies. Each project can have isolated packages and versions.
 
@@ -190,14 +190,14 @@ pkg> resolve    # Resolve version conflicts
 pkg> update     # Update to compatible versions
 ```
 
-## Next Steps
+## Next steps
 
 With this setup, you're ready to:
 - Work through the [tutorials](@ref tutorials) to learn CensoredDistributions.jl
 - Explore the [API documentation](@ref "Public API")
 - [Contribute to the project](@ref contributing) if you're interested
 
-## Additional Resources
+## Additional resources
 
 **Community & Help:**
 - [Julia Discourse](https://discourse.julialang.org/) - main community forum
