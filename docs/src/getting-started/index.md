@@ -217,6 +217,4 @@ For methodological background on delay distributions and censoring methods, see:
 ## References
 
 ```@bibliography
-Pages = ["getting-started/index.md"]
-Canonical = false
 ```
