@@ -461,5 +461,5 @@ CensoredDistributions.jl provide:
   Reference implementation with mathematical derivations
 - [Analytical solutions vignette](https://primarycensored.epinowcast.org/articles/analytic-solutions.html):
   Detailed mathematical formulations
-- [park2024estimating](@cite) and [cori2013new](@cite): Background on truncation and double interval censoring
+- [park2024estimating](@cite): Background on truncation and double interval censoring
 """
