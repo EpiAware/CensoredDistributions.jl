@@ -3,6 +3,7 @@
     using DynamicPPL
     using Distributions
     using Random
+    using FlexiChains: FlexiChains, VNChain, @varname
 
     # Define the latent delay distribution submodel
     @model function latent_delay_dist()
@@ -14,14 +15,17 @@
     Random.seed!(123)
 
     # Sample from the latent delay distribution prior
-    samples = sample(latent_delay_dist(), Prior(), 100; progress = false)
+    samples = sample(
+        latent_delay_dist(), Prior(), 100;
+        chain_type = VNChain, progress = false
+    )
 
     # Test that sampling succeeds
-    @test size(samples, 1) == 100
+    @test FlexiChains.niters(samples) == 100
 
     # Test that samples are reasonable
-    mu_samples = samples[:mu]
-    sigma_samples = samples[:sigma]
+    mu_samples = samples[@varname(mu)]
+    sigma_samples = samples[@varname(sigma)]
 
     @test all(isfinite.(mu_samples))
     @test all(sigma_samples .> 0)
@@ -32,6 +36,7 @@ end
     using DynamicPPL
     using Distributions
     using Random
+    using FlexiChains: FlexiChains, VNChain, Prefixed, @varname
 
     @model function latent_delay_dist()
         mu ~ Normal(1.0, 2.0)
@@ -54,18 +59,16 @@ end
     )
 
     # Test MCMC sampling (short chain for speed)
-    chain = sample(conditioned_model, NUTS(), 100; progress = false)
+    chain = sample(
+        conditioned_model, NUTS(), 100;
+        chain_type = VNChain, progress = false
+    )
 
-    @test size(chain, 1) == 100
+    @test FlexiChains.niters(chain) == 100
 
-    # Check that the parameter names exist in the chain
-    param_names = names(chain)
-    @test Symbol("dist.mu") in param_names
-    @test Symbol("dist.sigma") in param_names
-
-    # Test that samples are reasonable
-    mu_samples = Array(chain[Symbol("dist.mu")])
-    sigma_samples = Array(chain[Symbol("dist.sigma")])
+    # Test that submodel-prefixed parameters are accessible via Prefixed
+    mu_samples = chain[Prefixed(@varname(mu))]
+    sigma_samples = chain[Prefixed(@varname(sigma))]
 
     @test all(isfinite.(mu_samples))
     @test all(sigma_samples .> 0)
@@ -76,6 +79,7 @@ end
     using DynamicPPL
     using Distributions
     using Random
+    using FlexiChains: FlexiChains, VNChain, Prefixed, @varname
 
     @model function latent_delay_dist()
         mu ~ Normal(1.0, 2.0)
@@ -121,14 +125,19 @@ end
     )
 
     # Test MCMC sampling (short chain for speed)
-    chain = sample(conditioned_model, NUTS(), 100; progress = false)
+    chain = sample(
+        conditioned_model, NUTS(), 100;
+        chain_type = VNChain, progress = false
+    )
 
-    @test size(chain, 1) == 100
+    @test FlexiChains.niters(chain) == 100
 
-    # Check that the parameter names exist in the chain
-    param_names = names(chain)
-    @test Symbol("dist.mu") in param_names
-    @test Symbol("dist.sigma") in param_names
+    # Test that submodel-prefixed parameters are accessible via Prefixed
+    mu_samples = chain[Prefixed(@varname(mu))]
+    sigma_samples = chain[Prefixed(@varname(sigma))]
+
+    @test all(isfinite.(mu_samples))
+    @test all(sigma_samples .> 0)
 end
 
 @testitem "Turing.jl double censored model sampling" tags=[:turing] begin
@@ -136,6 +145,7 @@ end
     using DynamicPPL
     using Distributions
     using Random
+    using FlexiChains: FlexiChains, VNChain, Prefixed, @varname
 
     @model function latent_delay_dist()
         mu ~ Normal(1.0, 2.0)
@@ -189,18 +199,16 @@ end
     )
 
     # Test MCMC sampling (short chain for speed)
-    chain = sample(conditioned_model, NUTS(), 100; progress = false)
+    chain = sample(
+        conditioned_model, NUTS(), 100;
+        chain_type = VNChain, progress = false
+    )
 
-    @test size(chain, 1) == 100
+    @test FlexiChains.niters(chain) == 100
 
-    # Check that the parameter names exist in the chain
-    param_names = names(chain)
-    @test Symbol("dist.mu") in param_names
-    @test Symbol("dist.sigma") in param_names
-
-    # Test that samples are reasonable
-    mu_samples = Array(chain[Symbol("dist.mu")])
-    sigma_samples = Array(chain[Symbol("dist.sigma")])
+    # Test that submodel-prefixed parameters are accessible via Prefixed
+    mu_samples = chain[Prefixed(@varname(mu))]
+    sigma_samples = chain[Prefixed(@varname(sigma))]
 
     @test all(isfinite.(mu_samples))
     @test all(sigma_samples .> 0)
@@ -308,6 +316,7 @@ end
     using DynamicPPL
     using Distributions
     using Random
+    using FlexiChains: FlexiChains, VNChain, Prefixed, @varname
 
     @model function latent_delay_dist()
         mu ~ Normal(1.0, 2.0)
@@ -333,18 +342,16 @@ end
     )
 
     # Test MCMC sampling (verifies weighted likelihood works)
-    chain = sample(conditioned_model, NUTS(), 100; progress = false)
+    chain = sample(
+        conditioned_model, NUTS(), 100;
+        chain_type = VNChain, progress = false
+    )
 
-    @test size(chain, 1) == 100
+    @test FlexiChains.niters(chain) == 100
 
-    # Check that the parameter names exist in the chain
-    param_names = names(chain)
-    @test Symbol("dist.mu") in param_names
-    @test Symbol("dist.sigma") in param_names
-
-    # Test that samples are reasonable
-    mu_samples = Array(chain[Symbol("dist.mu")])
-    sigma_samples = Array(chain[Symbol("dist.sigma")])
+    # Test that submodel-prefixed parameters are accessible via Prefixed
+    mu_samples = chain[Prefixed(@varname(mu))]
+    sigma_samples = chain[Prefixed(@varname(sigma))]
 
     @test all(isfinite.(mu_samples))
     @test all(sigma_samples .> 0)

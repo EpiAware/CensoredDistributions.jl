@@ -30,8 +30,8 @@ This tutorial builds on the concepts introduced in
 
 ## Packages used
 We use CairoMakie for plotting, Turing for probabilistic programming,
-Chain.jl for data pipeline workflows, DataFramesMeta, Random,
-and StatsBase.
+FlexiChains for working with MCMC output, Chain.jl for data pipeline
+workflows, DataFramesMeta, Random, and StatsBase.
 """
 
 using DataFramesMeta
@@ -41,6 +41,7 @@ using Distributions
 using Random
 using CairoMakie, PairPlots
 using StatsBase
+using FlexiChains: FlexiChains, VNChain, Prefixed, @varname, summarystats
 using CensoredDistributions
 
 md"""
@@ -106,14 +107,23 @@ end
 
 md"""
 and define a helper function to standardise our pairplot
-visualisations across all model fits:
+visualisations across all model fits. We sample with
+`chain_type = VNChain` to get a FlexiChains `VNChain`, and use
+`Prefixed` so that the same helper works for both the plain
+`latent_delay_dist()` chain and chains where `latent_delay_dist()`
+has been used as a submodel (and the parameters are automatically
+prefixed, e.g. `dist.mu`):
 """
 
-function plot_fit_with_truth(chain, truth_dict)
+function plot_fit_with_truth(chain, truth_nt)
+    samples_nt = (;
+        mu = vec(chain[Prefixed(@varname(mu))]),
+        sigma = vec(chain[Prefixed(@varname(sigma))])
+    )
     f = pairplot(
-        chain,
+        samples_nt,
         PairPlots.Truth(
-            truth_dict,
+            truth_nt,
             label = "True Values"
         )
     )
@@ -133,7 +143,7 @@ Random.seed!(123);
 
 ## Sample from the latent delay distribution prior
 latent_prior_samples = sample(
-    latent_delay_dist(), Prior(), 1000
+    latent_delay_dist(), Prior(), 1000; chain_type = VNChain
 )
 
 ## Visualise the prior distribution
@@ -368,14 +378,15 @@ pattern `(values = values, weights = counts)`.
 """
 
 naive_fit = sample(
-    naive_mdl, NUTS(), MCMCThreads(), 500, 4
+    naive_mdl, NUTS(), MCMCThreads(), 500, 4;
+    chain_type = VNChain
 );
 
-summarize(naive_fit)
+summarystats(naive_fit)
 
 plot_fit_with_truth(
     naive_fit,
-    Dict("dist.mu" => meanlog, "dist.sigma" => sdlog)
+    (; mu = meanlog, sigma = sdlog)
 )
 
 md"""
@@ -441,21 +452,23 @@ range of fitting methods but here we use the No-U-turn sampler*):
 """
 
 interval_only_fit = sample(
-    interval_only_mdl, NUTS(), MCMCThreads(), 500, 4
+    interval_only_mdl, NUTS(), MCMCThreads(), 500, 4;
+    chain_type = VNChain
 );
 
-summarize(interval_only_fit)
+summarystats(interval_only_fit)
 
 md"""
-Lets plot the posterior compared to the true values again. *Note:
-An annoying feature to `to_submodel()` is that it automatically
-prefixes the LHS name to all variables names in the model meaning
-we need to customise our postprocessing or turn this feature off.
+Lets plot the posterior compared to the true values again. `to_submodel()`
+automatically prefixes the LHS name to all variables in the inner model
+(so `mu` becomes `dist.mu`). Using FlexiChains' `Prefixed` wrapper in
+`plot_fit_with_truth` handles that transparently, so the same helper
+works for both the plain prior chain and the prefixed posterior chain.
 """
 
 plot_fit_with_truth(
     interval_only_fit,
-    Dict("dist.mu" => meanlog, "dist.sigma" => sdlog)
+    (; mu = meanlog, sigma = sdlog)
 )
 
 md"""
@@ -492,14 +505,15 @@ the censoring process is properly modelled.
 
 CensoredDistributions_fit = sample(
     CensoredDistributions_mdl,
-    NUTS(), MCMCThreads(), 1000, 4
+    NUTS(), MCMCThreads(), 1000, 4;
+    chain_type = VNChain
 );
 
-summarize(CensoredDistributions_fit)
+summarystats(CensoredDistributions_fit)
 
 plot_fit_with_truth(
     CensoredDistributions_fit,
-    Dict("dist.mu" => meanlog, "dist.sigma" => sdlog)
+    (; mu = meanlog, sigma = sdlog)
 )
 
 md"""

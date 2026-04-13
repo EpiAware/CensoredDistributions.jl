@@ -7,6 +7,7 @@ Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 DynamicPPL = "366bfd00-2699-11ea-058f-f148b4cae6d8"
 ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
+FlexiChains = "4a37a8b9-6e57-4b92-8664-298d46e639f7"
 HypothesisTests = "09f84164-cd44-5f33-b23f-e6b0d136a0d5"
 Integrals = "de52edbc-65ea-441a-8357-d3a637375a31"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
@@ -21,4 +22,7 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [sources]
-CensoredDistributions = {path = "./.."}
+CensoredDistributions = {path = ".."}
+
+[compat]
+FlexiChains = "0.4"
