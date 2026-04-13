@@ -65,45 +65,32 @@ else
     # Julia 1.10 compatibility - no public keyword, but structs are accessible
 end
 
-# Precompile workloads covering the main code paths users hit on first call:
-# analytical primary-censored CDFs (Gamma/LogNormal/Weibull with Uniform) and
-# the numerical integrator fallback (Exponential with Uniform). See
-# https://github.com/EpiAware/CensoredDistributions.jl/issues/212.
+# Precompile workload covering the double_interval_censored pipeline for
+# representative delay distributions, toggling force_numeric to hit both the
+# analytical and numeric primary-censored CDF paths in a single entry point.
+# See https://github.com/EpiAware/CensoredDistributions.jl/issues/212.
 @setup_workload begin
-    analytical_delays = (
+    delays = (
         Gamma(2.0, 1.5),
         LogNormal(1.5, 0.75),
-        Weibull(2.0, 1.5)
+        Weibull(2.0, 1.5),
+        Exponential(1.5)
     )
-    numeric_delay = Exponential(1.5)
     primary = Uniform(0.0, 1.0)
     x = 2.5
 
     @compile_workload begin
-        # Analytical primary-censored paths
-        for d in analytical_delays
-            pc = primary_censored(d; primary_event = primary)
-            cdf(pc, x)
-            logcdf(pc, x)
-            pdf(pc, x)
-            logpdf(pc, x)
-
-            dic = double_interval_censored(
-                d; primary_event = primary, upper = 10.0, interval = 1.0)
-            cdf(dic, x)
-            logpdf(dic, x)
+        for d in delays
+            for force_numeric in (false, true)
+                dic = double_interval_censored(
+                    d; primary_event = primary, upper = 10.0,
+                    interval = 1.0, force_numeric = force_numeric)
+                cdf(dic, x)
+                logcdf(dic, x)
+                pdf(dic, x)
+                logpdf(dic, x)
+            end
         end
-
-        # Numeric integrator fallback path (no analytical solution)
-        pc_num = primary_censored(numeric_delay; primary_event = primary)
-        cdf(pc_num, x)
-        logcdf(pc_num, x)
-        logpdf(pc_num, x)
-
-        # Interval-only path on a representative delay
-        ic = interval_censored(LogNormal(1.5, 0.75), 1.0)
-        cdf(ic, x)
-        logpdf(ic, x)
     end
 end
 
