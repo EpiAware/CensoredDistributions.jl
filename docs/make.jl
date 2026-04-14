@@ -21,6 +21,7 @@ if !skip_notebooks
     tutorial_files = [
         "analytical-primarycensored-cdfs.jl",
         "exponentially-tilted-primary-events.jl",
+        "ad-backends.jl",
         "fitting-with-turing.jl"
     ]
 
