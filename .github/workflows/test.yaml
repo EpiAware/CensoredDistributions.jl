@@ -52,3 +52,17 @@ jobs:
       - uses: julia-actions/julia-runtest@v1
         with:
           test_args: skip_quality
+
+  ad-tests:
+    name: AD gradient tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - name: Instantiate test/ad
+        run: julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
+      - name: Run AD gradient tests
+        run: julia --project=test/ad test/ad/runtests.jl
