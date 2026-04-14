@@ -42,8 +42,7 @@ using Random
 using CairoMakie, PairPlots
 using StatsBase
 using FlexiChains
-using FlexiChains: Prefixed, parameters  # not picked up via bare `using` because of
-# name collisions with Turing re-exports (and ExprTools' own `parameters`)
+using FlexiChains: Prefixed, parameters
 using CensoredDistributions
 
 md"""
