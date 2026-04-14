@@ -41,7 +41,9 @@ using Distributions
 using Random
 using CairoMakie, PairPlots
 using StatsBase
-using FlexiChains: FlexiChains, VNChain, Prefixed, @varname, summarystats
+using FlexiChains
+using FlexiChains: Prefixed, parameters  # not picked up via bare `using` because of
+# name collisions with Turing re-exports (and ExprTools' own `parameters`)
 using CensoredDistributions
 
 md"""
@@ -384,6 +386,10 @@ naive_fit = sample(
 
 summarystats(naive_fit)
 
+md"""
+And let's visualise the posterior alongside the true values:
+"""
+
 plot_fit_with_truth(
     naive_fit,
     (; mu = meanlog, sigma = sdlog)
@@ -511,6 +517,10 @@ CensoredDistributions_fit = sample(
 
 summarystats(CensoredDistributions_fit)
 
+md"""
+And the corresponding pair plot with the true parameters overlaid:
+"""
+
 plot_fit_with_truth(
     CensoredDistributions_fit,
     (; mu = meanlog, sigma = sdlog)
@@ -521,3 +531,37 @@ We see that the model has converged and the diagnostics look good.
 We also see that the posterior means are near the true parameters
 and the 90% credible intervals include the true parameters.
 """
+
+md"""
+## Working with FlexiChains output
+
+Because we asked Turing to return a `VNChain`, the posterior is keyed
+by `VarName`s rather than flattened `Symbol`s. That makes it easy to
+pull out specific quantities without string munging. For example, we
+can list the parameters in the chain directly:
+"""
+
+parameters(CensoredDistributions_fit)
+
+md"""
+We can also compute per-parameter summaries by passing the chain to
+Statistics functions that FlexiChains extends. Here we ask for the
+posterior mean of each parameter:
+"""
+
+mean(CensoredDistributions_fit)
+
+md"""
+and the rhat convergence diagnostic:
+"""
+
+rhat(CensoredDistributions_fit)
+
+md"""
+Finally, because the chain is keyed by `VarName`, we can index into
+it with a `Prefixed` wrapper to recover the raw samples for a single
+parameter as a matrix of `(iter, chain)`:
+"""
+
+mu_samples = CensoredDistributions_fit[Prefixed(@varname(mu))]
+size(mu_samples)

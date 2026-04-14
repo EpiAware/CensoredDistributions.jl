@@ -3,7 +3,8 @@
     using DynamicPPL
     using Distributions
     using Random
-    using FlexiChains: FlexiChains, VNChain, @varname
+    using FlexiChains
+    using FlexiChains: Prefixed, niters  # conflict with MCMCChains re-exports
 
     # Define the latent delay distribution submodel
     @model function latent_delay_dist()
@@ -21,7 +22,7 @@
     )
 
     # Test that sampling succeeds
-    @test FlexiChains.niters(samples) == 100
+    @test niters(samples) == 100
 
     # Test that samples are reasonable
     mu_samples = samples[@varname(mu)]
@@ -36,7 +37,8 @@ end
     using DynamicPPL
     using Distributions
     using Random
-    using FlexiChains: FlexiChains, VNChain, Prefixed, @varname
+    using FlexiChains
+    using FlexiChains: Prefixed, niters  # conflict with MCMCChains re-exports
 
     @model function latent_delay_dist()
         mu ~ Normal(1.0, 2.0)
@@ -64,7 +66,7 @@ end
         chain_type = VNChain, progress = false
     )
 
-    @test FlexiChains.niters(chain) == 100
+    @test niters(chain) == 100
 
     # Test that submodel-prefixed parameters are accessible via Prefixed
     mu_samples = chain[Prefixed(@varname(mu))]
@@ -79,7 +81,8 @@ end
     using DynamicPPL
     using Distributions
     using Random
-    using FlexiChains: FlexiChains, VNChain, Prefixed, @varname
+    using FlexiChains
+    using FlexiChains: Prefixed, niters  # conflict with MCMCChains re-exports
 
     @model function latent_delay_dist()
         mu ~ Normal(1.0, 2.0)
@@ -130,7 +133,7 @@ end
         chain_type = VNChain, progress = false
     )
 
-    @test FlexiChains.niters(chain) == 100
+    @test niters(chain) == 100
 
     # Test that submodel-prefixed parameters are accessible via Prefixed
     mu_samples = chain[Prefixed(@varname(mu))]
@@ -145,7 +148,8 @@ end
     using DynamicPPL
     using Distributions
     using Random
-    using FlexiChains: FlexiChains, VNChain, Prefixed, @varname
+    using FlexiChains
+    using FlexiChains: Prefixed, niters  # conflict with MCMCChains re-exports
 
     @model function latent_delay_dist()
         mu ~ Normal(1.0, 2.0)
@@ -204,7 +208,7 @@ end
         chain_type = VNChain, progress = false
     )
 
-    @test FlexiChains.niters(chain) == 100
+    @test niters(chain) == 100
 
     # Test that submodel-prefixed parameters are accessible via Prefixed
     mu_samples = chain[Prefixed(@varname(mu))]
@@ -316,7 +320,8 @@ end
     using DynamicPPL
     using Distributions
     using Random
-    using FlexiChains: FlexiChains, VNChain, Prefixed, @varname
+    using FlexiChains
+    using FlexiChains: Prefixed, niters  # conflict with MCMCChains re-exports
 
     @model function latent_delay_dist()
         mu ~ Normal(1.0, 2.0)
@@ -347,7 +352,7 @@ end
         chain_type = VNChain, progress = false
     )
 
-    @test FlexiChains.niters(chain) == 100
+    @test niters(chain) == 100
 
     # Test that submodel-prefixed parameters are accessible via Prefixed
     mu_samples = chain[Prefixed(@varname(mu))]
