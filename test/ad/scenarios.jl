@@ -69,7 +69,8 @@ function ad_broken_backends()
     return [
         (name = "Enzyme forward", backend = AutoEnzyme(mode = Enzyme.Forward)),
         (name = "Enzyme reverse", backend = AutoEnzyme(mode = Enzyme.Reverse)),
-        (name = "Mooncake", backend = AutoMooncake(config = nothing))
+        (name = "Mooncake reverse", backend = AutoMooncake(config = nothing)),
+        (name = "Mooncake forward", backend = AutoMooncakeForward())
     ]
 end
 
