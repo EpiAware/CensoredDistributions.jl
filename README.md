@@ -6,11 +6,11 @@
 
 **AD backend support** ([details](test/ad/runtests.jl))
 
-| ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake |
-|:---:|:---:|:---:|:---:|:---:|
-| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-full-brightgreen) | ![](https://img.shields.io/badge/Enzyme%20forward-broken-red) | ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake-broken-red) |
+| ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-full-brightgreen) | ![](https://img.shields.io/badge/Enzyme%20forward-broken-red) | ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20forward-broken-red) |
 
-Gamma scenarios fail across all backends due to a `_gamma_inc` `Dual` dispatch gap ([#217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217)). Enzyme forward/reverse and Mooncake fail on every scenario ([#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225)).
+Gamma scenarios fail across all backends due to a `_gamma_inc` `Dual` dispatch gap ([#217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217)). Enzyme forward/reverse and Mooncake forward/reverse fail on every scenario ([#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225)).
 
 *Primary event censored distributions for Distributions.jl*
 
