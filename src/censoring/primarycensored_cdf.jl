@@ -210,7 +210,7 @@ function primarycensored_cdf(
     # When the delay CDF at the lower bound is effectively
     # 1, integration is unnecessary and may produce NaN
     cdf_lower = cdf(dist, lower)
-    if cdf_lower > 1 - eps(cdf_lower)
+    if cdf_lower > 1 - eps(one(eltype(dist)))
         return one(cdf_lower)
     end
 
