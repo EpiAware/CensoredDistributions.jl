@@ -207,7 +207,7 @@ function pdf(d::IntervalCensored, x::Real)
     # For upper bound at or above distribution maximum, CDF is 1
     cdf_upper = upper >= dist_max ? 1.0 : cdf(get_dist(d), upper)
 
-    return cdf_upper - cdf_lower
+    return max(cdf_upper - cdf_lower, zero(cdf_upper))
 end
 
 @doc "
@@ -220,7 +220,7 @@ function logpdf(d::IntervalCensored, x::Real)
     if !insupport(d, x)
         return -Inf
     end
-    return log(max(pdf(d, x), zero(eltype(d))))
+    return log(pdf(d, x))
 end
 
 #### Vectorised PDF optimization
@@ -294,7 +294,7 @@ function _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector{<:Real}
         cdf_upper = upper >= dist_max ? one(promote_type(eltype(x), eltype(d))) :
                     cdf_lookup[upper]
 
-        return cdf_upper - cdf_lower
+        return max(cdf_upper - cdf_lower, zero(cdf_upper))
     end
 end
 
@@ -340,7 +340,7 @@ function logpdf(d::IntervalCensored, x::AbstractVector{<:Real})
         if !insupport(d, xi)
             T(-Inf)
         else
-            T(log(max(pdf_val, zero(T))))
+            T(log(pdf_val))
         end
     end
 end
