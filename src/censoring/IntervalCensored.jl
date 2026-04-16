@@ -217,16 +217,10 @@ Compute the log probability mass for the interval containing `x`.
 See also: [`pdf`](@ref), [`logcdf`](@ref)
 "
 function logpdf(d::IntervalCensored, x::Real)
-    # Check support first for consistency with Distributions.jl
     if !insupport(d, x)
         return -Inf
     end
-
-    pdf_val = pdf(d, x)
-    if pdf_val <= 0.0
-        return -Inf
-    end
-    return log(pdf_val)
+    return log(max(pdf(d, x), zero(eltype(d))))
 end
 
 #### Vectorised PDF optimization
@@ -343,13 +337,10 @@ function logpdf(d::IntervalCensored, x::AbstractVector{<:Real})
     T = promote_type(eltype(x), eltype(d))
 
     return map(zip(x, pdf_vals)) do (xi, pdf_val)
-        # Check support first for consistency with Distributions.jl
         if !insupport(d, xi)
             T(-Inf)
-        elseif pdf_val <= 0.0
-            T(-Inf)
         else
-            T(log(pdf_val))
+            T(log(max(pdf_val, zero(T))))
         end
     end
 end
