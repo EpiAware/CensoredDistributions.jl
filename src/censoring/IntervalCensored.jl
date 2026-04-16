@@ -217,24 +217,16 @@ Compute the log probability mass for the interval containing `x`.
 See also: [`pdf`](@ref), [`logcdf`](@ref)
 "
 function logpdf(d::IntervalCensored, x::Real)
-    try
-        # Check support first for consistency with Distributions.jl
-        if !insupport(d, x)
-            return -Inf
-        end
-
-        pdf_val = pdf(d, x)
-        if pdf_val <= 0.0
-            return -Inf
-        end
-        return log(pdf_val)
-    catch e
-        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
-            return -Inf
-        else
-            rethrow(e)
-        end
+    # Check support first for consistency with Distributions.jl
+    if !insupport(d, x)
+        return -Inf
     end
+
+    pdf_val = pdf(d, x)
+    if pdf_val <= 0.0
+        return -Inf
+    end
+    return log(pdf_val)
 end
 
 #### Vectorised PDF optimization
@@ -351,56 +343,40 @@ function logpdf(d::IntervalCensored, x::AbstractVector{<:Real})
     T = promote_type(eltype(x), eltype(d))
 
     return map(zip(x, pdf_vals)) do (xi, pdf_val)
-        try
-            # Check support first for consistency with Distributions.jl
-            if !insupport(d, xi)
-                T(-Inf)
-            elseif pdf_val <= 0.0
-                T(-Inf)
-            else
-                T(log(pdf_val))
-            end
-        catch e
-            if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
-                T(-Inf)
-            else
-                rethrow(e)
-            end
+        # Check support first for consistency with Distributions.jl
+        if !insupport(d, xi)
+            T(-Inf)
+        elseif pdf_val <= 0.0
+            T(-Inf)
+        else
+            T(log(pdf_val))
         end
     end
 end
 
 # Internal function for efficient cdf/logcdf computation
 function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
-    try
-        # Handle edge cases first
-        if x < minimum(get_dist(d))
-            return f === logcdf ? -Inf : 0.0
-        elseif x >= maximum(get_dist(d))
-            return f === logcdf ? 0.0 : 1.0
-        end
+    # Handle edge cases first
+    if x < minimum(get_dist(d))
+        return f === logcdf ? -Inf : 0.0
+    elseif x >= maximum(get_dist(d))
+        return f === logcdf ? 0.0 : 1.0
+    end
 
-        if is_regular_intervals(d)
-            # For regular intervals, use floor behavior from Discretised
-            discretised_x = floor_to_interval(x, interval_width(d))
-            return f(get_dist(d), discretised_x)
-        else
-            # For arbitrary intervals, use the lower bound of the containing
-            # interval
-            idx = find_interval_index(x, d.boundaries)
-            if idx == 0
-                return f === logcdf ? -Inf : 0.0
-            elseif idx >= length(d.boundaries)
-                return f(get_dist(d), d.boundaries[end])
-            else
-                return f(get_dist(d), d.boundaries[idx])
-            end
-        end
-    catch e
-        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
+    if is_regular_intervals(d)
+        # For regular intervals, use floor behavior from Discretised
+        discretised_x = floor_to_interval(x, interval_width(d))
+        return f(get_dist(d), discretised_x)
+    else
+        # For arbitrary intervals, use the lower bound of the
+        # containing interval
+        idx = find_interval_index(x, d.boundaries)
+        if idx == 0
             return f === logcdf ? -Inf : 0.0
+        elseif idx >= length(d.boundaries)
+            return f(get_dist(d), d.boundaries[end])
         else
-            rethrow(e)
+            return f(get_dist(d), d.boundaries[idx])
         end
     end
 end
