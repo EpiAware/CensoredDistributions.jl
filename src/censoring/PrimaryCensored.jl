@@ -197,42 +197,38 @@ of the log CDF.
 See also: [`pdf`](@ref), [`logcdf`](@ref)
 "
 function logpdf(d::PrimaryCensored, x::Real)
-    try
-        if !insupport(d, x)
-            return -Inf
-        end
+    if !insupport(d, x)
+        return -Inf
+    end
 
-        # Use central difference for numerical differentiation
-        h = 1e-8  # Small step size for differentiation
-        x_lower = max(x - h/2, minimum(d))
-        x_upper = min(x + h/2, maximum(d))
+    # Use central difference for numerical differentiation
+    h = 1e-8  # Small step size for differentiation
+    x_lower = max(x - h/2, minimum(d))
+    x_upper = min(x + h/2, maximum(d))
 
-        # Handle edge cases where we can't center the difference
-        if x_lower == minimum(d)
-            # Forward difference at minimum
-            logcdf_upper = logcdf(d, x + h)
-            logcdf_x = logcdf(d, x)
-            return logsubexp(logcdf_upper, logcdf_x) - log(h)
-        elseif x_upper == maximum(d)
-            # Backward difference at maximum
-            logcdf_x = logcdf(d, x)
-            logcdf_lower = logcdf(d, x - h)
-            return logsubexp(logcdf_x, logcdf_lower) - log(h)
-        else
-            # Central difference for interior points
-            logcdf_upper = logcdf(d, x_upper)
-            logcdf_lower = logcdf(d, x_lower)
-            return logsubexp(logcdf_upper, logcdf_lower) -
-                   log(x_upper - x_lower)
-        end
-    catch e
-        # If numerical differentiation fails (e.g., domain error in logsubexp),
-        # return -Inf
-        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
-            return -Inf
-        else
-            rethrow(e)
-        end
+    # Handle edge cases where we can't center the difference
+    # Guard logsubexp: numerical noise in the CDF can make
+    # the upper value smaller than the lower, which would
+    # cause DomainError in logsubexp (log of negative)
+    if x_lower == minimum(d)
+        # Forward difference at minimum
+        logcdf_upper = logcdf(d, x + h)
+        logcdf_x = logcdf(d, x)
+        logcdf_upper <= logcdf_x && return -Inf
+        return logsubexp(logcdf_upper, logcdf_x) - log(h)
+    elseif x_upper == maximum(d)
+        # Backward difference at maximum
+        logcdf_x = logcdf(d, x)
+        logcdf_lower = logcdf(d, x - h)
+        logcdf_x <= logcdf_lower && return -Inf
+        return logsubexp(logcdf_x, logcdf_lower) - log(h)
+    else
+        # Central difference for interior points
+        logcdf_upper = logcdf(d, x_upper)
+        logcdf_lower = logcdf(d, x_lower)
+        logcdf_upper <= logcdf_lower && return -Inf
+        return logsubexp(logcdf_upper, logcdf_lower) -
+               log(x_upper - x_lower)
     end
 end
 

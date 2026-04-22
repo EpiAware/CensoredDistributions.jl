@@ -15,9 +15,11 @@ import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
 using Distributions: UnivariateDistribution, Continuous, ValueSupport,
                      Truncated, Product, Censored, truncated,
-                     product_distribution, Gamma, LogNormal, Uniform,
+                     product_distribution, Exponential, Gamma, LogNormal, Uniform,
                      Weibull, shape, scale, meanlogx, stdlogx,
                      _in_closed_interval
+
+using PrecompileTools: @setup_workload, @compile_workload
 
 using LogExpFunctions: logsubexp, log1mexp
 
@@ -61,6 +63,35 @@ include("utils/quantile_optimization.jl")
     include("public.jl")
 else
     # Julia 1.10 compatibility - no public keyword, but structs are accessible
+end
+
+# Precompile workload covering the double_interval_censored pipeline for
+# representative delay distributions, toggling force_numeric to hit both the
+# analytical and numeric primary-censored CDF paths in a single entry point.
+# See https://github.com/EpiAware/CensoredDistributions.jl/issues/212.
+@setup_workload begin
+    delays = (
+        Gamma(2.0, 1.5),
+        LogNormal(1.5, 0.75),
+        Weibull(2.0, 1.5),
+        Exponential(1.5)
+    )
+    primary = Uniform(0.0, 1.0)
+    x = 2.5
+
+    @compile_workload begin
+        for d in delays
+            for force_numeric in (false, true)
+                dic = double_interval_censored(
+                    d; primary_event = primary, upper = 10.0,
+                    interval = 1.0, force_numeric = force_numeric)
+                cdf(dic, x)
+                logcdf(dic, x)
+                pdf(dic, x)
+                logpdf(dic, x)
+            end
+        end
+    end
 end
 
 end

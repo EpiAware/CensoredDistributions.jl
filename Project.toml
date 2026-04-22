@@ -2,7 +2,7 @@ name = "CensoredDistributions"
 uuid = "b2eeebe4-5992-4301-9193-7ebc9f62c855"
 license = "MIT"
 authors = ["Sam Abbott", "Damon Bayer", "Sam Brand", "Michael DeWitt", "Joseph Lemaitre"]
-version = "0.2.11"
+version = "0.2.12"
 
 [deps]
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
@@ -12,23 +12,27 @@ Integrals = "de52edbc-65ea-441a-8357-d3a637375a31"
 LogExpFunctions = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
 Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"
 OptimizationOptimJL = "36348300-93cb-4f02-beb5-3c3902f8871e"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [weakdeps]
 DynamicPPL = "366bfd00-2699-11ea-058f-f148b4cae6d8"
+FlexiChains = "4a37a8b9-6e57-4b92-8664-298d46e639f7"
 Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [compat]
 Distributions = "0.25"
 DocStringExtensions = "0.9"
-DynamicPPL = "0.39, 0.40"
+DynamicPPL = "0.39, 0.40, 0.41"
+FlexiChains = "0.4, 0.5"
 HypergeometricFunctions = "0.3"
 Integrals = "4, 5.1"
 LogExpFunctions = "0.3"
 Optimization = "4, 5"
 OptimizationOptimJL = "0.4.3"
+PrecompileTools = "1"
 Random = "1"
 SpecialFunctions = "2"
 Statistics = "1"

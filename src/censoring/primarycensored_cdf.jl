@@ -184,7 +184,9 @@ function primarycensored_cdf(
         method::NumericSolver
 ) where {D1 <: UnivariateDistribution, D2 <: UnivariateDistribution}
     # Edge cases
-    if x <= minimum(dist)
+    if isnan(x)
+        return NaN
+    elseif x <= minimum(dist)
         return 0.0
     elseif x == Inf
         return 1.0
@@ -192,7 +194,8 @@ function primarycensored_cdf(
 
     # Define the integrand
     function integrand(u, x)
-        return exp(logcdf(dist, u) + logpdf(primary_event, x - u))
+        return exp(logcdf(dist, u) +
+                   logpdf(primary_event, x - u))
     end
 
     # Compute integration bounds
@@ -204,11 +207,19 @@ function primarycensored_cdf(
         return 0.0
     end
 
+    # When the delay CDF at the lower bound is effectively
+    # 1, integration is unnecessary and may produce NaN
+    cdf_lower = cdf(dist, lower)
+    if cdf_lower > 1 - eps(one(eltype(dist)))
+        return one(cdf_lower)
+    end
+
     # Set up and solve the integral problem
     prob = IntegralProblem(integrand, (lower, upper), x)
     result = solve(prob, method.solver)[1]
 
-    return result
+    # Clamp to valid CDF range for numerical stability
+    return clamp(result, zero(result), one(result))
 end
 
 # ============================================================================
@@ -414,28 +425,23 @@ function primarycensored_logcdf(
         method::AbstractSolverMethod
 ) where {D1 <: UnivariateDistribution, D2 <: UnivariateDistribution}
     # Check support first for type stability
-    if x <= minimum(dist)
+    if isnan(x)
+        return NaN
+    elseif x <= minimum(dist)
         return -Inf
     elseif x == Inf
         return 0.0
     end
 
     # Compute CDF and take log directly for type stability
-    try
-        cdf_val = primarycensored_cdf(dist, primary_event, x, method)
+    cdf_val = primarycensored_cdf(
+        dist, primary_event, x, method)
 
-        # Handle numerical precision issues where cdf_val might be slightly negative
-        if cdf_val <= 0
-            return -Inf
-        end
-
-        return log(cdf_val)
-    catch e
-        # If analytical solution fails (e.g., domain error), return -Inf log probability
-        if isa(e, DomainError) || isa(e, BoundsError) || isa(e, ArgumentError)
-            return -Inf
-        else
-            rethrow(e)
-        end
+    # Handle numerical precision issues where cdf_val might
+    # be slightly negative
+    if cdf_val <= 0
+        return -Inf
     end
+
+    return log(cdf_val)
 end
