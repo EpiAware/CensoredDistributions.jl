@@ -109,26 +109,19 @@ end
 md"""
 and define a helper function to standardise our pairplot
 visualisations across all model fits. We sample with
-`chain_type = VNChain` to get a FlexiChains `VNChain`, and use
-`Prefixed` so that the same helper works for both the plain
+`chain_type = VNChain` to get a FlexiChains `VNChain` and wrap it
+in `PairPlots.Series` so we can overlay a `PairPlots.Truth` layer
+with the known values. The same helper works for both the plain
 `latent_delay_dist()` chain and chains where `latent_delay_dist()`
-has been used as a submodel (and the parameters are automatically
-prefixed, e.g. `dist.mu`):
+has been used as a submodel (where parameters are automatically
+prefixed, e.g. `dist.mu`).
 """
 
 function plot_fit_with_truth(chain, truth_nt)
-    samples_nt = (;
-        mu = vec(chain[Prefixed(@varname(mu))]),
-        sigma = vec(chain[Prefixed(@varname(sigma))])
+    return pairplot(
+        PairPlots.Series(chain),
+        PairPlots.Truth(truth_nt, label = "True Values")
     )
-    f = pairplot(
-        samples_nt,
-        PairPlots.Truth(
-            truth_nt,
-            label = "True Values"
-        )
-    )
-    return f
 end
 
 md"""
