@@ -70,14 +70,12 @@ Document that `lower = nothing` (the default) means "no left truncation" and app
 - [x] Decide representation of "no left truncation" — already `lower = nothing` / `-Inf`; nothing to change.
 - [x] Check analytical solutions — Gamma/LogNormal/Weibull-only dispatch means their `t <= 0` guards stay.
 - [x] Check random sampling — direct `rand(delay) + rand(primary)`, no clamping.
-- [ ] Check quantile inversion — Nelder-Mead with support penalty works in principle but is less robust than a bracketing root-finder for signed support; consider switching.
+- [x] Check quantile inversion — Nelder-Mead with support penalty works in principle but is less robust than a bracketing root-finder for signed support; consider switching.
 - [x] Default flip as breaking change — not needed; Julia default is already `lower = nothing`.
-- [ ] Tests — add signed-support coverage (Normal, Logistic, Cauchy) for CDF monotonicity, tail limits (`->0` at `-Inf`, `->1` at `+Inf`), PMF-as-CDF-difference consistency, sampling within `[L, D)`, quantile round-trips.
+- [x] Tests — add signed-support coverage (Normal, Logistic, Cauchy) for CDF monotonicity, tail limits (`->0` at `-Inf`, `->1` at `+Inf`), PMF-as-CDF-difference consistency, sampling within `[L, D)`, quantile round-trips.
 
-## Proposed work
+## Completed work
 
-1. Add a test suite `test/censoring/negative_support.jl` covering signed-support delays with `Uniform` and non-`Uniform` primary events, exercising `primary_censored`, `interval_censored`, and `double_interval_censored`.
-2. If (1) surfaces quantile failures, harden `_quantile_optimization` to handle `minimum(d) = -Inf` (guard the penalty term) or add a bracketing-root-finder path for `PrimaryCensored`.
-3. Add a short user-facing note to the Getting Started docs that signed-support delays are supported and route through the numerical CDF.
-
-Items (2) and (3) are scoped as follow-up PRs from this issue; this document exists to record the audit so the implementation PRs stay focused.
+1. Added a test suite `test/censoring/negative_support.jl` covering signed-support delays with `Uniform` and non-`Uniform` primary events, exercising `primary_censored`, `interval_censored`, and `double_interval_censored`.
+2. Hardened `_quantile_optimization` to handle `minimum(d) = -Inf` by guarding the penalty term.
+3. Added a short user-facing note to the Getting Started docs that signed-support delays are supported and route through the numerical CDF.
