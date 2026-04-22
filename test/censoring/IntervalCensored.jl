@@ -658,19 +658,19 @@ end
     @test 5.0 in boundaries_arbitrary  # For value 3.0 in [2,5) and value 6.0 in [5,8)
     @test 8.0 in boundaries_arbitrary  # For value 6.0 in [5,8)
 
-    # Test _compute_pdfs_with_cache
-    cdf_pairs = map(boundaries_regular) do boundary
-        boundary => cdf(d, boundary)
+    # Test _compute_logpdfs_with_cache
+    logcdf_pairs = map(boundaries_regular) do boundary
+        boundary => logcdf(d, boundary)
     end
-    cdf_lookup = Dict{Float64, Float64}(cdf_pairs)
+    logcdf_lookup = Dict{Float64, Float64}(logcdf_pairs)
 
-    pdfs_cached = CensoredDistributions._compute_pdfs_with_cache(
-        ic_regular, x_regular, cdf_lookup)
-    pdfs_direct = pdf.(ic_regular, x_regular)
+    logpdfs_cached = CensoredDistributions._compute_logpdfs_with_cache(
+        ic_regular, x_regular, logcdf_lookup)
+    logpdfs_direct = logpdf.(ic_regular, x_regular)
 
-    @test pdfs_cached ≈ pdfs_direct
-    @test length(pdfs_cached) == length(x_regular)
-    @test all(pdfs_cached .≥ 0.0)
+    @test logpdfs_cached ≈ logpdfs_direct
+    @test length(logpdfs_cached) == length(x_regular)
+    @test all(isfinite, logpdfs_cached)
 
     # Test type promotion in helper functions
     x_int = [2, 3, 4]  # Integer array
