@@ -226,6 +226,11 @@ end
 # Analytical CDF implementations for specific distribution pairs
 # ============================================================================
 
+@inline function _analytical_cdf_formula(
+        d, q, F_T_d, F_T_q, E_T, F_T_d_shift, F_T_q_shift, pwindow)
+    return (d * F_T_d - q * F_T_q - E_T * (F_T_d_shift - F_T_q_shift)) / pwindow
+end
+
 @doc "
 
 Analytical CDF for Gamma delay with Uniform primary event distribution.
@@ -276,9 +281,8 @@ function primarycensored_cdf(
 
     E_T = k * θ
 
-    # Direct CDF form:
-    #   F_{S+}(d) = ( d F_T(d) - q F_T(q) - E_T (F_T(d; k+1) - F_T(q; k+1)) ) / w_P
-    return (d * F_T_d - q * F_T_q - E_T * (F_T_d_kp1 - F_T_q_kp1)) / pwindow
+    # Direct CDF form
+    return _analytical_cdf_formula(d, q, F_T_d, F_T_q, E_T, F_T_d_kp1, F_T_q_kp1, pwindow)
 end
 
 @doc "
@@ -327,9 +331,9 @@ function primarycensored_cdf(
 
     E_T = exp(μ + σ^2 / 2)
 
-    # Direct CDF form:
-    #   F_{S+}(d) = ( d F_T(d) - q F_T(q) - E_T (F~_T(d) - F~_T(q)) ) / w_P
-    return (d * F_T_d - q * F_T_q - E_T * (F_T_d_shift - F_T_q_shift)) / pwindow
+    # Direct CDF form
+    return _analytical_cdf_formula(
+        d, q, F_T_d, F_T_q, E_T, F_T_d_shift, F_T_q_shift, pwindow)
 end
 
 @doc "
@@ -378,9 +382,8 @@ function primarycensored_cdf(
         g_q = 0.0
     end
 
-    # Direct CDF form (with E[T] * F~_T replaced by λ * g):
-    #   F_{S+}(d) = ( d F_T(d) - q F_T(q) - λ (g(d) - g(q)) ) / w_P
-    return (d * F_T_d - q * F_T_q - λ * (g_d - g_q)) / pwindow
+    # Direct CDF form (with E[T] * F~_T replaced by λ * g)
+    return _analytical_cdf_formula(d, q, F_T_d, F_T_q, λ, g_d, g_q, pwindow)
 end
 
 # ============================================================================
