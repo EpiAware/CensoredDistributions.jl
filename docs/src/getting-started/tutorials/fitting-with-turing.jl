@@ -118,8 +118,11 @@ prefixed, e.g. `dist.mu`).
 """
 
 function plot_fit_with_truth(chain, truth_nt)
+    samples = NamedTuple{keys(truth_nt)}(
+        Tuple(vec(chain[Prefixed(k)]) for k in keys(truth_nt))
+    )
     return pairplot(
-        PairPlots.Series(chain),
+        PairPlots.Series(samples),
         PairPlots.Truth(truth_nt, label = "True Values")
     )
 end
