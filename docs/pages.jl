@@ -19,8 +19,7 @@ dev_pages = [
     "Overview" => "developer/index.md",
     "Contributing" => "developer/contributing.md",
     "Developer FAQ" => "developer/faq.md",
-    "Release process" => "developer/release-process.md",
-    "Negative-support delays" => "developer/negative-support-delays.md"
+    "Release process" => "developer/release-process.md"
 ]
 
 pages = [
