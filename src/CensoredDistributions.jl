@@ -19,7 +19,7 @@ using Distributions: UnivariateDistribution, Continuous, ValueSupport,
                      Weibull, shape, scale, meanlogx, stdlogx,
                      _in_closed_interval
 
-using LogExpFunctions: logsubexp, logaddexp, log1mexp
+using LogExpFunctions: logsubexp, log1mexp
 
 using SpecialFunctions: gamma
 
