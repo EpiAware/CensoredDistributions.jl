@@ -1,60 +1,70 @@
 @doc "
 
-AD-compatible log gamma CDF using HypergeometricFunctions.
+AD-compatible gamma CDF using HypergeometricFunctions.
 
-Computes ``\\log P(k, x/\\theta) = \\log \\gamma(k, x/\\theta) - \\log \\Gamma(k)``
-via the identity ``\\gamma(k, z) = z^k / k \\cdot M(k, k+1, -z)``, where ``M``
-is the confluent hypergeometric function. The hypergeometric form is
-differentiable with respect to the shape parameter, unlike
-`SpecialFunctions.gamma_inc`.
+Based on the identity: γ(a,z) = z^a/a * M(a, a+1, -z)
+where γ is the lower incomplete gamma function and M is the confluent hypergeometric function.
 
-Returns `-Inf` for `x <= 0`.
+Uses the same approach as the Weibull g function: P(a,z) = γ(a,z)/Γ(a) = z^a/a * M(a, a+1, -z) / Γ(a).
+For integer a, Γ(a) = (a-1)!, but uses gamma(k) for generality.
+
+# Arguments
+- `k::Real`: Shape parameter
+- `θ::Real`: Scale parameter
+- `x::Real`: Evaluation point
+
+# Returns
+The gamma CDF value at x with shape k and scale θ.
 "
-function _log_gamma_cdf_ad_safe(k::Real, θ::Real, x::Real)
-    T = float(promote_type(typeof(k), typeof(θ), typeof(x)))
+function _gamma_cdf_ad_safe(k::Real, θ::Real, x::Real)
     if x <= 0
-        return T(-Inf)
+        return 0.0
     end
     z = x / θ
-    m_val = M(k, k + 1, -z)
-    # At very large z, M underflows or goes slightly negative from roundoff.
-    # CDF saturates at 1, so return log(1) = 0.
-    m_val <= 0 && return zero(T)
-    logp = k * log(z) - log(k) + log(m_val) - loggamma(k)
-    # Clamp to log(1) = 0 to defend against floating-point noise pushing the
-    # result above zero.
-    return min(logp, zero(logp))
+    return (z^k / k * M(k, k + 1, -z)) / gamma(k)
 end
 
 @doc "
 
-Function factory for the log of the Weibull g helper.
+Function factory for optimized Weibull g function.
 
-Returns a specialised function computing
-``\\log g(t; k, \\lambda) = \\log \\gamma(1 + 1/k, (t/\\lambda)^k)`` with
-``a = 1 + 1/k`` and ``\\log \\gamma(a, x) = a \\log x - \\log a + \\log M(a, a+1, -x)``
-precomputed. The AD-safe confluent hypergeometric form is used so the log
-is differentiable with respect to the Weibull shape.
+Creates a specialized function with pre-computed constants for g(t; k, λ) = γ(1 + 1/k, (t/λ)^k)
+where γ is the lower incomplete gamma function.
 
-Returns `-Inf` for `t <= 0`.
+Pre-computes `inv_k = 1/k` and `a = 1 + inv_k` to avoid repeated computation
+in the returned specialized function.
+
+# Arguments
+- `k::Real`: Weibull shape parameter
+- `λ::Real`: Weibull scale parameter
+
+# Returns
+A specialized function `weibull_g_specialized(t::Real)` that efficiently computes
+the Weibull g function using pre-computed constants.
+
+# Examples
+```julia
+weibull_g_func = _make_weibull_g(2.0, 1.5)
+g_val = weibull_g_func(3.0)
+```
 "
-function _make_log_weibull_g(k::Real, λ::Real)
+function _make_weibull_g(k::Real, λ::Real)
     inv_k = 1 / k
     a = 1 + inv_k
-    log_gamma_a = loggamma(a)  # log(Γ(a)); saturation value of log g
 
-    function log_weibull_g_specialized(t::Real)
-        T = float(promote_type(typeof(k), typeof(λ), typeof(t)))
-        t <= 0 && return T(-Inf)
+    function weibull_g_specialized(t::Real)
+        if t <= 0
+            return 0.0
+        end
         x = (t / λ)^k
-        m_val = M(a, a + 1, -x)
-        # γ(a, x) → Γ(a) for large x, so g → Γ(a); guard underflow / noise.
-        m_val <= 0 && return log_gamma_a
-        logg = a * log(x) - log(a) + log(m_val)
-        return min(logg, log_gamma_a)
+        # Use AD-compatible confluent hypergeometric function instead of gamma_inc
+        # γ(a,z) = z^a/a * M(a, a+1, -z) where M is the confluent hypergeometric function
+        # See: https://github.com/JuliaMath/HypergeometricFunctions.jl/issues/50#issuecomment-1397363491
+        # This avoids gamma_inc which causes AD issues
+        return x^a / a * M(a, a + 1, -x)
     end
 
-    return log_weibull_g_specialized
+    return weibull_g_specialized
 end
 
 @doc "
@@ -213,53 +223,33 @@ function primarycensored_cdf(
 end
 
 # ============================================================================
-# Analytical log-CDF implementations for specific distribution pairs
+# Analytical CDF implementations for specific distribution pairs
 # ============================================================================
-#
-# For the analytical cases, the log CDF is the primitive: everything is
-# computed in log space and `primarycensored_cdf` just calls `exp(...)`. This
-# mirrors the Stan implementation in the primarycensored R package and keeps
-# the arithmetic stable for autodiff - there is no catastrophic cancellation
-# from subtracting close positive quantities, and no round-trip through
-# `exp`/`log` when downstream consumers (e.g. `logpdf`) want a log value.
 
-@doc "
-Log-space form of the direct CDF identity
-
-```math
-F_{S+}(d) = \\frac{d\\,F_T(d) + E\\,\\tilde F_T(q) - q\\,F_T(q) - E\\,\\tilde F_T(d)}{w_P}.
-```
-
-Computed as ``\\log\\mathrm{diffexp}(\\log A, \\log B) - \\log w_P`` with
-``\\log A = \\log\\mathrm{sumexp}(\\log d + \\log F_T(d),\\ \\log E + \\log \\tilde F_T(q))``
-and ``\\log B = \\log\\mathrm{sumexp}(\\log q + \\log F_T(q),\\ \\log E + \\log \\tilde F_T(d))``.
-The non-negativity of ``F_{S+}`` guarantees ``\\log A \\ge \\log B``. Terms with
-``q = 0`` are passed in as ``-\\infty`` so the two ``\\log\\mathrm{sumexp}``
-calls degenerate cleanly.
-"
-@inline function _analytical_logcdf_formula(
-        log_d_F_T_d, log_E_tF_T_d, log_q_F_T_q, log_E_tF_T_q, log_pwindow
-)
-    log_A = logaddexp(log_d_F_T_d, log_E_tF_T_q)
-    log_B = logaddexp(log_q_F_T_q, log_E_tF_T_d)
-    # At saturation log_A ≈ log_B; clamp to log(1) = 0 to defend against
-    # floating-point noise pushing the result above zero.
-    return min(logsubexp(log_A, log_B) - log_pwindow, zero(log_pwindow))
+@inline function _analytical_cdf_formula(
+        d, q, F_T_d, F_T_q, E_T, F_T_d_shift, F_T_q_shift, pwindow)
+    return (d * F_T_d - q * F_T_q - E_T * (F_T_d_shift - F_T_q_shift)) / pwindow
 end
 
 @doc "
 
-Analytical log CDF for Gamma delay with Uniform primary event distribution.
+Analytical CDF for Gamma delay with Uniform primary event distribution.
 
-All arithmetic is in log space. ``F_T(\\cdot; k)`` is evaluated with the
-AD-safe hypergeometric form; the shifted CDF ``F_T(\\cdot; k+1, \\theta)`` is
-obtained from the recursion
-``P(k+1, y) = P(k, y) - y^k e^{-y}/\\Gamma(k+1)``
-via `log_diff_exp`, which halves the number of hypergeometric evaluations.
-See the
-[primarycensored R package](https://primarycensored.epinowcast.org/articles/analytic-solutions.html).
+Uses the direct CDF form of the partial expectation of the Gamma distribution:
+
+```math
+F_{S+}(d) = \\frac{d\\,F_T(d) - q\\,F_T(q) - E[T]\\,(F_T(d; k+1) - F_T(q; k+1))}{w_P}
+```
+
+where ``q = \\max(d - w_P, 0)`` and ``E[T] = k\\theta``. See the
+[primarycensored R package](https://primarycensored.epinowcast.org/articles/analytic-solutions.html)
+for the derivation.
+
+The shifted ``F_T(\\cdot; k+1, \\theta)`` is obtained from ``F_T(\\cdot; k, \\theta)``
+via the recursion ``P(k+1, y) = P(k, y) - y^k e^{-y} / \\Gamma(k+1)``, halving the
+number of hypergeometric evaluations.
 "
-function primarycensored_logcdf(
+function primarycensored_cdf(
         dist::Gamma, primary_event::Uniform, x::Real, ::AnalyticalSolver
 )
     k = shape(dist)
@@ -267,53 +257,52 @@ function primarycensored_logcdf(
     pwindow = maximum(primary_event) - minimum(primary_event)
     pmin = minimum(primary_event)
 
-    isnan(x) && return oftype(float(k / θ * x), NaN)
-    x == Inf && return zero(float(k / θ * x))
     d = x - pmin
-    d <= 0 && return oftype(float(k / θ * d), -Inf)
-
-    q = max(d - pwindow, 0.0)
-    log_pwindow = log(pwindow)
-    log_E = log(k) + log(θ)  # E[T] = k θ
-
-    log_F_T_d_k = _log_gamma_cdf_ad_safe(k, θ, d)
-    # Recursion: log F_T(d; k+1) = log_diff_exp(log F_T(d; k),
-    #                              k log(d/θ) - d/θ - logΓ(k+1))
-    log_pdf_kp1_d = k * log(d / θ) - d / θ - loggamma(k + 1)
-    log_F_T_d_kp1 = logsubexp(log_F_T_d_k, log_pdf_kp1_d)
-
-    if q > 0
-        log_F_T_q_k = _log_gamma_cdf_ad_safe(k, θ, q)
-        log_pdf_kp1_q = k * log(q / θ) - q / θ - loggamma(k + 1)
-        log_F_T_q_kp1 = logsubexp(log_F_T_q_k, log_pdf_kp1_q)
-
-        log_d_F_T_d = log(d) + log_F_T_d_k
-        log_q_F_T_q = log(q) + log_F_T_q_k
-        log_E_tF_T_d = log_E + log_F_T_d_kp1
-        log_E_tF_T_q = log_E + log_F_T_q_kp1
-    else
-        log_d_F_T_d = log(d) + log_F_T_d_k
-        log_q_F_T_q = oftype(log_F_T_d_k, -Inf)
-        log_E_tF_T_d = log_E + log_F_T_d_kp1
-        log_E_tF_T_q = oftype(log_F_T_d_k, -Inf)
+    if d <= 0
+        return 0.0
     end
 
-    return _analytical_logcdf_formula(
-        log_d_F_T_d, log_E_tF_T_d, log_q_F_T_q, log_E_tF_T_q, log_pwindow
-    )
+    q = max(d - pwindow, 0.0)
+
+    # F_T(·; k) via AD-safe gamma CDF, then F_T(·; k+1) by the recursion
+    # F_T(y; k+1) = F_T(y; k) - (y/θ)^k e^{-y/θ} / Γ(k+1)
+    F_T_d = _gamma_cdf_ad_safe(k, θ, d)
+    yd = d / θ
+    F_T_d_kp1 = F_T_d - yd^k * exp(-yd) / gamma(k + 1)
+
+    if q > 0
+        F_T_q = _gamma_cdf_ad_safe(k, θ, q)
+        yq = q / θ
+        F_T_q_kp1 = F_T_q - yq^k * exp(-yq) / gamma(k + 1)
+    else
+        F_T_q = 0.0
+        F_T_q_kp1 = 0.0
+    end
+
+    E_T = k * θ
+
+    # Direct CDF form
+    return _analytical_cdf_formula(d, q, F_T_d, F_T_q, E_T, F_T_d_kp1, F_T_q_kp1, pwindow)
 end
 
 @doc "
 
-Analytical log CDF for LogNormal delay with Uniform primary event distribution.
+Analytical CDF for LogNormal delay with Uniform primary event distribution.
 
-Computed in log space using the parameter-shift identity: the partial
-expectation of ``\\mathrm{LogNormal}(\\mu, \\sigma)`` is proportional to the
-CDF of ``\\mathrm{LogNormal}(\\mu + \\sigma^2, \\sigma)``, with
-``E[T] = \\exp(\\mu + \\sigma^2/2)``. See the
-[primarycensored R package](https://primarycensored.epinowcast.org/articles/analytic-solutions.html).
+Uses the direct CDF form of the partial expectation of the LogNormal
+distribution:
+
+```math
+F_{S+}(d) = \\frac{d\\,F_T(d) - q\\,F_T(q) - E[T]\\,(\\tilde F_T(d) - \\tilde F_T(q))}{w_P}
+```
+
+where ``q = \\max(d - w_P, 0)``, ``E[T] = \\exp(\\mu + \\sigma^2/2)``, and
+``\\tilde F_T`` is the CDF of ``\\mathrm{LogNormal}(\\mu + \\sigma^2, \\sigma)``.
+See the
+[primarycensored R package](https://primarycensored.epinowcast.org/articles/analytic-solutions.html)
+for the derivation.
 "
-function primarycensored_logcdf(
+function primarycensored_cdf(
         dist::LogNormal, primary_event::Uniform, x::Real, ::AnalyticalSolver
 )
     μ = meanlogx(dist)
@@ -321,50 +310,51 @@ function primarycensored_logcdf(
     pwindow = maximum(primary_event) - minimum(primary_event)
     pmin = minimum(primary_event)
 
-    isnan(x) && return oftype(float(μ * σ * x), NaN)
-    x == Inf && return zero(float(μ * σ * x))
     d = x - pmin
-    d <= 0 && return oftype(float(μ * σ * d), -Inf)
-
-    q = max(d - pwindow, 0.0)
-    log_pwindow = log(pwindow)
-    log_E = μ + σ^2 / 2
-
-    dist_shifted = LogNormal(μ + σ^2, σ)
-    log_F_T_d = logcdf(dist, d)
-    log_F_T_d_shift = logcdf(dist_shifted, d)
-
-    if q > 0
-        log_F_T_q = logcdf(dist, q)
-        log_F_T_q_shift = logcdf(dist_shifted, q)
-
-        log_d_F_T_d = log(d) + log_F_T_d
-        log_q_F_T_q = log(q) + log_F_T_q
-        log_E_tF_T_d = log_E + log_F_T_d_shift
-        log_E_tF_T_q = log_E + log_F_T_q_shift
-    else
-        log_d_F_T_d = log(d) + log_F_T_d
-        log_q_F_T_q = oftype(log_F_T_d, -Inf)
-        log_E_tF_T_d = log_E + log_F_T_d_shift
-        log_E_tF_T_q = oftype(log_F_T_d, -Inf)
+    if d <= 0
+        return 0.0
     end
 
-    return _analytical_logcdf_formula(
-        log_d_F_T_d, log_E_tF_T_d, log_q_F_T_q, log_E_tF_T_q, log_pwindow
-    )
+    q = max(d - pwindow, 0.0)
+
+    dist_shifted = LogNormal(μ + σ^2, σ)
+    F_T_d = cdf(dist, d)
+    F_T_d_shift = cdf(dist_shifted, d)
+
+    if q > 0
+        F_T_q = cdf(dist, q)
+        F_T_q_shift = cdf(dist_shifted, q)
+    else
+        F_T_q = 0.0
+        F_T_q_shift = 0.0
+    end
+
+    E_T = exp(μ + σ^2 / 2)
+
+    # Direct CDF form
+    return _analytical_cdf_formula(
+        d, q, F_T_d, F_T_q, E_T, F_T_d_shift, F_T_q_shift, pwindow)
 end
 
 @doc "
 
-Analytical log CDF for Weibull delay with Uniform primary event distribution.
+Analytical CDF for Weibull delay with Uniform primary event distribution.
 
-Computed in log space. The role of ``E[T] \\cdot \\tilde F_T(t)`` is played
-by ``\\lambda \\cdot g(t)`` with
-``g(t) = \\gamma(1 + 1/k, (t/\\lambda)^k)``. `_make_log_weibull_g` returns
-``\\log g`` via the AD-safe hypergeometric form. See the
-[primarycensored R package](https://primarycensored.epinowcast.org/articles/analytic-solutions.html).
+Uses the direct CDF form of the partial expectation of the Weibull
+distribution:
+
+```math
+F_{S+}(d) = \\frac{d\\,F_T(d) - q\\,F_T(q) - \\lambda\\,(g(d) - g(q))}{w_P}
+```
+
+where ``q = \\max(d - w_P, 0)``, ``\\lambda`` is the Weibull scale, and
+``g(t) = \\gamma(1 + 1/k, (t/\\lambda)^k)`` is the lower incomplete gamma
+helper. The role of ``E[T] \\cdot \\tilde F_T`` is played by ``\\lambda \\cdot g``.
+See the
+[primarycensored R package](https://primarycensored.epinowcast.org/articles/analytic-solutions.html)
+for the derivation.
 "
-function primarycensored_logcdf(
+function primarycensored_cdf(
         dist::Weibull, primary_event::Uniform, x::Real, ::AnalyticalSolver
 )
     k = shape(dist)
@@ -372,77 +362,41 @@ function primarycensored_logcdf(
     pwindow = maximum(primary_event) - minimum(primary_event)
     pmin = minimum(primary_event)
 
-    isnan(x) && return oftype(float(k / λ * x), NaN)
-    x == Inf && return zero(float(k / λ * x))
     d = x - pmin
-    d <= 0 && return oftype(float(k / λ * d), -Inf)
-
-    q = max(d - pwindow, 0.0)
-    log_pwindow = log(pwindow)
-    log_scale = log(λ)
-
-    log_weibull_g_func = _make_log_weibull_g(k, λ)
-    log_F_T_d = logcdf(dist, d)
-    log_g_d = log_weibull_g_func(d)
-
-    if q > 0
-        log_F_T_q = logcdf(dist, q)
-        log_g_q = log_weibull_g_func(q)
-
-        log_d_F_T_d = log(d) + log_F_T_d
-        log_q_F_T_q = log(q) + log_F_T_q
-        log_E_tF_T_d = log_scale + log_g_d
-        log_E_tF_T_q = log_scale + log_g_q
-    else
-        log_d_F_T_d = log(d) + log_F_T_d
-        log_q_F_T_q = oftype(log_F_T_d, -Inf)
-        log_E_tF_T_d = log_scale + log_g_d
-        log_E_tF_T_q = oftype(log_F_T_d, -Inf)
+    if d <= 0
+        return 0.0
     end
 
-    return _analytical_logcdf_formula(
-        log_d_F_T_d, log_E_tF_T_d, log_q_F_T_q, log_E_tF_T_q, log_pwindow
-    )
-end
+    q = max(d - pwindow, 0.0)
 
-# CDF wrappers for the analytical pairs: cdf = exp(lcdf). The log form is the
-# primitive - this exists only so the `cdf` interface still resolves to the
-# analytical path.
-function primarycensored_cdf(
-        dist::Gamma, primary_event::Uniform, x::Real, method::AnalyticalSolver
-)
-    return exp(primarycensored_logcdf(dist, primary_event, x, method))
-end
+    weibull_g_func = _make_weibull_g(k, λ)
 
-function primarycensored_cdf(
-        dist::LogNormal, primary_event::Uniform, x::Real, method::AnalyticalSolver
-)
-    return exp(primarycensored_logcdf(dist, primary_event, x, method))
-end
+    F_T_d = cdf(dist, d)
+    g_d = weibull_g_func(d)
 
-function primarycensored_cdf(
-        dist::Weibull, primary_event::Uniform, x::Real, method::AnalyticalSolver
-)
-    return exp(primarycensored_logcdf(dist, primary_event, x, method))
+    if q > 0
+        F_T_q = cdf(dist, q)
+        g_q = weibull_g_func(q)
+    else
+        F_T_q = 0.0
+        g_q = 0.0
+    end
+
+    # Direct CDF form (with E[T] * F~_T replaced by λ * g)
+    return _analytical_cdf_formula(d, q, F_T_d, F_T_q, λ, g_d, g_q, pwindow)
 end
 
 # ============================================================================
-# Generic log-CDF dispatch (fallback / numerical path)
+# Log-space implementations for numerical stability
 # ============================================================================
 
 @doc "
 
 Compute the log CDF of a primary event censored distribution.
 
-For distribution pairs with a specific analytical implementation (e.g.
-Gamma, LogNormal, Weibull with Uniform primary), the log CDF is the
-primitive: it is computed directly in log space and
-`primarycensored_cdf` is defined as `exp(primarycensored_logcdf(...))`.
-
-For all other pairs, this generic method falls back to taking `log` of
-`primarycensored_cdf`, which itself either hits a specific analytical CDF
-method or numerical integration. Edge cases (``x`` below the support or
-``+\\infty``) short-circuit without calling the CDF path.
+Dispatches to either analytical or numerical implementation based on the solver method.
+Computes log(CDF) with appropriate handling for edge cases where CDF = 0.
+Returns -Inf when the probability is zero or when numerical issues occur.
 
 # Arguments
 - `dist`: The delay distribution from primary event to observation

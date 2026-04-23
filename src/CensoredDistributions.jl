@@ -21,9 +21,9 @@ using Distributions: UnivariateDistribution, Continuous, ValueSupport,
 
 using PrecompileTools: @setup_workload, @compile_workload
 
-using LogExpFunctions: logsubexp, logaddexp, log1mexp
+using LogExpFunctions: logsubexp, log1mexp
 
-using SpecialFunctions: loggamma
+using SpecialFunctions: gamma
 
 using HypergeometricFunctions: M
 
