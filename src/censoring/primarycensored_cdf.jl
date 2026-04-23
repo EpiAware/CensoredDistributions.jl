@@ -242,6 +242,36 @@ When `q` is clamped to 0 (i.e. ``d \\le w_P``), pass `F_T_q = 0` and
 # Returns
 
 The primary-censored CDF `F_{S+}(x)`.
+
+# Example
+
+Reproduces the built-in Gamma analytical pair from first principles:
+
+```@example
+using CensoredDistributions, Distributions
+
+dist = Gamma(2.0, 1.5)
+primary = Uniform(0.0, 1.0)
+x = 3.0
+
+pmin = minimum(primary)
+pwindow = maximum(primary) - pmin
+d_adj = x - pmin
+q = max(d_adj - pwindow, 0.0)
+
+# F_T at the two endpoints
+F_T_d = cdf(dist, d_adj)
+F_T_q = q > 0 ? cdf(dist, q) : 0.0
+
+# Gamma partial first moment: M_T(t) = kθ · F_T(t; k+1, θ)
+k = shape(dist); θ = scale(dist); E_T = k * θ
+dist_kp1 = Gamma(k + 1, θ)
+M_T_d = E_T * cdf(dist_kp1, d_adj)
+M_T_q = q > 0 ? E_T * cdf(dist_kp1, q) : 0.0
+
+CensoredDistributions.primarycensored_cdf_formula(
+    d_adj, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
+```
 "
 function primarycensored_cdf_formula(
         d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)

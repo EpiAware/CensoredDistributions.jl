@@ -359,3 +359,55 @@ end
         end
     end
 end
+
+@testitem "primarycensored_cdf_formula public helper" begin
+    # Exercises the helper as public API via qualified access so that
+    # downstream users reaching for it through the documented
+    # `CensoredDistributions.primarycensored_cdf_formula` path keep working.
+    using Distributions
+
+    @testset "Reproduces Gamma analytical pair" begin
+        dist = Gamma(2.0, 1.5)
+        primary = Uniform(0.0, 1.0)
+        pc = primary_censored(dist, primary)
+
+        pmin = minimum(primary)
+        pwindow = maximum(primary) - pmin
+        k = shape(dist)
+        θ = scale(dist)
+        E_T = k * θ
+        dist_kp1 = Gamma(k + 1, θ)
+
+        for x in [0.5, 1.0, 2.5, 5.0, 10.0]
+            d_adj = x - pmin
+            q = max(d_adj - pwindow, 0.0)
+            F_T_d = cdf(dist, d_adj)
+            F_T_q = q > 0 ? cdf(dist, q) : 0.0
+            M_T_d = E_T * cdf(dist_kp1, d_adj)
+            M_T_q = q > 0 ? E_T * cdf(dist_kp1, q) : 0.0
+
+            via_formula = CensoredDistributions.primarycensored_cdf_formula(
+                d_adj, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
+
+            @test via_formula ≈ cdf(pc, x) rtol=1e-10
+        end
+    end
+
+    @testset "q = 0 branch" begin
+        # When d <= pwindow, q collapses to 0 so F_T_q and M_T_q should
+        # both be passed as zero and drop out of the formula cleanly.
+        dist = Gamma(2.0, 1.5)
+        pwindow = 5.0
+        d_adj = 3.0  # d_adj <= pwindow, so q = 0
+
+        F_T_d = cdf(dist, d_adj)
+        k = shape(dist); θ = scale(dist)
+        M_T_d = k * θ * cdf(Gamma(k + 1, θ), d_adj)
+
+        full = CensoredDistributions.primarycensored_cdf_formula(
+            d_adj, 0.0, F_T_d, 0.0, M_T_d, 0.0, pwindow)
+        # Same as closed form (d · F_T(d) - M_T(d)) / pwindow
+        expected = (d_adj * F_T_d - M_T_d) / pwindow
+        @test full ≈ expected rtol=1e-14
+    end
+end
