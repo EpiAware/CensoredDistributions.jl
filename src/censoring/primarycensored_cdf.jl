@@ -1,31 +1,5 @@
 @doc "
 
-AD-compatible gamma CDF using HypergeometricFunctions.
-
-Based on the identity: γ(a,z) = z^a/a * M(a, a+1, -z)
-where γ is the lower incomplete gamma function and M is the confluent hypergeometric function.
-
-Uses the same approach as the Weibull g function: P(a,z) = γ(a,z)/Γ(a) = z^a/a * M(a, a+1, -z) / Γ(a).
-For integer a, Γ(a) = (a-1)!, but uses gamma(k) for generality.
-
-# Arguments
-- `k::Real`: Shape parameter
-- `θ::Real`: Scale parameter
-- `x::Real`: Evaluation point
-
-# Returns
-The gamma CDF value at x with shape k and scale θ.
-"
-function _gamma_cdf_ad_safe(k::Real, θ::Real, x::Real)
-    if x <= 0
-        return 0.0
-    end
-    z = x / θ
-    return (z^k / k * M(k, k + 1, -z)) / gamma(k)
-end
-
-@doc "
-
 Function factory for optimized Weibull g function.
 
 Creates a specialized function with pre-computed constants for g(t; k, λ) = γ(1 + 1/k, (t/λ)^k)
@@ -49,19 +23,19 @@ g_val = weibull_g_func(3.0)
 ```
 "
 function _make_weibull_g(k::Real, λ::Real)
-    inv_k = 1 / k
-    a = 1 + inv_k
+    a = 1 + 1 / k
+    inv_a = inv(a)
 
     function weibull_g_specialized(t::Real)
         if t <= 0
             return 0.0
         end
-        x = (t / λ)^k
-        # Use AD-compatible confluent hypergeometric function instead of gamma_inc
-        # γ(a,z) = z^a/a * M(a, a+1, -z) where M is the confluent hypergeometric function
-        # See: https://github.com/JuliaMath/HypergeometricFunctions.jl/issues/50#issuecomment-1397363491
-        # This avoids gamma_inc which causes AD issues
-        return x^a / a * M(a, a + 1, -x)
+        # γ(a, x) = x^a / a · M(a, a+1, -x). With x = (t/λ)^k,
+        #   x^a = (t/λ)^(k·a) = (t/λ)^(k+1) = (t/λ) · x
+        # so we avoid a second power-of-real-exponent call.
+        u = t / λ
+        x = u^k
+        return u * x * inv_a * M(a, a + 1, -x)
     end
 
     return weibull_g_specialized
@@ -264,16 +238,24 @@ function primarycensored_cdf(
 
     q = max(d - pwindow, 0.0)
 
-    # F_T(·; k) via AD-safe gamma CDF, then F_T(·; k+1) by the recursion
-    # F_T(y; k+1) = F_T(y; k) - (y/θ)^k e^{-y/θ} / Γ(k+1)
-    F_T_d = _gamma_cdf_ad_safe(k, θ, d)
+    # Share constants between F_T(·; k) and the recursion to F_T(·; k+1).
+    # F_T(y; k)   = y^k * M(k, k+1, -y) / Γ(k+1)
+    # F_T(y; k+1) = F_T(y; k) - y^k * exp(-y) / Γ(k+1)
+    #             = y^k * (M(k, k+1, -y) - exp(-y)) / Γ(k+1)
+    inv_gamma_kp1 = inv(gamma(k + 1))
+
     yd = d / θ
-    F_T_d_kp1 = F_T_d - yd^k * exp(-yd) / gamma(k + 1)
+    yd_pow_k = yd^k
+    M_d = M(k, k + 1, -yd)
+    F_T_d = yd_pow_k * M_d * inv_gamma_kp1
+    F_T_d_kp1 = yd_pow_k * (M_d - exp(-yd)) * inv_gamma_kp1
 
     if q > 0
-        F_T_q = _gamma_cdf_ad_safe(k, θ, q)
         yq = q / θ
-        F_T_q_kp1 = F_T_q - yq^k * exp(-yq) / gamma(k + 1)
+        yq_pow_k = yq^k
+        M_q = M(k, k + 1, -yq)
+        F_T_q = yq_pow_k * M_q * inv_gamma_kp1
+        F_T_q_kp1 = yq_pow_k * (M_q - exp(-yq)) * inv_gamma_kp1
     else
         F_T_q = 0.0
         F_T_q_kp1 = 0.0
@@ -281,8 +263,9 @@ function primarycensored_cdf(
 
     E_T = k * θ
 
-    # Direct CDF form
-    return _analytical_cdf_formula(d, q, F_T_d, F_T_q, E_T, F_T_d_kp1, F_T_q_kp1, pwindow)
+    return _analytical_cdf_formula(
+        d, q, F_T_d, F_T_q, E_T, F_T_d_kp1, F_T_q_kp1, pwindow
+    )
 end
 
 @doc "
