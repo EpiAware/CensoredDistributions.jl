@@ -160,7 +160,8 @@ function logcdf(d::PrimaryCensored, x::Real)
 end
 
 function ccdf(d::PrimaryCensored, x::Real)
-    return exp(logccdf(d, x))
+    result = 1 - cdf(d, x)
+    return result
 end
 
 function logccdf(d::PrimaryCensored, x::Real)

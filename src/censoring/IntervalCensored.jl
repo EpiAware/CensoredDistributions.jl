@@ -187,12 +187,32 @@ end
 
 @doc "
 
-Compute the log probability mass for the interval containing `x`.
+Compute the probability mass for the interval containing `x`.
 
-`logpdf` is the log-space primitive: the interval mass is computed as
-`logsubexp(logcdf(upper), logcdf(lower))`, avoiding the catastrophic
-cancellation of a bare `cdf(upper) - cdf(lower)` in the distribution tail.
-`pdf` is defined as `exp(logpdf(...))`.
+See also: [`logpdf`](@ref), [`cdf`](@ref)
+"
+function pdf(d::IntervalCensored, x::Real)
+    lower, upper = get_interval_bounds(d, x)
+    if isnan(lower) || isnan(upper)
+        return 0.0
+    end
+
+    # Handle boundary cases for distributions with bounded support
+    dist_min = minimum(get_dist(d))
+    dist_max = maximum(get_dist(d))
+
+    # For lower bound at or below distribution minimum, CDF is 0
+    cdf_lower = lower <= dist_min ? 0.0 : cdf(get_dist(d), lower)
+
+    # For upper bound at or above distribution maximum, CDF is 1
+    cdf_upper = upper >= dist_max ? 1.0 : cdf(get_dist(d), upper)
+
+    return max(cdf_upper - cdf_lower, zero(cdf_upper))
+end
+
+@doc "
+
+Compute the log probability mass for the interval containing `x`.
 
 See also: [`pdf`](@ref), [`logcdf`](@ref)
 "
@@ -200,34 +220,7 @@ function logpdf(d::IntervalCensored, x::Real)
     if !insupport(d, x)
         return -Inf
     end
-
-    lower, upper = get_interval_bounds(d, x)
-    if isnan(lower) || isnan(upper)
-        return -Inf
-    end
-
-    # Boundary cases at distribution support limits: log CDF is -Inf below the
-    # minimum and 0 (= log 1) at or above the maximum.
-    dist_min = minimum(get_dist(d))
-    dist_max = maximum(get_dist(d))
-    logcdf_lower = lower <= dist_min ? -Inf : logcdf(get_dist(d), lower)
-    logcdf_upper = upper >= dist_max ? 0.0 : logcdf(get_dist(d), upper)
-
-    # Defend against floating-point noise making logcdf_upper <= logcdf_lower
-    # (would cause DomainError inside logsubexp).
-    logcdf_upper <= logcdf_lower && return -Inf
-    return logsubexp(logcdf_upper, logcdf_lower)
-end
-
-@doc "
-
-Compute the probability mass for the interval containing `x` as
-`exp(logpdf(d, x))`.
-
-See also: [`logpdf`](@ref), [`cdf`](@ref)
-"
-function pdf(d::IntervalCensored, x::Real)
-    return exp(logpdf(d, x))
+    return log(pdf(d, x))
 end
 
 #### Vectorised PDF optimization
@@ -274,67 +267,82 @@ function _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector{<:Rea
 end
 
 """
-    _compute_logpdfs_with_cache(d::IntervalCensored, x::AbstractVector, logcdf_lookup::Dict)
+    _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector, cdf_lookup::Dict)
 
-Compute log interval masses efficiently using cached `logcdf` values, using
-`logsubexp` for the same reason the scalar `logpdf` does.
+Compute PDFs efficiently using cached CDF values.
+
+Uses the same boundary case handling as the scalar method.
 """
-function _compute_logpdfs_with_cache(
-        d::IntervalCensored, x::AbstractVector{<:Real}, logcdf_lookup::Dict
-)
+function _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector{<:Real}, cdf_lookup::Dict)
+    # Get distribution bounds once for boundary case handling
     dist_min = minimum(get_dist(d))
     dist_max = maximum(get_dist(d))
-    T = promote_type(eltype(x), eltype(d))
 
     return map(x) do xi
-        if !insupport(d, xi)
-            return T(-Inf)
-        end
-
         lower, upper = get_interval_bounds(d, xi)
+
         if isnan(lower) || isnan(upper)
-            return T(-Inf)
+            return zero(promote_type(eltype(x), eltype(d)))
         end
 
-        logcdf_lower = lower <= dist_min ? T(-Inf) : T(logcdf_lookup[lower])
-        logcdf_upper = upper >= dist_max ? zero(T) : T(logcdf_lookup[upper])
+        # Handle boundary cases for distributions with bounded support
+        # For lower bound at or below distribution minimum, CDF is 0
+        cdf_lower = lower <= dist_min ? zero(promote_type(eltype(x), eltype(d))) :
+                    cdf_lookup[lower]
 
-        logcdf_upper <= logcdf_lower && return T(-Inf)
-        return T(logsubexp(logcdf_upper, logcdf_lower))
+        # For upper bound at or above distribution maximum, CDF is 1
+        cdf_upper = upper >= dist_max ? one(promote_type(eltype(x), eltype(d))) :
+                    cdf_lookup[upper]
+
+        return max(cdf_upper - cdf_lower, zero(cdf_upper))
     end
 end
 
 @doc "
 
-Compute log probability masses for an array of values using optimised
-vectorisation. Collects unique interval boundaries, computes `logcdf` once for
-each, then applies `logsubexp` per element.
+Compute probability masses for an array of values using optimised vectorisation.
 
-See also: [`pdf`](@ref), [`logpdf`](@ref)
-"
-function logpdf(d::IntervalCensored, x::AbstractVector{<:Real})
-    boundaries = _collect_unique_boundaries(d, x)
-
-    T = promote_type(eltype(x), eltype(d.boundaries))
-    if isempty(boundaries)
-        return fill(T(-Inf), length(x))
-    end
-
-    logcdf_lookup = Dict(
-        boundary => T(logcdf(get_dist(d), boundary)) for boundary in boundaries
-    )
-
-    return _compute_logpdfs_with_cache(d, x, logcdf_lookup)
-end
-
-@doc "
-
-Compute probability masses for an array of values as `exp.(logpdf(...))`.
+This method collects unique interval boundaries, computes CDFs once, then uses
+cached values for efficient PDF computation across the array.
 
 See also: [`pdf`](@ref), [`logpdf`](@ref)
 "
 function pdf(d::IntervalCensored, x::AbstractVector{<:Real})
-    return exp.(logpdf(d, x))
+    # Collect all unique boundaries needed
+    boundaries = _collect_unique_boundaries(d, x)
+
+    # Handle empty boundaries case (all x values outside intervals)
+    T = promote_type(eltype(x), eltype(d.boundaries))
+    if isempty(boundaries)
+        return fill(zero(T), length(x))
+    end
+
+    # Compute CDFs once for all unique boundaries using functional approach
+    cdf_lookup = Dict(boundary => T(cdf(get_dist(d), boundary)) for boundary in boundaries)
+
+    # Use cached values to compute PDFs efficiently
+    return _compute_pdfs_with_cache(d, x, cdf_lookup)
+end
+
+@doc "
+
+Compute log probability masses for an array of values using optimised PDF computation.
+
+See also: [`pdf`](@ref), [`logpdf`](@ref)
+"
+function logpdf(d::IntervalCensored, x::AbstractVector{<:Real})
+    # Use vectorised PDF computation then handle logs with proper error handling
+    pdf_vals = pdf(d, x)
+
+    T = promote_type(eltype(x), eltype(d))
+
+    return map(zip(x, pdf_vals)) do (xi, pdf_val)
+        if !insupport(d, xi)
+            T(-Inf)
+        else
+            T(log(pdf_val))
+        end
+    end
 end
 
 # Internal function for efficient cdf/logcdf computation
@@ -385,7 +393,7 @@ function logcdf(d::IntervalCensored, x::Real)
 end
 
 function ccdf(d::IntervalCensored, x::Real)
-    return exp(logccdf(d, x))
+    return 1 - cdf(d, x)
 end
 
 function logccdf(d::IntervalCensored, x::Real)
