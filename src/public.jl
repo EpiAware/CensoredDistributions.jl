@@ -11,4 +11,4 @@ public AnalyticalSolver
 public NumericSolver
 
 # Extension helper for user-defined analytical CDF pairs (public but not exported)
-public primarycensored_cdf_formula
+public primarycensored_uniform_cdf_formula

@@ -204,8 +204,12 @@ end
 # ============================================================================
 
 @doc "
-Direct CDF form of the primary-event-censored distribution with a Uniform
-primary window, derived by integration by parts on the partial expectation:
+Direct CDF form of the primary-event-censored distribution **when the
+primary event distribution is `Uniform`**. The ``1/w_P`` normalisation drops
+out cleanly because ``f_U = 1/w_P`` is constant over the support; non-Uniform
+primaries do not produce this closed form and must be handled separately.
+
+Derived by integration by parts on the partial expectation:
 
 ```math
 F_{S+}(d) = \\frac{d \\, F_T(d) - q \\, F_T(q) - (M_T(d) - M_T(q))}{w_P}
@@ -269,11 +273,11 @@ dist_kp1 = Gamma(k + 1, θ)
 M_T_d = E_T * cdf(dist_kp1, d_adj)
 M_T_q = q > 0 ? E_T * cdf(dist_kp1, q) : 0.0
 
-CensoredDistributions.primarycensored_cdf_formula(
+CensoredDistributions.primarycensored_uniform_cdf_formula(
     d_adj, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
 ```
 "
-function primarycensored_cdf_formula(
+function primarycensored_uniform_cdf_formula(
         d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
     return (d * F_T_d - q * F_T_q - (M_T_d - M_T_q)) / pwindow
 end
@@ -332,7 +336,7 @@ function primarycensored_cdf(
         M_T_q = 0.0
     end
 
-    return primarycensored_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
+    return primarycensored_uniform_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
 end
 
 @doc "
@@ -374,7 +378,7 @@ function primarycensored_cdf(
         M_T_q = 0.0
     end
 
-    return primarycensored_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
+    return primarycensored_uniform_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
 end
 
 @doc "
@@ -414,7 +418,7 @@ function primarycensored_cdf(
         M_T_q = 0.0
     end
 
-    return primarycensored_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
+    return primarycensored_uniform_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
 end
 
 # ============================================================================
