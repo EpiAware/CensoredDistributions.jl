@@ -204,20 +204,46 @@ end
 # ============================================================================
 
 @doc "
-Direct CDF form of the primary-event-censored distribution. Derived by
-integration by parts on the partial expectation:
+Direct CDF form of the primary-event-censored distribution with a Uniform
+primary window, derived by integration by parts on the partial expectation:
 
 ```math
-F_{S+}(d) = \\frac{d\\,F_T(d) - q\\,F_T(q) - (M_T(d) - M_T(q))}{w_P}
+F_{S+}(d) = \\frac{d \\, F_T(d) - q \\, F_T(q) - (M_T(d) - M_T(q))}{w_P}
 ```
 
-where ``M_T(t) = \\int_0^t u \\, f_T(u) \\, du`` is the partial first moment of
-the delay distribution. Each specific (delay, primary) pair supplies ``M_T``
-in whatever closed form is available - e.g. ``k\\theta \\cdot F_T(\\cdot; k+1, \\theta)``
-for Gamma, ``e^{\\mu + \\sigma^2/2} \\cdot F_T(\\cdot; \\mu + \\sigma^2, \\sigma)``
-for LogNormal, ``\\lambda \\cdot \\gamma(1 + 1/k, (t/\\lambda)^k)`` for Weibull.
+where ``d = x - u_{\\min}``, ``q = \\max(d - w_P, 0)``, ``w_P`` is the primary
+window width, ``F_T`` is the delay CDF, and ``M_T(t) = \\int_0^t u \\, f_T(u) \\, du``
+is the partial first moment of the delay.
+
+This helper is the shared arithmetic shape of the three built-in analytical
+pairs (Gamma / LogNormal / Weibull + Uniform) and is exposed as public (but
+not exported) API so that downstream code can add its own
+`primarycensored_cdf(::MyDelay, ::Uniform, x, ::AnalyticalSolver)` method
+without re-deriving the formula. Supply ``M_T`` in whatever closed form the
+delay distribution admits - for the built-ins:
+
+- Gamma: ``M_T(t) = k\\theta \\cdot F_T(t; k+1, \\theta)``.
+- LogNormal: ``M_T(t) = e^{\\mu + \\sigma^2/2} \\cdot F_T(t; \\mu + \\sigma^2, \\sigma)``.
+- Weibull: ``M_T(t) = \\lambda \\cdot \\gamma(1 + 1/k, (t/\\lambda)^k)``.
+
+When `q` is clamped to 0 (i.e. ``d \\le w_P``), pass `F_T_q = 0` and
+`M_T_q = 0`; both terms drop out cleanly.
+
+# Arguments
+
+- `d::Real`: Primary-event-adjusted evaluation point (`x - u_{min}`).
+- `q::Real`: Lower integration endpoint, `max(d - w_P, 0)`.
+- `F_T_d::Real`: Delay CDF at `d`, `F_T(d)`.
+- `F_T_q::Real`: Delay CDF at `q`, `F_T(q)` (pass `0` when `q = 0`).
+- `M_T_d::Real`: Partial first moment at `d`, `M_T(d)`.
+- `M_T_q::Real`: Partial first moment at `q`, `M_T(q)` (pass `0` when `q = 0`).
+- `pwindow::Real`: Primary window width `w_P`.
+
+# Returns
+
+The primary-censored CDF `F_{S+}(x)`.
 "
-@inline function _analytical_cdf_formula(
+function primarycensored_cdf_formula(
         d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
     return (d * F_T_d - q * F_T_q - (M_T_d - M_T_q)) / pwindow
 end
@@ -250,6 +276,8 @@ function primarycensored_cdf(
 
     q = max(d - pwindow, 0.0)
 
+    # Share `y^k / Γ(k+1)` between F_T(·; k), the F_T(·; k+1) recursion, and
+    # the partial first moment M_T.
     # F_T(y; k)   = y^k · M(k, k+1, -y) / Γ(k+1)
     # F_T(y; k+1) = y^k · (M(k, k+1, -y) - exp(-y)) / Γ(k+1)       (recursion)
     # M_T(y)      = kθ · F_T(y; k+1)                               (partial first moment)
@@ -258,23 +286,23 @@ function primarycensored_cdf(
     E_T = k * θ
 
     yd = d / θ
-    yd_pow_k = yd^k
+    coeff_d = yd^k * inv_gamma_kp1
     M_d = M(k, k + 1, -yd)
-    F_T_d = yd_pow_k * M_d * inv_gamma_kp1
-    M_T_d = E_T * yd_pow_k * (M_d - exp(-yd)) * inv_gamma_kp1
+    F_T_d = coeff_d * M_d
+    M_T_d = E_T * coeff_d * (M_d - exp(-yd))
 
     if q > 0
         yq = q / θ
-        yq_pow_k = yq^k
+        coeff_q = yq^k * inv_gamma_kp1
         M_q = M(k, k + 1, -yq)
-        F_T_q = yq_pow_k * M_q * inv_gamma_kp1
-        M_T_q = E_T * yq_pow_k * (M_q - exp(-yq)) * inv_gamma_kp1
+        F_T_q = coeff_q * M_q
+        M_T_q = E_T * coeff_q * (M_q - exp(-yq))
     else
         F_T_q = 0.0
         M_T_q = 0.0
     end
 
-    return _analytical_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
+    return primarycensored_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
 end
 
 @doc "
@@ -316,7 +344,7 @@ function primarycensored_cdf(
         M_T_q = 0.0
     end
 
-    return _analytical_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
+    return primarycensored_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
 end
 
 @doc "
@@ -356,7 +384,7 @@ function primarycensored_cdf(
         M_T_q = 0.0
     end
 
-    return _analytical_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
+    return primarycensored_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
 end
 
 # ============================================================================
