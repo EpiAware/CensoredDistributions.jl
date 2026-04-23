@@ -304,7 +304,7 @@ function primarycensored_cdf(
         return 0.0
     end
 
-    q = max(d - pwindow, 0.0)
+    q = max(d - pwindow, minimum(dist))
 
     # Share `y^k / Γ(k+1)` between F_T(·; k), the F_T(·; k+1) recursion, and
     # the partial first moment M_T.
@@ -358,7 +358,7 @@ function primarycensored_cdf(
         return 0.0
     end
 
-    q = max(d - pwindow, 0.0)
+    q = max(d - pwindow, minimum(dist))
 
     dist_shifted = LogNormal(μ + σ^2, σ)
     E_T = exp(μ + σ^2 / 2)
@@ -400,7 +400,7 @@ function primarycensored_cdf(
         return 0.0
     end
 
-    q = max(d - pwindow, 0.0)
+    q = max(d - pwindow, minimum(dist))
 
     weibull_g_func = _make_weibull_g(k, λ)
     F_T_d = cdf(dist, d)
