@@ -9,7 +9,8 @@ tasks:
 
   # === TESTING WORKFLOWS ===
   test:
-    desc: Run test suite including quality checks
+    desc: Run test suite including quality checks and AD gradient tests
+    deps: [test-ad]
     cmds:
       - echo "🧪 Running test suite..."
       - julia --project=. --quiet -e 'using Pkg; Pkg.test()'
@@ -36,6 +37,14 @@ tasks:
       - julia --project=test/jet -e 'using Pkg; Pkg.instantiate()'
       - julia --project=test/jet test/jet/runtests.jl
       - echo "✅ JET analysis completed"
+
+  test-ad:
+    desc: Run AD gradient tests directly
+    cmds:
+      - echo "🔁 Running AD gradient tests..."
+      - julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=test/ad test/ad/runtests.jl
+      - echo "✅ AD gradient tests completed"
 
   test-formatting:
     desc: Run JuliaFormatter check directly
