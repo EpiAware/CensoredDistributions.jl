@@ -63,7 +63,6 @@ end
 # Fit using MCMC for Bayesian inference
 model = double_censored_model(values, weights)
 chain = sample(model, NUTS(), MCMCThreads(), 1000, 2; progress = false)
-summarystats(chain)
 ```
 
 Or fit using MAP:
