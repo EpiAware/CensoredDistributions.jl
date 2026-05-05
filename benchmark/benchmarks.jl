@@ -13,3 +13,4 @@ const TEST_XS = collect(range(0.1, 10.0, length = 100))  # Vector for batch oper
 include("src/primarycensored.jl")
 include("src/intervalcensored.jl")
 include("src/doubleintervalcensored.jl")
+include("src/ad_gradients.jl")
