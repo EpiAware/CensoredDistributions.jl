@@ -82,17 +82,21 @@ md"""
 
 `DifferentiationInterfaceTest.benchmark_differentiation` runs every
 (backend, scenario) combination and returns a Tables.jl-compatible
-table of runtimes and allocations. We restrict the call to the
-currently-working scenarios and backends so the tutorial stays green;
-the known-broken combinations are exercised in the test suite via
+table of runtimes and allocations. We restrict the call to scenarios
+that work for every backend in `ad_working_backends()` so the
+tutorial stays green; per-backend broken combinations (e.g. Mooncake
+on Weibull) are exercised in `test/ad/runtests.jl` via
 `@test_broken` and tracked in
 [#217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217)
 and
 [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
 """
 
-broken_names = Set(ad_broken_scenario_names())
-working_scenarios = filter(s -> !(s.name in broken_names), scenarios)
+global_broken = Set(ad_broken_scenario_names())
+backend_broken = reduce(union, values(ad_backend_broken_scenarios());
+    init = Set{String}())
+excluded = union(global_broken, backend_broken)
+universal_scenarios = filter(s -> !(s.name in excluded), scenarios)
 working_backends = [entry.backend for entry in ad_working_backends()]
 
 md"""
@@ -100,7 +104,7 @@ md"""
 """
 
 DIT.benchmark_differentiation(
-    working_backends, working_scenarios;
+    working_backends, universal_scenarios;
     logging = false
 )
 

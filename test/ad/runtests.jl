@@ -35,32 +35,38 @@ end
 
 @testset "AD gradients" begin
     all_scenarios = ad_scenarios(with_reference = true)
-    broken_names = Set(ad_broken_scenario_names())
-    working_scenarios = filter(s -> !(s.name in broken_names), all_scenarios)
-    broken_scenarios = filter(s -> s.name in broken_names, all_scenarios)
-    working = [entry.backend for entry in ad_working_backends()]
-    broken = [entry.backend for entry in ad_broken_backends()]
+    global_broken = Set(ad_broken_scenario_names())
+    backend_broken = ad_backend_broken_scenarios()
 
-    @testset "working backends × working scenarios" begin
-        DIT.test_differentiation(
-            working, working_scenarios;
-            correctness = true,
-            type_stability = :none,
-            logging = false,
-            rtol = 5e-2,
-            atol = 1e-6
-        )
-    end
+    for entry in ad_working_backends()
+        per_backend = get(backend_broken, entry.name, Set{String}())
+        ok = filter(
+            s -> !(s.name in global_broken) && !(s.name in per_backend),
+            all_scenarios)
+        broken = filter(
+            s -> s.name in global_broken || s.name in per_backend,
+            all_scenarios)
 
-    @testset "working backends × broken scenarios (#217)" begin
-        for backend in working
-            check_broken(broken_scenarios, backend)
+        @testset "$(entry.name)" begin
+            @testset "working scenarios" begin
+                DIT.test_differentiation(
+                    [entry.backend], ok;
+                    correctness = true,
+                    type_stability = :none,
+                    logging = false,
+                    rtol = 5e-2,
+                    atol = 1e-6
+                )
+            end
+            @testset "broken scenarios" begin
+                check_broken(broken, entry.backend)
+            end
         end
     end
 
-    @testset "broken backends × all scenarios (#225)" begin
-        for backend in broken
-            check_broken(all_scenarios, backend)
+    @testset "fully broken backends (#225)" begin
+        for entry in ad_broken_backends()
+            check_broken(all_scenarios, entry.backend)
         end
     end
 end

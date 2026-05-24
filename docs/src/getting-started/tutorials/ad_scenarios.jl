@@ -48,13 +48,17 @@ end
 """
     ad_working_backends()
 
-AD backends that compute correct gradients on the non-broken scenarios. The
-test suite feeds this list to `DIT.test_differentiation`.
+AD backends that compute correct gradients on at least one scenario. The
+test suite feeds this list to `DIT.test_differentiation` for the
+scenarios where the backend works, and to `check_broken` for the
+scenarios listed in `ad_backend_broken_scenarios`.
 """
 function ad_working_backends()
     return [
         (name = "ForwardDiff", backend = AutoForwardDiff()),
-        (name = "ReverseDiff (tape)", backend = AutoReverseDiff(compile = false))
+        (name = "ReverseDiff (tape)", backend = AutoReverseDiff(compile = false)),
+        (name = "Mooncake reverse", backend = AutoMooncake(config = nothing)),
+        (name = "Mooncake forward", backend = AutoMooncakeForward())
     ]
 end
 
@@ -69,10 +73,35 @@ https://github.com/EpiAware/CensoredDistributions.jl/issues/225.
 function ad_broken_backends()
     return [
         (name = "Enzyme forward", backend = AutoEnzyme(mode = Enzyme.Forward)),
-        (name = "Enzyme reverse", backend = AutoEnzyme(mode = Enzyme.Reverse)),
-        (name = "Mooncake reverse", backend = AutoMooncake(config = nothing)),
-        (name = "Mooncake forward", backend = AutoMooncakeForward())
+        (name = "Enzyme reverse", backend = AutoEnzyme(mode = Enzyme.Reverse))
     ]
+end
+
+"""
+    ad_backend_broken_scenarios()
+
+Per-backend scenario names that fail even though the backend works on
+other scenarios. Returns a `Dict{String, Set{String}}` keyed on the
+backend `name` from `ad_working_backends`. Scenarios listed here are
+treated as `@test_broken` for that backend; scenarios in
+`ad_broken_scenario_names` apply to every backend and are not repeated
+here.
+"""
+function ad_backend_broken_scenarios()
+    mooncake_broken = Set([
+        "PrimaryCensored Gamma+Uniform analytical",
+        "PrimaryCensored LogNormal+Uniform numerical",
+        "PrimaryCensored Weibull+Uniform analytical",
+        "PrimaryCensored Weibull+Uniform numerical"
+    ])
+    return Dict(
+        "ForwardDiff" => Set{String}(),
+        "ReverseDiff (tape)" => Set([
+            "PrimaryCensored LogNormal+Uniform numerical"
+        ]),
+        "Mooncake reverse" => mooncake_broken,
+        "Mooncake forward" => mooncake_broken
+    )
 end
 
 """

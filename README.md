@@ -8,9 +8,9 @@
 
 | ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
 |:---:|:---:|:---:|:---:|:---:|:---:|
-| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-full-brightgreen) | ![](https://img.shields.io/badge/Enzyme%20forward-broken-red) | ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20forward-broken-red) |
+| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-partial-yellow) | ![](https://img.shields.io/badge/Enzyme%20forward-broken-red) | ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20reverse-partial-yellow) | ![](https://img.shields.io/badge/Mooncake%20forward-partial-yellow) |
 
-Gamma scenarios fail across all backends due to a `_gamma_inc` `Dual` dispatch gap ([#217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217)). Enzyme forward/reverse and Mooncake forward/reverse fail on every scenario ([#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225)).
+Gamma scenarios fail across all backends due to a `_gamma_inc` `Dual` dispatch gap ([#217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217)). Enzyme forward/reverse fail on every scenario ([#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225)). Mooncake forward/reverse work on the LogNormal-analytical, IntervalCensored, and DoubleIntervalCensored scenarios. ReverseDiff (tape) regressed on `PrimaryCensored LogNormal+Uniform numerical` after #230 removed the try/catch in `primarycensored_cdf` — under investigation.
 
 *Primary event censored distributions for Distributions.jl*
 
