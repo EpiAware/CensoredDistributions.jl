@@ -17,7 +17,8 @@ using Enzyme
 using Mooncake
 import DifferentiationInterfaceTest as DIT
 
-include(joinpath(@__DIR__, "scenarios.jl"))
+include(joinpath(@__DIR__, "..", "..", "docs", "src", "getting-started",
+    "tutorials", "ad_scenarios.jl"))
 
 function check_broken(scenarios, backend)
     for scen in scenarios

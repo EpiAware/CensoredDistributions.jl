@@ -28,9 +28,6 @@ using ForwardDiff
 using ReverseDiff
 using Enzyme
 using Mooncake
-using BenchmarkTools
-using Printf
-using Markdown
 
 md"""
 ## A single scenario by hand
@@ -69,76 +66,43 @@ md"""
 ## Shared scenarios
 
 The test suite, the benchmark suite and this tutorial all pull their
-scenarios from `test/ad/scenarios.jl`. Each scenario wraps a loss in a
+scenarios from `docs/src/getting-started/tutorials/ad_scenarios.jl`
+(alongside this file). Each scenario wraps a loss in a
 `DIT.Scenario{:gradient, :out}` object that pairs the function with an
 input vector. Including the file exposes `ad_backends` and
 `ad_scenarios` at top level:
 """
 
-include(joinpath(@__DIR__, "..", "..", "..", "..", "test", "ad", "scenarios.jl"))
+include(joinpath(@__DIR__, "ad_scenarios.jl"))
 
 scenarios = ad_scenarios()
 
 md"""
-## Timing gradients with a forward-pass baseline
+## Timing gradients across backends
 
-For each scenario we record two numbers: the cost of the forward
-`logpdf` evaluation itself (a lower bound any AD backend must beat) and
-the cost of each backend's gradient call. Combinations whose gradient is
-non-finite or throws are reported as `N/A`.
+`DifferentiationInterfaceTest.benchmark_differentiation` runs every
+(backend, scenario) combination and returns a Tables.jl-compatible
+table of runtimes and allocations. We restrict the call to the
+currently-working scenarios and backends so the tutorial stays green;
+the known-broken combinations are exercised in the test suite via
+`@test_broken` and tracked in
+[#217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217)
+and
+[#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
 """
 
-function bench_one(f, backend, x)
-    try
-        g = DifferentiationInterface.gradient(f, backend, x)
-        (g isa AbstractVector && all(isfinite, g)) || return missing
-        return @belapsed DifferentiationInterface.gradient($f, $backend, $x) samples=5 evals=1
-    catch
-        return missing
-    end
-end
-
-function bench_baseline(f, x)
-    return @belapsed $f($x) samples=5 evals=1
-end
-
-results = map(scenarios) do scen
-    row = Any[scen.name, bench_baseline(scen.f, scen.x)]
-    for entry in ad_backends()
-        push!(row, bench_one(scen.f, entry.backend, scen.x))
-    end
-    row
-end
+broken_names = Set(ad_broken_scenario_names())
+working_scenarios = filter(s -> !(s.name in broken_names), scenarios)
+working_backends = [entry.backend for entry in ad_working_backends()]
 
 md"""
 ## Results
 """
 
-io = IOBuffer()
-header = ["Scenario", "logpdf (no AD)"]
-for entry in ad_backends()
-    push!(header, entry.name)
-end
-println(io, "| ", join(header, " | "), " |")
-println(io, "|", repeat("---|", length(header)))
-for row in results
-    fields = Any[row[1]]
-    for v in row[2:end]
-        push!(fields, ismissing(v) ? "N/A" : @sprintf("%.1f μs", 1e6 * v))
-    end
-    println(io, "| ", join(fields, " | "), " |")
-end
-
-Markdown.parse(String(take!(io)))
-
-md"""
-Timings are reported in microseconds. The `logpdf (no AD)` column is the
-forward-pass cost and acts as a lower bound any backend must beat. A
-value of `N/A` means the backend either threw or returned a non-finite
-gradient. Gamma scenarios still fail under several backends because of
-the `_gamma_inc` `Dual` dispatch gap tracked in
-[#217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217).
-"""
+DIT.benchmark_differentiation(
+    working_backends, working_scenarios;
+    logging = false
+)
 
 md"""
 ## When to use which backend

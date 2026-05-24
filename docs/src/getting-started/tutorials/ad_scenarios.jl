@@ -1,9 +1,10 @@
 # Shared AD gradient scenarios for CensoredDistributions.
 #
-# This file is included from:
+# Lives in docs/ so the AD backends tutorial can ship its scenario
+# definitions alongside the rendered page. Included from:
+#   - `docs/src/getting-started/tutorials/ad-backends.jl`
 #   - `test/ad/runtests.jl`
 #   - `benchmark/src/ad_gradients.jl`
-#   - `docs/src/getting-started/tutorials/ad-backends.jl`
 #
 # The including file is responsible for loading these packages before the
 # include:
@@ -88,16 +89,10 @@ function ad_scenarios(; with_reference::Bool = false)
     obs_int_gamma = [0.5, 2.0, 4.0, 7.0]
     obs_double = [1.0, 2.0, 3.0, 4.0, 5.0]
 
-    analytical_specs = (
+    primary_specs = (
         (name = "Gamma", ctor = Gamma, θ₀ = [2.0, 1.5]),
         (name = "LogNormal", ctor = LogNormal, θ₀ = [1.0, 0.75]),
         (name = "Weibull", ctor = Weibull, θ₀ = [2.0, 1.5])
-    )
-
-    numerical_specs = (
-        (name = "LogNormal", ctor = LogNormal, θ₀ = [1.0, 0.75]),
-        (name = "Weibull", ctor = Weibull, θ₀ = [2.0, 1.5]),
-        (name = "Gamma", ctor = Gamma, θ₀ = [2.0, 1.5])
     )
 
     scenarios = DIT.Scenario{:gradient, :out}[]
@@ -110,27 +105,19 @@ function ad_scenarios(; with_reference::Bool = false)
             DIT.Scenario{:gradient, :out}(f, θ₀; res1 = res1, name = name))
     end
 
-    for spec in analytical_specs
-        f = let ctor = spec.ctor
-            θ -> sum(
-                x -> logpdf(
-                    primary_censored(ctor(θ[1], θ[2]), Uniform(0.0, 1.0)), x),
-                obs)
-        end
-        _push!("PrimaryCensored $(spec.name)+Uniform analytical", f, spec.θ₀)
-    end
+    for spec in primary_specs, force_numeric in (false, true)
 
-    for spec in numerical_specs
-        f = let ctor = spec.ctor
+        path = force_numeric ? "numerical" : "analytical"
+        f = let ctor = spec.ctor, force_numeric = force_numeric
             θ -> sum(
                 x -> logpdf(
                     primary_censored(
                         ctor(θ[1], θ[2]), Uniform(0.0, 1.0);
-                        force_numeric = true),
+                        force_numeric = force_numeric),
                     x),
                 obs)
         end
-        _push!("PrimaryCensored $(spec.name)+Uniform numerical", f, spec.θ₀)
+        _push!("PrimaryCensored $(spec.name)+Uniform $path", f, spec.θ₀)
     end
 
     f_int_lognormal = θ -> sum(
