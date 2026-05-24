@@ -28,6 +28,7 @@ using ForwardDiff
 using ReverseDiff
 using Enzyme
 using Mooncake
+using Chairmarks
 
 md"""
 ## A single scenario by hand
