@@ -101,6 +101,8 @@ tasks:
       - julia --project=. -e 'using Pkg; Pkg.instantiate()'
       - echo "📦 Installing test environment dependencies..."
       - julia --project=test -e 'using Pkg; Pkg.instantiate()'
+      - echo "📦 Installing AD test environment dependencies..."
+      - julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
       - echo "📦 Installing JET environment dependencies..."
       - julia --project=test/jet -e 'using Pkg; Pkg.instantiate()'
       - echo "📦 Installing formatter environment dependencies..."

@@ -1,3 +1,27 @@
+## Unreleased
+
+### AD gradient infrastructure
+
+- New `test/ad/` sub-environment with `DifferentiationInterfaceTest`-driven
+  gradient correctness tests for the `logpdf` of every censored
+  distribution type, and a `task test-ad` target wired into `task test`
+  and a dedicated CI job.
+- Shared scenario file at
+  `docs/src/getting-started/tutorials/ad_scenarios.jl` exposes the AD
+  scenario set, working/broken backend lists, and per-backend broken
+  scenarios — consumed by the test suite, the benchmark suite
+  (`benchmark/src/ad_gradients.jl`), and the new docs tutorial.
+- New "Automatic differentiation backends" tutorial under
+  `docs/src/getting-started/tutorials/ad-backends.jl` renders
+  per-backend gradient timings via `DIT.benchmark_differentiation`.
+- README gains a per-backend support badge row reflecting the measured
+  state (ForwardDiff full; ReverseDiff tape, Mooncake reverse, and
+  Mooncake forward partial; Enzyme forward/reverse broken).
+- Known follow-ups tracked in #217 (`_gamma_inc` Dual dispatch),
+  #225 (Enzyme + Mooncake remediation), and #249 (ReverseDiff
+  regression on `PrimaryCensored LogNormal+Uniform numerical` after
+  #230).
+
 ## v0.1.0 - Initial Release
 
 CensoredDistributions.jl extends Distributions.jl to support primary event
