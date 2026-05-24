@@ -56,21 +56,9 @@ censored_dist = primary_censored(delay_dist, primary_dist)
 
 ### Q: Can I use this with automatic differentiation?
 
-**A:** Yes. The censored `logpdf` is differentiable with
-[ForwardDiff.jl](https://github.com/JuliaDiff/ForwardDiff.jl) across all
-currently supported distribution types and with
-[ReverseDiff.jl](https://github.com/JuliaDiff/ReverseDiff.jl) in most cases.
-Gradient correctness is validated against finite differences in
-`test/ad/ad_gradients.jl` and benchmarked in
-`benchmark/src/ad_gradients.jl`.
-See the [Automatic differentiation backends](@ref) tutorial for a worked
-example using [DifferentiationInterface.jl](https://github.com/JuliaDiff/DifferentiationInterface.jl)
-and a timing comparison across backends. The known-broken combinations are
-tracked in
-[issue #217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217)
-(`IntervalCensored` + `Gamma` with ForwardDiff/ReverseDiff) and
-[issue #218](https://github.com/EpiAware/CensoredDistributions.jl/issues/218)
-(Zygote fails across all censored `logpdf`s).
+**A:** Yes. See the [Automatic differentiation backends](@ref) tutorial for
+a worked example and per-backend timings. The CI badges on the repo README
+track which backend/scenario pairs currently pass.
 
 ## Common issues
 
