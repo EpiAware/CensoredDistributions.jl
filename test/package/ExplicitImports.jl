@@ -16,9 +16,10 @@
     @test check_all_explicit_imports_are_public(CensoredDistributions;
         # Skip check for internal/non-public functions that we need to use:
         # - Censored: Used in get_dist.jl for Distributions.jl compatibility
-        # - M: HypergeometricFunctions._₁F₁ used in analytical CDF solutions
         # - _in_closed_interval: Internal Distributions utility used for bounds checking
-        ignore = (:Censored, :M, :_in_closed_interval)
+        # - _gamma_cdf, _grad_p_a_series: Internal AD-safe gamma CDF used by the
+        #   ChainRulesCore extension (ext/CensoredDistributionsChainRulesCoreExt.jl)
+        ignore = (:Censored, :_in_closed_interval, :_gamma_cdf, :_grad_p_a_series)
     ) === nothing
 
     # Test that all explicit imports come from the owning module
