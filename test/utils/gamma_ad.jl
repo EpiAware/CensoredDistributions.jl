@@ -143,6 +143,33 @@ end
     end
 end
 
+@testitem "_gamma_cdf rrule and _make_weibull_g zero-input guards" tags=[:ad] begin
+    # Exercise the non-positive-input early-return branches that no other
+    # AD test hits (all the gradient-checking grids use strictly positive
+    # x / t). Without this, the rrule's x <= 0 path and the Weibull g's
+    # t <= 0 guard appear as uncovered defensive code in patch coverage.
+    using ChainRulesCore: rrule, NoTangent
+    using CensoredDistributions: CensoredDistributions, _gamma_cdf
+    # _make_weibull_g lives in the primarycensored CDF module; reach it
+    # via the parent module to avoid leaking it into the public surface.
+    _make_weibull_g = CensoredDistributions._make_weibull_g
+
+    # rrule(_gamma_cdf, k, θ, x) with x == 0: primal is zero, pullback
+    # returns NoTangent + zero tangents for every input.
+    Ω, pb = rrule(_gamma_cdf, 2.0, 1.5, 0.0)
+    @test Ω == 0.0
+    @test pb(1.0) == (NoTangent(), 0.0, 0.0, 0.0)
+
+    Ω_neg, pb_neg = rrule(_gamma_cdf, 2.0, 1.5, -0.5)
+    @test Ω_neg == 0.0
+    @test pb_neg(1.0) == (NoTangent(), 0.0, 0.0, 0.0)
+
+    # _make_weibull_g(k, λ)(t) for t <= 0 returns zero(t).
+    g = _make_weibull_g(2.0, 1.5)
+    @test g(0.0) === 0.0
+    @test g(-1.0) === 0.0
+end
+
 @testitem "primarycensored Weibull+Uniform analytic gradient matches FiniteDifferences" tags=[:ad] begin
     # _make_weibull_g must route through _gamma_cdf (not _gamma_p_series
     # directly) so the ChainRules rrule + Mooncake @from_rrule
