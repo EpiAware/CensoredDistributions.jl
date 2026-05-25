@@ -143,6 +143,46 @@ end
     end
 end
 
+@testitem "primarycensored Weibull+Uniform analytic gradient matches FiniteDifferences" tags=[:ad] begin
+    # _make_weibull_g must route through _gamma_cdf (not _gamma_p_series
+    # directly) so the ChainRules rrule + Mooncake @from_rrule
+    # intercept. Without that, reverse-mode AD traces the series loop —
+    # slower, and the regression isn't caught by primal-only tests.
+    using FiniteDifferences: central_fdm
+    using DifferentiationInterface
+    import ReverseDiff
+    import Mooncake
+    using Distributions: Weibull, Uniform
+    using CensoredDistributions: primarycensored_cdf, AnalyticalSolver
+
+    fd = AutoFiniteDifferences(; fdm = central_fdm(7, 1))
+    backends = [
+        ("ReverseDiff", AutoReverseDiff()),
+        ("Mooncake", AutoMooncake(; config = nothing))
+    ]
+
+    pe = Uniform(0.0, 2.0)
+    method = AnalyticalSolver(nothing)
+    f(v) = primarycensored_cdf(Weibull(v[1], v[2]), pe, v[3], method)
+
+    cases = [
+        [1.5, 1.0, 2.0],
+        [2.0, 1.5, 3.0],
+        [3.0, 0.8, 1.5]
+    ]
+    # FiniteDifferences baseline is noisier on the x-partial here because
+    # the integrand contains (t/λ)^k, whose finite-difference probe
+    # accumulates rounding error through the real-exponent power; the
+    # backends agree with each other to ~1e-10.
+    for v in cases
+        truth = gradient(f, fd, v)
+        for (_, backend) in backends
+            g = gradient(f, backend, v)
+            @test isapprox(g, truth; atol = 1e-6, rtol = 1e-6)
+        end
+    end
+end
+
 @testitem "primarycensored Gamma+Uniform analytic gradient matches FiniteDifferences" tags=[:ad] begin
     using FiniteDifferences: central_fdm
     using DifferentiationInterface
