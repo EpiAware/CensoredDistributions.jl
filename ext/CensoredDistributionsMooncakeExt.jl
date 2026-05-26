@@ -10,6 +10,6 @@ using Mooncake: Mooncake
 # parameter, or `BigFloat` for higher-precision testing) hit the
 # explicit rule rather than falling back to Mooncake tracing
 # `_gamma_p_series`'s data-dependent termination loop.
-Mooncake.@from_rrule Mooncake.DefaultCtx Tuple{typeof(_gamma_cdf), Real, Real, Real}
+Mooncake.@from_chainrules Mooncake.DefaultCtx Tuple{typeof(_gamma_cdf), Real, Real, Real}
 
 end

@@ -22,11 +22,13 @@ ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 DynamicPPL = "366bfd00-2699-11ea-058f-f148b4cae6d8"
 FlexiChains = "4a37a8b9-6e57-4b92-8664-298d46e639f7"
 Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
+ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
 Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [extensions]
 CensoredDistributionsChainRulesCoreExt = "ChainRulesCore"
 CensoredDistributionsMooncakeExt = ["ChainRulesCore", "Mooncake"]
+CensoredDistributionsReverseDiffExt = "ReverseDiff"
 
 [compat]
 ChainRulesCore = "1"
@@ -37,11 +39,12 @@ FastGaussQuadrature = "1"
 FlexiChains = "0.4, 0.5, 0.6"
 Integrals = "4, 5.1"
 LogExpFunctions = "0.3"
-Mooncake = "0.4, 0.5"
+Mooncake = "0.5"
 Optimization = "4, 5"
 OptimizationOptimJL = "0.4.3"
 PrecompileTools = "1"
 Random = "1"
+ReverseDiff = "1"
 SpecialFunctions = "2"
 Statistics = "1"
 Turing = "0.42, 0.43, 0.44, 0.45"

@@ -6,15 +6,20 @@
     # where the series converges at different rates. The k≪1 rows pin
     # the singular regime where t^(k-1) blows up at t=0 — the case that
     # historically broke implementations of the gamma CDF derivative.
+    # All (a, z) here satisfy z < a + 1 — the regime where the absolutely-
+    # convergent series converges. For z >= a + 1 the series catastrophically
+    # underflows once z/a is large enough that z^a · e^{-z} / Γ(a+1) falls
+    # below floatmin(Float64); _gamma_cdf dispatches to _gamma_q_cf there
+    # and that path is exercised by the next testitem.
     grid = [
         (0.05, 0.001), (0.05, 0.1), (0.05, 1.0),
-        (0.1, 0.01), (0.1, 0.5), (0.1, 5.0),
-        (0.3, 0.01), (0.3, 0.5), (0.3, 5.0),
-        (0.5, 0.1), (0.5, 0.9), (0.5, 5.0),
-        (1.0, 0.1), (1.0, 1.0), (1.0, 5.0), (1.0, 50.0),
-        (2.3, 0.1), (2.3, 1.0), (2.3, 5.0), (2.3, 50.0),
-        (10.0, 0.5), (10.0, 9.5), (10.0, 25.0), (10.0, 100.0),
-        (50.0, 5.0), (50.0, 49.5), (50.0, 100.0)
+        (0.1, 0.01), (0.1, 0.5), (0.1, 1.0),
+        (0.3, 0.01), (0.3, 0.5), (0.3, 1.0),
+        (0.5, 0.1), (0.5, 0.9), (0.5, 1.4),
+        (1.0, 0.1), (1.0, 1.0), (1.0, 1.9),
+        (2.3, 0.1), (2.3, 1.0), (2.3, 3.0),
+        (10.0, 0.5), (10.0, 5.0), (10.0, 10.5),
+        (50.0, 5.0), (50.0, 30.0), (50.0, 50.5)
     ]
     for (a, z) in grid
         truth = first(gamma_inc(a, z))

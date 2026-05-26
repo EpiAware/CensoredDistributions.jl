@@ -59,16 +59,25 @@ end
 @doc raw"""
 AD-safe Gamma CDF, `P(k, x/θ)`.
 
-Computed via [`_gamma_p_series`](@ref) so the primal is dual-number
-compatible (ForwardDiff). Reverse-mode AD picks up the analytic
-gradient via the `ChainRulesCore.rrule` provided in the
-`CensoredDistributionsChainRulesCoreExt` extension; Mooncake support is
-wired in `CensoredDistributionsMooncakeExt`.
+For `Float64` inputs (the no-AD hot path) dispatches to
+`SpecialFunctions.gamma_inc` directly — correct across all
+`z/a` regimes including the upper tail where the series alone
+underflows.
 
-This replaces the earlier `HypergeometricFunctions.M`-based workaround,
-removes a slow-path AD failure on Mooncake, and gives a single
-implementation usable from both the analytical and numeric
-primary-censored CDF paths.
+For other `Real` inputs (ForwardDiff `Dual`s, `BigFloat`, etc.) uses the
+absolutely-convergent series [`_gamma_p_series`](@ref). The series
+catastrophically underflows for moderate `a` once `z/a ≳ 20` because
+the prefactor `z^a e^{-z} / Γ(a+1)` falls below `floatmin(Float64)`,
+silently returning `0` instead of `~1`. Reverse-mode AD avoids this by
+going through the `ChainRulesCore.rrule` in
+`CensoredDistributionsChainRulesCoreExt` (which uses `gamma_inc` for
+the primal); ForwardDiff Duals at extreme `z/a` are a known limitation
+— the correct fix is a `ForwardDiff` extension that calls `gamma_inc`
+on the value parts and computes partials analytically. Tracked in a
+follow-up issue.
+
+Mooncake / ReverseDiff are wired through their respective extensions.
+This replaces the earlier `HypergeometricFunctions.M`-based workaround.
 """
 function _gamma_cdf(k::Real, θ::Real, x::Real)
     x <= 0 && return zero(k) * zero(θ) * zero(x)
