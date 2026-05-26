@@ -1,10 +1,10 @@
 # Gradient benchmarks for CensoredDistributions across AD backends.
 #
-# Scenarios and the backend list are sourced from
-# `docs/src/getting-started/tutorials/ad_scenarios.jl`, which is also used
-# by the test suite (`test/ad/runtests.jl`) and the docs tutorial
-# (`docs/src/getting-started/tutorials/ad-backends.jl`). This keeps the
-# three AD surfaces in lock-step.
+# Scenarios and the backend list are sourced from the `ADFixtures`
+# path package at `test/ADFixtures`, which also drives the test suite
+# (`test/ad/runtests.jl`) and the docs tutorial
+# (`docs/src/getting-started/tutorials/ad-backends.jl`). This keeps
+# the three AD surfaces in lock-step.
 #
 # Each (scenario, backend) pair is first smoke-tested to make sure the
 # gradient is finite before being registered as a `@benchmarkable`, so
@@ -17,16 +17,14 @@ using ForwardDiff
 using ReverseDiff
 using Enzyme
 using Mooncake
+using ADFixtures
 import DifferentiationInterfaceTest as DIT
-
-include(joinpath(@__DIR__, "..", "..", "docs", "src", "getting-started",
-    "tutorials", "ad_scenarios.jl"))
 
 SUITE["AD gradients"] = BenchmarkGroup()
 
-for scen in ad_scenarios()
+for scen in ADFixtures.scenarios()
     SUITE["AD gradients"][scen.name] = BenchmarkGroup()
-    for entry in ad_backends()
+    for entry in ADFixtures.backends()
         grad_ok = try
             g = DifferentiationInterface.gradient(
                 scen.f, entry.backend, scen.x)

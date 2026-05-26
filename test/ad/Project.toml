@@ -1,14 +1,21 @@
 [deps]
+ADFixtures = "f4c5db17-3a4c-4f8b-b1de-e1f76a5b8e84"
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 CensoredDistributions = "b2eeebe4-5992-4301-9193-7ebc9f62c855"
+ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
 DifferentiationInterfaceTest = "a82114a7-5aa3-49a8-9643-716bb13727a3"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+Integrals = "de52edbc-65ea-441a-8357-d3a637375a31"
 Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [sources]
+ADFixtures = {path = "../ADFixtures"}
 CensoredDistributions = {path = "../.."}

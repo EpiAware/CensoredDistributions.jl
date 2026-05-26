@@ -1,4 +1,5 @@
 [deps]
+ADFixtures = "f4c5db17-3a4c-4f8b-b1de-e1f76a5b8e84"
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 Bijectors = "76274a88-744f-5084-9051-94815aaf08c4"
@@ -34,4 +35,5 @@ StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
 Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [sources]
+ADFixtures = {path = "../test/ADFixtures"}
 CensoredDistributions = {path = ".."}
