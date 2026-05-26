@@ -15,6 +15,14 @@ backend (ReverseDiff, Mooncake reverse/forward) to ~1e-6.
 """
 module ADFixtures
 
+# `__precompile__(false)` skips the precompile cache so the Mooncake
+# load chain (specifically `MooncakeAllocCheckExt.__init__` evaluating
+# into the already-closed `AllocCheck` module) doesn't break the
+# package build on CI. Negligible cost — this module is only loaded by
+# the AD test, benchmark, and docs scripts, each of which already pays
+# for Mooncake/Enzyme load time elsewhere.
+__precompile__(false)
+
 using CensoredDistributions
 using Distributions: Distributions, Gamma, LogNormal, Weibull, Uniform, logpdf
 using ADTypes: ADTypes, AutoForwardDiff, AutoReverseDiff, AutoMooncake,
