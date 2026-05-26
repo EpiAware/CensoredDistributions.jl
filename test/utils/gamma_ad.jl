@@ -6,11 +6,12 @@
     # where the series converges at different rates. The k≪1 rows pin
     # the singular regime where t^(k-1) blows up at t=0 — the case that
     # historically broke implementations of the gamma CDF derivative.
-    # All (a, z) here satisfy z < a + 1 — the regime where the absolutely-
-    # convergent series converges. For z >= a + 1 the series catastrophically
-    # underflows once z/a is large enough that z^a · e^{-z} / Γ(a+1) falls
-    # below floatmin(Float64); _gamma_cdf dispatches to _gamma_q_cf there
-    # and that path is exercised by the next testitem.
+    # All (a, z) here satisfy z < a + 1, the regime where the absolutely-
+    # convergent series converges fast and is fully accurate. The upper
+    # tail (z ≫ a + 1) is documented as a known limitation in the
+    # _gamma_cdf docstring — Float64 callers go through gamma_inc; the
+    # ForwardDiff Dual path is the only one that hits the series in that
+    # regime, with a follow-up issue tracking a ForwardDiff extension.
     grid = [
         (0.05, 0.001), (0.05, 0.1), (0.05, 1.0),
         (0.1, 0.01), (0.1, 0.5), (0.1, 1.0),
@@ -207,7 +208,7 @@ end
 
 @testitem "primarycensored Weibull+Uniform analytic gradient matches FiniteDifferences" tags=[:ad] begin
     # _make_weibull_g must route through _gamma_cdf (not _gamma_p_series
-    # directly) so the ChainRules rrule + Mooncake @from_rrule
+    # directly) so the ChainRules rrule + Mooncake @from_chainrules
     # intercept. Without that, reverse-mode AD traces the series loop —
     # slower, and the regression isn't caught by primal-only tests.
     using FiniteDifferences: central_fdm
