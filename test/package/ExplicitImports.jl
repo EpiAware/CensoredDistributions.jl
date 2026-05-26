@@ -18,8 +18,14 @@
         # - Censored: Used in get_dist.jl for Distributions.jl compatibility
         # - _in_closed_interval: Internal Distributions utility used for bounds checking
         # - _gamma_cdf, _grad_p_a_series: Internal AD-safe gamma CDF used by the
-        #   ChainRulesCore extension (ext/CensoredDistributionsChainRulesCoreExt.jl)
-        ignore = (:Censored, :_in_closed_interval, :_gamma_cdf, :_grad_p_a_series)
+        #   ChainRulesCore and ForwardDiff extensions
+        # - Dual, value, partials: ForwardDiff internals used by the
+        #   ForwardDiff extension to construct Dual return values; no public
+        #   alternative for the Dual reconstruction pattern.
+        ignore = (
+            :Censored, :_in_closed_interval, :_gamma_cdf, :_grad_p_a_series,
+            :Dual, :value, :partials
+        )
     ) === nothing
 
     # Test that all explicit imports come from the owning module

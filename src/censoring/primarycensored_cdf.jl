@@ -29,10 +29,10 @@ function _make_weibull_g(k::Real, λ::Real)
     function weibull_g_specialized(t::Real)
         t <= 0 && return zero(t)
         x = (t / λ)^k
-        # γ(a, x) = Γ(a) · P(a, x). Goes through _gamma_cdf(a, 1, x), not
-        # _gamma_p_series directly, so the ChainRules rrule + Mooncake
-        # @from_chainrules registered on _gamma_cdf intercept rather than
-        # the AD backend tracing the series loop.
+        # γ(a, x) = Γ(a) · P(a, x). Routes through _gamma_cdf so each
+        # AD backend's rule on _gamma_cdf intercepts (ChainRules rrule
+        # for Mooncake/ReverseDiff/Zygote; explicit Dual methods for
+        # ForwardDiff).
         return Γa * _gamma_cdf(a, one_a, x)
     end
     return weibull_g_specialized

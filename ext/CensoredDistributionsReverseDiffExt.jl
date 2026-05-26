@@ -5,9 +5,10 @@ using ReverseDiff: ReverseDiff, @grad_from_chainrules, TrackedReal
 
 # Lift the `ChainRulesCore.rrule` defined in
 # `CensoredDistributionsChainRulesCoreExt` into ReverseDiff's gradient
-# table. Without this, ReverseDiff falls back to tracing through
-# `_gamma_p_series`'s series loop — correct (every primitive is in
-# DiffRules) but slower than calling our analytical rrule directly.
+# table. Without this, ReverseDiff falls back to forward-mode through
+# `gamma_inc` (no `TrackedReal` method, errors) or, depending on the
+# call site, traces through the function body — slower than calling
+# our analytical rrule directly even when it works.
 # Seven overloads cover every non-trivial Tracked/untracked subset of
 # the three arguments — required because `@grad_from_chainrules` is
 # signature-specific, not abstract; mixed patterns (e.g.

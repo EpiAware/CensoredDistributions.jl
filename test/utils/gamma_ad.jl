@@ -1,34 +1,3 @@
-@testitem "_gamma_p_series matches SpecialFunctions.gamma_inc" tags=[:ad] begin
-    using SpecialFunctions: gamma_inc
-    using CensoredDistributions: _gamma_p_series
-
-    # Grid spanning small/large shape and the z<a / z≈a / z>a regimes
-    # where the series converges at different rates. The k≪1 rows pin
-    # the singular regime where t^(k-1) blows up at t=0 — the case that
-    # historically broke implementations of the gamma CDF derivative.
-    # All (a, z) here satisfy z < a + 1, the regime where the absolutely-
-    # convergent series converges fast and is fully accurate. The upper
-    # tail (z ≫ a + 1) is documented as a known limitation in the
-    # _gamma_cdf docstring — Float64 callers go through gamma_inc; the
-    # ForwardDiff Dual path is the only one that hits the series in that
-    # regime, with a follow-up issue tracking a ForwardDiff extension.
-    grid = [
-        (0.05, 0.001), (0.05, 0.1), (0.05, 1.0),
-        (0.1, 0.01), (0.1, 0.5), (0.1, 1.0),
-        (0.3, 0.01), (0.3, 0.5), (0.3, 1.0),
-        (0.5, 0.1), (0.5, 0.9), (0.5, 1.4),
-        (1.0, 0.1), (1.0, 1.0), (1.0, 1.9),
-        (2.3, 0.1), (2.3, 1.0), (2.3, 3.0),
-        (10.0, 0.5), (10.0, 5.0), (10.0, 10.5),
-        (50.0, 5.0), (50.0, 30.0), (50.0, 50.5)
-    ]
-    for (a, z) in grid
-        truth = first(gamma_inc(a, z))
-        series = _gamma_p_series(a, z)
-        @test isapprox(series, truth; atol = 1e-13, rtol = 1e-13)
-    end
-end
-
 @testitem "_grad_p_a_series matches FiniteDifferences" tags=[:ad] begin
     using SpecialFunctions: gamma_inc
     using FiniteDifferences: central_fdm
@@ -59,15 +28,23 @@ end
     end
 end
 
-@testitem "_gamma_cdf rrule matches FiniteDifferences (ReverseDiff & Mooncake)" tags=[:ad] begin
+@testitem "_gamma_cdf gradient matches FiniteDifferences across AD backends" tags=[:ad] begin
+    # Direct function-level coverage of every AD backend we wire up:
+    # the ChainRules rrule (used by ReverseDiff and Mooncake via their
+    # respective extensions) and the explicit Dual methods (used by
+    # ForwardDiff via the ForwardDiff extension). Each backend gets the
+    # same FiniteDifferences ground truth so a regression in any single
+    # registration surfaces here rather than only in the pipeline tests.
     using FiniteDifferences: central_fdm
     using DifferentiationInterface
+    import ForwardDiff
     import ReverseDiff
     import Mooncake
     using CensoredDistributions: _gamma_cdf
 
     fd = AutoFiniteDifferences(; fdm = central_fdm(7, 1))
     backends = [
+        ("ForwardDiff", AutoForwardDiff()),
         ("ReverseDiff", AutoReverseDiff()),
         ("Mooncake", AutoMooncake(; config = nothing))
     ]

@@ -8,8 +8,8 @@ using Mooncake: Mooncake
 # for every scalar `Real` triple, so callers that pass mixed concrete
 # types (e.g. `_gamma_cdf(k + 1, θ, t)` where `k + 1::Int`, a `Float32`
 # parameter, or `BigFloat` for higher-precision testing) hit the
-# explicit rule rather than falling back to Mooncake tracing
-# `_gamma_p_series`'s data-dependent termination loop.
+# explicit rule rather than falling back to Mooncake tracing the
+# function body.
 Mooncake.@from_chainrules Mooncake.DefaultCtx Tuple{typeof(_gamma_cdf), Real, Real, Real}
 
 end
