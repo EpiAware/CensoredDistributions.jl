@@ -103,7 +103,7 @@ allocations or GC time.
 """
 
 @chain DataFrame(raw_bench) begin
-    @rsubset :operator == :gradient
+    @rsubset :operator == ^(:gradient)
     @rtransform begin
         :backend = string(:backend)
         :scenario = :scenario.name
