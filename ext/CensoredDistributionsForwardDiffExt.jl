@@ -30,16 +30,20 @@ using SpecialFunctions: gamma_inc
 # there's a use case.
 
 _val(x) = x isa Dual ? value(x) : x
-_par(x, ::Val{N}) where {N} = x isa Dual ? partials(x) : ForwardDiff.Partials(ntuple(_ -> zero(_val(x)), N))
+function _par(x, ::Val{N}) where {N}
+    x isa Dual ? partials(x) : ForwardDiff.Partials(ntuple(_ -> zero(_val(x)), N))
+end
 
 function _dual_impl(::Type{T}, k, θ, x, ::Val{N}) where {T, N}
-    kv = _val(k); θv = _val(θ); xv = _val(x)
+    kv = _val(k)
+    θv = _val(θ)
+    xv = _val(x)
     if xv <= 0
         return Dual{T}(zero(kv * θv * xv), _par(k, Val(N)) * 0)
     end
     z = xv / θv
-    Ω  = first(gamma_inc(promote(kv, z)...))
-    f  = pdf(Gamma(kv, θv), xv)
+    Ω = first(gamma_inc(promote(kv, z)...))
+    f = pdf(Gamma(kv, θv), xv)
     dk = _grad_p_a_series(kv, z)
     dθ = -(xv / θv) * f
     dx = f
