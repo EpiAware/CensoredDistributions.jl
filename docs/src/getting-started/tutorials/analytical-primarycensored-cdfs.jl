@@ -390,7 +390,7 @@ You can also customise the numerical solver when needed:
 ## (no analytical solution available)
 exponential_delay = Exponential(2.0)
 
-## Default solver (QuadGKJL)
+## Default solver (GaussLegendre, AD-friendly)
 pc_default = primary_censored(
     exponential_delay, primary_uniform
 )
