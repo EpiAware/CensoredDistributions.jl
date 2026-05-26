@@ -61,7 +61,9 @@ coverage is supplied by per-backend extensions:
   not via ChainRules).
 
 The α-partial that `gamma_inc`'s `ChainRule` leaves as
-`@not_implemented` is supplied by [`_grad_p_a_series`](@ref).
+`@not_implemented` is supplied by [`_grad_p_a_series`](@ref), following
+the series form Moore (1982) introduced as Algorithm AS 187 and that
+Stan (`grad_reg_inc_gamma`) and JAX (`igamma_grad_a`) both use.
 """
 function _gamma_cdf(k::Real, θ::Real, x::Real)
     x <= 0 && return zero(k) * zero(θ) * zero(x)

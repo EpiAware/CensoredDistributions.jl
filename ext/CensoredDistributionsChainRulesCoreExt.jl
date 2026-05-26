@@ -8,16 +8,18 @@ using SpecialFunctions: gamma_inc
 # Reverse-mode rule for `_gamma_cdf(k, θ, x) = P(k, x/θ)`.
 #
 # Partials:
-#   ∂P/∂x = pdf(Gamma(k, θ), x)
-#   ∂P/∂θ = -(x/θ) · pdf(Gamma(k, θ), x)
-#   ∂P/∂k = via `_grad_p_a_series(k, x/θ)` (series form; see
-#           `src/utils/gamma_ad.jl` for derivation).
+#   ∂P/∂x = pdf(Gamma(k, θ), x)                       (standard)
+#   ∂P/∂θ = -(x/θ) · pdf(Gamma(k, θ), x)              (chain rule on z = x/θ)
+#   ∂P/∂k = via `_grad_p_a_series(k, x/θ)`            (Moore 1982 AS 187,
+#                                                       used by Stan and JAX
+#                                                       for the same gap)
 #
-# Primal is computed via `SpecialFunctions.gamma_inc` rather than the
-# package's own series because here we're given concrete `Real` values
-# and the SpecialFunctions implementation is faster. The Julia series
-# is still used for the primal when ForwardDiff `Dual`s flow through
-# the un-ruled `_gamma_cdf` definition.
+# Primal and the x/θ partials route through `SpecialFunctions` /
+# `Distributions` directly — fast and full accuracy. Only the
+# k-partial is reimplemented here, because that's the term
+# SpecialFunctions' own ChainRule leaves as `@not_implemented`.
+# See `_grad_p_a_series` in `src/utils/gamma_ad.jl` for derivation
+# and references.
 function ChainRulesCore.rrule(::typeof(_gamma_cdf), k::Real, θ::Real, x::Real)
     if x <= 0
         T = float(promote_type(typeof(k), typeof(θ), typeof(x)))
