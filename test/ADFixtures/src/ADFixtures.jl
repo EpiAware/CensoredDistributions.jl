@@ -82,7 +82,7 @@ failures). Returns a `Vector{String}`.
 """
 function broken_scenario_names()
     # `IntervalCensored Gamma arbitrary` routes through stock
-    # `Distributions.cdf(Gamma, x)` → `gamma_inc`, which #250's
+    # `Distributions.cdf(Gamma, x)` → `gamma_inc`, which the
     # ForwardDiff Dual extension does not cover (it only handles the
     # `_gamma_cdf` helper used by primary-censored analytical paths).
     # Tracked in #217.

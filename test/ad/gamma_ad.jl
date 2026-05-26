@@ -1,8 +1,8 @@
-# Unit-level AD coverage for the gamma CDF rrule wiring added in #250.
-# Complements the scenario suite in `runtests.jl`: those check
-# end-to-end gradient agreement; these pin the implementation-level
-# guarantees (series accuracy, Mooncake rule structure, defensive
-# guards) that no scenario exercises directly.
+# Unit-level AD coverage for the gamma CDF rrule. Complements the
+# scenario suite in `runtests.jl`: those check end-to-end gradient
+# agreement; these pin the implementation-level guarantees (series
+# accuracy, Mooncake rule structure, defensive guards) that no
+# scenario exercises directly.
 
 @testset "_grad_p_a_series matches FiniteDifferences" begin
     using SpecialFunctions: gamma_inc

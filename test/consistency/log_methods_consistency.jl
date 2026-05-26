@@ -465,11 +465,10 @@ end
                     # Numerical derivative approximation
                     numerical_derivative = (exp(logcdf_upper) - exp(logcdf_lower)) / h
                     if numerical_derivative > 0
-                        # rtol bumped from 1e-6 to 1e-5 alongside the switch
-                        # from QuadGKJL to GaussLegendre(n=64) as the default
-                        # solver. The integrator's slightly larger residual
-                        # propagates through both logpdf's internal FD and the
-                        # cdf used here, leaving them in agreement at ~1e-5.
+                        # rtol is 1e-5 rather than tighter because the
+                        # default solver `GaussLegendre(; n = 64)` leaves a
+                        # residual that propagates through both logpdf's
+                        # internal FD and the cdf used here.
                         @test logpdf_val ≈ log(numerical_derivative) rtol=1e-5
                     end
                 end

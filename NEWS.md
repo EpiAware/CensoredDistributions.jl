@@ -3,10 +3,9 @@
 ### Breaking
 
 - `primary_censored(...; solver)` defaults to `GaussLegendre(; n = 64)`
-  (was `QuadGKJL()`). Aligns the constructor with the AD-friendly
-  no-arg defaults landed in #250 for `NumericSolver()` /
-  `AnalyticalSolver()`. Pass `solver = QuadGKJL()` explicitly to keep
-  adaptive accuracy.
+  (was `QuadGKJL()`). The fixed-node solver traces cleanly through every
+  AD backend, where adaptive quadrature does not. Pass
+  `solver = QuadGKJL()` explicitly to keep adaptive accuracy.
 
 ### AD gradient infrastructure
 
@@ -35,11 +34,14 @@
 - README gains a per-backend support badge row reflecting the measured
   state (ForwardDiff full; ReverseDiff tape, Mooncake reverse, and
   Mooncake forward partial; Enzyme forward/reverse broken).
-- Known follow-ups tracked in #217 (`gamma_inc` Dual dispatch gap on
-  the `Distributions.cdf(Gamma)` path used by
-  `IntervalCensored Gamma arbitrary`), #225 (Enzyme + DIT-Mooncake
-  interaction), and #249 (ReverseDiff regression on
-  `PrimaryCensored LogNormal+Uniform numerical` after #230).
+- Known follow-ups tracked in
+  [#217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217)
+  (`gamma_inc` `Dual` dispatch gap on the `Distributions.cdf(Gamma)`
+  path used by `IntervalCensored Gamma arbitrary`),
+  [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225)
+  (Enzyme + DIT-Mooncake interaction), and
+  [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249)
+  (ReverseDiff regression on `PrimaryCensored LogNormal+Uniform numerical`).
 
 ## v0.1.0 - Initial Release
 

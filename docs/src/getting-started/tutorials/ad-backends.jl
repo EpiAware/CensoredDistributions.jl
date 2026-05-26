@@ -8,10 +8,27 @@ in gradient-based inference, for example inside a
 This tutorial reports the wall-clock cost of each AD backend on the
 package's shared scenario set, defined with
 [DifferentiationInterfaceTest.jl](https://juliadiff.org/DifferentiationInterface.jl/DifferentiationInterfaceTest/stable/)
-and exposed at
-`docs/src/getting-started/tutorials/ad_scenarios.jl`.
+and exposed via the `ADFixtures` path package at `test/ADFixtures`.
 The same scenario list powers the gradient tests in `test/ad/runtests.jl`
 and the benchmark suite in `benchmark/src/ad_gradients.jl`.
+
+## Reproducing this page
+
+The numbers below are measured on the docs-build machine. To regenerate
+locally:
+
+```
+task docs
+```
+
+or, equivalently:
+
+```
+julia --project=docs docs/make.jl
+```
+
+`docs/Project.toml` adds `ADFixtures` as a path dep so the same scenario
+set is loaded; results will reflect the local CPU.
 """
 
 md"""
