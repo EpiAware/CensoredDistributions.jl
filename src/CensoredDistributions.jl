@@ -23,11 +23,10 @@ using PrecompileTools: @setup_workload, @compile_workload
 
 using LogExpFunctions: logsubexp, log1mexp
 
-using SpecialFunctions: gamma
+using SpecialFunctions: gamma, gamma_inc, loggamma, digamma
 
-using HypergeometricFunctions: M
-
-using Integrals: IntegralProblem, solve, QuadGKJL
+using Integrals: IntegralProblem, solve, QuadGKJL, GaussLegendre
+import FastGaussQuadrature  # activates IntegralsFastGaussQuadratureExt for GaussLegendre
 
 using Optimization: OptimizationFunction, OptimizationProblem, solve, ReturnCode
 
@@ -46,6 +45,8 @@ export ExponentiallyTilted
 export weight, get_dist, get_dist_recursive
 
 include("docstrings.jl")
+
+include("utils/gamma_ad.jl")
 
 include("censoring/primarycensored_cdf.jl")
 include("censoring/PrimaryCensored.jl")

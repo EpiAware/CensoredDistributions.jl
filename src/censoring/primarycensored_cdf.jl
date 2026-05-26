@@ -24,23 +24,17 @@ g_val = weibull_g_func(3.0)
 "
 function _make_weibull_g(k::Real, λ::Real)
     a = 1 + 1 / k
-    inv_a = inv(a)
-
+    Γa = gamma(a)
+    one_a = one(a)
     function weibull_g_specialized(t::Real)
-        if t <= 0
-            return 0.0
-        end
-        # γ(a, x) = x^a / a · M(a, a+1, -x), using the AD-compatible
-        # confluent hypergeometric M in place of `SpecialFunctions.gamma_inc`
-        # (which is not differentiable w.r.t. the shape parameter).
-        # See https://github.com/JuliaMath/HypergeometricFunctions.jl/issues/50#issuecomment-1397363491.
-        # With x = (t/λ)^k, x^a = (t/λ)^(k·a) = (t/λ)^(k+1) = (t/λ) · x,
-        # so we avoid a second real-exponent power call.
-        u = t / λ
-        x = u^k
-        return u * x * inv_a * M(a, a + 1, -x)
+        t <= 0 && return zero(t)
+        x = (t / λ)^k
+        # γ(a, x) = Γ(a) · P(a, x). Routes through _gamma_cdf so each
+        # AD backend's rule on _gamma_cdf intercepts (ChainRules rrule
+        # for Mooncake/ReverseDiff/Zygote; explicit Dual methods for
+        # ForwardDiff).
+        return Γa * _gamma_cdf(a, one_a, x)
     end
-
     return weibull_g_specialized
 end
 
@@ -73,6 +67,20 @@ The `solver` field contains the numerical integration solver to use.
 struct NumericSolver{S} <: AbstractSolverMethod
     solver::S
 end
+
+# Default fallback integrator for AnalyticalSolver()/NumericSolver().
+#
+# Fixed-node Gauss-Legendre quadrature is chosen over adaptive schemes
+# (QuadGKJL, HCubatureJL) because its constant control flow is traceable
+# by reverse-mode AD; adaptive schemes change their node count based on
+# integrand values, which prevents trace-based AD backends from
+# differentiating through them regardless of how well-behaved the
+# integrand is. n = 64 is accurate to ~1e-13 on the smooth,
+# density-weighted CDF integrands used in this package. Pass an explicit
+# solver (e.g. NumericSolver(QuadGKJL())) when adaptive accuracy is
+# required and AD isn't.
+AnalyticalSolver() = AnalyticalSolver(GaussLegendre(; n = 64))
+NumericSolver() = NumericSolver(GaussLegendre(; n = 64))
 
 @doc "
 Compute the CDF of a primary event censored distribution.
@@ -170,8 +178,11 @@ function primarycensored_cdf(
     end
 
     # Define the integrand
+    # `_logcdf_ad_safe` dispatches on `dist` type so distributions whose
+    # `logcdf` would otherwise call `gamma_inc` (Gamma) route through the
+    # AD-safe `_gamma_cdf` rrule under reverse-mode AD.
     function integrand(u, x)
-        return exp(logcdf(dist, u) +
+        return exp(_logcdf_ad_safe(dist, u) +
                    logpdf(primary_event, x - u))
     end
 
@@ -186,7 +197,7 @@ function primarycensored_cdf(
 
     # When the delay CDF at the lower bound is effectively
     # 1, integration is unnecessary and may produce NaN
-    cdf_lower = cdf(dist, lower)
+    cdf_lower = _cdf_ad_safe(dist, lower)
     if cdf_lower > 1 - eps(one(eltype(dist)))
         return one(cdf_lower)
     end
@@ -310,33 +321,29 @@ function primarycensored_cdf(
 
     q = max(d - pwindow, minimum(dist))
 
-    # Share `y^k / Γ(k+1)` between F_T(·; k), the F_T(·; k+1) recursion, and
-    # the partial first moment M_T.
-    # F_T(y; k)   = y^k · M(k, k+1, -y) / Γ(k+1)
-    # F_T(y; k+1) = y^k · (M(k, k+1, -y) - exp(-y)) / Γ(k+1)       (recursion)
-    # M_T(y)      = kθ · F_T(y; k+1)                               (partial first moment)
-    # `M(k, k+1, ·)` is the AD-safe confluent hypergeometric (see _make_weibull_g).
+    # F_T(y; k+1) via the recursion P(k+1, y) = P(k, y) - y^k e^{-y} / Γ(k+1)
+    # so each endpoint pays one regularised-lower-incomplete-gamma call,
+    # not two. _gamma_cdf carries the ChainRules + Mooncake AD machinery
+    # for the shape-parameter derivative; the correction term is plain
+    # arithmetic and differentiates trivially.
     inv_gamma_kp1 = inv(gamma(k + 1))
     E_T = k * θ
 
     yd = d / θ
-    coeff_d = yd^k * inv_gamma_kp1
-    M_d = M(k, k + 1, -yd)
-    F_T_d = coeff_d * M_d
-    M_T_d = E_T * coeff_d * (M_d - exp(-yd))
+    F_T_d = _gamma_cdf(k, θ, d)
+    M_T_d = E_T * (F_T_d - yd^k * exp(-yd) * inv_gamma_kp1)
 
     if q > 0
         yq = q / θ
-        coeff_q = yq^k * inv_gamma_kp1
-        M_q = M(k, k + 1, -yq)
-        F_T_q = coeff_q * M_q
-        M_T_q = E_T * coeff_q * (M_q - exp(-yq))
+        F_T_q = _gamma_cdf(k, θ, q)
+        M_T_q = E_T * (F_T_q - yq^k * exp(-yq) * inv_gamma_kp1)
     else
         F_T_q = 0.0
         M_T_q = 0.0
     end
 
-    return primarycensored_uniform_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
+    return primarycensored_uniform_cdf_formula(
+        d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
 end
 
 @doc "

@@ -16,9 +16,21 @@
     @test check_all_explicit_imports_are_public(CensoredDistributions;
         # Skip check for internal/non-public functions that we need to use:
         # - Censored: Used in get_dist.jl for Distributions.jl compatibility
-        # - M: HypergeometricFunctions._₁F₁ used in analytical CDF solutions
         # - _in_closed_interval: Internal Distributions utility used for bounds checking
-        ignore = (:Censored, :M, :_in_closed_interval)
+        # - _gamma_cdf, _grad_p_a_series: Internal AD-safe gamma CDF used by the
+        #   ChainRulesCore and ForwardDiff extensions
+        # - Dual, value, partials: ForwardDiff internals used by the
+        #   ForwardDiff extension to construct Dual return values; no public
+        #   alternative for the Dual reconstruction pattern.
+        # - @grad_from_chainrules, TrackedReal: ReverseDiff internals used by
+        #   the ReverseDiff extension; @grad_from_chainrules is the standard
+        #   ChainRules-to-ReverseDiff bridge macro and TrackedReal is the
+        #   public-by-convention tape value type, neither marked `public`.
+        ignore = (
+            :Censored, :_in_closed_interval, :_gamma_cdf, :_grad_p_a_series,
+            :Dual, :value, :partials,
+            Symbol("@grad_from_chainrules"), :TrackedReal
+        )
     ) === nothing
 
     # Test that all explicit imports come from the owning module
