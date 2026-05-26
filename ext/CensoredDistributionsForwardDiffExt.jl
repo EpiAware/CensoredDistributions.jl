@@ -16,6 +16,18 @@ using SpecialFunctions: gamma_inc
 # the same analytical formulas the rrule uses
 # (`_grad_p_a_series` for ∂P/∂k, `pdf(Gamma(k, θ), x)` for ∂P/∂x,
 # `-(x/θ) · pdf(Gamma(k, θ), x)` for ∂P/∂θ).
+#
+# Two edge cases NOT handled (both extremely unlikely in single-pass
+# Turing sampling, the workload we target):
+# - Nested ForwardDiff (`V <: Dual` in the Dual's value field): `value`
+#   strips only one level, the inner `gamma_inc(promote(kv, z)...)`
+#   call still sees `Dual` args and errors.
+# - Mixed tags across args (`Dual{T1}, Dual{T2}, ...`): no method
+#   matches the single-`T` parametrisation, falls through to the
+#   `Real, Real, Real` body which calls `gamma_inc(::Dual, ::Dual)`
+#   and errors.
+# Both would be addressed by a generated method set; deferred until
+# there's a use case.
 
 _val(x) = x isa Dual ? value(x) : x
 _par(x, ::Val{N}) where {N} = x isa Dual ? partials(x) : ForwardDiff.Partials(ntuple(_ -> zero(_val(x)), N))
