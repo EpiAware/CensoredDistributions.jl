@@ -16,6 +16,15 @@ with `ψ(a + n + 1) = ψ(a + n) + 1 / (a + n)` propagated alongside the
 term recurrence `term_{n+1} = term_n · z / (a + n + 1)`. Used by the
 reverse-mode rule in `CensoredDistributionsChainRulesCoreExt` and by
 the forward-mode `Dual` methods in `CensoredDistributionsForwardDiffExt`.
+
+# References
+
+The series + digamma-recurrence form is Moore (1982), "Algorithm AS
+187: Derivatives of the Incomplete Gamma Integral", *Applied
+Statistics* 31:330-335. The same construction is used by Stan
+(`stan/math/prim/fun/grad_reg_inc_gamma.hpp`) and JAX
+(`jax._src.scipy.special.random_gamma_grad` / `igamma_grad_a`) for the
+shape derivative of the regularised lower incomplete gamma.
 """
 function _grad_p_a_series(a::Real, z::Real; rtol::Real = 1e-14, maxiter::Int = 10_000)
     z <= 0 && return zero(a) * zero(z)
