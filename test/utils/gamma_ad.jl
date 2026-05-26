@@ -92,7 +92,9 @@ end
     # is the convention for tag-less testing.
     seed(v) = Dual{Nothing}(v, 1.0)
 
-    dk = seed(k0); dθ = seed(θ0); dx = seed(x0)
+    dk = seed(k0)
+    dθ = seed(θ0)
+    dx = seed(x0)
 
     # All seven non-trivial Dual/Real subsets of (k, θ, x).
     combos = [
@@ -107,7 +109,7 @@ end
     for (k, θ, x) in combos
         out = _gamma_cdf(k, θ, x)
         @test out isa Dual
-        @test value(out) ≈ primal atol=1e-12 rtol=1e-12
+        @test value(out)≈primal atol=1e-12 rtol=1e-12
         @test length(partials(out)) == 1
     end
 end
