@@ -22,9 +22,14 @@
         # - Dual, value, partials: ForwardDiff internals used by the
         #   ForwardDiff extension to construct Dual return values; no public
         #   alternative for the Dual reconstruction pattern.
+        # - @grad_from_chainrules, TrackedReal: ReverseDiff internals used by
+        #   the ReverseDiff extension; @grad_from_chainrules is the standard
+        #   ChainRules-to-ReverseDiff bridge macro and TrackedReal is the
+        #   public-by-convention tape value type, neither marked `public`.
         ignore = (
             :Censored, :_in_closed_interval, :_gamma_cdf, :_grad_p_a_series,
-            :Dual, :value, :partials
+            :Dual, :value, :partials,
+            Symbol("@grad_from_chainrules"), :TrackedReal
         )
     ) === nothing
 
