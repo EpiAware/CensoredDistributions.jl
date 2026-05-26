@@ -12,6 +12,35 @@ and exposed via the `ADFixtures` path package at `test/ADFixtures`.
 The same scenario list powers the gradient tests in `test/ad/runtests.jl`
 and the benchmark suite in `benchmark/src/ad_gradients.jl`.
 
+## Support matrix
+
+| ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-partial-yellow) | ![](https://img.shields.io/badge/Enzyme%20forward-broken-red) | ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20reverse-partial-yellow) | ![](https://img.shields.io/badge/Mooncake%20forward-partial-yellow) |
+
+- **ForwardDiff** works on every scenario.
+- **ReverseDiff (tape)** works everywhere except the numerical-path
+  LogNormal scenarios (with both `Uniform` and `ExponentiallyTilted`
+  primary events), tracked in
+  [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249).
+- **Mooncake** (reverse and forward) works via plain
+  `DifferentiationInterface.gradient` on every scenario, but
+  `DifferentiationInterfaceTest.test_differentiation` errors on the
+  primary-censored Gamma/Weibull paths (both `Uniform` and
+  `ExponentiallyTilted` priors) — a DIT-Mooncake interaction tracked
+  in [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
+- **Enzyme** (forward and reverse) fails on every scenario; also
+  [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
+- `IntervalCensored Gamma arbitrary` fails universally because it routes
+  through `Distributions.cdf(Gamma)` → `gamma_inc`, which the ForwardDiff
+  `Dual` extension does not cover. Tracked in
+  [#217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217).
+
+The scenario set covers analytical and numerical paths for Gamma,
+LogNormal, and Weibull delay distributions with both `Uniform` and
+`ExponentiallyTilted` primary events, plus `IntervalCensored` (regular
+and arbitrary boundaries) and `DoubleIntervalCensored` constructions.
+
 ## Reproducing this page
 
 The numbers below are measured on the docs-build machine. To regenerate
@@ -46,6 +75,7 @@ using Enzyme
 using Mooncake
 using Chairmarks
 using ADFixtures
+using DataFramesMeta
 
 scenarios = ADFixtures.scenarios()
 all_backends = [entry.backend for entry in ADFixtures.backends()]
@@ -55,20 +85,33 @@ md"""
 
 `DifferentiationInterfaceTest.benchmark_differentiation` runs every
 (backend, scenario) combination and returns a Tables.jl-compatible
-table of runtimes and allocations. We pass every backend and every
-scenario so failures are visible in the output (rows with a `false`
-success flag or missing timing) rather than silently hidden. Known
-broken combinations are tracked in
-[#217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217)
-and
-[#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
+result. We pass every backend and every scenario so failures are
+visible in the output rather than silently hidden.
 """
 
-DIT.benchmark_differentiation(
+raw_bench = DIT.benchmark_differentiation(
     all_backends, scenarios;
     logging = false,
     benchmark_test = false
 )
+
+md"""
+The raw result carries timing, allocation, GC and compile-fraction
+columns per (backend, scenario, operator). Below is a trimmed view —
+the full table is available as `raw_bench` if you want to inspect
+allocations or GC time.
+"""
+
+@chain DataFrame(raw_bench) begin
+    @rsubset :operator == :gradient
+    @rtransform begin
+        :backend = string(:backend)
+        :scenario = :scenario.name
+        :time_us = round(:time * 1e6; digits = 2)
+        :bytes_kb = round(:bytes / 1024; digits = 1)
+    end
+    @select :backend :scenario :time_us :bytes_kb
+end
 
 md"""
 ## When to use which backend

@@ -109,12 +109,16 @@ function backend_broken_scenarios()
         "PrimaryCensored Gamma+Uniform numerical",
         "PrimaryCensored LogNormal+Uniform numerical",
         "PrimaryCensored Weibull+Uniform analytical",
-        "PrimaryCensored Weibull+Uniform numerical"
+        "PrimaryCensored Weibull+Uniform numerical",
+        "PrimaryCensored Gamma+ExponentiallyTilted numerical",
+        "PrimaryCensored LogNormal+ExponentiallyTilted numerical",
+        "PrimaryCensored Weibull+ExponentiallyTilted numerical"
     ])
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set([
-            "PrimaryCensored LogNormal+Uniform numerical"
+            "PrimaryCensored LogNormal+Uniform numerical",
+            "PrimaryCensored LogNormal+ExponentiallyTilted numerical"
         ]),
         "Mooncake reverse" => mooncake_broken,
         "Mooncake forward" => mooncake_broken
@@ -169,6 +173,27 @@ function scenarios(; with_reference::Bool = false)
                 obs)
         end
         _push!("PrimaryCensored $(spec.name)+Uniform $path", f, spec.θ₀)
+    end
+
+    # ExponentiallyTilted primary event — no analytical
+    # `primarycensored_cdf(::Delay, ::ExponentiallyTilted, ...)` exists,
+    # so the scalar `r` parameter of the prior is included in θ and the
+    # whole path runs through numeric integration. Exercises gradient
+    # flow through both the delay distribution params and the primary
+    # event's tilt parameter.
+    for spec in primary_specs
+        θ₀ = vcat(spec.θ₀, 0.5)
+        f = let ctor = spec.ctor
+            θ -> sum(
+                x -> logpdf(
+                    primary_censored(
+                        ctor(θ[1], θ[2]),
+                        ExponentiallyTilted(0.0, 1.0, θ[3])),
+                    x),
+                obs)
+        end
+        _push!("PrimaryCensored $(spec.name)+ExponentiallyTilted numerical",
+            f, θ₀)
     end
 
     f_int_lognormal = θ -> sum(

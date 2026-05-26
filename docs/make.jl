@@ -120,14 +120,6 @@ bib = CitationBibliography(
 makedocs(; sitename = "CensoredDistributions.jl",
     authors = "Sam Abbott, and contributors",
     clean = true, doctest = false, linkcheck = true,
-    linkcheck_ignore = [
-    # The AD backends tutorial URL is linked from the bundled README
-    # before the page itself has been deployed. Once a build with the
-    # page lands on the dev site the link resolves; until then,
-    # linkcheck sees a 404. Safe to ignore — Vitepress will not
-    # generate the link target unless the page exists.
-        r"censoreddistributions\.epiaware\.org/dev/getting-started/tutorials/ad-backends/?"
-    ],
     warnonly = [
         :docs_block, :missing_docs,
         :autodocs_block
