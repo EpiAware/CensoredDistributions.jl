@@ -72,6 +72,46 @@ end
     end
 end
 
+@testitem "_gamma_cdf ForwardDiff Dual dispatch covers every Dual/Real subset" tags=[:ad] begin
+    # The ForwardDiff extension enumerates seven explicit Dual methods,
+    # one per non-trivial subset of (k, θ, x) being a Dual rather than
+    # a plain Real. The other AD tests only exercise the all-Dual
+    # combination via `gradient(f, AutoForwardDiff(), [k, θ, x])`,
+    # which leaves the six mixed-arity methods uncovered. Calling each
+    # combination directly and comparing against the all-Float64 primal
+    # both validates dispatch and lifts the patch coverage off those
+    # otherwise-unhit lines.
+    import ForwardDiff
+    using ForwardDiff: Dual, value, partials
+    using CensoredDistributions: _gamma_cdf
+
+    k0, θ0, x0 = 2.3, 1.7, 1.9
+    primal = _gamma_cdf(k0, θ0, x0)
+    # 1-partial Dual along each axis lets us read off the per-arg partial
+    # without going through `gradient`. Tag is opaque; tag value `nothing`
+    # is the convention for tag-less testing.
+    seed(v) = Dual{Nothing}(v, 1.0)
+
+    dk = seed(k0); dθ = seed(θ0); dx = seed(x0)
+
+    # All seven non-trivial Dual/Real subsets of (k, θ, x).
+    combos = [
+        (dk, dθ, dx),         # (Dual, Dual, Dual)
+        (dk, dθ, x0),         # (Dual, Dual, Real)
+        (dk, θ0, dx),         # (Dual, Real, Dual)
+        (k0, dθ, dx),         # (Real, Dual, Dual)
+        (dk, θ0, x0),         # (Dual, Real, Real)
+        (k0, dθ, x0),         # (Real, Dual, Real)
+        (k0, θ0, dx)          # (Real, Real, Dual)
+    ]
+    for (k, θ, x) in combos
+        out = _gamma_cdf(k, θ, x)
+        @test out isa Dual
+        @test value(out) ≈ primal atol=1e-12 rtol=1e-12
+        @test length(partials(out)) == 1
+    end
+end
+
 @testitem "_gamma_cdf passes Mooncake.TestUtils.test_rule" tags=[:ad] begin
     # Mooncake's canonical rule test. `mode = Mooncake.ReverseMode`
     # skips the forward-mode interface check — we only register an
