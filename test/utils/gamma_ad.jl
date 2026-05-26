@@ -94,6 +94,36 @@ end
     end
 end
 
+@testitem "_gamma_cdf passes Mooncake.TestUtils.test_rule" tags=[:ad] begin
+    # Mooncake's canonical rule test. `mode = Mooncake.ReverseMode`
+    # skips the forward-mode interface check — we only register an
+    # rrule via @from_chainrules, no frule. Verifies (a) the rule is
+    # actually being invoked (is_primitive = true asserts this) and
+    # (b) primal + pullback match Richardson-extrapolated finite
+    # differences. Stronger structural guarantee than the DI-based
+    # test below, which only checks end-to-end numerical agreement.
+    using Random: MersenneTwister
+    using Mooncake: Mooncake
+    using CensoredDistributions: _gamma_cdf
+
+    cases = [
+        (2.3, 1.7, 1.9),
+        (0.5, 2.0, 0.3),
+        (5.0, 0.4, 1.0),
+        (10.0, 1.0, 9.5),
+        (0.3, 1.0, 0.5)
+    ]
+    for (k, θ, x) in cases
+        Mooncake.TestUtils.test_rule(
+            MersenneTwister(20260526),
+            _gamma_cdf, k, θ, x;
+            is_primitive = true,
+            perf_flag = :none,
+            mode = Mooncake.ReverseMode
+        )
+    end
+end
+
 @testitem "primarycensored Gamma+Uniform numeric path differentiates across backends" tags=[:ad] begin
     # `_logcdf_ad_safe(::Gamma, ...)` routes the inner CDF through our
     # rrule so the integrand is differentiable; the outer integrator
