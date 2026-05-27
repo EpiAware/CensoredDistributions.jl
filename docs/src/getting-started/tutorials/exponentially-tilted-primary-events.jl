@@ -42,6 +42,7 @@ using Distributions
 using CairoMakie
 using AlgebraOfGraphics
 using DataFramesMeta
+using KernelDensity
 using Statistics
 using Random
 
@@ -165,18 +166,34 @@ md"""
 <details><summary>Show plotting code</summary>
 """
 
+## AoG's density() analysis returns a 2D grid that visual(Lines)
+## can't render, so compute the KDE per scenario up-front and feed
+## the resulting (x, density) curves into a standard AoG pipeline.
+effective_windows_kde_df = vcat([begin
+                                     sub = filter(
+                                         :name => ==(scen),
+                                         censoring_windows_df
+                                     )
+                                     k = kde(sub.effective_window)
+                                     DataFrame(
+                                         x = collect(k.x),
+                                         density = k.density,
+                                         name = scen
+                                     )
+                                 end
+                                 for scen in scenarios_df.name]...)
+
 fig_effective_windows = draw(
-    data(censoring_windows_df) *
+    data(effective_windows_kde_df) *
     mapping(
-        :effective_window => "Effective censoring window (days)",
+        :x => "Effective censoring window (days)",
+        :density => "Density",
         color = :name => "Scenario"
     ) *
-    AlgebraOfGraphics.density() *
     visual(Lines, linewidth = 2);
     figure = (size = (700, 400),),
     axis = (title = "Distribution of Effective " *
-                    "Censoring Windows by Epidemic Phase",
-        ylabel = "Density")
+                    "Censoring Windows by Epidemic Phase",)
 );
 
 md"""
