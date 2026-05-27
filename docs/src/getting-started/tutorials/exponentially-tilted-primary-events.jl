@@ -121,7 +121,7 @@ fig_primary_events = draw(
     figure = (size = (700, 400),),
     axis = (title = "Primary Event Timing: " *
                     "ExponentiallyTilted vs Uniform",)
-)
+);
 
 md"""
 </details>
@@ -177,7 +177,7 @@ fig_effective_windows = draw(
     axis = (title = "Distribution of Effective " *
                     "Censoring Windows by Epidemic Phase",
         ylabel = "Density")
-)
+);
 
 md"""
 </details>
@@ -230,7 +230,7 @@ fig_delay_pdfs = draw(
     visual(Lines, linewidth = 2);
     figure = (size = (700, 400),),
     axis = (title = "Observed vs True Delay Distributions",)
-)
+);
 
 md"""
 </details>
@@ -284,7 +284,7 @@ fig_double_cdfs = draw(
     figure = (size = (700, 400),),
     axis = (title = "Double vs Single Interval " *
                     "Censored Distributions",)
-)
+);
 
 md"""
 </details>

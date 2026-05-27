@@ -4,6 +4,7 @@ getting_started_pages = Any[
 "Tutorials" => [
     "Analytical CDF solutions" => "getting-started/tutorials/analytical-primarycensored-cdfs.md",
     "Exponentially tilted primary events" => "getting-started/tutorials/exponentially-tilted-primary-events.md",
+    "Automatic differentiation backends" => "getting-started/tutorials/ad-backends.md",
     "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md"
 ],
 "Julia" => "getting-started/julia.md",

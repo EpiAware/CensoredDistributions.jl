@@ -118,7 +118,7 @@ fig_cdf_compare = draw(
     mapping(:x, :cdf => "CDF", color = :method => "Method") *
     visual(Lines, linewidth = 2);
     axis = (title = "CDF Comparison: Analytical vs Numerical",)
-)
+);
 
 md"""
 </details>
@@ -298,7 +298,7 @@ draw!(
         xscale = log10,
         yscale = log10
     )
-)
+);
 
 md"""
 </details>
@@ -428,7 +428,7 @@ draw!(
         yscale = log10,
         limits = (nothing, (1e-17, 1e-13))
     )
-)
+);
 
 md"""
 </details>
@@ -469,7 +469,7 @@ You can also customise the numerical solver when needed:
 ## (no analytical solution available)
 exponential_delay = Exponential(2.0)
 
-## Default solver (QuadGKJL)
+## Default solver (GaussLegendre, AD-friendly)
 pc_default = primary_censored(
     exponential_delay, primary_uniform
 )
