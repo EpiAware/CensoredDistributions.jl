@@ -381,7 +381,9 @@ pattern `(values = values, weights = counts)`.
 """
 
 naive_fit = sample(
-    naive_mdl, NUTS(; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 500, 4;
+    naive_mdl,
+    NUTS(; adtype = AutoMooncake(; config = nothing)),
+    MCMCThreads(), 500, 4;
     chain_type = VNChain
 );
 
@@ -459,7 +461,9 @@ range of fitting methods but here we use the No-U-turn sampler*):
 """
 
 interval_only_fit = sample(
-    interval_only_mdl, NUTS(; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 500, 4;
+    interval_only_mdl,
+    NUTS(; adtype = AutoMooncake(; config = nothing)),
+    MCMCThreads(), 500, 4;
     chain_type = VNChain
 );
 
