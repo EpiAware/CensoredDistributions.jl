@@ -12,11 +12,14 @@ and exposed via the `ADFixtures` path package at `test/ADFixtures`.
 The same scenario list powers the gradient tests in `test/ad/runtests.jl`
 and the benchmark suite in `benchmark/src/ad_gradients.jl`.
 
-## Support matrix
+## Tested backends
 
-| ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
-|:---:|:---:|:---:|:---:|:---:|:---:|
-| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-partial-yellow) | ![](https://img.shields.io/badge/Enzyme%20forward-broken-red) | ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20reverse-partial-yellow) | ![](https://img.shields.io/badge/Mooncake%20forward-partial-yellow) |
+![](https://img.shields.io/badge/ForwardDiff-full-brightgreen)
+![](https://img.shields.io/badge/ReverseDiff%20tape-partial-yellow)
+![](https://img.shields.io/badge/Mooncake%20reverse-partial-yellow)
+![](https://img.shields.io/badge/Mooncake%20forward-partial-yellow)
+![](https://img.shields.io/badge/Enzyme%20forward-broken-red)
+![](https://img.shields.io/badge/Enzyme%20reverse-broken-red)
 
 - **ForwardDiff** works on every scenario.
 - **ReverseDiff (tape)** works everywhere except the numerical-path
@@ -96,22 +99,36 @@ raw_bench = DIT.benchmark_differentiation(
 )
 
 md"""
-The raw result carries timing, allocation, GC and compile-fraction
-columns per (backend, scenario, operator). Below is a trimmed view —
-the full table is available as `raw_bench` if you want to inspect
-allocations or GC time.
+Below is two pivoted views — wall-clock time and bytes allocated —
+with scenarios as rows and backends as columns. The raw long-format
+result is available as `raw_bench` if you want GC fraction, compile
+fraction, or the `value_and_gradient` rows.
 """
 
-@chain DataFrame(raw_bench) begin
+backend_name = Dict(entry.backend => entry.name
+for entry in ADFixtures.backends())
+
+bench_long = @chain DataFrame(raw_bench) begin
     @rsubset :operator == ^(:gradient)
     @rtransform begin
-        :backend = string(:backend)
+        :backend = backend_name[:backend]
         :scenario = :scenario.name
         :time_us = round(:time * 1e6; digits = 2)
         :bytes_kb = round(:bytes / 1024; digits = 1)
     end
-    @select :backend :scenario :time_us :bytes_kb
 end
+
+md"""
+### Time (μs)
+"""
+
+unstack(bench_long, :scenario, :backend, :time_us)
+
+md"""
+### Allocations (KiB)
+"""
+
+unstack(bench_long, :scenario, :backend, :bytes_kb)
 
 md"""
 ## When to use which backend
