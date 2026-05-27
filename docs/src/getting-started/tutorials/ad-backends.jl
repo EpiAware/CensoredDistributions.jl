@@ -46,9 +46,18 @@ and the benchmark suite in `benchmark/src/ad_gradients.jl`.
   [#259](https://github.com/EpiAware/CensoredDistributions.jl/issues/259);
   remaining backend coverage gaps in
   [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
-- `IntervalCensored Gamma arbitrary` fails universally because it
-  routes through `Distributions.cdf(Gamma)` → `gamma_inc`, which the
-  ForwardDiff `Dual` extension does not cover. Tracked in
+- `IntervalCensored Gamma arbitrary` fails universally, on every
+  backend. Its CDF differences route through `Distributions.cdf(Gamma,
+  x)` → `SpecialFunctions.gamma_inc`, which **bypasses** the
+  `_gamma_cdf` helper our rules wrap. ForwardDiff hits a hard
+  `MethodError` because `gamma_inc` has no `Dual` method; the reverse-
+  mode backends (ReverseDiff, Mooncake) also fail because the rrule we
+  ship targets `_gamma_cdf`, not `gamma_inc` — to be picked up here it
+  would need to live on `gamma_inc` itself (i.e. upstream in
+  SpecialFunctions). The package-side workaround is to re-route
+  `IntervalCensored`'s CDF computation through `_gamma_cdf`, tracked in
+  [#257](https://github.com/EpiAware/CensoredDistributions.jl/issues/257);
+  the original `gamma_inc` Dual gap is
   [#217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217).
 
 The scenario set covers analytical and numerical paths for Gamma,
