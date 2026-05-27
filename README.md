@@ -38,7 +38,7 @@ You can fit censored distributions to data using [Turing.jl](https://github.com/
 For example, using MCMC for Bayesian inference:
 
 ```julia
-using Turing
+using Turing, StatsBase
 
 # Generate synthetic data from the censored distribution
 data = rand(censored, 1000)
@@ -63,6 +63,9 @@ end
 # Fit using MCMC for Bayesian inference
 model = double_censored_model(values, weights)
 chain = sample(model, NUTS(), MCMCThreads(), 1000, 2; progress = false)
+
+# Summarise the posterior
+summarystats(chain)
 ```
 
 Or fit using MAP:
