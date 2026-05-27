@@ -93,7 +93,9 @@ Let's verify both methods give the same results:
 """
 
 md"""
+```@raw html
 <details><summary>Show plotting code</summary>
+```
 """
 
 x_compare = 0:0.5:10
@@ -121,7 +123,9 @@ fig_cdf_compare = draw(
 );
 
 md"""
+```@raw html
 </details>
+```
 """
 
 fig_cdf_compare
@@ -198,7 +202,9 @@ benchmark_results = [
 ];
 
 md"""
+```@raw html
 <details><summary>Show plotting code</summary>
+```
 """
 
 ## Summary statistics: build long-form DataFrames for AoG
@@ -301,7 +307,9 @@ draw!(
 );
 
 md"""
+```@raw html
 </details>
+```
 """
 
 fig_benchmarks
@@ -358,7 +366,9 @@ max_errors = (
 )
 
 md"""
+```@raw html
 <details><summary>Show plotting code</summary>
+```
 """
 
 ## Build long-form DataFrames for CDF and error plots
@@ -431,7 +441,9 @@ draw!(
 );
 
 md"""
+```@raw html
 </details>
+```
 """
 
 fig_acc

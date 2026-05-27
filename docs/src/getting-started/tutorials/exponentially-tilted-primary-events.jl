@@ -82,8 +82,8 @@ scenarios_df = @chain DataFrame(
 end
 
 @chain scenarios_df begin
-    @transform!(:primary_event=ExponentiallyTilted.(0.0, :window, :r))
-    @transform!(:uniform_ref=Uniform.(0.0, :window))
+    @transform! :primary_event = ExponentiallyTilted.(0.0, :window, :r)
+    @transform! :uniform_ref = Uniform.(0.0, :window)
 end
 
 md"""
@@ -93,7 +93,9 @@ distributions.
 """
 
 md"""
+```@raw html
 <details><summary>Show plotting code</summary>
+```
 """
 
 x_primary = range(0, window_length, length = 100)
@@ -125,7 +127,9 @@ fig_primary_events = draw(
 );
 
 md"""
+```@raw html
 </details>
+```
 """
 
 fig_primary_events
@@ -154,7 +158,7 @@ censoring_windows_df = @chain scenarios_df begin
                   row.primary_event, n_samples
               )
           ) for row in eachrow(_)]...)
-    @transform(:effective_window=secondary_window .- :primary_time)
+    @transform :effective_window = secondary_window .- :primary_time
 end;
 
 md"""
@@ -163,7 +167,9 @@ windows by scenario.
 """
 
 md"""
+```@raw html
 <details><summary>Show plotting code</summary>
+```
 """
 
 ## AoG's density() analysis returns a 2D grid that visual(Lines)
@@ -197,7 +203,9 @@ fig_effective_windows = draw(
 );
 
 md"""
+```@raw html
 </details>
+```
 """
 
 fig_effective_windows
@@ -213,13 +221,15 @@ also be censored.
 """
 
 @chain scenarios_df begin
-    @transform!(:censored_dist=primary_censored.(
+    @transform! :censored_dist = primary_censored.(
         Ref(true_delay), :primary_event
-    ))
-end
+    )
+end;
 
 md"""
+```@raw html
 <details><summary>Show plotting code</summary>
+```
 """
 
 x_delay = range(0, 15, length = 100)
@@ -250,7 +260,9 @@ fig_delay_pdfs = draw(
 );
 
 md"""
+```@raw html
 </details>
+```
 """
 
 fig_delay_pdfs
@@ -262,15 +274,17 @@ Here we show the CDF.
 """
 
 @chain scenarios_df begin
-    @rtransform!(:double_censored_dist=double_interval_censored(
+    @rtransform! :double_censored_dist = double_interval_censored(
         true_delay;
         primary_event = :primary_event,
         interval = secondary_window
-    ))
-end
+    )
+end;
 
 md"""
+```@raw html
 <details><summary>Show plotting code</summary>
+```
 """
 
 x_delay_d = range(0, 40, length = 100)
@@ -304,7 +318,9 @@ fig_double_cdfs = draw(
 );
 
 md"""
+```@raw html
 </details>
+```
 """
 
 fig_double_cdfs
