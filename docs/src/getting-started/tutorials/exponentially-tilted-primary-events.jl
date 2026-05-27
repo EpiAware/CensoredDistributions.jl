@@ -39,11 +39,15 @@ md"""
 
 using CensoredDistributions
 using Distributions
-using Plots
-using StatsPlots
+using CairoMakie
+using AlgebraOfGraphics
 using DataFramesMeta
+using KernelDensity
 using Statistics
 using Random
+
+CairoMakie.activate!(type = "png", px_per_unit = 2)
+set_theme!(theme_latexfonts(); fontsize = 14)
 
 Random.seed!(123)
 
@@ -78,8 +82,8 @@ scenarios_df = @chain DataFrame(
 end
 
 @chain scenarios_df begin
-    @transform!(:primary_event=ExponentiallyTilted.(0.0, :window, :r))
-    @transform!(:uniform_ref=Uniform.(0.0, :window))
+    @transform! :primary_event = ExponentiallyTilted.(0.0, :window, :r)
+    @transform! :uniform_ref = Uniform.(0.0, :window)
 end
 
 md"""
@@ -88,30 +92,47 @@ comparison. Now lets plot the primary event timing
 distributions.
 """
 
+md"""
+```@raw html
+<details><summary>Show plotting code</summary>
+```
+"""
+
 x_primary = range(0, window_length, length = 100)
 
-p1 = plot(
-    title = "Primary Event Timing: " *
-            "ExponentiallyTilted vs Uniform",
-    xlabel = "Days before observation end",
-    ylabel = "Probability density",
-    size = (700, 400), legend = :topright
+primary_pdf_df = vcat(
+    [DataFrame(
+         x = x_primary,
+         pdf = pdf.(row.primary_event, x_primary),
+         scenario = "$(row.name) (r=$(row.r))"
+     ) for row in eachrow(scenarios_df)]...,
+    DataFrame(
+        x = x_primary,
+        pdf = pdf.(Uniform(0.0, window_length), x_primary),
+        scenario = "Uniform (reference)"
+    )
 )
 
-for row in eachrow(scenarios_df)
-    y_exponential = pdf.(row.primary_event, x_primary)
-    plot!(p1, x_primary, y_exponential,
-        label = "$(row.name) (r=$(row.r))",
-        color = row.color, linewidth = 3)
-end
+fig_primary_events = draw(
+    data(primary_pdf_df) *
+    mapping(
+        :x => "Days before observation end",
+        :pdf => "Probability density",
+        color = :scenario => "Scenario"
+    ) *
+    visual(Lines, linewidth = 3);
+    figure = (size = (700, 400),),
+    axis = (title = "Primary Event Timing: " *
+                    "ExponentiallyTilted vs Uniform",)
+);
 
-uniform_ref = Uniform(0.0, window_length)
-y_uniform = pdf.(uniform_ref, x_primary)
-plot!(p1, x_primary, y_uniform,
-    label = "Uniform (reference)", color = :black,
-    linestyle = :dash, linewidth = 2)
+md"""
+```@raw html
+</details>
+```
+"""
 
-p1
+fig_primary_events
 
 md"""
 ## Part 2: Double interval censoring - primary + secondary windows
@@ -126,20 +147,18 @@ For the secondary event the distribution doesn't impact
 what we observe (see references for why).
 """
 
-n_samples = 1000000
+n_samples = 50_000
 secondary_window = 7.0
 
 censoring_windows_df = @chain scenarios_df begin
     vcat([DataFrame(
               name = fill(row.name, n_samples),
               r = fill(row.r, n_samples),
-              color = fill(row.color, n_samples),
-              sample_id = 1:n_samples,
               primary_time = rand(
                   row.primary_event, n_samples
               )
           ) for row in eachrow(_)]...)
-    @transform(:effective_window=secondary_window .- :primary_time)
+    @transform :effective_window = secondary_window .- :primary_time
 end;
 
 md"""
@@ -147,28 +166,49 @@ Now we can plot the distribution of effective censoring
 windows by scenario.
 """
 
-p2 = plot(
-    title = "Distribution of Effective " *
-            "Censoring Windows by Epidemic Phase",
-    xlabel = "Effective censoring window (days)",
-    ylabel = "Density",
-    size = (700, 400),
-    legend = :topright
-)
+md"""
+```@raw html
+<details><summary>Show plotting code</summary>
+```
+"""
 
-for scenario_name in unique(censoring_windows_df.name)
-    scenario_data = @subset(censoring_windows_df,
-        :name .== scenario_name)
-    scenario_color = scenario_data.color[1]
+## AoG's density() analysis returns a 2D grid that visual(Lines)
+## can't render, so compute the KDE per scenario up-front and feed
+## the resulting (x, density) curves into a standard AoG pipeline.
+effective_windows_kde_df = vcat([begin
+                                     sub = filter(
+                                         :name => ==(scen),
+                                         censoring_windows_df
+                                     )
+                                     k = kde(sub.effective_window)
+                                     DataFrame(
+                                         x = collect(k.x),
+                                         density = k.density,
+                                         name = scen
+                                     )
+                                 end
+                                 for scen in scenarios_df.name]...)
 
-    density!(p2, scenario_data.effective_window,
-        label = scenario_name,
-        color = scenario_color,
-        linewidth = 3,
-        alpha = 0.7)
-end
+fig_effective_windows = draw(
+    data(effective_windows_kde_df) *
+    mapping(
+        :x => "Effective censoring window (days)",
+        :density => "Density",
+        color = :name => "Scenario"
+    ) *
+    visual(Lines, linewidth = 2);
+    figure = (size = (700, 400),),
+    axis = (title = "Distribution of Effective " *
+                    "Censoring Windows by Epidemic Phase",)
+);
 
-p2
+md"""
+```@raw html
+</details>
+```
+"""
+
+fig_effective_windows
 
 md"""
 ## Part 3: Impact on censored delay distributions
@@ -181,33 +221,51 @@ also be censored.
 """
 
 @chain scenarios_df begin
-    @transform!(:censored_dist=primary_censored.(
+    @transform! :censored_dist = primary_censored.(
         Ref(true_delay), :primary_event
-    ))
-end
+    )
+end;
+
+md"""
+```@raw html
+<details><summary>Show plotting code</summary>
+```
+"""
 
 x_delay = range(0, 15, length = 100)
 
-p3 = plot(
-    title = "Observed vs True Delay Distributions",
-    xlabel = "Delay (days)",
-    ylabel = "Probability density",
-    size = (700, 400)
+delay_pdf_df = vcat(
+    DataFrame(
+        x = x_delay,
+        pdf = pdf.(true_delay, x_delay),
+        scenario = "True distribution"
+    ),
+    [DataFrame(
+         x = x_delay,
+         pdf = pdf.(row.censored_dist, x_delay),
+         scenario = "$(row.name) (r=$(row.r))"
+     ) for row in eachrow(scenarios_df)]...
 )
 
-y_true = pdf.(true_delay, x_delay)
-plot!(p3, x_delay, y_true,
-    label = "True distribution", color = :black,
-    linestyle = :dash, linewidth = 3)
+fig_delay_pdfs = draw(
+    data(delay_pdf_df) *
+    mapping(
+        :x => "Delay (days)",
+        :pdf => "Probability density",
+        color = :scenario => "Scenario"
+    ) *
+    visual(Lines, linewidth = 2);
+    figure = (size = (700, 400),),
+    axis = (title = "Observed vs True Delay Distributions",)
+);
 
-for row in eachrow(scenarios_df)
-    y_obs = pdf.(row.censored_dist, x_delay)
-    plot!(p3, x_delay, y_obs,
-        label = "$(row.name) (r=$(row.r))",
-        color = row.color, linewidth = 2)
-end
+md"""
+```@raw html
+</details>
+```
+"""
 
-p3
+fig_delay_pdfs
 
 md"""
 We can also plot the impact on the double censored
@@ -216,39 +274,56 @@ Here we show the CDF.
 """
 
 @chain scenarios_df begin
-    @rtransform!(:double_censored_dist=double_interval_censored(
+    @rtransform! :double_censored_dist = double_interval_censored(
         true_delay;
         primary_event = :primary_event,
         interval = secondary_window
-    ))
-end
+    )
+end;
+
+md"""
+```@raw html
+<details><summary>Show plotting code</summary>
+```
+"""
 
 x_delay_d = range(0, 40, length = 100)
 
-y_true_d = cdf.(true_delay, x_delay_d)
-p4 = plot(
-    title = "Double vs Single Interval " *
-            "Censored Distributions",
-    xlabel = "Delay (days)",
-    ylabel = "Probability density",
-    size = (700, 400)
+double_cdf_df = vcat(
+    DataFrame(
+        x = x_delay_d,
+        cdf = cdf.(true_delay, x_delay_d),
+        scenario = "True distribution"
+    ),
+    [DataFrame(
+         x = x_delay_d,
+         cdf = cdf.(
+             row.double_censored_dist, x_delay_d
+         ),
+         scenario = "$(row.name) Double (r=$(row.r))"
+     ) for row in eachrow(scenarios_df)]...
 )
 
-plot!(p4, x_delay_d, y_true_d,
-    label = "True distribution", color = :black,
-    linestyle = :dash, linewidth = 3)
+fig_double_cdfs = draw(
+    data(double_cdf_df) *
+    mapping(
+        :x => "Delay (days)",
+        :cdf => "Cumulative probability",
+        color = :scenario => "Scenario"
+    ) *
+    visual(Lines, linewidth = 2);
+    figure = (size = (700, 400),),
+    axis = (title = "Double vs Single Interval " *
+                    "Censored Distributions",)
+);
 
-for row in eachrow(scenarios_df)
-    y_double = cdf.(
-        row.double_censored_dist, x_delay_d
-    )
-    plot!(p4, x_delay_d, y_double,
-        label = "$(row.name) Double (r=$(row.r))",
-        color = row.color, linewidth = 2,
-        linestyle = :solid)
-end
+md"""
+```@raw html
+</details>
+```
+"""
 
-p4
+fig_double_cdfs
 
 md"""
 ## Key insights

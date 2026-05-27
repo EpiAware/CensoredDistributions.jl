@@ -34,7 +34,9 @@ We will cover the mathematical formulation of the problem, demonstrate the usage
 using CensoredDistributions
 using Distributions
 using Random
-using Plots
+using CairoMakie
+using AlgebraOfGraphics
+using DataFramesMeta
 
 # Set the seed for reproducibility
 Random.seed!(123)
@@ -60,7 +62,8 @@ This corresponds to: $d \sim \text{LogNormal}(1.5, 0.75), \quad d \geq 0$
 
 ```@example getting-started
 x = 0:0.01:15
-plot(x, pdf.(dist, x))
+df_pdf = DataFrame(x = x, pdf = pdf.(dist, x))
+draw(data(df_pdf) * mapping(:x, :pdf) * visual(Lines))
 ```
 
 3. **Total delays** ($t$) are calculated by adding the primary event times and delays: $t = p + d$
@@ -90,8 +93,17 @@ and plot the CDF compared to the unmodified distribution.
 
 ```@example getting-started
 x = 0:0.01:15
-plot(x, cdf.(dist, x), label="Uncensored")
-plot!(x, cdf.(prim_dist, x), label="Primary censored")
+df_cdf = vcat(
+    DataFrame(x = x, cdf = cdf.(dist, x),
+        Distribution = "Uncensored"),
+    DataFrame(x = x, cdf = cdf.(prim_dist, x),
+        Distribution = "Primary censored")
+)
+draw(
+    data(df_cdf) *
+    mapping(:x, :cdf, color = :Distribution) *
+    visual(Lines)
+)
 ```
 
 ## Truncation
@@ -122,9 +134,19 @@ or plot the CDFs of the different distributions:
 
 ```@example getting-started
 x = 0:0.01:15
-plot(x, cdf.(dist, x), label="Uncensored")
-plot!(x, cdf.(prim_dist, x), label="Primary censored")
-plot!(x, cdf.(trunc_prim_dist, x), label="Truncated and primary censored")
+df_cdf2 = vcat(
+    DataFrame(x = x, cdf = cdf.(dist, x),
+        Distribution = "Uncensored"),
+    DataFrame(x = x, cdf = cdf.(prim_dist, x),
+        Distribution = "Primary censored"),
+    DataFrame(x = x, cdf = cdf.(trunc_prim_dist, x),
+        Distribution = "Truncated and primary censored")
+)
+draw(
+    data(df_cdf2) *
+    mapping(:x, :cdf, color = :Distribution) *
+    visual(Lines)
+)
 ```
 
 ## Secondary interval censoring
@@ -156,10 +178,22 @@ or plot the CDFs of the different distributions.
 
 ```@example getting-started
 x = 0:0.01:15
-plot(x, cdf.(dist, x), label="Uncensored")
-plot!(x, cdf.(prim_dist, x), label="Primary censored")
-plot!(x, cdf.(trunc_prim_dist, x), label="Truncated and primary censored")
-plot!(x, cdf.(int_censored_dist, x), label="Truncated, primary censored, and interval censored")
+df_cdf3 = vcat(
+    DataFrame(x = x, cdf = cdf.(dist, x),
+        Distribution = "Uncensored"),
+    DataFrame(x = x, cdf = cdf.(prim_dist, x),
+        Distribution = "Primary censored"),
+    DataFrame(x = x, cdf = cdf.(trunc_prim_dist, x),
+        Distribution = "Truncated and primary censored"),
+    DataFrame(x = x, cdf = cdf.(int_censored_dist, x),
+        Distribution =
+            "Truncated, primary censored, and interval censored")
+)
+draw(
+    data(df_cdf3) *
+    mapping(:x, :cdf, color = :Distribution) *
+    visual(Lines)
+)
 ```
 
 Neither the primary censored nor the interval censored distributions match the true distribution due to the censoring effects and truncation at the maximum observable delay, which biases both observed distributions towards shorter delays.

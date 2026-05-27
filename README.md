@@ -4,6 +4,10 @@
 |:-----------------:|:----------------:|:----------------:|:-----------------:|:-------------:|
 | [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://censoreddistributions.epiaware.org/stable/) [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://censoreddistributions.epiaware.org/dev/) | [![Test](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/test.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/test.yaml) [![codecov](https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg)](https://codecov.io/gh/EpiAware/CensoredDistributions.jl) | [![SciML Code Style](https://img.shields.io/static/v1?label=code%20style&message=SciML&color=9558b2&labelColor=389826)](https://github.com/SciML/SciMLStyle) [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl) [![JET](https://img.shields.io/badge/%E2%9C%88%EF%B8%8F%20tested%20with%20-%20JET.jl%20-%20red)](https://github.com/aviatesk/JET.jl) | [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![DOI](https://zenodo.org/badge/862539324.svg)](https://doi.org/10.5281/zenodo.18474651) | [![Downloads](https://img.shields.io/badge/dynamic/json?url=http%3A%2F%2Fjuliapkgstats.com%2Fapi%2Fv1%2Ftotal_downloads%2FCensoredDistributions&query=total_requests&label=Downloads)](https://juliapkgstats.com/pkg/CensoredDistributions) [![Downloads](https://img.shields.io/badge/dynamic/json?url=http%3A%2F%2Fjuliapkgstats.com%2Fapi%2Fv1%2Fmonthly_downloads%2FCensoredDistributions&query=total_requests&suffix=%2Fmonth&label=Downloads)](https://juliapkgstats.com/pkg/CensoredDistributions) |
 
+| ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-partial-yellow) | ![](https://img.shields.io/badge/Enzyme%20forward-broken-red) | ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20forward-full-brightgreen) |
+
 *Primary event censored distributions for Distributions.jl*
 
 
@@ -22,7 +26,10 @@ For a detailed walkthrough of primary censoring, truncation, interval censoring,
 The following example demonstrates how to create a double interval censored distribution (combines primary event, interval censoring, and right truncation (using `Distributions.truncated`)):
 
 ```julia
-using CensoredDistributions, Distributions, Plots
+using CensoredDistributions, Distributions
+using CairoMakie, AlgebraOfGraphics, DataFramesMeta
+
+CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # Create a censored distribution accounting for primary and secondary censoring
 original = Gamma(2, 3)
@@ -30,15 +37,24 @@ censored = double_interval_censored(original; upper = 15, interval = 1)
 
 # Compare the distributions
 x = 0:0.01:20
-plot(x, pdf.(original, x), label = "Original Gamma", lw = 2)
-plot!(x, pdf.(censored, x), label = "Double Censored and right truncated", lw = 2)
+df = vcat(
+    DataFrame(x = x, pdf = pdf.(original, x),
+        Distribution = "Original Gamma"),
+    DataFrame(x = x, pdf = pdf.(censored, x),
+        Distribution = "Double Censored and right truncated")
+)
+draw(
+    data(df) *
+    mapping(:x, :pdf, color = :Distribution) *
+    visual(Lines, linewidth = 2)
+)
 ```
 
 You can fit censored distributions to data using [Turing.jl](https://github.com/TuringLang/Turing.jl) and any of its supported inference methods.
 For example, using MCMC for Bayesian inference:
 
 ```julia
-using Turing
+using Turing, StatsBase
 
 # Generate synthetic data from the censored distribution
 data = rand(censored, 1000)
@@ -63,6 +79,9 @@ end
 # Fit using MCMC for Bayesian inference
 model = double_censored_model(values, weights)
 chain = sample(model, NUTS(), MCMCThreads(), 1000, 2; progress = false)
+
+# Summarise the posterior
+summarystats(chain)
 ```
 
 Or fit using MAP:

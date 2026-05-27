@@ -20,7 +20,7 @@ end
     @test d.dist === dist
     @test d.primary_event === primary
     @test d.method isa CensoredDistributions.AnalyticalSolver
-    @test d.method.solver isa QuadGKJL
+    @test d.method.solver isa GaussLegendre
 end
 
 @testitem "Constructor with force_numeric" begin
@@ -34,7 +34,7 @@ end
     @test d.dist === dist
     @test d.primary_event === primary
     @test d.method isa CensoredDistributions.NumericSolver
-    @test d.method.solver isa QuadGKJL
+    @test d.method.solver isa GaussLegendre
 end
 
 @testitem "Constructor with custom solver" begin

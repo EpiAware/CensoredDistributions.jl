@@ -44,12 +44,15 @@ md"""
 using CensoredDistributions
 using Distributions
 using BenchmarkTools
-using Plots
-using StatsPlots
+using CairoMakie
+using AlgebraOfGraphics
 using DataFramesMeta
 using Printf
 using Statistics
 using Integrals
+
+CairoMakie.activate!(type = "png", px_per_unit = 2)
+set_theme!(theme_latexfonts(); fontsize = 14)
 
 md"""
 ## Automatic method selection
@@ -89,17 +92,43 @@ md"""
 Let's verify both methods give the same results:
 """
 
+md"""
+```@raw html
+<details><summary>Show plotting code</summary>
+```
+"""
+
 x_compare = 0:0.5:10
 cdf_analytical_vals = cdf.(pc_gamma_analytical, x_compare)
 cdf_numerical_vals = cdf.(pc_gamma_numerical, x_compare)
 
-plot(x_compare, cdf_analytical_vals,
-    label = "Analytical", linewidth = 3, color = :blue,
-    title = "CDF Comparison: Analytical vs Numerical",
-    xlabel = "x", ylabel = "CDF")
-plot!(x_compare, cdf_numerical_vals,
-    label = "Numerical", linewidth = 2,
-    linestyle = :dash, color = :red)
+cdf_compare_df = vcat(
+    DataFrame(
+        x = collect(x_compare),
+        cdf = cdf_analytical_vals,
+        method = "Analytical"
+    ),
+    DataFrame(
+        x = collect(x_compare),
+        cdf = cdf_numerical_vals,
+        method = "Numerical"
+    )
+)
+
+fig_cdf_compare = draw(
+    data(cdf_compare_df) *
+    mapping(:x, :cdf => "CDF", color = :method => "Method") *
+    visual(Lines, linewidth = 2);
+    axis = (title = "CDF Comparison: Analytical vs Numerical",)
+);
+
+md"""
+```@raw html
+</details>
+```
+"""
+
+fig_cdf_compare
 
 md"""
 ## Performance comparison
@@ -172,84 +201,118 @@ benchmark_results = [
     )
 ];
 
-## Summary statistics plot
+md"""
+```@raw html
+<details><summary>Show plotting code</summary>
+```
+"""
+
+## Summary statistics: build long-form DataFrames for AoG
 dist_names = [r.name for r in benchmark_results]
 mean_speedups = [r.mean_speedup for r in benchmark_results]
 min_speedups = [r.min_speedup for r in benchmark_results]
 max_speedups = [r.max_speedup for r in benchmark_results]
 
-p1 = bar(
-    dist_names,
-    mean_speedups,
-    ylabel = "Speedup Factor",
+summary_df = DataFrame(
+    distribution = dist_names,
+    mean_speedup = mean_speedups,
+    low = mean_speedups .- min_speedups,
+    high = max_speedups .- mean_speedups
+)
+
+speedup_long_df = vcat(
+    [DataFrame(
+         distribution = r.name,
+         x = r.x_values,
+         speedup = r.speedups
+     ) for r in benchmark_results]...
+)
+
+times_long_df = vcat(
+    [vcat(
+         DataFrame(
+             distribution = r.name,
+             x = r.x_values,
+             time_us = r.analytical_μs,
+             method = "Analytical"
+         ),
+         DataFrame(
+             distribution = r.name,
+             x = r.x_values,
+             time_us = r.numerical_μs,
+             method = "Numerical"
+         )
+     ) for r in benchmark_results]...
+)
+
+fig_benchmarks = Figure(size = (700, 900))
+
+## Mean performance improvement (bar) with error bars
+ax1 = Axis(
+    fig_benchmarks[1, 1],
     title = "Mean Performance Improvement",
-    color = :blue,
-    legend = false,
-    yerror = (
-        mean_speedups .- min_speedups,
-        max_speedups .- mean_speedups
-    )
-)
-
-## Add speedup text on bars
-for (i, speedup) in enumerate(mean_speedups)
-    annotate!(
-        p1, i, speedup + 5,
-        text(@sprintf("%.0fx", speedup), :center, 10)
-    )
-end
-
-## Detailed speedup by x value
-p2 = plot(
-    title = "Speedup Factor by x Value",
-    xlabel = "x",
     ylabel = "Speedup Factor",
-    legend = :topright,
-    xscale = :log10
+    xticks = (1:length(dist_names), dist_names)
 )
-
-colors = [:blue, :red, :green]
-for (i, result) in enumerate(benchmark_results)
-    plot!(p2, result.x_values, result.speedups,
-        label = result.name,
-        color = colors[i],
-        marker = :circle,
-        markersize = 4,
-        linewidth = 2)
+barplot!(
+    ax1, 1:length(dist_names), mean_speedups,
+    color = :steelblue
+)
+errorbars!(
+    ax1, 1:length(dist_names), mean_speedups,
+    summary_df.low, summary_df.high;
+    whiskerwidth = 10
+)
+for (i, speedup) in enumerate(mean_speedups)
+    text!(
+        ax1, i, speedup + 5;
+        text = @sprintf("%.0fx", speedup),
+        align = (:center, :bottom)
+    )
 end
 
-## Computation time comparison
-p3 = plot(
-    title = "Computation Time Comparison",
-    xlabel = "x",
-    ylabel = "Time (microseconds)",
-    legend = :topleft,
-    xscale = :log10,
-    yscale = :log10
+## Speedup by x (log x)
+draw!(
+    fig_benchmarks[2, 1],
+    data(speedup_long_df) *
+    mapping(
+        :x,
+        :speedup => "Speedup Factor",
+        color = :distribution => "Distribution"
+    ) *
+    (visual(Lines, linewidth = 2) +
+     visual(Scatter, markersize = 8));
+    axis = (
+        title = "Speedup Factor by x Value",
+        xscale = log10
+    )
 )
 
-for (i, result) in enumerate(benchmark_results)
-    plot!(
-        p3, result.x_values,
-        result.analytical_μs,
-        label = result.name * " (Analytical)",
-        color = colors[i],
-        linestyle = :solid,
-        marker = :circle,
-        markersize = 3,
-        linewidth = 2)
-    plot!(
-        p3, result.x_values,
-        result.numerical_μs,
-        label = result.name * " (Numerical)",
-        color = colors[i],
-        linestyle = :dash,
-        marker = :square,
-        markersize = 3,
-        linewidth = 2)
-end
+## Computation time comparison (log-log)
+draw!(
+    fig_benchmarks[3, 1],
+    data(times_long_df) *
+    mapping(
+        :x,
+        :time_us => "Time (microseconds)",
+        color = :distribution => "Distribution",
+        linestyle = :method => "Method"
+    ) *
+    visual(Lines, linewidth = 2);
+    axis = (
+        title = "Computation Time Comparison",
+        xscale = log10,
+        yscale = log10
+    )
+);
 
-plot(p1, p2, p3, layout = (3, 1), size = (700, 900))
+md"""
+```@raw html
+</details>
+```
+"""
+
+fig_benchmarks
 
 md"""
 ## Accuracy verification
@@ -302,60 +365,88 @@ max_errors = (
     weibull = accuracy_weibull.max_error
 )
 
-## Plot CDF comparison
-p_cdf = plot(
-    title = "CDF Comparison: Analytical vs Numerical",
-    xlabel = "x",
-    ylabel = "CDF",
-    legend = :bottomright
+md"""
+```@raw html
+<details><summary>Show plotting code</summary>
+```
+"""
+
+## Build long-form DataFrames for CDF and error plots
+cdf_accuracy_df = vcat(
+    DataFrame(
+        x = collect(accuracy_gamma.x),
+        cdf = accuracy_gamma.analytical,
+        distribution = "Gamma"
+    ),
+    DataFrame(
+        x = collect(accuracy_lognormal.x),
+        cdf = accuracy_lognormal.analytical,
+        distribution = "LogNormal"
+    ),
+    DataFrame(
+        x = collect(accuracy_weibull.x),
+        cdf = accuracy_weibull.analytical,
+        distribution = "Weibull"
+    )
 )
 
-plot!(
-    p_cdf, accuracy_gamma.x,
-    accuracy_gamma.analytical,
-    label = "Gamma (both methods)",
-    color = :blue, linewidth = 2)
-plot!(
-    p_cdf, accuracy_lognormal.x,
-    accuracy_lognormal.analytical,
-    label = "LogNormal (both methods)",
-    color = :red, linewidth = 2)
-plot!(
-    p_cdf, accuracy_weibull.x,
-    accuracy_weibull.analytical,
-    label = "Weibull (both methods)",
-    color = :green, linewidth = 2)
-
-## Error plot
-p_error = plot(
-    title = "Absolute Error: |Analytical - Numerical|",
-    xlabel = "x",
-    ylabel = "Absolute Error",
-    yscale = :log10,
-    legend = :topright,
-    ylims = (1e-17, 1e-13)
+error_df = vcat(
+    DataFrame(
+        x = collect(accuracy_gamma.x),
+        err = accuracy_gamma.errors .+ 1e-17,
+        distribution = "Gamma"
+    ),
+    DataFrame(
+        x = collect(accuracy_lognormal.x),
+        err = accuracy_lognormal.errors .+ 1e-17,
+        distribution = "LogNormal"
+    ),
+    DataFrame(
+        x = collect(accuracy_weibull.x),
+        err = accuracy_weibull.errors .+ 1e-17,
+        distribution = "Weibull"
+    )
 )
 
-plot!(
-    p_error, accuracy_gamma.x,
-    accuracy_gamma.errors .+ 1e-17,
-    label = "Gamma",
-    color = :blue, linewidth = 2)
-plot!(
-    p_error, accuracy_lognormal.x,
-    accuracy_lognormal.errors .+ 1e-17,
-    label = "LogNormal",
-    color = :red, linewidth = 2)
-plot!(
-    p_error, accuracy_weibull.x,
-    accuracy_weibull.errors .+ 1e-17,
-    label = "Weibull",
-    color = :green, linewidth = 2)
+fig_acc = Figure(size = (700, 600))
 
-plot(
-    p_cdf, p_error,
-    layout = (2, 1), size = (700, 600)
+draw!(
+    fig_acc[1, 1],
+    data(cdf_accuracy_df) *
+    mapping(
+        :x,
+        :cdf => "CDF",
+        color = :distribution => "Distribution"
+    ) *
+    visual(Lines, linewidth = 2);
+    axis = (
+        title = "CDF Comparison: Analytical vs Numerical",
+    )
 )
+
+draw!(
+    fig_acc[2, 1],
+    data(error_df) *
+    mapping(
+        :x,
+        :err => "Absolute Error",
+        color = :distribution => "Distribution"
+    ) *
+    visual(Lines, linewidth = 2);
+    axis = (
+        title = "Absolute Error: |Analytical - Numerical|",
+        yscale = log10,
+        limits = (nothing, (1e-17, 1e-13))
+    )
+);
+
+md"""
+```@raw html
+</details>
+```
+"""
+
+fig_acc
 
 md"""
 ## Exploring available methods
@@ -390,7 +481,7 @@ You can also customise the numerical solver when needed:
 ## (no analytical solution available)
 exponential_delay = Exponential(2.0)
 
-## Default solver (QuadGKJL)
+## Default solver (GaussLegendre, AD-friendly)
 pc_default = primary_censored(
     exponential_delay, primary_uniform
 )

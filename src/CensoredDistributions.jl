@@ -25,7 +25,7 @@ using LogExpFunctions: logsubexp, log1mexp
 
 using SpecialFunctions: gamma, gamma_inc, loggamma, digamma
 
-using Integrals: IntegralProblem, solve, QuadGKJL, GaussLegendre
+using Integrals: IntegralProblem, solve, GaussLegendre
 import FastGaussQuadrature  # activates IntegralsFastGaussQuadratureExt for GaussLegendre
 
 using Optimization: OptimizationFunction, OptimizationProblem, solve, ReturnCode
