@@ -15,28 +15,35 @@ and the benchmark suite in `benchmark/src/ad_gradients.jl`.
 ## Tested backends
 
 ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen)
+![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen)
+![](https://img.shields.io/badge/Mooncake%20forward-full-brightgreen)
 ![](https://img.shields.io/badge/ReverseDiff%20tape-partial-yellow)
-![](https://img.shields.io/badge/Mooncake%20reverse-partial-yellow)
-![](https://img.shields.io/badge/Mooncake%20forward-partial-yellow)
 ![](https://img.shields.io/badge/Enzyme%20forward-broken-red)
 ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red)
 
-- **ForwardDiff** works on every scenario.
-- **ReverseDiff (tape)** works everywhere except the numerical-path
-  LogNormal scenarios (with both `Uniform` and `ExponentiallyTilted`
-  primary events), tracked in
-  [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249).
-- **Mooncake** (reverse and forward) works via plain
-  `DifferentiationInterface.gradient` on every scenario, but
-  `DifferentiationInterfaceTest.test_differentiation` errors on the
-  primary-censored Gamma/Weibull paths (both `Uniform` and
-  `ExponentiallyTilted` priors) — a DIT-Mooncake interaction tracked
-  in [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
-- **Enzyme** (forward and reverse) fails on every scenario; also
+- **ForwardDiff** works on every scenario via the Dual-number extension
+  for `_gamma_cdf`.
+- **Mooncake** (reverse and forward) works on every scenario via plain
+  `DifferentiationInterface.gradient`, picking up the `@from_chainrules`
+  lift of our `_gamma_cdf` rrule. The package also passes
+  `Mooncake.TestUtils.test_rule` (`test/ad/gamma_ad.jl`). The gradient
+  checks via `DifferentiationInterfaceTest.test_differentiation` error
+  on primary-censored Gamma/Weibull paths — a testing-tooling
+  interaction between DIT and Mooncake (`test/ad/runtests.jl` routes
+  those scenarios through a plain `gradient` self-consistency check
+  instead). Tracked in
   [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
-- `IntervalCensored Gamma arbitrary` fails universally because it routes
-  through `Distributions.cdf(Gamma)` → `gamma_inc`, which the ForwardDiff
-  `Dual` extension does not cover. Tracked in
+- **ReverseDiff (tape)** works everywhere except the numerical-path
+  LogNormal scenarios (`Uniform` and `ExponentiallyTilted` priors),
+  tracked in
+  [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249).
+- **Enzyme** (forward and reverse) fails on every scenario. Enzyme
+  doesn't consume `ChainRulesCore` rules natively, and `@import_rrule`
+  produces a wrong `k` partial when applied to our `_gamma_cdf` rrule,
+  so the lift isn't a usable shortcut.
+- `IntervalCensored Gamma arbitrary` fails universally because it
+  routes through `Distributions.cdf(Gamma)` → `gamma_inc`, which the
+  ForwardDiff `Dual` extension does not cover. Tracked in
   [#217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217).
 
 The scenario set covers analytical and numerical paths for Gamma,
