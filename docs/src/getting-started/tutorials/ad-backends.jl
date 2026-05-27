@@ -14,11 +14,9 @@ and the benchmark suite in `benchmark/src/ad_gradients.jl`.
 
 ## Tested backends
 
-The per-backend, per-scenario timing matrix below has backends in
-columns and scenarios in rows; blank cells flag (scenario, backend)
-combinations DIT could not exercise, and the fastest backend on each
-row is bolded. The allocations matrix has the same shape with the
-smallest footprint per row bolded.
+| ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-partial-yellow) | ![](https://img.shields.io/badge/Enzyme%20forward-broken-red) | ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20forward-full-brightgreen) |
 
 - **ForwardDiff** works on every scenario via the Dual-number extension
   for `_gamma_cdf`.
@@ -128,11 +126,18 @@ fraction, or the `value_and_gradient` rows.
 backend_name = Dict(entry.backend => entry.name
 for entry in ADFixtures.backends())
 
+## `replace` order matters because `DoubleIntervalCensored` contains
+## `IntervalCensored`; the longer key is matched first.
+_shorten(name) = replace(name,
+    "DoubleIntervalCensored" => "DIC",
+    "IntervalCensored" => "IC",
+    "PrimaryCensored" => "PC")
+
 bench_long = @chain DataFrame(raw_bench) begin
     @rsubset :operator == ^(:gradient)
     @rtransform begin
         :backend = backend_name[:backend]
-        :scenario = :scenario.name
+        :scenario = _shorten(:scenario.name)
         :time_us = round(:time * 1e6; digits = 2)
         :bytes_kb = round(:bytes / 1024; digits = 1)
     end
