@@ -465,7 +465,11 @@ end
                     # Numerical derivative approximation
                     numerical_derivative = (exp(logcdf_upper) - exp(logcdf_lower)) / h
                     if numerical_derivative > 0
-                        @test logpdf_val ≈ log(numerical_derivative) rtol=1e-6
+                        # rtol is 1e-5 rather than tighter because the
+                        # default solver `GaussLegendre(; n = 64)` leaves a
+                        # residual that propagates through both logpdf's
+                        # internal FD and the cdf used here.
+                        @test logpdf_val ≈ log(numerical_derivative) rtol=1e-5
                     end
                 end
             end

@@ -56,7 +56,9 @@ censored_dist = primary_censored(delay_dist, primary_dist)
 
 ### Q: Can I use this with automatic differentiation?
 
-**A:** Yes! The package supports ForwardDiff.jl, ReverseDiff.jl, Zygote.jl, and Enzyme.jl for use with Turing.jl and other AD-based workflows.
+**A:** Yes. See the [Automatic differentiation backends](@ref) tutorial for
+a worked example and per-backend timings. The CI badges on the repo README
+track which backend/scenario pairs currently pass.
 
 ## Common issues
 

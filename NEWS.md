@@ -1,3 +1,48 @@
+## Unreleased
+
+### Breaking
+
+- `primary_censored(...; solver)` defaults to `GaussLegendre(; n = 64)`
+  (was `QuadGKJL()`). The fixed-node solver traces cleanly through every
+  AD backend, where adaptive quadrature does not. Pass
+  `solver = QuadGKJL()` explicitly to keep adaptive accuracy.
+
+### AD gradient infrastructure
+
+- New `test/ad/` sub-environment with `DifferentiationInterfaceTest`-driven
+  gradient correctness tests for the `logpdf` of every censored
+  distribution type, plus unit-level tests for the gamma CDF rrule
+  (`_grad_p_a_series` baseline, `Mooncake.TestUtils.test_rule`, and
+  defensive guards). Wired into `task test-ad`, `task test`, and a
+  dedicated CI job.
+- New `test/ADFixtures` path package is the single source of truth for
+  the scenario set and the working/broken backend matrix. The test
+  suite, benchmark suite (`benchmark/src/ad_gradients.jl`), and docs
+  tutorial all add it as a path dep so the three AD surfaces stay in
+  lock-step.
+- Gradient references are computed with ForwardDiff. Adaptive
+  finite-difference baselines (e.g. `central_fdm(5, 1)`) disagree
+  with every AD backend by ~10% on Weibull analytical scenarios
+  because `PrimaryCensored.logpdf` internally finite-differences the
+  CDF with a hardcoded `h = 1e-8`; ForwardDiff's Dual propagation
+  through that same FD gives the exact derivative the package
+  computes and matches the other backends to ~1e-6.
+- New "Automatic differentiation backends" tutorial at
+  `docs/src/getting-started/tutorials/ad-backends.jl` renders the
+  full backend × scenario matrix via `DIT.benchmark_differentiation`
+  with failures left visible.
+- README gains a per-backend support badge row reflecting the measured
+  state (ForwardDiff full; ReverseDiff tape, Mooncake reverse, and
+  Mooncake forward partial; Enzyme forward/reverse broken).
+- Known follow-ups tracked in
+  [#217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217)
+  (`gamma_inc` `Dual` dispatch gap on the `Distributions.cdf(Gamma)`
+  path used by `IntervalCensored Gamma arbitrary`),
+  [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225)
+  (Enzyme + DIT-Mooncake interaction), and
+  [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249)
+  (ReverseDiff regression on `PrimaryCensored LogNormal+Uniform numerical`).
+
 ## v0.1.0 - Initial Release
 
 CensoredDistributions.jl extends Distributions.jl to support primary event

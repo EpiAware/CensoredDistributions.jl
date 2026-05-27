@@ -27,7 +27,8 @@ necessary for certain AD backends or when debugging.
 - `primary_event`: The distribution of primary event times within the window
 
 # Keyword Arguments
-- `solver`: Quadrature solver (default: `QuadGKJL()`)
+- `solver`: Quadrature solver (default: `GaussLegendre(; n = 64)`, AD-friendly;
+  pass `QuadGKJL()` for adaptive accuracy)
 - `force_numeric`: Force numeric integration even when analytical available (default: `false`)
 
 This is useful for modeling:
@@ -58,7 +59,7 @@ d_numeric = primary_censored(incubation, infection_window; force_numeric=true)
 "
 function primary_censored(
         dist::UnivariateDistribution, primary_event::UnivariateDistribution;
-        solver = QuadGKJL(), force_numeric = false)
+        solver = GaussLegendre(; n = 64), force_numeric = false)
     method = if force_numeric
         NumericSolver(solver)
     else
@@ -89,7 +90,7 @@ d2 = primary_censored(LogNormal(1.5, 0.75); primary_event=Uniform(0, 2))
 function primary_censored(
         dist::UnivariateDistribution;
         primary_event::UnivariateDistribution = Uniform(0, 1),
-        solver = QuadGKJL(), force_numeric = false)
+        solver = GaussLegendre(; n = 64), force_numeric = false)
     return primary_censored(
         dist, primary_event; solver = solver, force_numeric = force_numeric)
 end
