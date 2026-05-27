@@ -63,7 +63,8 @@ end
 # gives wrong partials (issue #259).
 _dvals(::Const, Ω, ::Val{W}) where {W} = ntuple(_ -> zero(Ω), Val(W))
 _dvals(d::Union{Duplicated, DuplicatedNoNeed}, _, ::Val{1}) = (d.dval,)
-_dvals(d::Union{BatchDuplicated, BatchDuplicatedNoNeed}, _, ::Val{W}) where {W} = d.dval
+const _BatchDup = Union{BatchDuplicated, BatchDuplicatedNoNeed}
+_dvals(d::_BatchDup, _, ::Val{W}) where {W} = d.dval
 
 function EnzymeRules.forward(
         config::FwdConfigWidth{W},
