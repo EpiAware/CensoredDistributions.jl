@@ -14,12 +14,9 @@ and the benchmark suite in `benchmark/src/ad_gradients.jl`.
 
 ## Tested backends
 
-![](https://img.shields.io/badge/ForwardDiff-full-brightgreen)
-![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen)
-![](https://img.shields.io/badge/Mooncake%20forward-full-brightgreen)
-![](https://img.shields.io/badge/ReverseDiff%20tape-partial-yellow)
-![](https://img.shields.io/badge/Enzyme%20forward-broken-red)
-![](https://img.shields.io/badge/Enzyme%20reverse-broken-red)
+| ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-partial-yellow) | ![](https://img.shields.io/badge/Enzyme%20forward-broken-red) | ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20forward-full-brightgreen) |
 
 - **ForwardDiff** works on every scenario via the Dual-number extension
   for `_gamma_cdf`.
