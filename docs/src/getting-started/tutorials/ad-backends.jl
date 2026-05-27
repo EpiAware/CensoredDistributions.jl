@@ -119,16 +119,45 @@ bench_long = @chain DataFrame(raw_bench) begin
 end
 
 md"""
+Per-row winner — fastest backend in the time table, smallest
+allocation footprint in the bytes table — is bolded. Cells where
+DIT couldn't produce a number (broken combinations) appear blank.
+"""
+
+function bold_min_per_row(df; idcol = :scenario)
+    cols = setdiff(propertynames(df), [idcol])
+    out = DataFrame(idcol => df[!, idcol])
+    for c in cols
+        out[!, c] = Vector{Any}(undef, nrow(df))
+    end
+    for r in 1:nrow(df)
+        vals = [(c, df[r, c]) for c in cols if !ismissing(df[r, c])]
+        minv = isempty(vals) ? nothing : minimum(last.(vals))
+        for c in cols
+            v = df[r, c]
+            out[r, c] = if ismissing(v)
+                ""
+            elseif v == minv
+                "**$(v)**"
+            else
+                string(v)
+            end
+        end
+    end
+    out
+end
+
+md"""
 ### Time (μs)
 """
 
-unstack(bench_long, :scenario, :backend, :time_us)
+bold_min_per_row(unstack(bench_long, :scenario, :backend, :time_us))
 
 md"""
 ### Allocations (KiB)
 """
 
-unstack(bench_long, :scenario, :backend, :bytes_kb)
+bold_min_per_row(unstack(bench_long, :scenario, :backend, :bytes_kb))
 
 md"""
 ## When to use which backend
