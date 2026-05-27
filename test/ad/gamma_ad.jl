@@ -62,6 +62,33 @@ end
     end
 end
 
+@testset "Enzyme direct rule on _gamma_cdf (issue #259)" begin
+    # Pins the fix in CensoredDistributionsEnzymeExt: the original
+    # `Enzyme.@import_rrule` lift returned the wrong ∂P/∂k (~8% off).
+    # The direct EnzymeRules.augmented_primal/reverse + forward rule
+    # should now match the ForwardDiff reference on both modes.
+    using ADTypes: AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    using Enzyme: Enzyme
+    using ForwardDiff: ForwardDiff
+    using CensoredDistributions: _gamma_cdf
+
+    f(v) = _gamma_cdf(v[1], v[2], v[3])
+    cases = [
+        [2.3, 1.7, 1.9],
+        [0.5, 2.0, 0.3],
+        [5.0, 0.4, 1.0],
+        [10.0, 1.0, 9.5]
+    ]
+    for input in cases
+        ref = gradient(f, AutoForwardDiff(), input)
+        g_rev = gradient(f, AutoEnzyme(mode = Enzyme.Reverse), input)
+        g_fwd = gradient(f, AutoEnzyme(mode = Enzyme.Forward), input)
+        @test isapprox(g_rev, ref; rtol = 1e-10, atol = 1e-12)
+        @test isapprox(g_fwd, ref; rtol = 1e-10, atol = 1e-12)
+    end
+end
+
 @testset "_gamma_cdf rrule and _make_weibull_g zero-input guards" begin
     # Exercise the non-positive-input early-return branches that the
     # scenario suite never hits (all gradient grids use strictly positive

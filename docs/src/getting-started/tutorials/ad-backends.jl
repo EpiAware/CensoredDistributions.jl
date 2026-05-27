@@ -38,13 +38,13 @@ and the benchmark suite in `benchmark/src/ad_gradients.jl`.
   tracked in
   [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249).
 - **Enzyme** (forward and reverse) ships an extension
-  (`ext/CensoredDistributionsEnzymeExt.jl`) that lifts our
-  `_gamma_cdf` rrule via `Enzyme.@import_rrule`, but the lifted rule
-  currently returns a wrong `k` (shape) partial — the `θ` and `x`
-  partials match. The AD test suite keeps Enzyme broken until that
-  upstream interaction is resolved. Tracked in
-  [#259](https://github.com/EpiAware/CensoredDistributions.jl/issues/259);
-  remaining backend coverage gaps in
+  (`ext/CensoredDistributionsEnzymeExt.jl`) with direct
+  `EnzymeRules.augmented_primal` / `reverse` / `forward` rules on
+  `_gamma_cdf`; both modes match the ForwardDiff reference on
+  `_gamma_cdf` itself. The full-pipeline scenarios still fail under
+  Enzyme because the surrounding `logpdf`/`sum`/`primary_censored`
+  plumbing trips Enzyme's mutability and mixed-activity checks — the
+  broader integration gap tracked in
   [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
 - `IntervalCensored Gamma arbitrary` fails universally, on every
   backend. Its CDF differences route through `Distributions.cdf(Gamma,

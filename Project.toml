@@ -29,7 +29,7 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [extensions]
 CensoredDistributionsChainRulesCoreExt = "ChainRulesCore"
-CensoredDistributionsEnzymeExt = ["ChainRulesCore", "Enzyme"]
+CensoredDistributionsEnzymeExt = "Enzyme"
 CensoredDistributionsForwardDiffExt = "ForwardDiff"
 CensoredDistributionsMooncakeExt = ["ChainRulesCore", "Mooncake"]
 CensoredDistributionsReverseDiffExt = "ReverseDiff"
