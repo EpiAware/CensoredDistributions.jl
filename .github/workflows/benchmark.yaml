@@ -18,6 +18,26 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     steps:
+      # `benchmark/Project.toml` declares ADFixtures as a path source
+      # at `../test/ADFixtures`. AirspeedVelocity's action runs
+      # `benchpkg`, which calls `mktempdir()` (default location `/tmp/`)
+      # and copies just `benchmark/Project.toml` into that env. Pkg then
+      # resolves the relative source path to `/tmp/test/ADFixtures` —
+      # which doesn't exist, so the run aborts before any benchmarking
+      # happens. Staging ADFixtures into `/tmp/test/` here gives Pkg the
+      # path it expects without touching the action or the project file.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          sparse-checkout: |
+            test/ADFixtures
+          sparse-checkout-cone-mode: false
+
+      - name: Stage ADFixtures for AirspeedVelocity
+        run: |
+          mkdir -p /tmp/test
+          cp -r test/ADFixtures /tmp/test/ADFixtures
+
       - uses: MilesCranmer/AirspeedVelocity.jl@action-v1
         with:
           julia-version: '1'
