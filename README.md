@@ -26,7 +26,10 @@ For a detailed walkthrough of primary censoring, truncation, interval censoring,
 The following example demonstrates how to create a double interval censored distribution (combines primary event, interval censoring, and right truncation (using `Distributions.truncated`)):
 
 ```julia
-using CensoredDistributions, Distributions, Plots
+using CensoredDistributions, Distributions
+using CairoMakie, AlgebraOfGraphics, DataFramesMeta
+
+CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # Create a censored distribution accounting for primary and secondary censoring
 original = Gamma(2, 3)
@@ -34,8 +37,17 @@ censored = double_interval_censored(original; upper = 15, interval = 1)
 
 # Compare the distributions
 x = 0:0.01:20
-plot(x, pdf.(original, x), label = "Original Gamma", lw = 2)
-plot!(x, pdf.(censored, x), label = "Double Censored and right truncated", lw = 2)
+df = vcat(
+    DataFrame(x = x, pdf = pdf.(original, x),
+        Distribution = "Original Gamma"),
+    DataFrame(x = x, pdf = pdf.(censored, x),
+        Distribution = "Double Censored and right truncated")
+)
+draw(
+    data(df) *
+    mapping(:x, :pdf, color = :Distribution) *
+    visual(Lines, linewidth = 2)
+)
 ```
 
 You can fit censored distributions to data using [Turing.jl](https://github.com/TuringLang/Turing.jl) and any of its supported inference methods.
