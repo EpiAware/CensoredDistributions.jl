@@ -44,6 +44,8 @@ using StatsBase
 using FlexiChains
 using FlexiChains: Prefixed, parameters
 using CensoredDistributions
+using ADTypes: AutoMooncake
+import Mooncake
 
 md"""
 ## Generate synthetic data using Turing model simulation
@@ -379,7 +381,9 @@ pattern `(values = values, weights = counts)`.
 """
 
 naive_fit = sample(
-    naive_mdl, NUTS(), MCMCThreads(), 500, 4;
+    naive_mdl,
+    NUTS(; adtype = AutoMooncake(; config = nothing)),
+    MCMCThreads(), 500, 4;
     chain_type = VNChain
 );
 
@@ -457,7 +461,9 @@ range of fitting methods but here we use the No-U-turn sampler*):
 """
 
 interval_only_fit = sample(
-    interval_only_mdl, NUTS(), MCMCThreads(), 500, 4;
+    interval_only_mdl,
+    NUTS(; adtype = AutoMooncake(; config = nothing)),
+    MCMCThreads(), 500, 4;
     chain_type = VNChain
 );
 
@@ -510,7 +516,7 @@ the censoring process is properly modelled.
 
 CensoredDistributions_fit = sample(
     CensoredDistributions_mdl,
-    NUTS(), MCMCThreads(), 1000, 4;
+    NUTS(; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 1000, 4;
     chain_type = VNChain
 );
 
