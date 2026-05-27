@@ -37,10 +37,15 @@ and the benchmark suite in `benchmark/src/ad_gradients.jl`.
   LogNormal scenarios (`Uniform` and `ExponentiallyTilted` priors),
   tracked in
   [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249).
-- **Enzyme** (forward and reverse) fails on every scenario. Enzyme
-  doesn't consume `ChainRulesCore` rules natively, and `@import_rrule`
-  produces a wrong `k` partial when applied to our `_gamma_cdf` rrule,
-  so the lift isn't a usable shortcut.
+- **Enzyme** (forward and reverse) ships an extension
+  (`ext/CensoredDistributionsEnzymeExt.jl`) that lifts our
+  `_gamma_cdf` rrule via `Enzyme.@import_rrule`, but the lifted rule
+  currently returns a wrong `k` (shape) partial — the `θ` and `x`
+  partials match. The AD test suite keeps Enzyme broken until that
+  upstream interaction is resolved. Tracked in
+  [#259](https://github.com/EpiAware/CensoredDistributions.jl/issues/259);
+  remaining backend coverage gaps in
+  [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
 - `IntervalCensored Gamma arbitrary` fails universally because it
   routes through `Distributions.cdf(Gamma)` → `gamma_inc`, which the
   ForwardDiff `Dual` extension does not cover. Tracked in
