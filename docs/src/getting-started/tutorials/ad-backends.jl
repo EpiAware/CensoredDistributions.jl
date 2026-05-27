@@ -128,10 +128,12 @@ for entry in ADFixtures.backends())
 
 ## `replace` order matters because `DoubleIntervalCensored` contains
 ## `IntervalCensored`; the longer key is matched first.
-_shorten(name) = replace(name,
-    "DoubleIntervalCensored" => "DIC",
-    "IntervalCensored" => "IC",
-    "PrimaryCensored" => "PC")
+function _shorten(name)
+    replace(name,
+        "DoubleIntervalCensored" => "DIC",
+        "IntervalCensored" => "IC",
+        "PrimaryCensored" => "PC")
+end
 
 bench_long = @chain DataFrame(raw_bench) begin
     @rsubset :operator == ^(:gradient)
@@ -141,7 +143,7 @@ bench_long = @chain DataFrame(raw_bench) begin
         :time_us = round(:time * 1e6; digits = 2)
         :bytes_kb = round(:bytes / 1024; digits = 1)
     end
-end
+end;
 
 md"""
 Per-row winner — fastest backend in the time table, smallest
