@@ -198,6 +198,65 @@ end
     end
 end
 
+@testitem "primarycensored LogNormal+Uniform numeric path differentiates across backends" tags=[:ad] begin
+    # Regression test for #249. The numeric path's CDF-saturation guard
+    # used to evaluate `cdf(dist, lower)` at the support boundary; for
+    # LogNormal this trips a 0·(-Inf) reverse-mode rule (via `log(0)`)
+    # and contaminates the tape with NaN even though the value only
+    # feeds a Bool. Fixed by skipping the guard when
+    # `lower == minimum(dist)` where saturation is impossible.
+    using FiniteDifferences: central_fdm
+    using DifferentiationInterface
+    import ForwardDiff
+    import ReverseDiff
+    import Mooncake
+    using Distributions: LogNormal, Uniform
+    using Integrals: QuadGKJL
+    using CensoredDistributions: primarycensored_cdf, NumericSolver
+
+    fd = AutoFiniteDifferences(; fdm = central_fdm(7, 1))
+
+    # method => backends that should pass on it. Mooncake survives the
+    # default GaussLegendre integrator but not adaptive QuadGK, same
+    # pattern as the Gamma numeric test above.
+    method_backends = [
+        (NumericSolver(),
+            [
+                ("ForwardDiff", AutoForwardDiff()),
+                ("ReverseDiff", AutoReverseDiff()),
+                ("Mooncake", AutoMooncake(; config = nothing))
+            ]),
+        (NumericSolver(QuadGKJL()),
+            [
+                ("ForwardDiff", AutoForwardDiff()),
+                ("ReverseDiff", AutoReverseDiff())
+            ])
+    ]
+
+    pe = Uniform(0.0, 2.0)
+    # Cases include x - maximum(pe) <= 0 (lower clamps to minimum(dist),
+    # the path that produced NaN before the fix) and x - maximum(pe) > 0
+    # (lower strictly interior, saturation guard still active).
+    cases = [
+        (Float64[1.0, 0.75], 2.5),
+        (Float64[0.0, 1.0], 1.5),
+        (Float64[-1.0, 0.5], 0.5),
+        (Float64[1.5, 0.5], 4.0),
+        (Float64[0.5, 1.2], 3.0)
+    ]
+    for (method, backends) in method_backends, (v, x) in cases
+
+        f = let pe = pe, method = method, x = x
+            v -> primarycensored_cdf(LogNormal(v[1], v[2]), pe, x, method)
+        end
+        truth = gradient(f, fd, v)
+        for (_, backend) in backends
+            g = gradient(f, backend, v)
+            @test isapprox(g, truth; atol = 1e-6, rtol = 1e-6)
+        end
+    end
+end
+
 @testitem "_gamma_cdf rrule and _make_weibull_g zero-input guards" tags=[:ad] begin
     # Exercise the non-positive-input early-return branches that no other
     # AD test hits (all the gradient-checking grids use strictly positive

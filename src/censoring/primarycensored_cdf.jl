@@ -195,11 +195,17 @@ function primarycensored_cdf(
         return 0.0
     end
 
-    # When the delay CDF at the lower bound is effectively
-    # 1, integration is unnecessary and may produce NaN
-    cdf_lower = _cdf_ad_safe(dist, lower)
-    if cdf_lower > 1 - eps(one(eltype(dist)))
-        return one(cdf_lower)
+    # When the delay CDF at the lower bound is effectively 1,
+    # integration is unnecessary and may produce NaN. Skip when lower is
+    # at the distribution boundary: cdf(dist, minimum(dist)) = 0 by
+    # construction, so saturation is impossible there, and evaluating
+    # cdf at the support boundary trips degenerate 0·(-Inf) reverse-mode
+    # rules in Distributions.jl (e.g. LogNormal needs log(0)) — see #249.
+    if lower > minimum(dist)
+        cdf_lower = _cdf_ad_safe(dist, lower)
+        if cdf_lower > 1 - eps(one(eltype(dist)))
+            return one(cdf_lower)
+        end
     end
 
     # Set up and solve the integral problem
