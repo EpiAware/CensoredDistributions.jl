@@ -14,9 +14,11 @@ and the benchmark suite in `benchmark/src/ad_gradients.jl`.
 
 ## Tested backends
 
-| ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
-|:---:|:---:|:---:|:---:|:---:|:---:|
-| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-partial-yellow) | ![](https://img.shields.io/badge/Enzyme%20forward-broken-red) | ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20forward-full-brightgreen) |
+The per-backend, per-scenario timing matrix below has backends in
+columns and scenarios in rows; blank cells flag (scenario, backend)
+combinations DIT could not exercise, and the fastest backend on each
+row is bolded. The allocations matrix has the same shape with the
+smallest footprint per row bolded.
 
 - **ForwardDiff** works on every scenario via the Dual-number extension
   for `_gamma_cdf`.
