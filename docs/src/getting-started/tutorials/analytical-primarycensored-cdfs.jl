@@ -51,6 +51,9 @@ using Printf
 using Statistics
 using Integrals
 
+CairoMakie.activate!(type = "png", px_per_unit = 2)
+set_theme!(theme_latexfonts(); fontsize = 14)
+
 md"""
 ## Automatic method selection
 
@@ -89,6 +92,10 @@ md"""
 Let's verify both methods give the same results:
 """
 
+md"""
+<details><summary>Show plotting code</summary>
+"""
+
 x_compare = 0:0.5:10
 cdf_analytical_vals = cdf.(pc_gamma_analytical, x_compare)
 cdf_numerical_vals = cdf.(pc_gamma_numerical, x_compare)
@@ -106,12 +113,18 @@ cdf_compare_df = vcat(
     )
 )
 
-draw(
+fig_cdf_compare = draw(
     data(cdf_compare_df) *
     mapping(:x, :cdf => "CDF", color = :method => "Method") *
     visual(Lines, linewidth = 2);
     axis = (title = "CDF Comparison: Analytical vs Numerical",)
 )
+
+md"""
+</details>
+"""
+
+fig_cdf_compare
 
 md"""
 ## Performance comparison
@@ -184,6 +197,10 @@ benchmark_results = [
     )
 ];
 
+md"""
+<details><summary>Show plotting code</summary>
+"""
+
 ## Summary statistics: build long-form DataFrames for AoG
 dist_names = [r.name for r in benchmark_results]
 mean_speedups = [r.mean_speedup for r in benchmark_results]
@@ -222,11 +239,11 @@ times_long_df = vcat(
      ) for r in benchmark_results]...
 )
 
-fig = Figure(size = (700, 900))
+fig_benchmarks = Figure(size = (700, 900))
 
 ## Mean performance improvement (bar) with error bars
 ax1 = Axis(
-    fig[1, 1],
+    fig_benchmarks[1, 1],
     title = "Mean Performance Improvement",
     ylabel = "Speedup Factor",
     xticks = (1:length(dist_names), dist_names)
@@ -250,7 +267,7 @@ end
 
 ## Speedup by x (log x)
 draw!(
-    fig[2, 1],
+    fig_benchmarks[2, 1],
     data(speedup_long_df) *
     mapping(
         :x,
@@ -267,7 +284,7 @@ draw!(
 
 ## Computation time comparison (log-log)
 draw!(
-    fig[3, 1],
+    fig_benchmarks[3, 1],
     data(times_long_df) *
     mapping(
         :x,
@@ -283,7 +300,11 @@ draw!(
     )
 )
 
-fig
+md"""
+</details>
+"""
+
+fig_benchmarks
 
 md"""
 ## Accuracy verification
@@ -335,6 +356,10 @@ max_errors = (
     lognormal = accuracy_lognormal.max_error,
     weibull = accuracy_weibull.max_error
 )
+
+md"""
+<details><summary>Show plotting code</summary>
+"""
 
 ## Build long-form DataFrames for CDF and error plots
 cdf_accuracy_df = vcat(
@@ -404,6 +429,10 @@ draw!(
         limits = (nothing, (1e-17, 1e-13))
     )
 )
+
+md"""
+</details>
+"""
 
 fig_acc
 

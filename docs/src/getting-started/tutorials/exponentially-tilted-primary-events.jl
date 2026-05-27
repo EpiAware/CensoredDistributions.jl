@@ -45,6 +45,9 @@ using DataFramesMeta
 using Statistics
 using Random
 
+CairoMakie.activate!(type = "png", px_per_unit = 2)
+set_theme!(theme_latexfonts(); fontsize = 14)
+
 Random.seed!(123)
 
 md"""
@@ -88,6 +91,10 @@ comparison. Now lets plot the primary event timing
 distributions.
 """
 
+md"""
+<details><summary>Show plotting code</summary>
+"""
+
 x_primary = range(0, window_length, length = 100)
 
 primary_pdf_df = vcat(
@@ -103,7 +110,7 @@ primary_pdf_df = vcat(
     )
 )
 
-draw(
+fig_primary_events = draw(
     data(primary_pdf_df) *
     mapping(
         :x => "Days before observation end",
@@ -115,6 +122,12 @@ draw(
     axis = (title = "Primary Event Timing: " *
                     "ExponentiallyTilted vs Uniform",)
 )
+
+md"""
+</details>
+"""
+
+fig_primary_events
 
 md"""
 ## Part 2: Double interval censoring - primary + secondary windows
@@ -129,15 +142,13 @@ For the secondary event the distribution doesn't impact
 what we observe (see references for why).
 """
 
-n_samples = 1000000
+n_samples = 50_000
 secondary_window = 7.0
 
 censoring_windows_df = @chain scenarios_df begin
     vcat([DataFrame(
               name = fill(row.name, n_samples),
               r = fill(row.r, n_samples),
-              color = fill(row.color, n_samples),
-              sample_id = 1:n_samples,
               primary_time = rand(
                   row.primary_event, n_samples
               )
@@ -150,19 +161,29 @@ Now we can plot the distribution of effective censoring
 windows by scenario.
 """
 
-draw(
+md"""
+<details><summary>Show plotting code</summary>
+"""
+
+fig_effective_windows = draw(
     data(censoring_windows_df) *
     mapping(
         :effective_window => "Effective censoring window (days)",
         color = :name => "Scenario"
     ) *
     AlgebraOfGraphics.density() *
-    visual(alpha = 0.5);
+    visual(Lines, linewidth = 2);
     figure = (size = (700, 400),),
     axis = (title = "Distribution of Effective " *
                     "Censoring Windows by Epidemic Phase",
         ylabel = "Density")
 )
+
+md"""
+</details>
+"""
+
+fig_effective_windows
 
 md"""
 ## Part 3: Impact on censored delay distributions
@@ -180,6 +201,10 @@ also be censored.
     ))
 end
 
+md"""
+<details><summary>Show plotting code</summary>
+"""
+
 x_delay = range(0, 15, length = 100)
 
 delay_pdf_df = vcat(
@@ -195,7 +220,7 @@ delay_pdf_df = vcat(
      ) for row in eachrow(scenarios_df)]...
 )
 
-draw(
+fig_delay_pdfs = draw(
     data(delay_pdf_df) *
     mapping(
         :x => "Delay (days)",
@@ -206,6 +231,12 @@ draw(
     figure = (size = (700, 400),),
     axis = (title = "Observed vs True Delay Distributions",)
 )
+
+md"""
+</details>
+"""
+
+fig_delay_pdfs
 
 md"""
 We can also plot the impact on the double censored
@@ -220,6 +251,10 @@ Here we show the CDF.
         interval = secondary_window
     ))
 end
+
+md"""
+<details><summary>Show plotting code</summary>
+"""
 
 x_delay_d = range(0, 40, length = 100)
 
@@ -238,7 +273,7 @@ double_cdf_df = vcat(
      ) for row in eachrow(scenarios_df)]...
 )
 
-draw(
+fig_double_cdfs = draw(
     data(double_cdf_df) *
     mapping(
         :x => "Delay (days)",
@@ -250,6 +285,12 @@ draw(
     axis = (title = "Double vs Single Interval " *
                     "Censored Distributions",)
 )
+
+md"""
+</details>
+"""
+
+fig_double_cdfs
 
 md"""
 ## Key insights

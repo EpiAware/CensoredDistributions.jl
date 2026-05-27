@@ -25,6 +25,8 @@ The following example demonstrates how to create a double interval censored dist
 using CensoredDistributions, Distributions
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 
+CairoMakie.activate!(type = "png", px_per_unit = 2)
+
 # Create a censored distribution accounting for primary and secondary censoring
 original = Gamma(2, 3)
 censored = double_interval_censored(original; upper = 15, interval = 1)
