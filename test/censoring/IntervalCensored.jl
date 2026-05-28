@@ -510,7 +510,9 @@ end
 
     # PrimaryCensored has an expensive CDF (numerical
     # integration), so boundary caching provides real speedup
-    d = primary_censored(LogNormal(1.0, 0.5), Uniform(0, 1))
+    # We force numerical integration here to ensure the CDF is expensive enough
+    # for the caching overhead to be worthwhile in this benchmark.
+    d = primary_censored(LogNormal(1.0, 0.5), Uniform(0, 1); force_numeric = true)
     ic_regular = interval_censored(d, 1.0)
     ic_arbitrary = interval_censored(
         d, [0.0, 2.0, 4.0, 6.0, 8.0, 10.0]

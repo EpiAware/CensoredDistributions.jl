@@ -65,7 +65,18 @@ function _quantile_optimization(d, p::Real;
         q_val = q[1]
         # If outside support, apply large penalty to guide optimization
         if !insupport(d, q_val)
-            return 1e10 + (q_val - minimum(d))^2
+            min_d = minimum(d)
+            max_d = maximum(d)
+
+            penalty = 1e10
+            if q_val < min_d && isfinite(min_d)
+                penalty += (q_val - min_d)^2
+            elseif q_val > max_d && isfinite(max_d)
+                penalty += (q_val - max_d)^2
+            else
+                penalty += q_val^2
+            end
+            return penalty
         end
         cdf_val = cdf(d, q_val)
         return (cdf_val - p)^2

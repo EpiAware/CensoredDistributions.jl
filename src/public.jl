@@ -9,3 +9,6 @@ public Weighted
 public AbstractSolverMethod
 public AnalyticalSolver
 public NumericSolver
+
+# Extension helper for user-defined analytical CDF pairs (public but not exported)
+public primarycensored_uniform_cdf_formula

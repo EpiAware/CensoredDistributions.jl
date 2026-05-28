@@ -1,31 +1,5 @@
 @doc "
 
-AD-compatible gamma CDF using HypergeometricFunctions.
-
-Based on the identity: γ(a,z) = z^a/a * M(a, a+1, -z)
-where γ is the lower incomplete gamma function and M is the confluent hypergeometric function.
-
-Uses the same approach as the Weibull g function: P(a,z) = γ(a,z)/Γ(a) = z^a/a * M(a, a+1, -z) / Γ(a).
-For integer a, Γ(a) = (a-1)!, but uses gamma(k) for generality.
-
-# Arguments
-- `k::Real`: Shape parameter
-- `θ::Real`: Scale parameter
-- `x::Real`: Evaluation point
-
-# Returns
-The gamma CDF value at x with shape k and scale θ.
-"
-function _gamma_cdf_ad_safe(k::Real, θ::Real, x::Real)
-    if x <= 0
-        return 0.0
-    end
-    z = x / θ
-    return (z^k / k * M(k, k + 1, -z)) / gamma(k)
-end
-
-@doc "
-
 Function factory for optimized Weibull g function.
 
 Creates a specialized function with pre-computed constants for g(t; k, λ) = γ(1 + 1/k, (t/λ)^k)
@@ -49,21 +23,18 @@ g_val = weibull_g_func(3.0)
 ```
 "
 function _make_weibull_g(k::Real, λ::Real)
-    inv_k = 1 / k
-    a = 1 + inv_k
-
+    a = 1 + 1 / k
+    Γa = gamma(a)
+    one_a = one(a)
     function weibull_g_specialized(t::Real)
-        if t <= 0
-            return 0.0
-        end
+        t <= 0 && return zero(t)
         x = (t / λ)^k
-        # Use AD-compatible confluent hypergeometric function instead of gamma_inc
-        # γ(a,z) = z^a/a * M(a, a+1, -z) where M is the confluent hypergeometric function
-        # See: https://github.com/JuliaMath/HypergeometricFunctions.jl/issues/50#issuecomment-1397363491
-        # This avoids gamma_inc which causes AD issues
-        return x^a / a * M(a, a + 1, -x)
+        # γ(a, x) = Γ(a) · P(a, x). Routes through _gamma_cdf so each
+        # AD backend's rule on _gamma_cdf intercepts (ChainRules rrule
+        # for Mooncake/ReverseDiff/Zygote; explicit Dual methods for
+        # ForwardDiff).
+        return Γa * _gamma_cdf(a, one_a, x)
     end
-
     return weibull_g_specialized
 end
 
@@ -96,6 +67,20 @@ The `solver` field contains the numerical integration solver to use.
 struct NumericSolver{S} <: AbstractSolverMethod
     solver::S
 end
+
+# Default fallback integrator for AnalyticalSolver()/NumericSolver().
+#
+# Fixed-node Gauss-Legendre quadrature is chosen over adaptive schemes
+# (QuadGKJL, HCubatureJL) because its constant control flow is traceable
+# by reverse-mode AD; adaptive schemes change their node count based on
+# integrand values, which prevents trace-based AD backends from
+# differentiating through them regardless of how well-behaved the
+# integrand is. n = 64 is accurate to ~1e-13 on the smooth,
+# density-weighted CDF integrands used in this package. Pass an explicit
+# solver (e.g. NumericSolver(QuadGKJL())) when adaptive accuracy is
+# required and AD isn't.
+AnalyticalSolver() = AnalyticalSolver(GaussLegendre(; n = 64))
+NumericSolver() = NumericSolver(GaussLegendre(; n = 64))
 
 @doc "
 Compute the CDF of a primary event censored distribution.
@@ -193,8 +178,11 @@ function primarycensored_cdf(
     end
 
     # Define the integrand
+    # `_logcdf_ad_safe` dispatches on `dist` type so distributions whose
+    # `logcdf` would otherwise call `gamma_inc` (Gamma) route through the
+    # AD-safe `_gamma_cdf` rrule under reverse-mode AD.
     function integrand(u, x)
-        return exp(logcdf(dist, u) +
+        return exp(_logcdf_ad_safe(dist, u) +
                    logpdf(primary_event, x - u))
     end
 
@@ -207,11 +195,17 @@ function primarycensored_cdf(
         return 0.0
     end
 
-    # When the delay CDF at the lower bound is effectively
-    # 1, integration is unnecessary and may produce NaN
-    cdf_lower = cdf(dist, lower)
-    if cdf_lower > 1 - eps(one(eltype(dist)))
-        return one(cdf_lower)
+    # When the delay CDF at the lower bound is effectively 1,
+    # integration is unnecessary and may produce NaN. Skip when lower is
+    # at the distribution boundary: cdf(dist, minimum(dist)) = 0 by
+    # construction, so saturation is impossible there, and evaluating
+    # cdf at the support boundary trips degenerate 0·(-Inf) reverse-mode
+    # rules in Distributions.jl (e.g. LogNormal needs log(0)) — see #249.
+    if lower > minimum(dist)
+        cdf_lower = _cdf_ad_safe(dist, lower)
+        if cdf_lower > 1 - eps(one(eltype(dist)))
+            return one(cdf_lower)
+        end
     end
 
     # Set up and solve the integral problem
@@ -227,232 +221,217 @@ end
 # ============================================================================
 
 @doc "
+Direct CDF form of the primary-event-censored distribution **when the
+primary event distribution is `Uniform`**. The ``1/w_P`` normalisation drops
+out cleanly because ``f_U = 1/w_P`` is constant over the support; non-Uniform
+primaries do not produce this closed form and must be handled separately.
+
+Derived by integration by parts on the partial expectation:
+
+```math
+F_{S+}(d) = \\frac{d \\, F_T(d) - q \\, F_T(q) - (M_T(d) - M_T(q))}{w_P}
+```
+
+where ``d = x - u_{\\min}``, ``q = \\max(d - w_P, 0)``, ``w_P`` is the primary
+window width, ``F_T`` is the delay CDF, and ``M_T(t) = \\int_0^t u \\, f_T(u) \\, du``
+is the partial first moment of the delay.
+
+This helper is the shared arithmetic shape of the three built-in analytical
+pairs (Gamma / LogNormal / Weibull + Uniform) and is exposed as public (but
+not exported) API so that downstream code can add its own
+`primarycensored_cdf(::MyDelay, ::Uniform, x, ::AnalyticalSolver)` method
+without re-deriving the formula. Supply ``M_T`` in whatever closed form the
+delay distribution admits - for the built-ins:
+
+- Gamma: ``M_T(t) = k\\theta \\cdot F_T(t; k+1, \\theta)``.
+- LogNormal: ``M_T(t) = e^{\\mu + \\sigma^2/2} \\cdot F_T(t; \\mu + \\sigma^2, \\sigma)``.
+- Weibull: ``M_T(t) = \\lambda \\cdot \\gamma(1 + 1/k, (t/\\lambda)^k)``.
+
+When `q` is clamped to 0 (i.e. ``d \\le w_P``), pass `F_T_q = 0` and
+`M_T_q = 0`; both terms drop out cleanly.
+
+# Arguments
+
+- `d::Real`: Primary-event-adjusted evaluation point (`x - u_{min}`).
+- `q::Real`: Lower integration endpoint, `max(d - w_P, 0)`.
+- `F_T_d::Real`: Delay CDF at `d`, `F_T(d)`.
+- `F_T_q::Real`: Delay CDF at `q`, `F_T(q)` (pass `0` when `q = 0`).
+- `M_T_d::Real`: Partial first moment at `d`, `M_T(d)`.
+- `M_T_q::Real`: Partial first moment at `q`, `M_T(q)` (pass `0` when `q = 0`).
+- `pwindow::Real`: Primary window width `w_P`.
+
+# Returns
+
+The primary-censored CDF `F_{S+}(x)`.
+
+# Example
+
+Reproduces the built-in Gamma analytical pair from first principles:
+
+```@example
+using CensoredDistributions, Distributions
+
+dist = Gamma(2.0, 1.5)
+primary = Uniform(0.0, 1.0)
+x = 3.0
+
+pmin = minimum(primary)
+pwindow = maximum(primary) - pmin
+d_adj = x - pmin
+q = max(d_adj - pwindow, 0.0)
+
+# F_T at the two endpoints
+F_T_d = cdf(dist, d_adj)
+F_T_q = q > 0 ? cdf(dist, q) : 0.0
+
+# Gamma partial first moment: M_T(t) = kθ · F_T(t; k+1, θ)
+k = shape(dist); θ = scale(dist); E_T = k * θ
+dist_kp1 = Gamma(k + 1, θ)
+M_T_d = E_T * cdf(dist_kp1, d_adj)
+M_T_q = q > 0 ? E_T * cdf(dist_kp1, q) : 0.0
+
+CensoredDistributions.primarycensored_uniform_cdf_formula(
+    d_adj, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
+```
+"
+function primarycensored_uniform_cdf_formula(
+        d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
+    return (d * F_T_d - q * F_T_q - (M_T_d - M_T_q)) / pwindow
+end
+
+@doc "
 
 Analytical CDF for Gamma delay with Uniform primary event distribution.
 
-Uses the partial expectation of the Gamma distribution to
-avoid numerical integration. See the
+Partial first moment is ``M_T(t) = k\\theta \\cdot F_T(t; k+1, \\theta)``. See the
 [primarycensored R package](https://primarycensored.epinowcast.org/articles/analytic-solutions.html)
 for the derivation.
 
-The formula involves CDFs of Gamma distributions with shape parameters
-k and k+1, computed in log-space for numerical stability.
+``F_T(\\cdot; k+1, \\theta)`` is obtained from ``F_T(\\cdot; k, \\theta)`` via the
+recursion ``P(k+1, y) = P(k, y) - y^k e^{-y} / \\Gamma(k+1)``, halving the
+number of hypergeometric evaluations. `y^k` and `inv(Γ(k+1))` are shared
+between ``F_T`` and ``M_T`` at each endpoint.
 "
 function primarycensored_cdf(
         dist::Gamma, primary_event::Uniform, x::Real, ::AnalyticalSolver
 )
-    # Extract parameters
-    k = shape(dist)  # shape parameter
-    θ = scale(dist)  # scale parameter
+    k = shape(dist)
+    θ = scale(dist)
     pwindow = maximum(primary_event) - minimum(primary_event)
     pmin = minimum(primary_event)
 
-    # Adjust x for the primary event window offset
-    t = x - pmin
-
-    # Handle edge cases
-    if t <= 0
+    d = x - pmin
+    if d <= 0
         return 0.0
     end
 
-    # Compute q = max(t - pwindow, 0)
-    q = max(t - pwindow, 0.0)
+    q = max(d - pwindow, minimum(dist))
 
-    # Compute CDFs using AD-safe gamma CDF
-    F_t = _gamma_cdf_ad_safe(k, θ, t)
+    # F_T(y; k+1) via the recursion P(k+1, y) = P(k, y) - y^k e^{-y} / Γ(k+1)
+    # so each endpoint pays one regularised-lower-incomplete-gamma call,
+    # not two. _gamma_cdf carries the ChainRules + Mooncake AD machinery
+    # for the shape-parameter derivative; the correction term is plain
+    # arithmetic and differentiates trivially.
+    inv_gamma_kp1 = inv(gamma(k + 1))
+    E_T = k * θ
 
-    # For the partial expectation, we need F(t; k+1, θ) and F(q; k+1, θ)
-    F_t_kplus1 = _gamma_cdf_ad_safe(k + 1, θ, t)
-
-    if q > 0
-        F_q = _gamma_cdf_ad_safe(k, θ, q)
-        F_q_kplus1 = _gamma_cdf_ad_safe(k + 1, θ, q)
-
-        # Compute differences
-        ΔF_k = F_t - F_q
-        ΔF_kplus1 = F_t_kplus1 - F_q_kplus1
-    else
-        ΔF_k = F_t
-        ΔF_kplus1 = F_t_kplus1
-    end
-
-    # Compute the analytical CDF matching the Stan implementation
-    # When q > 0: F_S+(d) = F_T(d) - exp(log_diff_exp(log(k*θ) + log(ΔF_{k+1}), log(d-w) + log(ΔF_k)) - log(w))
-    # When q = 0: F_S+(d) = F_T(d) - exp(log_sum_exp(log(k*θ) + log(F_{k+1}), log(w-d) + log(F_k)) - log(w))
-
-    # Handle numerical precision issues where differences might be slightly negative
-    ΔF_k = max(ΔF_k, 0.0)
-    ΔF_kplus1 = max(ΔF_kplus1, 0.0)
+    yd = d / θ
+    F_T_d = _gamma_cdf(k, θ, d)
+    M_T_d = E_T * (F_T_d - yd^k * exp(-yd) * inv_gamma_kp1)
 
     if q > 0
-        # Use log-space computation for numerical stability
-        # Handle edge case where t - pwindow might be very close to 0
-        t_minus_pwindow = max(t - pwindow, 0.0)
-        log_term1 = log(k * θ) + log(ΔF_kplus1)
-        log_term2 = log(t_minus_pwindow) + log(max(ΔF_k, 0.0))
-        log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
-        F_Splus = F_t - exp(log_diff)
+        yq = q / θ
+        F_T_q = _gamma_cdf(k, θ, q)
+        M_T_q = E_T * (F_T_q - yq^k * exp(-yq) * inv_gamma_kp1)
     else
-        # When q = 0, use log_sum_exp instead of log_diff_exp
-        # Handle edge case where pwindow - t might be very close to 0
-        pwindow_minus_t = max(pwindow - t, 0.0)
-        log_term1 = log(k * θ) + log(ΔF_kplus1)
-        log_term2 = log(pwindow_minus_t) + log(max(ΔF_k, 0.0))
-        log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
-        F_Splus = F_t - exp(log_sum)
+        F_T_q = 0.0
+        M_T_q = 0.0
     end
 
-    return F_Splus
+    return primarycensored_uniform_cdf_formula(
+        d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
 end
 
 @doc "
 
 Analytical CDF for LogNormal delay with Uniform primary event distribution.
 
-Uses a parameter shift approach where the partial expectation of LogNormal(μ, σ)
-can be expressed using the CDF of LogNormal(μ + σ², σ). See the
+Partial first moment is
+``M_T(t) = e^{\\mu + \\sigma^2/2} \\cdot F_T(t;\\, \\mu + \\sigma^2,\\, \\sigma)``,
+i.e. the mean times the CDF of the parameter-shifted LogNormal. See the
 [primarycensored R package](https://primarycensored.epinowcast.org/articles/analytic-solutions.html)
 for the derivation.
 "
 function primarycensored_cdf(
         dist::LogNormal, primary_event::Uniform, x::Real, ::AnalyticalSolver
 )
-    # Extract parameters
     μ = meanlogx(dist)
     σ = stdlogx(dist)
     pwindow = maximum(primary_event) - minimum(primary_event)
     pmin = minimum(primary_event)
 
-    # Adjust x for the primary event window offset
-    t = x - pmin
-
-    # Handle edge cases
-    if t <= 0
+    d = x - pmin
+    if d <= 0
         return 0.0
     end
 
-    # Compute q = max(t - pwindow, 0)
-    q = max(t - pwindow, 0.0)
+    q = max(d - pwindow, minimum(dist))
 
-    # Compute CDFs using Distributions.jl
-    F_t = cdf(dist, t)
-
-    # For the partial expectation, we need F(t; μ+σ², σ)
     dist_shifted = LogNormal(μ + σ^2, σ)
-    F_t_shifted = cdf(dist_shifted, t)
+    E_T = exp(μ + σ^2 / 2)
+
+    F_T_d = cdf(dist, d)
+    M_T_d = E_T * cdf(dist_shifted, d)
 
     if q > 0
-        F_q = cdf(dist, q)
-        F_q_shifted = cdf(dist_shifted, q)
-
-        # Compute differences
-        ΔF = F_t - F_q
-        ΔF_shifted = F_t_shifted - F_q_shifted
+        F_T_q = cdf(dist, q)
+        M_T_q = E_T * cdf(dist_shifted, q)
     else
-        ΔF = F_t
-        ΔF_shifted = F_t_shifted
+        F_T_q = 0.0
+        M_T_q = 0.0
     end
 
-    # Compute the analytical CDF matching the Stan implementation
-    # Handle numerical precision issues where differences might be slightly negative
-    ΔF = max(ΔF, 0.0)
-    ΔF_shifted = max(ΔF_shifted, 0.0)
-
-    if q > 0
-        # Use log-space computation for numerical stability
-        # Handle edge case where t - pwindow might be very close to 0
-        t_minus_pwindow = max(t - pwindow, 0.0)
-        log_term1 = (μ + 0.5 * σ^2) + log(ΔF_shifted)
-        log_term2 = log(t_minus_pwindow) + log(max(ΔF, 0.0))
-        log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
-        F_Splus = F_t - exp(log_diff)
-    else
-        # When q = 0, use log_sum_exp
-        # Handle edge case where pwindow - t might be very close to 0
-        pwindow_minus_t = max(pwindow - t, 0.0)
-        log_term1 = (μ + 0.5 * σ^2) + log(ΔF_shifted)
-        log_term2 = log(pwindow_minus_t) + log(max(ΔF, 0.0))
-        log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
-        F_Splus = F_t - exp(log_sum)
-    end
-
-    return F_Splus
+    return primarycensored_uniform_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
 end
 
 @doc "
 
 Analytical CDF for Weibull delay with Uniform primary event distribution.
 
-Uses the lower incomplete gamma function to express the partial expectation
-of the Weibull distribution analytically. See the
+Partial first moment is ``M_T(t) = \\lambda \\cdot g(t)`` where
+``g(t) = \\gamma(1 + 1/k, (t/\\lambda)^k)`` is the lower incomplete gamma
+helper. See the
 [primarycensored R package](https://primarycensored.epinowcast.org/articles/analytic-solutions.html)
 for the derivation.
 "
 function primarycensored_cdf(
         dist::Weibull, primary_event::Uniform, x::Real, ::AnalyticalSolver
 )
-    # Extract parameters
-    k = shape(dist)  # shape parameter
-    λ = scale(dist)  # scale parameter
+    k = shape(dist)
+    λ = scale(dist)
     pwindow = maximum(primary_event) - minimum(primary_event)
     pmin = minimum(primary_event)
 
-    # Adjust x for the primary event window offset
-    t = x - pmin
-
-    # Handle edge cases
-    if t <= 0
+    d = x - pmin
+    if d <= 0
         return 0.0
     end
 
-    # Compute q = max(t - pwindow, 0)
-    q = max(t - pwindow, 0.0)
+    q = max(d - pwindow, minimum(dist))
 
-    # Compute CDFs using Distributions.jl
-    F_t = cdf(dist, t)
-
-    # Create optimized g function with pre-computed constants
     weibull_g_func = _make_weibull_g(k, λ)
-
-    # Compute g values using optimized function
-    g_t = weibull_g_func(t)
-
-    if q > 0
-        F_q = cdf(dist, q)
-        g_q = weibull_g_func(q)
-
-        # Compute differences
-        ΔF = F_t - F_q
-        Δg = g_t - g_q
-    else
-        ΔF = F_t
-        Δg = g_t
-    end
-
-    # Compute the analytical CDF matching the Stan implementation
-    # Handle numerical precision issues where Δg or ΔF might be slightly negative
-    Δg = max(Δg, 0.0)
-    ΔF = max(ΔF, 0.0)
+    F_T_d = cdf(dist, d)
+    M_T_d = λ * weibull_g_func(d)
 
     if q > 0
-        # Use log-space computation for numerical stability
-        # Handle edge case where t - pwindow might be very close to 0
-        t_minus_pwindow = max(t - pwindow, 0.0)
-        log_term1 = log(λ) + log(Δg)
-        log_term2 = log(t_minus_pwindow) + log(max(ΔF, 0.0))
-        log_diff = logsubexp(log_term1, log_term2) - log(pwindow)
-        F_Splus = F_t - exp(log_diff)
+        F_T_q = cdf(dist, q)
+        M_T_q = λ * weibull_g_func(q)
     else
-        # When q = 0, use log_sum_exp
-        # Handle edge case where pwindow - t might be very close to 0
-        pwindow_minus_t = max(pwindow - t, 0.0)
-        log_term1 = log(λ) + log(Δg)
-        log_term2 = log(pwindow_minus_t) + log(max(ΔF, 0.0))
-        log_sum = logaddexp(log_term1, log_term2) - log(pwindow)
-        F_Splus = F_t - exp(log_sum)
+        F_T_q = 0.0
+        M_T_q = 0.0
     end
 
-    return F_Splus
+    return primarycensored_uniform_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
 end
 
 # ============================================================================
