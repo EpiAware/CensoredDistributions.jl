@@ -17,7 +17,7 @@ and the benchmark suite in `benchmark/src/ad_gradients.jl`.
 ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen)
 ![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen)
 ![](https://img.shields.io/badge/Mooncake%20forward-full-brightgreen)
-![](https://img.shields.io/badge/ReverseDiff%20tape-partial-yellow)
+![](https://img.shields.io/badge/ReverseDiff%20tape-full-brightgreen)
 ![](https://img.shields.io/badge/Enzyme%20forward-broken-red)
 ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red)
 
@@ -33,10 +33,11 @@ and the benchmark suite in `benchmark/src/ad_gradients.jl`.
   those scenarios through a plain `gradient` self-consistency check
   instead). Tracked in
   [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
-- **ReverseDiff (tape)** works everywhere except the numerical-path
-  LogNormal scenarios (`Uniform` and `ExponentiallyTilted` priors),
-  tracked in
-  [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249).
+- **ReverseDiff (tape)** works on every scenario. The numerical-path
+  LogNormal regression tracked in
+  [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249)
+  was fixed by gating the CDF-saturation early-return so `cdf(dist, ...)`
+  is never evaluated at the support boundary.
 - **Enzyme** (forward and reverse) ships an extension
   (`ext/CensoredDistributionsEnzymeExt.jl`) that lifts our
   `_gamma_cdf` rrule via `Enzyme.@import_rrule`, but the lifted rule
