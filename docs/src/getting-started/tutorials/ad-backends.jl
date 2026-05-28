@@ -35,11 +35,12 @@ and the benchmark suite in `benchmark/src/ad_gradients.jl`.
   tracked in
   [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249).
 - **Enzyme** (forward and reverse) ships an extension
-  (`ext/CensoredDistributionsEnzymeExt.jl`) with direct
-  `EnzymeRules.augmented_primal` / `reverse` / `forward` rules on
-  `_gamma_cdf`; both modes match the ForwardDiff reference on
-  `_gamma_cdf` itself. The full-pipeline scenarios still fail under
-  Enzyme because the surrounding `logpdf`/`sum`/`primary_censored`
+  (`ext/CensoredDistributionsEnzymeExt.jl`) that registers a rule on
+  `_gamma_cdf` via `EnzymeRules.@easy_rule` (covers both modes from a
+  single declaration of the analytical partials); both modes match the
+  ForwardDiff reference on `_gamma_cdf` itself. The full-pipeline
+  scenarios still fail under Enzyme because the surrounding
+  `logpdf`/`sum`/`primary_censored`
   plumbing trips Enzyme's mutability and mixed-activity checks — the
   broader integration gap tracked in
   [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
