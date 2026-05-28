@@ -55,12 +55,7 @@ end
 """
     broken_backends()
 
-AD backends that currently fail for every scenario. The `_gamma_cdf`
-direct Enzyme rule (forward and reverse) computes correct partials on
-its own — the scenario-level failures here come from Enzyme's
-mutability and mixed-activity checks in the surrounding
-`logpdf`/`sum`/`primary_censored` plumbing, not from the `_gamma_cdf`
-rrule. Tracked in
+AD backends that currently fail for every scenario. Tracked in
 [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
 """
 function broken_backends()

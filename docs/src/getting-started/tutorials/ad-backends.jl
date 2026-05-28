@@ -1,5 +1,5 @@
 md"""
-# Automatic differentiation backends
+# [Automatic differentiation backends](@id ad-backends)
 
 CensoredDistributions.jl composes with Julia's automatic differentiation
 (AD) ecosystem so that the censored `logpdf` can be used as the likelihood
