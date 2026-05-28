@@ -121,10 +121,7 @@ function backend_broken_scenarios()
     ])
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
-        "ReverseDiff (tape)" => Set([
-            "PrimaryCensored LogNormal+Uniform numerical",
-            "PrimaryCensored LogNormal+ExponentiallyTilted numerical"
-        ]),
+        "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => mooncake_broken,
         "Mooncake forward" => mooncake_broken
     )

@@ -1,5 +1,17 @@
 ## Unreleased
 
+### Bug fixes
+
+- Skip the CDF-saturation early-return in the numeric
+  `primarycensored_cdf` path when the lower bound is at the distribution
+  boundary (`lower == minimum(dist)`). Evaluating `cdf(dist, lower)`
+  there is unnecessary (`cdf` is 0 by construction) and trips degenerate
+  `0·(-Inf)` reverse-mode rules in `Distributions.jl`
+  (e.g. `LogNormal` via `log(0)`), contaminating the ReverseDiff tape
+  with NaN. Restores ReverseDiff and Mooncake gradient correctness on
+  `PrimaryCensored LogNormal+Uniform numerical`. Closes
+  [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249).
+
 ### Breaking
 
 - `primary_censored(...; solver)` defaults to `GaussLegendre(; n = 64)`
@@ -39,9 +51,7 @@
   (`gamma_inc` `Dual` dispatch gap on the `Distributions.cdf(Gamma)`
   path used by `IntervalCensored Gamma arbitrary`),
   [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225)
-  (Enzyme + DIT-Mooncake interaction), and
-  [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249)
-  (ReverseDiff regression on `PrimaryCensored LogNormal+Uniform numerical`).
+  (Enzyme + DIT-Mooncake interaction).
 
 ## v0.1.0 - Initial Release
 
