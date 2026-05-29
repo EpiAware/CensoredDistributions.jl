@@ -99,11 +99,11 @@ backend `name` from [`working_backends`](@ref).
 
 Mooncake forward mode has no rule for `_gamma_cdf`: only a reverse-mode
 `rrule` is shipped (lifted via the ChainRules extension), so scenarios
-whose CDF routes through the incomplete-gamma path — every `Gamma`
-delay, plus `Weibull` analytical, which uses the lower incomplete gamma
-— cannot be differentiated in forward mode. `IntervalCensored Gamma
-arbitrary` joins this set once it routes through `_gamma_cdf` (#257).
-Tracked in
+whose CDF routes through the incomplete-gamma path cannot be
+differentiated in forward mode: every `Gamma` delay, `Weibull`
+analytical (which uses the lower incomplete gamma), and
+`IntervalCensored Gamma arbitrary` (which routes through `_gamma_cdf`,
+see #257). Tracked in
 [#270](https://github.com/EpiAware/CensoredDistributions.jl/issues/270).
 """
 function backend_broken_scenarios()
