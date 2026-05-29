@@ -2,111 +2,86 @@ md"""
 # [Automatic differentiation backends](@id ad-backends)
 
 CensoredDistributions.jl composes with Julia's automatic differentiation
-(AD) ecosystem so that the censored `logpdf` can be used as the likelihood
-in gradient-based inference, for example inside a
+(AD) ecosystem, so the censored `logpdf` can be used as the likelihood in
+gradient-based inference, for example inside a
 [Turing.jl](https://turinglang.org) model.
-This tutorial reports the wall-clock cost of each AD backend on the
-package's shared scenario set, defined with
-[DifferentiationInterfaceTest.jl](https://juliadiff.org/DifferentiationInterface.jl/DifferentiationInterfaceTest/stable/)
-and exposed via the `ADFixtures` path package at `test/ADFixtures`.
-The same scenario list powers the gradient tests in `test/ad/runtests.jl`
-and the benchmark suite in `benchmark/src/ad_gradients.jl`.
+This page explains how to choose a backend, how to configure the ones that
+need it, and reports the cost of each backend on the package's shared
+scenario set.
 
-## Tested backends
+## Forward vs reverse mode
+
+Which backend is fastest depends on how many parameters you differentiate
+with respect to.
+
+- Forward mode (ForwardDiff, Enzyme forward, Mooncake forward) costs one
+  pass per parameter, so it wins when the parameter count is small.
+  Fitting a single censored delay distribution has two or three
+  parameters, which sits squarely in this range.
+- Reverse mode (ReverseDiff, Enzyme reverse, Mooncake reverse) costs one
+  pass per output regardless of the parameter count, so it scales better
+  once a censored distribution sits inside a larger Turing model with many
+  latent parameters.
+
+For the small-parameter case, ForwardDiff is the simplest fast default.
+It works on every scenario and needs no configuration.
+When you embed these distributions in a higher-dimensional model, switch
+to a reverse-mode backend and pick the fastest one that works on your
+model (see the benchmark below).
+
+## Backend support
 
 | ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
 |:---:|:---:|:---:|:---:|:---:|:---:|
 | ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-full-brightgreen) | ![](https://img.shields.io/badge/Enzyme%20forward-partial-yellow) | ![](https://img.shields.io/badge/Enzyme%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20forward-full-brightgreen) |
 
-- **ForwardDiff** works on every scenario via the Dual-number extension
-  for `_gamma_cdf`.
-- **Mooncake reverse** works on every scenario, picking up the
-  `@from_chainrules` lift of our `_gamma_cdf` rrule. The package also
-  passes `Mooncake.TestUtils.test_rule` (`test/ad/gamma_ad.jl`).
-- **Mooncake forward** works on every scenario, picking up the
-  `@from_chainrules` lift of our `_gamma_cdf` frule (default mode
-  generates both `rrule!!` and `frule!!`). It also passes
-  `Mooncake.TestUtils.test_rule` in forward mode. The earlier gap, where
-  only an `rrule` was shipped so forward mode found no rule on the
-  incomplete-gamma path, was closed in
-  [#270](https://github.com/EpiAware/CensoredDistributions.jl/issues/270).
-- **ReverseDiff (tape)** works on every scenario. The numerical-path
-  LogNormal regression tracked in
-  [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249)
-  was fixed by gating the CDF-saturation early-return so `cdf(dist, ...)`
-  is never evaluated at the support boundary.
-- **Enzyme** ships an extension (`ext/CensoredDistributionsEnzymeExt.jl`)
-  that registers rules via `EnzymeRules.@easy_rule` (one declaration
-  covers both modes) for `_gamma_cdf` and for `SpecialFunctions.gamma`.
-  The `gamma` rule is needed because, with only `EnzymeSpecialFunctionsExt`
-  loaded, Enzyme mis-lowers `gamma(x)` to the `loggamma` known-op and
-  returns `ψ(x)` instead of `Γ(x) ψ(x)` — silently wrong by a factor of
-  `Γ(x)`. The analytical Gamma and Weibull paths call `gamma(k + 1)` and
-  `gamma(1 + 1/k)` outside `_gamma_cdf`, so this corrupted the shape
-  partial of the whole pipeline (see
-  [#263](https://github.com/EpiAware/CensoredDistributions.jl/issues/263)).
-  - **Reverse mode** now matches the ForwardDiff reference on every
-    scenario, but only when invoked with two settings that are the
-    caller's responsibility (not something the extension can set):
+ForwardDiff, ReverseDiff (tape), Enzyme reverse, Mooncake reverse, and
+Mooncake forward cover the whole scenario set.
+Enzyme forward is partial: it differentiates the `ExponentiallyTilted` and
+`LogNormal` interval scenarios but trips an upstream mixed-activity check
+on the `Uniform`-primary delay constructors
+([#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225)).
 
-    ```julia
-    using ADTypes, Enzyme
-    AutoEnzyme(
-        mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
-        function_annotation = Enzyme.Duplicated)
-    ```
+### Configuring Enzyme
 
-    `function_annotation = Duplicated` stops Enzyme flagging the closure
-    over the observation data as non-readonly (a generic Enzyme
-    requirement for closures over arrays, including Turing likelihoods),
-    and `set_runtime_activity` resolves per-value activity at runtime
-    through the `Integrals` quadrature and the distribution
-    constructors. The analytical paths work with just `Duplicated`; the
-    numerical (quadrature) paths additionally need `set_runtime_activity`,
-    so passing both is the recommended default. These are the settings
-    the `ADFixtures` `Enzyme reverse` backend uses.
-  - **Forward mode** is partial: it works on the `ExponentiallyTilted`
-    primaries and the LogNormal interval/double-interval scenarios but
-    still trips an upstream Enzyme mixed-activity check on the
-    `jl_new_struct` of the `Uniform`-primary delay constructors
-    (Gamma/LogNormal/Weibull). Tracked in
-    [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
-- `IntervalCensored Gamma arbitrary` fails universally, on every
-  backend. Its CDF differences route through `Distributions.cdf(Gamma,
-  x)` → `SpecialFunctions.gamma_inc`, which **bypasses** the
-  `_gamma_cdf` helper our rules wrap. ForwardDiff hits a hard
-  `MethodError` because `gamma_inc` has no `Dual` method; the reverse-
-  mode backends (ReverseDiff, Mooncake) also fail because the rrule we
-  ship targets `_gamma_cdf`, not `gamma_inc` — to be picked up here it
-  would need to live on `gamma_inc` itself (i.e. upstream in
-  SpecialFunctions). The package-side workaround is to re-route
-  `IntervalCensored`'s CDF computation through `_gamma_cdf`, tracked in
-  [#257](https://github.com/EpiAware/CensoredDistributions.jl/issues/257);
-  the original `gamma_inc` Dual gap is
-  [#217](https://github.com/EpiAware/CensoredDistributions.jl/issues/217).
+Enzyme needs two caller-side settings to work through the numerical
+(quadrature) paths.
+
+```julia
+using ADTypes, Enzyme
+AutoEnzyme(
+    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+    function_annotation = Enzyme.Duplicated)
+```
+
+`function_annotation = Duplicated` stops Enzyme flagging the closure over
+the observation data as non-readonly, a generic Enzyme requirement for
+closures over arrays that also covers Turing likelihoods.
+`set_runtime_activity` resolves per-value activity at runtime through the
+quadrature and the distribution constructors.
+The analytical paths work with just `Duplicated`; the numerical paths also
+need `set_runtime_activity`, so passing both is the recommended default.
+These are the settings the benchmark below uses.
+
+## Debugging
+
+ForwardDiff fails with ordinary Julia `MethodError`s that point at the
+offending call, so it is the easiest backend to debug; start there when a
+gradient misbehaves.
+Enzyme and Mooncake report errors at the compiled-IR level, which are
+harder to trace.
+If a reverse-mode gradient looks wrong, compare it against the ForwardDiff
+value on the same input — that is exactly what the gradient tests do.
 
 The scenario set covers analytical and numerical paths for Gamma,
-LogNormal, and Weibull delay distributions with both `Uniform` and
-`ExponentiallyTilted` primary events, plus `IntervalCensored` (regular
-and arbitrary boundaries) and `DoubleIntervalCensored` constructions.
-
-## Reproducing this page
-
-The numbers below are measured on the docs-build machine. To regenerate
-locally:
-
-```
-task docs
-```
-
-or, equivalently:
-
-```
-julia --project=docs docs/make.jl
-```
-
-`docs/Project.toml` adds `ADFixtures` as a path dep so the same scenario
-set is loaded; results will reflect the local CPU.
+LogNormal, and Weibull delays with both `Uniform` and
+`ExponentiallyTilted` primary events, plus `IntervalCensored` and
+`DoubleIntervalCensored` constructions.
+It is defined with
+[DifferentiationInterfaceTest.jl](https://juliadiff.org/DifferentiationInterface.jl/DifferentiationInterfaceTest/stable/)
+in the `ADFixtures` path package at `test/ADFixtures`, and shared with the
+gradient tests (`test/ad/runtests.jl`) and the benchmark suite
+(`benchmark/src/ad_gradients.jl`).
 """
 
 md"""
@@ -125,17 +100,24 @@ using Mooncake
 using Chairmarks
 using ADFixtures
 using DataFramesMeta
+using Statistics
+using CairoMakie
+using AlgebraOfGraphics
+
+CairoMakie.activate!(type = "png", px_per_unit = 2)
+set_theme!(theme_latexfonts(); fontsize = 14)
 
 scenarios = ADFixtures.scenarios()
 all_backends = [entry.backend for entry in ADFixtures.backends()]
+backend_name = Dict(entry.backend => entry.name
+for entry in ADFixtures.backends())
 
 md"""
-## Benchmark table
+## Benchmark
 
 `DifferentiationInterfaceTest.benchmark_differentiation` runs every
-(backend, scenario) combination and returns a Tables.jl-compatible
-result. We pass every backend and every scenario so failures are
-visible in the output rather than silently hidden.
+(backend, scenario) pair. We pass every backend and scenario so broken
+combinations show up as gaps rather than being hidden.
 """
 
 raw_bench = DIT.benchmark_differentiation(
@@ -143,16 +125,6 @@ raw_bench = DIT.benchmark_differentiation(
     logging = false,
     benchmark_test = false
 )
-
-md"""
-Below is two pivoted views — wall-clock time and bytes allocated —
-with scenarios as rows and backends as columns. The raw long-format
-result is available as `raw_bench` if you want GC fraction, compile
-fraction, or the `value_and_gradient` rows.
-"""
-
-backend_name = Dict(entry.backend => entry.name
-for entry in ADFixtures.backends())
 
 ## `replace` order matters because `DoubleIntervalCensored` contains
 ## `IntervalCensored`; the longer key is matched first.
@@ -168,71 +140,117 @@ bench_long = @chain DataFrame(raw_bench) begin
     @rtransform begin
         :backend = backend_name[:backend]
         :scenario = _shorten(:scenario.name)
-        :time_us = round(:time * 1e6; digits = 2)
-        :bytes_kb = round(:bytes / 1024; digits = 1)
+        :time_us = :time * 1e6
+        :bytes_kb = :bytes / 1024
+    end
+    @rsubset isfinite(:time_us) && isfinite(:bytes_kb)
+    @select :backend :scenario :time_us :bytes_kb
+end;
+
+md"""
+### Cost relative to ForwardDiff
+
+Each backend's time and allocations are divided by the ForwardDiff value
+on the same scenario, so ForwardDiff sits at 1.0 by construction.
+Values below 1.0 are faster (or lighter); above 1.0 are slower (or
+heavier).
+"""
+
+ref = @chain bench_long begin
+    @rsubset :backend == "ForwardDiff"
+    @select :scenario :ref_time=:time_us :ref_bytes=:bytes_kb
+end
+
+rel = @chain bench_long begin
+    leftjoin(ref, on = :scenario)
+    @rtransform begin
+        :rel_time = :time_us / :ref_time
+        :rel_bytes = :bytes_kb / :ref_bytes
     end
 end;
 
 md"""
-Per-row winner — fastest backend in the time table, smallest
-allocation footprint in the bytes table — is bolded. Cells where
-DIT couldn't produce a number (broken combinations) appear blank.
+### Summary
+
+Geometric mean of the relative cost across the scenarios each backend can
+handle. `Scenarios` reports coverage, since a partial backend averages
+only over the scenarios it differentiates.
 """
 
-function bold_min_per_row(df; idcol = :scenario)
-    cols = setdiff(propertynames(df), [idcol])
-    out = DataFrame(idcol => df[!, idcol])
-    for c in cols
-        out[!, c] = Vector{Any}(undef, nrow(df))
+## Geometric mean over positive values; guards against a zero-allocation
+## scenario sending `log` to -Inf.
+function geomean(x)
+    pos = filter(>(0), x)
+    isempty(pos) ? NaN : exp(mean(log.(pos)))
+end
+
+n_total = length(unique(bench_long.scenario))
+
+summary = @chain rel begin
+    @by :backend begin
+        :rel_time = round(geomean(:rel_time); digits = 2)
+        :rel_bytes = round(geomean(:rel_bytes); digits = 2)
+        :scenarios = "$(length(:scenario))/$(n_total)"
     end
-    for r in 1:nrow(df)
-        vals = [(c, df[r, c]) for c in cols if !ismissing(df[r, c])]
-        minv = isempty(vals) ? nothing : minimum(last.(vals))
-        for c in cols
-            v = df[r, c]
-            out[r, c] = if ismissing(v)
-                ""
-            elseif v == minv
-                "**$(v)**"
-            else
-                string(v)
-            end
-        end
-    end
-    out
+    @orderby :rel_time
+    rename(
+        :backend => "Backend",
+        :rel_time => "Relative time",
+        :rel_bytes => "Relative allocations",
+        :scenarios => "Scenarios")
 end
 
 md"""
-### Time (μs)
+### Spread across scenarios
+
+Each box summarises a backend's relative cost across the scenario set, on
+a log scale so speed-ups and slow-downs are symmetric around the
+ForwardDiff baseline at 1.0.
 """
 
-bold_min_per_row(unstack(bench_long, :scenario, :backend, :time_us))
+plot_df = @chain rel begin
+    stack([:rel_time, :rel_bytes],
+        variable_name = :metric, value_name = :value)
+    @rsubset :value > 0
+    @rtransform :metric = :metric == "rel_time" ?
+                          "Relative time" : "Relative allocations"
+end
+
+fig_relative = draw(
+    data(plot_df) *
+    mapping(
+        :backend => "",
+        :value => "Cost relative to ForwardDiff",
+        col = :metric) *
+    visual(BoxPlot);
+    figure = (size = (900, 400),),
+    axis = (yscale = log10, xticklabelrotation = pi / 4),
+    facet = (; linkyaxes = :none)
+)
+
+fig_relative
 
 md"""
-### Allocations (KiB)
-"""
+The full long-format result is available as `raw_bench` if you want GC
+fraction, compile fraction, the `value_and_gradient` rows, or absolute
+timings.
 
-bold_min_per_row(unstack(bench_long, :scenario, :backend, :bytes_kb))
+## Reproducing this page
 
-md"""
-## When to use which backend
+The numbers above are measured on the docs-build machine, so they reflect
+that CPU.
+To regenerate locally:
 
-- **ForwardDiff** — default for small parameter dimensions and the most
-  broadly compatible backend in this package.
-- **ReverseDiff (tape) / (compiled)** — scales better as the parameter
-  count grows; the compiled tape amortises its setup over many calls.
-- **Enzyme reverse** — high-performance AD via LLVM; works through the
-  full pipeline when called with
-  `AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
-  function_annotation = Enzyme.Duplicated)` (see the status notes
-  above). Forward mode is only partial.
-- **Mooncake** — newer reverse-mode AD; recommended where it works.
+```
+task docs
+```
 
-The full matrix of supported (scenario, backend) pairs is checked in
-`test/ad/runtests.jl`.
-"""
+or, equivalently:
 
-md"""
+```
+julia --project=docs docs/make.jl
+```
+
 ## See also
 
 - `test/ad/runtests.jl` validates each backend's gradient against a

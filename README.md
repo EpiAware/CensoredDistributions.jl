@@ -6,7 +6,7 @@
 
 | ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
 |:---:|:---:|:---:|:---:|:---:|:---:|
-| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-full-brightgreen) | ![](https://img.shields.io/badge/Enzyme%20forward-broken-red) | ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20forward-partial-yellow) |
+| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-full-brightgreen) | ![](https://img.shields.io/badge/Enzyme%20forward-partial-yellow) | ![](https://img.shields.io/badge/Enzyme%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20forward-full-brightgreen) |
 
 For information on AD support, scenario coverage, and per-backend benchmarks see the [Automatic differentiation backends](https://censoreddistributions.epiaware.org/stable/getting-started/tutorials/ad-backends/) tutorial.
 
