@@ -55,6 +55,13 @@ AutoEnzyme(
 the [Enzyme FAQ](https://enzymead.github.io/Enzyme.jl/stable/faq/) for what
 they do.
 These are the settings the benchmark below uses.
+Runtime activity is not free.
+On the analytical paths, which do not need it, it makes Enzyme several
+times slower here, so its benchmark rows are conservative; the benchmark
+applies one Enzyme configuration to every scenario and only the numerical
+paths require it.
+Running through DifferentiationInterface, by contrast, adds no measurable
+overhead.
 
 The scenario set covers analytical and numerical paths for Gamma,
 LogNormal, and Weibull delays with both `Uniform` and
@@ -239,8 +246,17 @@ plot_df = @chain rel begin
     stack([:rel_time, :rel_bytes],
         variable_name = :metric, value_name = :value)
     @rsubset :value > 0
-    @rtransform :metric = :metric == "rel_time" ?
-                          "Relative time" : "Relative allocations"
+    @rtransform begin
+        :metric = :metric == "rel_time" ? "Relative time" :
+                  "Relative allocations"
+        :family = startswith(:backend, "Enzyme") ? "Enzyme" :
+                  startswith(:backend, "Mooncake") ? "Mooncake" :
+                  startswith(:backend, "ReverseDiff") ? "ReverseDiff" :
+                  "ForwardDiff"
+        :mode = (occursin("reverse", :backend) ||
+                 startswith(:backend, "ReverseDiff")) ? "reverse" :
+                "forward"
+    end
 end
 
 ## Order the facets time-then-allocations.
@@ -286,7 +302,8 @@ fig_scenarios = draw(
     mapping(
         :scenario => "",
         :value => "Cost relative to ForwardDiff",
-        color = :backend => "Backend",
+        color = :family => "Backend family",
+        marker = :mode => "Mode",
         col = :metric => metric_order) *
     visual(Scatter, markersize = 9);
     figure = (size = (1000, 600),),
