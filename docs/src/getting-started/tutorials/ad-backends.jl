@@ -5,29 +5,9 @@ CensoredDistributions.jl composes with Julia's automatic differentiation
 (AD) ecosystem, so the censored `logpdf` can be used as the likelihood in
 gradient-based inference, for example inside a
 [Turing.jl](https://turinglang.org) model.
-This page explains how to choose a backend, how to configure the ones that
-need it, and reports the cost of each backend on the package's shared
-scenario set.
-
-## Forward vs reverse mode
-
-Which backend is fastest depends on how many parameters you differentiate
-with respect to.
-
-- Forward mode (ForwardDiff, Enzyme forward, Mooncake forward) costs one
-  pass per parameter, so it wins when the parameter count is small.
-  Fitting a single censored delay distribution has two or three
-  parameters, which sits squarely in this range.
-- Reverse mode (ReverseDiff, Enzyme reverse, Mooncake reverse) costs one
-  pass per output regardless of the parameter count, so it scales better
-  once a censored distribution sits inside a larger Turing model with many
-  latent parameters.
-
-For the small-parameter case, ForwardDiff is the simplest fast default.
-It works on every scenario and needs no configuration.
-When you embed these distributions in a higher-dimensional model, switch
-to a reverse-mode backend and pick the fastest one that works on your
-model (see the benchmark below).
+This page reports which backends work, how to configure the ones that
+need it, and what each costs on the package's shared scenario set.
+Advice on choosing a backend and on debugging comes after the results.
 
 ## Backend support
 
@@ -63,24 +43,11 @@ AutoEnzyme(
     function_annotation = Enzyme.Duplicated)
 ```
 
-`function_annotation = Duplicated` stops Enzyme flagging the closure over
-the observation data as non-readonly, a generic Enzyme requirement for
-closures over arrays that also covers Turing likelihoods.
-`set_runtime_activity` resolves per-value activity at runtime through the
-quadrature and the distribution constructors.
-The analytical paths work with just `Duplicated`; the numerical paths also
-need `set_runtime_activity`, so passing both is the recommended default.
+`Duplicated` marks the closure over the observation data as active, and
+`set_runtime_activity` defers per-value activity decisions to runtime; see
+the [Enzyme FAQ](https://enzymead.github.io/Enzyme.jl/stable/faq/) for what
+they do.
 These are the settings the benchmark below uses.
-
-## Debugging
-
-ForwardDiff fails with ordinary Julia `MethodError`s that point at the
-offending call, so it is the easiest backend to debug; start there when a
-gradient misbehaves.
-Enzyme and Mooncake report errors at the compiled-IR level, which are
-harder to trace.
-If a reverse-mode gradient looks wrong, compare it against the ForwardDiff
-value on the same input — that is exactly what the gradient tests do.
 
 The scenario set covers analytical and numerical paths for Gamma,
 LogNormal, and Weibull delays with both `Uniform` and
@@ -243,6 +210,36 @@ md"""
 The full long-format result is available as `raw_bench` if you want GC
 fraction, compile fraction, the `value_and_gradient` rows, or absolute
 timings.
+
+## Choosing a backend
+
+The results above reflect a general rule: which backend is fastest depends
+on how many parameters you differentiate with respect to.
+
+- Forward mode (ForwardDiff, Enzyme forward, Mooncake forward) costs one
+  pass per parameter, so it wins when the parameter count is small.
+  Fitting a single censored delay distribution has two or three
+  parameters, which is why ForwardDiff leads the table here.
+- Reverse mode (ReverseDiff, Enzyme reverse, Mooncake reverse) costs one
+  pass per output regardless of the parameter count, so it scales better
+  once a censored distribution sits inside a larger Turing model with many
+  latent parameters.
+
+For the small-parameter case, ForwardDiff is the simplest fast default.
+It works on every scenario and needs no configuration.
+When you embed these distributions in a higher-dimensional model, switch
+to a reverse-mode backend and pick the fastest one that works on your
+model.
+
+## Debugging
+
+ForwardDiff fails with ordinary Julia `MethodError`s that point at the
+offending call, so it is the easiest backend to debug; start there when a
+gradient misbehaves.
+Enzyme and Mooncake report errors at the compiled-IR level, which are
+harder to trace.
+If a reverse-mode gradient looks wrong, compare it against the ForwardDiff
+value on the same input, which is what the gradient tests do.
 
 ## Reproducing this page
 
