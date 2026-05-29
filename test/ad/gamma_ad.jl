@@ -1,10 +1,15 @@
 # Unit-level AD coverage for the gamma CDF rrule. Complements the
-# scenario suite in `runtests.jl`: those check end-to-end gradient
+# scenario suite in `scenarios.jl`: those check end-to-end gradient
 # agreement; these pin the implementation-level guarantees (series
-# accuracy, Mooncake rule structure, defensive guards) that no
-# scenario exercises directly.
+# accuracy, Mooncake rule structure, defensive guards) that no scenario
+# exercises directly.
+#
+# Each item is mode-agnostic (it exercises both modes of a backend's
+# rules), so it is tagged for a single canonical backend and runs once
+# across the per-backend CI jobs; the untagged `task test-ad` run executes
+# every item.
 
-@testset "_grad_p_a_series matches FiniteDifferences" begin
+@testitem "_grad_p_a_series matches FiniteDifferences" tags=[:ad, :forwarddiff] begin
     using SpecialFunctions: gamma_inc
     using FiniteDifferences: central_fdm
     using DifferentiationInterface: AutoFiniteDifferences, derivative
@@ -16,8 +21,8 @@
     # finite-difference baseline is meaningful (i.e. away from
     # P-saturation). Includes k≪1 cases — the singular regime that breaks
     # naive implementations of the shape-parameter derivative. Lower bound
-    # on a is set by the fdm probe radius (`central_fdm(7, 1)` reaches
-    # into negative a if started below ~0.1).
+    # on a is set by the fdm probe radius (`central_fdm(7, 1)` reaches into
+    # negative a if started below ~0.1).
     grid = [
         (0.1, 0.1), (0.1, 0.5), (0.1, 1.0),
         (0.3, 0.1), (0.3, 0.5), (0.3, 1.0),
@@ -34,7 +39,8 @@
     end
 end
 
-@testset "_gamma_cdf passes Mooncake.TestUtils.test_rule" begin
+@testitem "_gamma_cdf passes Mooncake.TestUtils.test_rule" tags=[
+    :ad, :mooncake, :mooncake_reverse] begin
     # Mooncake's canonical rule test, run for both reverse and forward
     # mode. `@from_chainrules` (default mode) lifts the `rrule` into an
     # `rrule!!` and the `frule` into an `frule!!`, so both interfaces are
@@ -65,11 +71,12 @@ end
     end
 end
 
-@testset "Enzyme direct rule on _gamma_cdf (issue #259)" begin
+@testitem "Enzyme direct rule on _gamma_cdf (issue #259)" tags=[
+    :ad, :enzyme, :enzyme_reverse] begin
     # Pins the fix in CensoredDistributionsEnzymeExt: the original
-    # `Enzyme.@import_rrule` lift returned the wrong ∂P/∂k (~8% off).
-    # The direct EnzymeRules.augmented_primal/reverse + forward rule
-    # should now match the ForwardDiff reference on both modes.
+    # `Enzyme.@import_rrule` lift returned the wrong ∂P/∂k (~8% off). The
+    # direct EnzymeRules.augmented_primal/reverse + forward rule should now
+    # match the ForwardDiff reference on both modes.
     using ADTypes: AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
     using Enzyme: Enzyme
@@ -92,7 +99,7 @@ end
     end
 end
 
-@testset "Enzyme gamma rule (issue #263)" begin
+@testitem "Enzyme gamma rule (issue #263)" tags=[:ad, :enzyme, :enzyme_reverse] begin
     # Pins the `SpecialFunctions.gamma` rule in
     # CensoredDistributionsEnzymeExt. With only EnzymeSpecialFunctionsExt
     # loaded, Enzyme mis-lowers `gamma` to the `loggamma` known-op and
@@ -116,7 +123,8 @@ end
     end
 end
 
-@testset "Enzyme reverse on analytical scenarios (issue #263)" begin
+@testitem "Enzyme reverse on analytical scenarios (issue #263)" tags=[
+    :ad, :enzyme, :enzyme_reverse] begin
     # End-to-end check that the gamma + _gamma_cdf rules together make
     # Enzyme reverse match ForwardDiff on the analytical pipeline,
     # including the shape (k) partial that the gamma gap previously
@@ -126,6 +134,7 @@ end
     using DifferentiationInterface: gradient
     using Enzyme: Enzyme
     using Distributions: Gamma, Weibull, Uniform, logpdf
+    using CensoredDistributions: primary_censored
 
     be = AutoEnzyme(
         mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
@@ -140,14 +149,14 @@ end
         g = gradient(f, be, [2.0, 1.5])
         # rtol bounded below by `PrimaryCensored.logpdf`'s internal
         # finite-difference step (h = 1e-8; see ADFixtures docstring),
-        # which limits the ForwardDiff reference's own accuracy to
-        # ~1e-6. 1e-4 still catches the pre-fix shape partial, which was
-        # wrong by a factor of `Γ(x)` (~150%).
+        # which limits the ForwardDiff reference's own accuracy to ~1e-6.
+        # 1e-4 still catches the pre-fix shape partial, which was wrong by
+        # a factor of `Γ(x)` (~150%).
         @test isapprox(g, ref; rtol = 1e-4, atol = 1e-6)
     end
 end
 
-@testset "_gamma_cdf rrule and _make_weibull_g zero-input guards" begin
+@testitem "_gamma_cdf rrule and _make_weibull_g zero-input guards" tags=[:ad, :forwarddiff] begin
     # Exercise the non-positive-input early-return branches that the
     # scenario suite never hits (all gradient grids use strictly positive
     # x / t). Without this, the rrule's x <= 0 path and the Weibull g's

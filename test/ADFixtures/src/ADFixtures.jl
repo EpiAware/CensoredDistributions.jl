@@ -54,6 +54,10 @@ function working_backends()
         (name = "Enzyme reverse",
             backend = AutoEnzyme(
                 mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Duplicated)),
+        (name = "Enzyme forward",
+            backend = AutoEnzyme(
+                mode = Enzyme.set_runtime_activity(Enzyme.Forward),
                 function_annotation = Enzyme.Duplicated))
     ]
 end
@@ -62,22 +66,16 @@ end
     broken_backends()
 
 AD backends that fail on at least some scenarios. `check_broken` in
-`test/ad/runtests.jl` runs each through plain
+`test/ad/setup.jl` runs each through plain
 `DifferentiationInterface.gradient` and marks the scenarios that do
 work as passing, so a partially-working backend is not forced to be
-all-or-nothing. Tracked in
-[#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
+all-or-nothing. Empty today: every backend in [`backends`](@ref) is full
+on all scenarios. Enzyme forward relies on `scenarios` constructing each
+distribution as a literal rather than capturing a `Type` (see the comment
+there and #278).
 """
 function broken_backends()
-    # Same Enzyme settings as reverse, but forward stays partial: it
-    # trips an upstream mixed-activity check on the Uniform-primary
-    # delay constructors (see the ad-backends tutorial).
-    return [
-        (name = "Enzyme forward",
-        backend = AutoEnzyme(
-            mode = Enzyme.set_runtime_activity(Enzyme.Forward),
-            function_annotation = Enzyme.Duplicated))
-    ]
+    return NamedTuple{(:name, :backend)}[]
 end
 
 """
@@ -117,7 +115,8 @@ function backend_broken_scenarios()
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => Set{String}(),
         "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => Set{String}()
+        "Enzyme reverse" => Set{String}(),
+        "Enzyme forward" => Set{String}()
     )
 end
 
@@ -162,20 +161,72 @@ function scenarios(; with_reference::Bool = false)
                 f, θ₀; res1 = res1, prep_args = prep_args, name = name))
     end
 
-    for spec in primary_specs, force_numeric in (false, true)
-
-        path = force_numeric ? "numerical" : "analytical"
-        f = let ctor = spec.ctor, force_numeric = force_numeric
+    # Uniform-primary scenarios. Each delay distribution constructor is
+    # written as a literal inside its own closure rather than captured as
+    # a `ctor::Type` loop variable. Capturing a distribution `Type` in a
+    # closure that also makes a keyword call (`force_numeric = ...`) trips
+    # an upstream Enzyme forward-mode "mixed activity for jl_new_struct"
+    # limitation (#278): the keyword-call lowering builds a struct mixing
+    # the active `Type` and `Vector` fields with the inactive
+    # `force_numeric` flag. Writing the constructor as a literal avoids the
+    # captured-`Type` field, so Enzyme forward differentiates every
+    # scenario; the analytical/numerical split and math are unchanged. The
+    # keyword call itself is fine once the `Type` capture is gone, so the
+    # numerical closures keep it.
+    _push!("PrimaryCensored Gamma+Uniform analytical",
+        let obs = obs
+            θ -> sum(
+                x -> logpdf(
+                    primary_censored(Gamma(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                    x),
+                obs)
+        end, [2.0, 1.5])
+    _push!("PrimaryCensored Gamma+Uniform numerical",
+        let obs = obs
+            θ -> sum(
+                x -> logpdf(
+                    primary_censored(Gamma(θ[1], θ[2]), Uniform(0.0, 1.0);
+                        force_numeric = true),
+                    x),
+                obs)
+        end, [2.0, 1.5])
+    _push!("PrimaryCensored LogNormal+Uniform analytical",
+        let obs = obs
             θ -> sum(
                 x -> logpdf(
                     primary_censored(
-                        ctor(θ[1], θ[2]), Uniform(0.0, 1.0);
-                        force_numeric = force_numeric),
+                        LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
                     x),
                 obs)
-        end
-        _push!("PrimaryCensored $(spec.name)+Uniform $path", f, spec.θ₀)
-    end
+        end, [1.0, 0.75])
+    _push!("PrimaryCensored LogNormal+Uniform numerical",
+        let obs = obs
+            θ -> sum(
+                x -> logpdf(
+                    primary_censored(
+                        LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0);
+                        force_numeric = true),
+                    x),
+                obs)
+        end, [1.0, 0.75])
+    _push!("PrimaryCensored Weibull+Uniform analytical",
+        let obs = obs
+            θ -> sum(
+                x -> logpdf(
+                    primary_censored(Weibull(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                    x),
+                obs)
+        end, [2.0, 1.5])
+    _push!("PrimaryCensored Weibull+Uniform numerical",
+        let obs = obs
+            θ -> sum(
+                x -> logpdf(
+                    primary_censored(
+                        Weibull(θ[1], θ[2]), Uniform(0.0, 1.0);
+                        force_numeric = true),
+                    x),
+                obs)
+        end, [2.0, 1.5])
 
     # ExponentiallyTilted primary event — no analytical
     # `primarycensored_cdf(::Delay, ::ExponentiallyTilted, ...)` exists,
@@ -218,6 +269,58 @@ function scenarios(; with_reference::Bool = false)
             x),
         obs_double)
     _push!("DoubleIntervalCensored LogNormal", f_double, [1.0, 0.75])
+
+    # High-dimensional scenarios. Each observation carries its own delay
+    # parameter, so the gradient is taken with respect to many inputs.
+    # These give the reverse-mode backends (ReverseDiff, Enzyme reverse,
+    # Mooncake reverse) a regime where they win: reverse mode costs one
+    # pass regardless of the parameter count, while the forward modes
+    # (ForwardDiff, Enzyme forward, Mooncake forward) pay per parameter.
+    # Both an analytical and a numerical (quadrature) variant are included:
+    # the numerical path does far more work per call, which is where the
+    # compiled forward backends (Enzyme, Mooncake) can close the gap on
+    # ForwardDiff's Dual-number propagation. Literal constructors keep
+    # Enzyme forward working (#278).
+    n_hd = 32
+    obs_hd = collect(range(0.5, 8.0; length = n_hd))
+    _push!("PrimaryCensored LogNormal+Uniform analytical $(n_hd)d",
+        let obs_hd = obs_hd
+            θ -> sum(
+                i -> logpdf(
+                    primary_censored(
+                        LogNormal(θ[i], 0.5), Uniform(0.0, 1.0)),
+                    obs_hd[i]),
+                eachindex(obs_hd))
+        end, fill(1.0, n_hd))
+    _push!("PrimaryCensored LogNormal+Uniform numerical $(n_hd)d",
+        let obs_hd = obs_hd
+            θ -> sum(
+                i -> logpdf(
+                    primary_censored(
+                        LogNormal(θ[i], 0.5), Uniform(0.0, 1.0);
+                        force_numeric = true),
+                    obs_hd[i]),
+                eachindex(obs_hd))
+        end, fill(1.0, n_hd))
+    _push!("PrimaryCensored Gamma+Uniform analytical $(n_hd)d",
+        let obs_hd = obs_hd
+            θ -> sum(
+                i -> logpdf(
+                    primary_censored(
+                        Gamma(θ[i], 1.5), Uniform(0.0, 1.0)),
+                    obs_hd[i]),
+                eachindex(obs_hd))
+        end, fill(2.0, n_hd))
+    _push!("PrimaryCensored Gamma+Uniform numerical $(n_hd)d",
+        let obs_hd = obs_hd
+            θ -> sum(
+                i -> logpdf(
+                    primary_censored(
+                        Gamma(θ[i], 1.5), Uniform(0.0, 1.0);
+                        force_numeric = true),
+                    obs_hd[i]),
+                eachindex(obs_hd))
+        end, fill(2.0, n_hd))
 
     return out
 end
