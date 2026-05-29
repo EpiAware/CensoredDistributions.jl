@@ -62,11 +62,11 @@ end
     broken_backends()
 
 AD backends that fail on at least some scenarios. `check_broken` in
-`test/ad/runtests.jl` runs each through plain
+`test/ad/setup.jl` runs each through plain
 `DifferentiationInterface.gradient` and marks the scenarios that do
 work as passing, so a partially-working backend is not forced to be
 all-or-nothing. Tracked in
-[#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
+[#278](https://github.com/EpiAware/CensoredDistributions.jl/issues/278).
 """
 function broken_backends()
     # Same Enzyme settings as reverse, but forward stays partial: it

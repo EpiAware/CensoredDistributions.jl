@@ -23,6 +23,6 @@ end
     test_working_backend("Mooncake forward")
 end
 
-@testitem "Enzyme forward gradients (partial, #225)" tags=[:ad, :enzyme, :enzyme_forward] setup=[ADHelpers] begin
+@testitem "Enzyme forward gradients (partial, #278)" tags=[:ad, :enzyme, :enzyme_forward] setup=[ADHelpers] begin
     test_partial_backend("Enzyme forward")
 end

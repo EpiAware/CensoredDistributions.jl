@@ -28,7 +28,7 @@ Enzyme forward is partial.
 It differentiates the `ExponentiallyTilted` and `LogNormal` interval
 scenarios (6 of 12) but trips an upstream mixed-activity check on the
 `Uniform`-primary delay constructors
-([#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225)),
+([#278](https://github.com/EpiAware/CensoredDistributions.jl/issues/278)),
 so the remaining scenarios are marked broken rather than failing the run.
 
 ### Configuring Enzyme
