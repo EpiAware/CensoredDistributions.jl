@@ -28,14 +28,17 @@ const AD_SELECTED = get(ENV, "CENSORED_AD_BACKEND", "all")
 
 _selected(name) = AD_SELECTED == "all" || AD_SELECTED == name
 
-# Which `gamma_ad.jl` unit blocks to run for the selected backend.
-# Backend-agnostic blocks (series accuracy, rrule guards) are tagged
-# "core" and attached to the ForwardDiff run so they execute exactly
-# once across the per-backend jobs.
+# Which `gamma_ad.jl` unit blocks to run for the selected backend. Each
+# block is mode-agnostic (it exercises both modes of a backend's rules),
+# so it is attached to one canonical backend job and runs there exactly
+# once; the `all` run executes every block.
 function ad_unit_runs(family)
     AD_SELECTED == "all" && return true
-    family == "core" && return AD_SELECTED == "ForwardDiff"
-    return startswith(AD_SELECTED, family)
+    canonical = Dict(
+        "core" => "ForwardDiff",
+        "Mooncake" => "Mooncake reverse",
+        "Enzyme" => "Enzyme reverse")
+    return AD_SELECTED == get(canonical, family, family)
 end
 
 function check_broken(scenarios_list, backend)
@@ -70,14 +73,14 @@ end
     backend_broken = ADFixtures.backend_broken_scenarios()
 
     working = filter(e -> _selected(e.name), ADFixtures.working_backends())
-    broken = filter(e -> _selected(e.name), ADFixtures.broken_backends())
+    broken_be = filter(e -> _selected(e.name), ADFixtures.broken_backends())
 
     for entry in working
         per_backend = get(backend_broken, entry.name, Set{String}())
         ok = filter(
             s -> !(s.name in global_broken) && !(s.name in per_backend),
             all_scenarios)
-        broken = filter(
+        broken_scens = filter(
             s -> s.name in global_broken || s.name in per_backend,
             all_scenarios)
 
@@ -93,13 +96,13 @@ end
                 )
             end
             @testset "broken scenarios" begin
-                check_broken(broken, entry.backend)
+                check_broken(broken_scens, entry.backend)
             end
         end
     end
 
     @testset "fully broken backends (#225)" begin
-        for entry in broken
+        for entry in broken_be
             check_broken(all_scenarios, entry.backend)
         end
     end
