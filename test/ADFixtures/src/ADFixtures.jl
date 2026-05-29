@@ -81,14 +81,13 @@ Scenario names that fail for every backend (universal scenario-level
 failures). Returns a `Vector{String}`.
 """
 function broken_scenario_names()
-    # `IntervalCensored Gamma arbitrary` routes through stock
-    # `Distributions.cdf(Gamma, x)` → `gamma_inc`, which the
-    # ForwardDiff Dual extension does not cover (it only handles the
-    # `_gamma_cdf` helper used by primary-censored analytical paths).
-    # Tracked in #217.
-    return [
-        "IntervalCensored Gamma arbitrary"
-    ]
+    # No scenario fails on every backend. `IntervalCensored Gamma
+    # arbitrary` previously did (#217/#257): it routed through stock
+    # `Distributions.cdf(Gamma, x)` → `gamma_inc`, which no AD backend
+    # covers. It now routes through the `_gamma_cdf` helper, so it works
+    # everywhere except Mooncake forward (the shared #270 gap, listed in
+    # `backend_broken_scenarios`).
+    return String[]
 end
 
 """
@@ -98,13 +97,6 @@ Per-backend scenario names that fail even though the backend works on
 other scenarios. Returns a `Dict{String, Set{String}}` keyed on the
 backend `name` from [`working_backends`](@ref).
 
-All working backends now differentiate every non-globally-broken
-scenario. Mooncake forward mode previously failed on the `_gamma_cdf`
-path because only a reverse-mode `rrule` was shipped; a forward `frule`
-(lifted via the ChainRules extension) closed that gap
-([#270](https://github.com/EpiAware/CensoredDistributions.jl/issues/270)).
-The per-backend hook is retained so future single-backend gaps can be
-scoped without restructuring the runner.
 """
 function backend_broken_scenarios()
     return Dict{String, Set{String}}(
