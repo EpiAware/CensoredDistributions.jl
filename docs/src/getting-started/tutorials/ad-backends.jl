@@ -16,20 +16,19 @@ and the benchmark suite in `benchmark/src/ad_gradients.jl`.
 
 | ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
 |:---:|:---:|:---:|:---:|:---:|:---:|
-| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-full-brightgreen) | ![](https://img.shields.io/badge/Enzyme%20forward-broken-red) | ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20forward-full-brightgreen) |
+| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-full-brightgreen) | ![](https://img.shields.io/badge/Enzyme%20forward-broken-red) | ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20forward-partial-yellow) |
 
 - **ForwardDiff** works on every scenario via the Dual-number extension
   for `_gamma_cdf`.
-- **Mooncake** (reverse and forward) works on every scenario via plain
-  `DifferentiationInterface.gradient`, picking up the `@from_chainrules`
-  lift of our `_gamma_cdf` rrule. The package also passes
-  `Mooncake.TestUtils.test_rule` (`test/ad/gamma_ad.jl`). The gradient
-  checks via `DifferentiationInterfaceTest.test_differentiation` error
-  on primary-censored Gamma/Weibull paths — a testing-tooling
-  interaction between DIT and Mooncake (`test/ad/runtests.jl` routes
-  those scenarios through a plain `gradient` self-consistency check
-  instead). Tracked in
-  [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
+- **Mooncake reverse** works on every scenario, picking up the
+  `@from_chainrules` lift of our `_gamma_cdf` rrule. The package also
+  passes `Mooncake.TestUtils.test_rule` (`test/ad/gamma_ad.jl`).
+- **Mooncake forward** works on every scenario except those whose CDF
+  routes through `_gamma_cdf` (all `Gamma` delays and the `Weibull`
+  analytical path, which uses the lower incomplete gamma). We ship only
+  a reverse-mode `rrule` for `_gamma_cdf`, so forward mode has no rule
+  to pick up there. Tracked in
+  [#270](https://github.com/EpiAware/CensoredDistributions.jl/issues/270).
 - **ReverseDiff (tape)** works on every scenario. The numerical-path
   LogNormal regression tracked in
   [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249)

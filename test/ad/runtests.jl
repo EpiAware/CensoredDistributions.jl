@@ -20,12 +20,11 @@ using ADFixtures
 import DifferentiationInterfaceTest as DIT
 
 function check_broken(scenarios_list, backend)
-    # Scenarios that `DIT.test_differentiation` cannot exercise — either
-    # because the backend errors throughout, or because the backend
-    # works via plain `DifferentiationInterface.gradient` but the
-    # DIT-specific prepare path errors (observed with Mooncake on
-    # primary-censored Gamma/Weibull scenarios). For each scenario we
-    # try plain DI:
+    # Scenarios that `DIT.test_differentiation` cannot exercise — the
+    # backend errors throughout (e.g. Enzyme, #225), the scenario is
+    # globally broken (#217), or it errors for one backend only (e.g.
+    # Mooncake forward on the `_gamma_cdf` path, #270). For each
+    # scenario we try plain DI:
     #   - succeeds + matches reference → @test (passes; this is
     #     downgraded-but-working coverage)
     #   - fails or mismatches → @test_broken (the genuine broken case)

@@ -98,27 +98,25 @@ Per-backend scenario names that fail even though the backend works on
 other scenarios. Returns a `Dict{String, Set{String}}` keyed on the
 backend `name` from [`working_backends`](@ref).
 
-Mooncake's DIT-driven path throws `DomainError: Gamma: α > 0` on the
-Gamma/Weibull scenarios even though plain `DifferentiationInterface.gradient`
-succeeds; the LogNormal numerical correctness disagreement is similar.
-Suspected DIT-Mooncake interaction; tracked in #225.
+Mooncake forward mode has no rule for `_gamma_cdf`: only a reverse-mode
+`rrule` is shipped (lifted via the ChainRules extension), so scenarios
+whose CDF routes through the incomplete-gamma path — every `Gamma`
+delay, plus `Weibull` analytical, which uses the lower incomplete gamma
+— cannot be differentiated in forward mode. Tracked in
+[#270](https://github.com/EpiAware/CensoredDistributions.jl/issues/270).
 """
 function backend_broken_scenarios()
-    mooncake_broken = Set([
+    mooncake_forward_broken = Set([
         "PrimaryCensored Gamma+Uniform analytical",
         "PrimaryCensored Gamma+Uniform numerical",
-        "PrimaryCensored LogNormal+Uniform numerical",
         "PrimaryCensored Weibull+Uniform analytical",
-        "PrimaryCensored Weibull+Uniform numerical",
-        "PrimaryCensored Gamma+ExponentiallyTilted numerical",
-        "PrimaryCensored LogNormal+ExponentiallyTilted numerical",
-        "PrimaryCensored Weibull+ExponentiallyTilted numerical"
+        "PrimaryCensored Gamma+ExponentiallyTilted numerical"
     ])
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
-        "Mooncake reverse" => mooncake_broken,
-        "Mooncake forward" => mooncake_broken
+        "Mooncake reverse" => Set{String}(),
+        "Mooncake forward" => mooncake_forward_broken
     )
 end
 
@@ -151,10 +149,16 @@ function scenarios(; with_reference::Bool = false)
         # runner can still mark them broken without erroring here.
         res1 = (with_reference && !(name in skip_ref)) ?
                _reference(f, θ₀) : nothing
+        # Prepare at the real parameter point. DIT's default
+        # `prep_args` is `zero(x)`, which builds e.g. `Gamma(0, 0)`
+        # and trips the distribution's `α > 0` domain assertion.
+        prep_args = (; x = θ₀, contexts = ())
         push!(out,
             res1 === nothing ?
-            DIT.Scenario{:gradient, :out}(f, θ₀; name = name) :
-            DIT.Scenario{:gradient, :out}(f, θ₀; res1 = res1, name = name))
+            DIT.Scenario{:gradient, :out}(
+                f, θ₀; prep_args = prep_args, name = name) :
+            DIT.Scenario{:gradient, :out}(
+                f, θ₀; res1 = res1, prep_args = prep_args, name = name))
     end
 
     for spec in primary_specs, force_numeric in (false, true)
