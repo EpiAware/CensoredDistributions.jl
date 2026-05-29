@@ -22,14 +22,18 @@ The badges below show the latest run of each on `main`, tested on Julia 1
 
 A green badge means that backend differentiates the scenarios we test for
 it; it does not by itself mean full coverage.
-ForwardDiff, ReverseDiff (tape), Enzyme reverse, Mooncake reverse, and
-Mooncake forward cover the whole scenario set.
-Enzyme forward is partial.
-It differentiates the `ExponentiallyTilted` and `LogNormal` interval
-scenarios (6 of 12) but trips an upstream mixed-activity check on the
-`Uniform`-primary delay constructors
-([#278](https://github.com/EpiAware/CensoredDistributions.jl/issues/278)),
-so the remaining scenarios are marked broken rather than failing the run.
+All six backends (ForwardDiff, ReverseDiff (tape), Enzyme forward, Enzyme
+reverse, Mooncake reverse, Mooncake forward) cover the whole scenario set.
+
+One caveat applies to Enzyme forward.
+It trips an upstream "mixed activity for `jl_new_struct`" check when a
+closure both captures a distribution constructor as a `Type` value and
+calls a censoring constructor with a keyword argument
+([#278](https://github.com/EpiAware/CensoredDistributions.jl/issues/278)).
+Package scenarios avoid this by writing each constructor as a literal
+rather than capturing it, so all of them differentiate.
+If you hit the error, hoist the distribution construction out of the
+captured closure (or pass it positionally) and Enzyme forward works.
 
 ### Configuring Enzyme
 
