@@ -55,6 +55,14 @@ AutoEnzyme(
 the [Enzyme FAQ](https://enzymead.github.io/Enzyme.jl/stable/faq/) for what
 they do.
 These are the settings the benchmark below uses.
+Runtime activity is not free: on the analytical paths, which do not need
+it, it makes Enzyme roughly 2-3x slower here, so the Enzyme rows are
+conservative.
+The benchmark applies one Enzyme configuration to every scenario; the
+numerical paths require runtime activity, the analytical ones do not.
+Even without it, Enzyme forward does not overtake ForwardDiff on these
+small scalar `logpdf`s, which matches the common guidance that ForwardDiff
+is the fast choice for small forward-mode problems.
 
 The scenario set covers analytical and numerical paths for Gamma,
 LogNormal, and Weibull delays with both `Uniform` and
