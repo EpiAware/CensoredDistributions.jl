@@ -16,9 +16,22 @@ backend only reds its own badge.
 The badges below show the latest run of each on `main`, tested on Julia 1
 (the latest stable release).
 
-| ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
-|:---:|:---:|:---:|:---:|:---:|:---:|
-| [![AD ForwardDiff](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-forwarddiff.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-forwarddiff.yaml) | [![AD ReverseDiff](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-reversediff.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-reversediff.yaml) | [![AD Enzyme forward](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-forward.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-forward.yaml) | [![AD Enzyme reverse](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-reverse.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-reverse.yaml) | [![AD Mooncake reverse](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-reverse.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-reverse.yaml) | [![AD Mooncake forward](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-forward.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-forward.yaml) |
+```@raw html
+<table>
+<thead><tr>
+<th>ForwardDiff</th><th>ReverseDiff (tape)</th><th>Enzyme forward</th>
+<th>Enzyme reverse</th><th>Mooncake reverse</th><th>Mooncake forward</th>
+</tr></thead>
+<tbody><tr>
+<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-forwarddiff.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-forwarddiff.yaml/badge.svg?branch=main" alt="AD ForwardDiff"></a></td>
+<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-reversediff.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-reversediff.yaml/badge.svg?branch=main" alt="AD ReverseDiff"></a></td>
+<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-forward.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-forward.yaml/badge.svg?branch=main" alt="AD Enzyme forward"></a></td>
+<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-reverse.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-reverse.yaml/badge.svg?branch=main" alt="AD Enzyme reverse"></a></td>
+<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-reverse.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-reverse.yaml/badge.svg?branch=main" alt="AD Mooncake reverse"></a></td>
+<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-forward.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-forward.yaml/badge.svg?branch=main" alt="AD Mooncake forward"></a></td>
+</tr></tbody>
+</table>
+```
 
 A green badge means that backend differentiates the scenarios we test for
 it; it does not by itself mean full coverage.
@@ -64,6 +77,12 @@ md"""
 ## Packages used
 """
 
+md"""
+```@raw html
+<details><summary>Show setup code</summary>
+```
+"""
+
 using CensoredDistributions
 using Distributions
 using ADTypes
@@ -89,11 +108,34 @@ backend_name = Dict(entry.backend => entry.name
 for entry in ADFixtures.backends())
 
 md"""
+```@raw html
+</details>
+```
+"""
+
+md"""
 ## Benchmark
 
 `DifferentiationInterfaceTest.benchmark_differentiation` runs every
 (backend, scenario) pair. We pass every backend and scenario so broken
 combinations show up as gaps rather than being hidden.
+Each backend's time and allocations are then divided by the ForwardDiff
+value on the same scenario, so ForwardDiff sits at 1.0 by construction;
+values below 1.0 are faster (or lighter), above 1.0 slower (or heavier).
+"""
+
+md"""
+### Summary
+
+Geometric mean of the relative cost across the scenarios each backend can
+handle. `Scenarios` reports coverage, since a partial backend averages
+only over the scenarios it differentiates.
+"""
+
+md"""
+```@raw html
+<details><summary>Show benchmark code</summary>
+```
 """
 
 raw_bench = DIT.benchmark_differentiation(
@@ -123,15 +165,6 @@ bench_long = @chain DataFrame(raw_bench) begin
     @select :backend :scenario :time_us :bytes_kb
 end;
 
-md"""
-### Cost relative to ForwardDiff
-
-Each backend's time and allocations are divided by the ForwardDiff value
-on the same scenario, so ForwardDiff sits at 1.0 by construction.
-Values below 1.0 are faster (or lighter); above 1.0 are slower (or
-heavier).
-"""
-
 ref = @chain bench_long begin
     @rsubset :backend == "ForwardDiff"
     @select :scenario :ref_time=:time_us :ref_bytes=:bytes_kb
@@ -144,14 +177,6 @@ rel = @chain bench_long begin
         :rel_bytes = :bytes_kb / :ref_bytes
     end
 end;
-
-md"""
-### Summary
-
-Geometric mean of the relative cost across the scenarios each backend can
-handle. `Scenarios` reports coverage, since a partial backend averages
-only over the scenarios it differentiates.
-"""
 
 ## Geometric mean over positive values; guards against a zero-allocation
 ## scenario sending `log` to -Inf.
@@ -174,7 +199,15 @@ summary = @chain rel begin
         :rel_time => "Relative time",
         :rel_bytes => "Relative allocations",
         :scenarios => "Scenarios")
-end
+end;
+
+md"""
+```@raw html
+</details>
+```
+"""
+
+summary
 
 md"""
 ### Spread across scenarios
@@ -182,6 +215,12 @@ md"""
 Each box summarises a backend's relative cost across the scenario set, on
 a log scale so speed-ups and slow-downs are symmetric around the
 ForwardDiff baseline at 1.0.
+"""
+
+md"""
+```@raw html
+<details><summary>Show plotting code</summary>
+```
 """
 
 plot_df = @chain rel begin
@@ -192,17 +231,26 @@ plot_df = @chain rel begin
                           "Relative time" : "Relative allocations"
 end
 
+## Order the facets time-then-allocations.
+metric_order = sorter(["Relative time", "Relative allocations"])
+
 fig_relative = draw(
     data(plot_df) *
     mapping(
         :backend => "",
         :value => "Cost relative to ForwardDiff",
-        col = :metric) *
+        col = :metric => metric_order) *
     visual(BoxPlot);
     figure = (size = (900, 400),),
     axis = (yscale = log10, xticklabelrotation = pi / 4),
     facet = (; linkyaxes = :none)
-)
+);
+
+md"""
+```@raw html
+</details>
+```
+"""
 
 fig_relative
 
@@ -211,22 +259,34 @@ md"""
 
 The same data with one point per scenario, so individual outliers show
 rather than being summarised.
-Scenarios on the vertical axis, relative cost on the horizontal axis (log
+Scenarios on the horizontal axis, relative cost on the vertical axis (log
 scale), backends by colour, faceted by metric.
+"""
+
+md"""
+```@raw html
+<details><summary>Show plotting code</summary>
+```
 """
 
 fig_scenarios = draw(
     data(plot_df) *
     mapping(
-        :value => "Cost relative to ForwardDiff",
         :scenario => "",
+        :value => "Cost relative to ForwardDiff",
         color = :backend => "Backend",
-        col = :metric) *
+        col = :metric => metric_order) *
     visual(Scatter, markersize = 9);
     figure = (size = (1000, 600),),
-    axis = (xscale = log10,),
-    facet = (; linkxaxes = :none)
-)
+    axis = (yscale = log10, xticklabelrotation = pi / 4),
+    facet = (; linkyaxes = :none)
+);
+
+md"""
+```@raw html
+</details>
+```
+"""
 
 fig_scenarios
 
@@ -262,8 +322,19 @@ offending call, so it is the easiest backend to debug; start there when a
 gradient misbehaves.
 Enzyme and Mooncake report errors at the compiled-IR level, which are
 harder to trace.
-If a reverse-mode gradient looks wrong, compare it against the ForwardDiff
-value on the same input, which is what the gradient tests do.
+
+[DifferentiationInterface](https://github.com/JuliaDiff/DifferentiationInterface.jl)
+and
+[DifferentiationInterfaceTest](https://juliadiff.org/DifferentiationInterface.jl/DifferentiationInterfaceTest/stable/)
+make this tractable.
+DI gives one `gradient` call that swaps backends without touching the
+model, so you can compare a suspect backend against the ForwardDiff value
+on the same input (which is what the gradient tests do).
+DIT runs a single function across several backends at once and flags the
+ones that disagree with the reference.
+Work bottom-up: differentiate one small piece first (a single `logpdf`,
+then a `primary_censored` logpdf), confirm it, and build up to the full
+model, so the construct a backend chokes on is easy to isolate.
 
 ## Reproducing this page
 
