@@ -70,16 +70,9 @@ AD backends that fail on at least some scenarios. `check_broken` in
 `DifferentiationInterface.gradient` and marks the scenarios that do
 work as passing, so a partially-working backend is not forced to be
 all-or-nothing. Empty today: every backend in [`backends`](@ref) is full
-on all scenarios.
-
-Enzyme forward was previously partial here. It failed the Uniform-primary
-scenarios only because the old fixture captured the delay distribution
-constructor as a `ctor::Type` loop variable while making a keyword call,
-which trips an upstream Enzyme "mixed activity for jl_new_struct" check
-(#278). The scenarios now write each constructor as a literal, so Enzyme
-forward differentiates every scenario. The upstream limitation still
-applies to user closures that capture a distribution `Type` and call with
-keywords; see #278.
+on all scenarios. Enzyme forward relies on `scenarios` constructing each
+distribution as a literal rather than capturing a `Type` (see the comment
+there and #278).
 """
 function broken_backends()
     return NamedTuple{(:name, :backend)}[]

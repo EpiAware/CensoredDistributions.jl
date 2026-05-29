@@ -38,16 +38,6 @@ it; it does not by itself mean full coverage.
 All six backends (ForwardDiff, ReverseDiff (tape), Enzyme forward, Enzyme
 reverse, Mooncake reverse, Mooncake forward) cover the whole scenario set.
 
-One caveat applies to Enzyme forward.
-It trips an upstream "mixed activity for `jl_new_struct`" check when a
-closure both captures a distribution constructor as a `Type` value and
-calls a censoring constructor with a keyword argument
-([#278](https://github.com/EpiAware/CensoredDistributions.jl/issues/278)).
-Package scenarios avoid this by writing each constructor as a literal
-rather than capturing it, so all of them differentiate.
-If you hit the error, hoist the distribution construction out of the
-captured closure (or pass it positionally) and Enzyme forward works.
-
 ### Configuring Enzyme
 
 Enzyme needs two caller-side settings to work through the numerical
@@ -123,6 +113,12 @@ md"""
 `DifferentiationInterfaceTest.benchmark_differentiation` runs every
 (backend, scenario) pair. We pass every backend and scenario so broken
 combinations show up as gaps rather than being hidden.
+The figures are the prepared per-call cost.
+DifferentiationInterface prepares each backend once, recording a tape for
+ReverseDiff and compiling a rule for Enzyme and Mooncake, and we time the
+reused operator, so that one-off preparation is excluded.
+This matches repeated use such as an MCMC run, where preparation is
+amortised over many gradient calls.
 Each backend's time and allocations are then divided by the ForwardDiff
 value on the same scenario, so ForwardDiff sits at 1.0 by construction;
 values below 1.0 are faster (or lighter), above 1.0 slower (or heavier).
