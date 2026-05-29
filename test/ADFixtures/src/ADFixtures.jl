@@ -98,25 +98,20 @@ Per-backend scenario names that fail even though the backend works on
 other scenarios. Returns a `Dict{String, Set{String}}` keyed on the
 backend `name` from [`working_backends`](@ref).
 
-Mooncake forward mode has no rule for `_gamma_cdf`: only a reverse-mode
-`rrule` is shipped (lifted via the ChainRules extension), so scenarios
-whose CDF routes through the incomplete-gamma path — every `Gamma`
-delay, plus `Weibull` analytical, which uses the lower incomplete gamma
-— cannot be differentiated in forward mode. Tracked in
-[#270](https://github.com/EpiAware/CensoredDistributions.jl/issues/270).
+All working backends now differentiate every non-globally-broken
+scenario. Mooncake forward mode previously failed on the `_gamma_cdf`
+path because only a reverse-mode `rrule` was shipped; a forward `frule`
+(lifted via the ChainRules extension) closed that gap
+([#270](https://github.com/EpiAware/CensoredDistributions.jl/issues/270)).
+The per-backend hook is retained so future single-backend gaps can be
+scoped without restructuring the runner.
 """
 function backend_broken_scenarios()
-    mooncake_forward_broken = Set([
-        "PrimaryCensored Gamma+Uniform analytical",
-        "PrimaryCensored Gamma+Uniform numerical",
-        "PrimaryCensored Weibull+Uniform analytical",
-        "PrimaryCensored Gamma+ExponentiallyTilted numerical"
-    ])
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => Set{String}(),
-        "Mooncake forward" => mooncake_forward_broken
+        "Mooncake forward" => Set{String}()
     )
 end
 
