@@ -14,4 +14,5 @@ jobs:
   enzyme-reverse:
     uses: ./.github/workflows/ad-backend.yaml
     with:
-      backend: 'Enzyme reverse'
+      name: Enzyme reverse
+      tag: enzyme_reverse

@@ -207,6 +207,30 @@ fig_relative = draw(
 fig_relative
 
 md"""
+### Per scenario
+
+The same data with one point per scenario, so individual outliers show
+rather than being summarised.
+Scenarios on the vertical axis, relative cost on the horizontal axis (log
+scale), backends by colour, faceted by metric.
+"""
+
+fig_scenarios = draw(
+    data(plot_df) *
+    mapping(
+        :value => "Cost relative to ForwardDiff",
+        :scenario => "",
+        color = :backend => "Backend",
+        col = :metric) *
+    visual(Scatter, markersize = 9);
+    figure = (size = (1000, 600),),
+    axis = (xscale = log10,),
+    facet = (; linkxaxes = :none)
+)
+
+fig_scenarios
+
+md"""
 The full long-format result is available as `raw_bench` if you want GC
 fraction, compile fraction, the `value_and_gradient` rows, or absolute
 timings.
@@ -259,11 +283,11 @@ julia --project=docs docs/make.jl
 
 ## See also
 
-- `test/ad/runtests.jl` validates each backend's gradient against a
-  ForwardDiff reference using
-  `DifferentiationInterfaceTest.test_differentiation`. Set
-  `CENSORED_AD_BACKEND` (or run `BACKEND="..." task test-ad-backend`) to
-  exercise a single backend, as the per-backend CI does.
+- `test/ad/` holds the gradient tests as tagged `@testitem`s, validated
+  against a ForwardDiff reference with
+  `DifferentiationInterfaceTest.test_differentiation`. Pass a backend tag
+  (e.g. `TAG=enzyme_reverse task test-ad-backend`) to run a single
+  backend, as the per-backend CI does.
 - `benchmark/src/ad_gradients.jl` runs the same scenarios under
   AirspeedVelocity. A benchmark history timeline is tracked in
   [#224](https://github.com/EpiAware/CensoredDistributions.jl/issues/224).
