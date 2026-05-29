@@ -55,6 +55,13 @@ AutoEnzyme(
 the [Enzyme FAQ](https://enzymead.github.io/Enzyme.jl/stable/faq/) for what
 they do.
 These are the settings the benchmark below uses.
+Runtime activity is not free.
+On the analytical paths, which do not need it, it makes Enzyme several
+times slower here, so its benchmark rows are conservative; the benchmark
+applies one Enzyme configuration to every scenario and only the numerical
+paths require it.
+Running through DifferentiationInterface, by contrast, adds no measurable
+overhead.
 
 The scenario set covers analytical and numerical paths for Gamma,
 LogNormal, and Weibull delays with both `Uniform` and
