@@ -48,22 +48,35 @@ function working_backends()
             backend = AutoReverseDiff(compile = false)),
         (name = "Mooncake reverse",
             backend = AutoMooncake(config = nothing)),
-        (name = "Mooncake forward", backend = AutoMooncakeForward())
+        (name = "Mooncake forward", backend = AutoMooncakeForward()),
+        # `set_runtime_activity` + `Duplicated` are the user-facing
+        # Enzyme settings documented in the ad-backends tutorial.
+        (name = "Enzyme reverse",
+            backend = AutoEnzyme(
+                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Duplicated))
     ]
 end
 
 """
     broken_backends()
 
-AD backends that currently fail for every scenario. Tracked in
+AD backends that fail on at least some scenarios. `check_broken` in
+`test/ad/runtests.jl` runs each through plain
+`DifferentiationInterface.gradient` and marks the scenarios that do
+work as passing, so a partially-working backend is not forced to be
+all-or-nothing. Tracked in
 [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
 """
 function broken_backends()
+    # Same Enzyme settings as reverse, but forward stays partial: it
+    # trips an upstream mixed-activity check on the Uniform-primary
+    # delay constructors (see the ad-backends tutorial).
     return [
         (name = "Enzyme forward",
-            backend = AutoEnzyme(mode = Enzyme.Forward)),
-        (name = "Enzyme reverse",
-            backend = AutoEnzyme(mode = Enzyme.Reverse))
+        backend = AutoEnzyme(
+            mode = Enzyme.set_runtime_activity(Enzyme.Forward),
+            function_annotation = Enzyme.Duplicated))
     ]
 end
 
@@ -103,7 +116,8 @@ function backend_broken_scenarios()
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => Set{String}(),
-        "Mooncake forward" => Set{String}()
+        "Mooncake forward" => Set{String}(),
+        "Enzyme reverse" => Set{String}()
     )
 end
 

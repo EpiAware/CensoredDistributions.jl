@@ -16,7 +16,7 @@ and the benchmark suite in `benchmark/src/ad_gradients.jl`.
 
 | ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
 |:---:|:---:|:---:|:---:|:---:|:---:|
-| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-full-brightgreen) | ![](https://img.shields.io/badge/Enzyme%20forward-broken-red) | ![](https://img.shields.io/badge/Enzyme%20reverse-broken-red) | ![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20forward-partial-yellow) |
+| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-full-brightgreen) | ![](https://img.shields.io/badge/Enzyme%20forward-partial-yellow) | ![](https://img.shields.io/badge/Enzyme%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20forward-full-brightgreen) |
 
 - **ForwardDiff** works on every scenario via the Dual-number extension
   for `_gamma_cdf`.
@@ -35,16 +35,42 @@ and the benchmark suite in `benchmark/src/ad_gradients.jl`.
   [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249)
   was fixed by gating the CDF-saturation early-return so `cdf(dist, ...)`
   is never evaluated at the support boundary.
-- **Enzyme** (forward and reverse) ships an extension
-  (`ext/CensoredDistributionsEnzymeExt.jl`) that registers a rule on
-  `_gamma_cdf` via `EnzymeRules.@easy_rule` (covers both modes from a
-  single declaration of the analytical partials); both modes match the
-  ForwardDiff reference on `_gamma_cdf` itself. The full-pipeline
-  scenarios still fail under Enzyme because the surrounding
-  `logpdf`/`sum`/`primary_censored`
-  plumbing trips Enzyme's mutability and mixed-activity checks — the
-  broader integration gap tracked in
-  [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
+- **Enzyme** ships an extension (`ext/CensoredDistributionsEnzymeExt.jl`)
+  that registers rules via `EnzymeRules.@easy_rule` (one declaration
+  covers both modes) for `_gamma_cdf` and for `SpecialFunctions.gamma`.
+  The `gamma` rule is needed because, with only `EnzymeSpecialFunctionsExt`
+  loaded, Enzyme mis-lowers `gamma(x)` to the `loggamma` known-op and
+  returns `ψ(x)` instead of `Γ(x) ψ(x)` — silently wrong by a factor of
+  `Γ(x)`. The analytical Gamma and Weibull paths call `gamma(k + 1)` and
+  `gamma(1 + 1/k)` outside `_gamma_cdf`, so this corrupted the shape
+  partial of the whole pipeline (see
+  [#263](https://github.com/EpiAware/CensoredDistributions.jl/issues/263)).
+  - **Reverse mode** now matches the ForwardDiff reference on every
+    scenario, but only when invoked with two settings that are the
+    caller's responsibility (not something the extension can set):
+
+    ```julia
+    using ADTypes, Enzyme
+    AutoEnzyme(
+        mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+        function_annotation = Enzyme.Duplicated)
+    ```
+
+    `function_annotation = Duplicated` stops Enzyme flagging the closure
+    over the observation data as non-readonly (a generic Enzyme
+    requirement for closures over arrays, including Turing likelihoods),
+    and `set_runtime_activity` resolves per-value activity at runtime
+    through the `Integrals` quadrature and the distribution
+    constructors. The analytical paths work with just `Duplicated`; the
+    numerical (quadrature) paths additionally need `set_runtime_activity`,
+    so passing both is the recommended default. These are the settings
+    the `ADFixtures` `Enzyme reverse` backend uses.
+  - **Forward mode** is partial: it works on the `ExponentiallyTilted`
+    primaries and the LogNormal interval/double-interval scenarios but
+    still trips an upstream Enzyme mixed-activity check on the
+    `jl_new_struct` of the `Uniform`-primary delay constructors
+    (Gamma/LogNormal/Weibull). Tracked in
+    [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
 - `IntervalCensored Gamma arbitrary` fails universally, on every
   backend. Its CDF differences route through `Distributions.cdf(Gamma,
   x)` → `SpecialFunctions.gamma_inc`, which **bypasses** the
@@ -195,8 +221,11 @@ md"""
   broadly compatible backend in this package.
 - **ReverseDiff (tape) / (compiled)** — scales better as the parameter
   count grows; the compiled tape amortises its setup over many calls.
-- **Enzyme forward / reverse** — high-performance AD via LLVM; forward
-  mode suits very small dimensions, reverse mode the larger ones.
+- **Enzyme reverse** — high-performance AD via LLVM; works through the
+  full pipeline when called with
+  `AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+  function_annotation = Enzyme.Duplicated)` (see the status notes
+  above). Forward mode is only partial.
 - **Mooncake** — newer reverse-mode AD; recommended where it works.
 
 The full matrix of supported (scenario, backend) pairs is checked in
