@@ -54,6 +54,10 @@ function working_backends()
         (name = "Enzyme reverse",
             backend = AutoEnzyme(
                 mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Duplicated)),
+        (name = "Enzyme forward",
+            backend = AutoEnzyme(
+                mode = Enzyme.set_runtime_activity(Enzyme.Forward),
                 function_annotation = Enzyme.Duplicated))
     ]
 end
@@ -65,19 +69,20 @@ AD backends that fail on at least some scenarios. `check_broken` in
 `test/ad/setup.jl` runs each through plain
 `DifferentiationInterface.gradient` and marks the scenarios that do
 work as passing, so a partially-working backend is not forced to be
-all-or-nothing. Tracked in
-[#278](https://github.com/EpiAware/CensoredDistributions.jl/issues/278).
+all-or-nothing. Empty today: every backend in [`backends`](@ref) is full
+on all scenarios.
+
+Enzyme forward was previously partial here. It failed the Uniform-primary
+scenarios only because the old fixture captured the delay distribution
+constructor as a `ctor::Type` loop variable while making a keyword call,
+which trips an upstream Enzyme "mixed activity for jl_new_struct" check
+(#278). The scenarios now write each constructor as a literal, so Enzyme
+forward differentiates every scenario. The upstream limitation still
+applies to user closures that capture a distribution `Type` and call with
+keywords; see #278.
 """
 function broken_backends()
-    # Same Enzyme settings as reverse, but forward stays partial: it
-    # trips an upstream mixed-activity check on the Uniform-primary
-    # delay constructors (see the ad-backends tutorial).
-    return [
-        (name = "Enzyme forward",
-        backend = AutoEnzyme(
-            mode = Enzyme.set_runtime_activity(Enzyme.Forward),
-            function_annotation = Enzyme.Duplicated))
-    ]
+    return NamedTuple{(:name, :backend)}[]
 end
 
 """
@@ -117,7 +122,8 @@ function backend_broken_scenarios()
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => Set{String}(),
         "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => Set{String}()
+        "Enzyme reverse" => Set{String}(),
+        "Enzyme forward" => Set{String}()
     )
 end
 
@@ -162,20 +168,72 @@ function scenarios(; with_reference::Bool = false)
                 f, θ₀; res1 = res1, prep_args = prep_args, name = name))
     end
 
-    for spec in primary_specs, force_numeric in (false, true)
-
-        path = force_numeric ? "numerical" : "analytical"
-        f = let ctor = spec.ctor, force_numeric = force_numeric
+    # Uniform-primary scenarios. Each delay distribution constructor is
+    # written as a literal inside its own closure rather than captured as
+    # a `ctor::Type` loop variable. Capturing a distribution `Type` in a
+    # closure that also makes a keyword call (`force_numeric = ...`) trips
+    # an upstream Enzyme forward-mode "mixed activity for jl_new_struct"
+    # limitation (#278): the keyword-call lowering builds a struct mixing
+    # the active `Type` and `Vector` fields with the inactive
+    # `force_numeric` flag. Writing the constructor as a literal avoids the
+    # captured-`Type` field, so Enzyme forward differentiates every
+    # scenario; the analytical/numerical split and math are unchanged. The
+    # keyword call itself is fine once the `Type` capture is gone, so the
+    # numerical closures keep it.
+    _push!("PrimaryCensored Gamma+Uniform analytical",
+        let obs = obs
+            θ -> sum(
+                x -> logpdf(
+                    primary_censored(Gamma(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                    x),
+                obs)
+        end, [2.0, 1.5])
+    _push!("PrimaryCensored Gamma+Uniform numerical",
+        let obs = obs
+            θ -> sum(
+                x -> logpdf(
+                    primary_censored(Gamma(θ[1], θ[2]), Uniform(0.0, 1.0);
+                        force_numeric = true),
+                    x),
+                obs)
+        end, [2.0, 1.5])
+    _push!("PrimaryCensored LogNormal+Uniform analytical",
+        let obs = obs
             θ -> sum(
                 x -> logpdf(
                     primary_censored(
-                        ctor(θ[1], θ[2]), Uniform(0.0, 1.0);
-                        force_numeric = force_numeric),
+                        LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
                     x),
                 obs)
-        end
-        _push!("PrimaryCensored $(spec.name)+Uniform $path", f, spec.θ₀)
-    end
+        end, [1.0, 0.75])
+    _push!("PrimaryCensored LogNormal+Uniform numerical",
+        let obs = obs
+            θ -> sum(
+                x -> logpdf(
+                    primary_censored(
+                        LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0);
+                        force_numeric = true),
+                    x),
+                obs)
+        end, [1.0, 0.75])
+    _push!("PrimaryCensored Weibull+Uniform analytical",
+        let obs = obs
+            θ -> sum(
+                x -> logpdf(
+                    primary_censored(Weibull(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                    x),
+                obs)
+        end, [2.0, 1.5])
+    _push!("PrimaryCensored Weibull+Uniform numerical",
+        let obs = obs
+            θ -> sum(
+                x -> logpdf(
+                    primary_censored(
+                        Weibull(θ[1], θ[2]), Uniform(0.0, 1.0);
+                        force_numeric = true),
+                    x),
+                obs)
+        end, [2.0, 1.5])
 
     # ExponentiallyTilted primary event — no analytical
     # `primarycensored_cdf(::Delay, ::ExponentiallyTilted, ...)` exists,
