@@ -201,11 +201,14 @@ function pdf(d::IntervalCensored, x::Real)
     dist_min = minimum(get_dist(d))
     dist_max = maximum(get_dist(d))
 
-    # For lower bound at or below distribution minimum, CDF is 0
-    cdf_lower = lower <= dist_min ? 0.0 : cdf(get_dist(d), lower)
+    # For lower bound at or below distribution minimum, CDF is 0.
+    # `_cdf_ad_safe` routes `Gamma` through `_gamma_cdf` so the boundary
+    # CDF stays differentiable; stock `cdf(Gamma, x)` hits `gamma_inc`,
+    # which no AD backend can push `Dual`/tracked numbers through (#257).
+    cdf_lower = lower <= dist_min ? 0.0 : _cdf_ad_safe(get_dist(d), lower)
 
     # For upper bound at or above distribution maximum, CDF is 1
-    cdf_upper = upper >= dist_max ? 1.0 : cdf(get_dist(d), upper)
+    cdf_upper = upper >= dist_max ? 1.0 : _cdf_ad_safe(get_dist(d), upper)
 
     return max(cdf_upper - cdf_lower, zero(cdf_upper))
 end
@@ -317,8 +320,11 @@ function pdf(d::IntervalCensored, x::AbstractVector{<:Real})
         return fill(zero(T), length(x))
     end
 
-    # Compute CDFs once for all unique boundaries using functional approach
-    cdf_lookup = Dict(boundary => T(cdf(get_dist(d), boundary)) for boundary in boundaries)
+    # Compute CDFs once for all unique boundaries using functional approach.
+    # `_cdf_ad_safe` keeps the `Gamma` path differentiable (see #257).
+    cdf_lookup = Dict(
+        boundary => T(_cdf_ad_safe(get_dist(d), boundary))
+    for boundary in boundaries)
 
     # Use cached values to compute PDFs efficiently
     return _compute_pdfs_with_cache(d, x, cdf_lookup)
@@ -347,6 +353,10 @@ end
 
 # Internal function for efficient cdf/logcdf computation
 function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
+    # Route through the AD-safe helpers so the `Gamma` path stays
+    # differentiable rather than hitting `gamma_inc` directly (#257).
+    f_safe = f === logcdf ? _logcdf_ad_safe : _cdf_ad_safe
+
     # Handle edge cases first
     if x < minimum(get_dist(d))
         return f === logcdf ? -Inf : 0.0
@@ -357,7 +367,7 @@ function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
     if is_regular_intervals(d)
         # For regular intervals, use floor behavior from Discretised
         discretised_x = floor_to_interval(x, interval_width(d))
-        return f(get_dist(d), discretised_x)
+        return f_safe(get_dist(d), discretised_x)
     else
         # For arbitrary intervals, use the lower bound of the
         # containing interval
@@ -365,9 +375,9 @@ function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
         if idx == 0
             return f === logcdf ? -Inf : 0.0
         elseif idx >= length(d.boundaries)
-            return f(get_dist(d), d.boundaries[end])
+            return f_safe(get_dist(d), d.boundaries[end])
         else
-            return f(get_dist(d), d.boundaries[idx])
+            return f_safe(get_dist(d), d.boundaries[idx])
         end
     end
 end
