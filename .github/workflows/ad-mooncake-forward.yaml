@@ -1,0 +1,17 @@
+name: AD Mooncake forward
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mooncake-forward:
+    uses: ./.github/workflows/ad-backend.yaml
+    with:
+      backend: 'Mooncake forward'

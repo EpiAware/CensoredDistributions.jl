@@ -1,0 +1,36 @@
+name: AD backend
+
+# Reusable workflow: runs the shared AD gradient suite
+# (`test/ad/runtests.jl`) for a single backend. Each backend has its own
+# thin caller workflow (ad-<backend>.yaml) so it gets its own status
+# badge, while the test code stays in one place (#269).
+
+on:
+  workflow_call:
+    inputs:
+      backend:
+        description: Backend name from ADFixtures.backends() (e.g. "Enzyme reverse")
+        required: true
+        type: string
+      julia-version:
+        description: Julia version to test on
+        required: false
+        type: string
+        default: '1'
+
+jobs:
+  ad:
+    name: ${{ inputs.backend }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ inputs.julia-version }}
+      - uses: julia-actions/cache@v3
+      - name: Instantiate test/ad
+        run: julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
+      - name: Run AD gradient tests
+        env:
+          CENSORED_AD_BACKEND: ${{ inputs.backend }}
+        run: julia --project=test/ad test/ad/runtests.jl

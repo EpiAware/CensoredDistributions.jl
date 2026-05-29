@@ -46,6 +46,16 @@ tasks:
       - julia --project=test/ad test/ad/runtests.jl
       - echo "✅ AD gradient tests completed"
 
+  test-ad-backend:
+    desc: >-
+      Run AD gradient tests for a single backend, as the per-backend CI
+      does (e.g. BACKEND="Enzyme reverse" task test-ad-backend)
+    cmds:
+      - echo "🔁 Running AD gradient tests for {{.BACKEND}}..."
+      - julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
+      - CENSORED_AD_BACKEND="{{.BACKEND}}" julia --project=test/ad test/ad/runtests.jl
+      - echo "✅ AD gradient tests for {{.BACKEND}} completed"
+
   test-formatting:
     desc: Run JuliaFormatter check directly
     cmds:

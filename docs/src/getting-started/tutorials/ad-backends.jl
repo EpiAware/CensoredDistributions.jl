@@ -31,16 +31,25 @@ model (see the benchmark below).
 
 ## Backend support
 
+Each backend has its own AD gradient CI run, so a transiently unstable
+backend only reds its own badge.
+The badges below show the latest run of each on `main`, tested on Julia 1
+(the latest stable release).
+
 | ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
 |:---:|:---:|:---:|:---:|:---:|:---:|
-| ![](https://img.shields.io/badge/ForwardDiff-full-brightgreen) | ![](https://img.shields.io/badge/ReverseDiff%20tape-full-brightgreen) | ![](https://img.shields.io/badge/Enzyme%20forward-partial-yellow) | ![](https://img.shields.io/badge/Enzyme%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20reverse-full-brightgreen) | ![](https://img.shields.io/badge/Mooncake%20forward-full-brightgreen) |
+| [![AD ForwardDiff](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-forwarddiff.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-forwarddiff.yaml) | [![AD ReverseDiff](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-reversediff.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-reversediff.yaml) | [![AD Enzyme forward](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-forward.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-forward.yaml) | [![AD Enzyme reverse](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-reverse.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-reverse.yaml) | [![AD Mooncake reverse](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-reverse.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-reverse.yaml) | [![AD Mooncake forward](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-forward.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-forward.yaml) |
 
+A green badge means that backend differentiates the scenarios we test for
+it; it does not by itself mean full coverage.
 ForwardDiff, ReverseDiff (tape), Enzyme reverse, Mooncake reverse, and
 Mooncake forward cover the whole scenario set.
-Enzyme forward is partial: it differentiates the `ExponentiallyTilted` and
-`LogNormal` interval scenarios but trips an upstream mixed-activity check
-on the `Uniform`-primary delay constructors
-([#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225)).
+Enzyme forward is partial.
+It differentiates the `ExponentiallyTilted` and `LogNormal` interval
+scenarios (6 of 12) but trips an upstream mixed-activity check on the
+`Uniform`-primary delay constructors
+([#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225)),
+so the remaining scenarios are marked broken rather than failing the run.
 
 ### Configuring Enzyme
 
@@ -255,7 +264,9 @@ julia --project=docs docs/make.jl
 
 - `test/ad/runtests.jl` validates each backend's gradient against a
   ForwardDiff reference using
-  `DifferentiationInterfaceTest.test_differentiation`.
+  `DifferentiationInterfaceTest.test_differentiation`. Set
+  `CENSORED_AD_BACKEND` (or run `BACKEND="..." task test-ad-backend`) to
+  exercise a single backend, as the per-backend CI does.
 - `benchmark/src/ad_gradients.jl` runs the same scenarios under
   AirspeedVelocity. A benchmark history timeline is tracked in
   [#224](https://github.com/EpiAware/CensoredDistributions.jl/issues/224).

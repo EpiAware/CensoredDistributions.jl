@@ -19,6 +19,25 @@ using Mooncake
 using ADFixtures
 import DifferentiationInterfaceTest as DIT
 
+# Optional single-backend selection for the per-backend AD CI (#269).
+# `CENSORED_AD_BACKEND` matches a name from `ADFixtures.backends()`
+# (e.g. "Enzyme reverse"); unset or "all" runs every backend, which is
+# what `task test-ad` does locally. Running one backend per CI job means
+# a transiently unstable backend only reds its own badge.
+const AD_SELECTED = get(ENV, "CENSORED_AD_BACKEND", "all")
+
+_selected(name) = AD_SELECTED == "all" || AD_SELECTED == name
+
+# Which `gamma_ad.jl` unit blocks to run for the selected backend.
+# Backend-agnostic blocks (series accuracy, rrule guards) are tagged
+# "core" and attached to the ForwardDiff run so they execute exactly
+# once across the per-backend jobs.
+function ad_unit_runs(family)
+    AD_SELECTED == "all" && return true
+    family == "core" && return AD_SELECTED == "ForwardDiff"
+    return startswith(AD_SELECTED, family)
+end
+
 function check_broken(scenarios_list, backend)
     # Scenarios that `DIT.test_differentiation` cannot exercise — the
     # backend errors throughout (e.g. Enzyme, #225), the scenario is
@@ -50,7 +69,10 @@ end
     global_broken = Set(ADFixtures.broken_scenario_names())
     backend_broken = ADFixtures.backend_broken_scenarios()
 
-    for entry in ADFixtures.working_backends()
+    working = filter(e -> _selected(e.name), ADFixtures.working_backends())
+    broken = filter(e -> _selected(e.name), ADFixtures.broken_backends())
+
+    for entry in working
         per_backend = get(backend_broken, entry.name, Set{String}())
         ok = filter(
             s -> !(s.name in global_broken) && !(s.name in per_backend),
@@ -77,7 +99,7 @@ end
     end
 
     @testset "fully broken backends (#225)" begin
-        for entry in ADFixtures.broken_backends()
+        for entry in broken
             check_broken(all_scenarios, entry.backend)
         end
     end
