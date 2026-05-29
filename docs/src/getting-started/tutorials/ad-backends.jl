@@ -60,6 +60,18 @@ The scenario set covers analytical and numerical paths for Gamma,
 LogNormal, and Weibull delays with both `Uniform` and
 `ExponentiallyTilted` primary events, plus `IntervalCensored` and
 `DoubleIntervalCensored` constructions.
+
+It spans two regimes so the comparison is not limited to the small fits
+that favour forward mode.
+Most scenarios are low-dimensional (two or three parameters), matching a
+single delay fit.
+A further set gives each observation its own delay parameter (32 in all),
+in analytical and numerical forms, to exercise the high-dimensional
+regime.
+The numerical (quadrature) paths also do much more work per call than the
+analytical ones, stressing how each backend differentiates the
+integration routine.
+
 It is defined with
 [DifferentiationInterfaceTest.jl](https://juliadiff.org/DifferentiationInterface.jl/DifferentiationInterfaceTest/stable/)
 in the `ADFixtures` path package at `test/ADFixtures`, and shared with the
@@ -303,17 +315,27 @@ on how many parameters you differentiate with respect to.
 - Forward mode (ForwardDiff, Enzyme forward, Mooncake forward) costs one
   pass per parameter, so it wins when the parameter count is small.
   Fitting a single censored delay distribution has two or three
-  parameters, which is why ForwardDiff leads the table here.
+  parameters, which is why ForwardDiff leads the low-dimensional rows.
+  Among the forward backends ForwardDiff is fastest on these small smooth
+  `logpdf`s; Enzyme and Mooncake forward do not beat it here.
 - Reverse mode (ReverseDiff, Enzyme reverse, Mooncake reverse) costs one
-  pass per output regardless of the parameter count, so it scales better
-  once a censored distribution sits inside a larger Turing model with many
-  latent parameters.
+  pass per output regardless of the parameter count, so it pays off once a
+  censored distribution sits inside a larger model with many latent
+  parameters. In the 32-parameter rows Enzyme reverse and Mooncake reverse
+  run several times faster than ForwardDiff; ReverseDiff's tape overhead
+  leaves it slower even there.
 
-For the small-parameter case, ForwardDiff is the simplest fast default.
-It works on every scenario and needs no configuration.
-When you embed these distributions in a higher-dimensional model, switch
-to a reverse-mode backend and pick the fastest one that works on your
-model.
+Turing's
+[AD guidance](https://turinglang.org/docs/usage/automatic-differentiation/)
+puts the crossover around 20 parameters: forward mode below, reverse mode
+above.
+ForwardDiff is the simplest fast default for the small-parameter case and
+needs no configuration.
+For a higher-dimensional model, switch to a reverse-mode backend; Enzyme
+and Mooncake show their strength here, in reverse rather than forward mode.
+In a Turing model you set this through the sampler's `adtype`, for example
+`sample(model, NUTS(; adtype = AutoMooncake()), 1000)`, and the surest
+choice is to benchmark the backends on your own model.
 
 ## Debugging
 

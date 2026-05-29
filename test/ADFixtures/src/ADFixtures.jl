@@ -270,6 +270,58 @@ function scenarios(; with_reference::Bool = false)
         obs_double)
     _push!("DoubleIntervalCensored LogNormal", f_double, [1.0, 0.75])
 
+    # High-dimensional scenarios. Each observation carries its own delay
+    # parameter, so the gradient is taken with respect to many inputs.
+    # These give the reverse-mode backends (ReverseDiff, Enzyme reverse,
+    # Mooncake reverse) a regime where they win: reverse mode costs one
+    # pass regardless of the parameter count, while the forward modes
+    # (ForwardDiff, Enzyme forward, Mooncake forward) pay per parameter.
+    # Both an analytical and a numerical (quadrature) variant are included:
+    # the numerical path does far more work per call, which is where the
+    # compiled forward backends (Enzyme, Mooncake) can close the gap on
+    # ForwardDiff's Dual-number propagation. Literal constructors keep
+    # Enzyme forward working (#278).
+    n_hd = 32
+    obs_hd = collect(range(0.5, 8.0; length = n_hd))
+    _push!("PrimaryCensored LogNormal+Uniform analytical $(n_hd)d",
+        let obs_hd = obs_hd
+            θ -> sum(
+                i -> logpdf(
+                    primary_censored(
+                        LogNormal(θ[i], 0.5), Uniform(0.0, 1.0)),
+                    obs_hd[i]),
+                eachindex(obs_hd))
+        end, fill(1.0, n_hd))
+    _push!("PrimaryCensored LogNormal+Uniform numerical $(n_hd)d",
+        let obs_hd = obs_hd
+            θ -> sum(
+                i -> logpdf(
+                    primary_censored(
+                        LogNormal(θ[i], 0.5), Uniform(0.0, 1.0);
+                        force_numeric = true),
+                    obs_hd[i]),
+                eachindex(obs_hd))
+        end, fill(1.0, n_hd))
+    _push!("PrimaryCensored Gamma+Uniform analytical $(n_hd)d",
+        let obs_hd = obs_hd
+            θ -> sum(
+                i -> logpdf(
+                    primary_censored(
+                        Gamma(θ[i], 1.5), Uniform(0.0, 1.0)),
+                    obs_hd[i]),
+                eachindex(obs_hd))
+        end, fill(2.0, n_hd))
+    _push!("PrimaryCensored Gamma+Uniform numerical $(n_hd)d",
+        let obs_hd = obs_hd
+            θ -> sum(
+                i -> logpdf(
+                    primary_censored(
+                        Gamma(θ[i], 1.5), Uniform(0.0, 1.0);
+                        force_numeric = true),
+                    obs_hd[i]),
+                eachindex(obs_hd))
+        end, fill(2.0, n_hd))
+
     return out
 end
 
