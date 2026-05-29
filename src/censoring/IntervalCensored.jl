@@ -353,16 +353,16 @@ end
 
 # Internal function for efficient cdf/logcdf computation
 function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
-    # Route through the AD-safe helpers so the `Gamma` path stays
-    # differentiable rather than hitting `gamma_inc` directly (#257).
-    f_safe = f === logcdf ? _logcdf_ad_safe : _cdf_ad_safe
-
     # Handle edge cases first
     if x < minimum(get_dist(d))
         return f === logcdf ? -Inf : 0.0
     elseif x >= maximum(get_dist(d))
         return f === logcdf ? 0.0 : 1.0
     end
+
+    # Route through the AD-safe helpers so the `Gamma` path stays
+    # differentiable rather than hitting `gamma_inc` directly (#257).
+    f_safe = f === logcdf ? _logcdf_ad_safe : _cdf_ad_safe
 
     if is_regular_intervals(d)
         # For regular intervals, use floor behavior from Discretised
