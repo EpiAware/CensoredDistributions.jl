@@ -28,6 +28,11 @@ We'll cover the following key points:
 This tutorial builds on the concepts introduced in
 [Getting Started with CensoredDistributions.jl](@ref getting-started).
 
+We sample with Mooncake forward-mode AD
+(`AutoMooncakeForward`); see
+[Automatic differentiation backends](@ref ad-backends) for the support
+matrix and per-backend benchmarks.
+
 ## Packages used
 We use CairoMakie for plotting, Turing for probabilistic programming,
 FlexiChains for working with MCMC output, Chain.jl for data pipeline
@@ -44,7 +49,7 @@ using StatsBase
 using FlexiChains
 using FlexiChains: Prefixed, parameters
 using CensoredDistributions
-using ADTypes: AutoMooncake
+using ADTypes: AutoMooncakeForward
 import Mooncake
 
 md"""
@@ -378,7 +383,7 @@ pattern `(values = values, weights = counts)`.
 
 naive_fit = sample(
     naive_mdl,
-    NUTS(; adtype = AutoMooncake(; config = nothing)),
+    NUTS(; adtype = AutoMooncakeForward()),
     MCMCThreads(), 500, 4;
     chain_type = VNChain
 );
@@ -458,7 +463,7 @@ range of fitting methods but here we use the No-U-turn sampler*):
 
 interval_only_fit = sample(
     interval_only_mdl,
-    NUTS(; adtype = AutoMooncake(; config = nothing)),
+    NUTS(; adtype = AutoMooncakeForward()),
     MCMCThreads(), 500, 4;
     chain_type = VNChain
 );
@@ -512,7 +517,7 @@ the censoring process is properly modelled.
 
 CensoredDistributions_fit = sample(
     CensoredDistributions_mdl,
-    NUTS(; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 1000, 4;
+    NUTS(; adtype = AutoMooncakeForward()), MCMCThreads(), 1000, 4;
     chain_type = VNChain
 );
 

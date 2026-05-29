@@ -52,9 +52,11 @@ subtype it supports (`Float64`, `Float32`, `BigFloat`) — same path the
 non-AD hot path uses, full accuracy across all `z/a` regimes. AD
 coverage is supplied by per-backend extensions:
 
-- `CensoredDistributionsChainRulesCoreExt` defines the
-  reverse-mode `rrule` (analytical partials, primal via `gamma_inc`).
-- `CensoredDistributionsMooncakeExt` lifts the rrule into Mooncake.
+- `CensoredDistributionsChainRulesCoreExt` defines the reverse-mode
+  `rrule` and forward-mode `frule` (analytical partials, primal via
+  `gamma_inc`).
+- `CensoredDistributionsMooncakeExt` lifts both the rrule and frule into
+  Mooncake (reverse and forward mode).
 - `CensoredDistributionsReverseDiffExt` lifts the rrule into ReverseDiff.
 - `CensoredDistributionsForwardDiffExt` defines `Dual` methods on
   `_gamma_cdf` directly (forward-mode dispatches on argument types,
