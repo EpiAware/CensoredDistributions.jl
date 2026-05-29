@@ -1,26 +1,23 @@
 module CensoredDistributionsEnzymeExt
 
-using CensoredDistributions: _gamma_cdf
-using ChainRulesCore: ChainRulesCore
-using Enzyme: Enzyme
+using CensoredDistributions: _gamma_cdf, _gamma_cdf_value_and_partials
+using Enzyme.EnzymeRules: EnzymeRules
 
-# Lifts the `ChainRulesCore.rrule` defined in
-# `CensoredDistributionsChainRulesCoreExt` into Enzyme via its
-# `@import_rrule` macro (the same idea as Mooncake's
-# `@from_chainrules`). Without this, Enzyme would try to differentiate
-# the `_gamma_cdf` implementation directly — that path hits
-# `SpecialFunctions.gamma_inc`, whose recursive series + DomainError
-# branches Enzyme cannot lower cleanly.
-#
-# KNOWN ISSUE: Enzyme's `@import_rrule` machinery currently returns a
-# wrong `k` (shape) partial when applied to this rrule — the `θ` and `x`
-# partials match the other backends, but `dk` is incorrect by ~8%. The
-# extension is shipped so the rule is registered and ready when the
-# upstream interaction is fixed, but Enzyme gradients on `_gamma_cdf`
-# (and anything routing through it) should not be trusted today. The
-# AD test suite keeps Enzyme in `ad_test_broken_backends()` to surface
-# this. Tracked in
-# https://github.com/EpiAware/CensoredDistributions.jl/issues/259.
-Enzyme.@import_rrule(typeof(_gamma_cdf), Real, Real, Real)
+# `EnzymeRules.@easy_rule` expands into both the reverse-mode
+# (`augmented_primal` / `reverse`) and forward-mode (`forward`) rules
+# for `_gamma_cdf`. The analytical (dk, dθ, dx) come from
+# `_gamma_cdf_value_and_partials` in `src/utils/gamma_ad.jl`, the
+# single source-of-truth helper shared with the ChainRules rrule and
+# the ForwardDiff Dual path. Routing `_gamma_cdf` through this rule
+# avoids Enzyme differentiating `SpecialFunctions.gamma_inc` directly
+# (the cause of #259 — the previous `@import_rrule` lift returned a
+# `k`-partial that was ~8% off).
+
+EnzymeRules.@easy_rule(_gamma_cdf(k::Real, θ::Real, x::Real),
+    @setup(_vp=_gamma_cdf_value_and_partials(k, θ, x),
+        dk=_vp[2],
+        dθ=_vp[3],
+        dx=_vp[4],),
+    (dk, dθ, dx))
 
 end

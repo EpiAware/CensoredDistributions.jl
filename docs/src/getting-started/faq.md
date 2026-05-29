@@ -56,7 +56,7 @@ censored_dist = primary_censored(delay_dist, primary_dist)
 
 ### Q: Can I use this with automatic differentiation?
 
-**A:** Yes. See the [Automatic differentiation backends](@ref) tutorial for
+**A:** Yes. See the [Automatic differentiation backends](@ref ad-backends) tutorial for
 a worked example and per-backend timings. The CI badges on the repo README
 track which backend/scenario pairs currently pass.
 

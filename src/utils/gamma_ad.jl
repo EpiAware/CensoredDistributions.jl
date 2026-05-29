@@ -72,6 +72,33 @@ function _gamma_cdf(k::Real, θ::Real, x::Real)
 end
 
 @doc raw"""
+Primal value and analytical partials `(Ω, dk, dθ, dx)` for
+[`_gamma_cdf`](@ref). Shared by every per-backend AD extension so the
+formulas live in one place:
+
+- `dx = pdf(Gamma(k, θ), x)`
+- `dθ = -(x/θ) · dx`
+- `dk = _grad_p_a_series(k, x/θ)`
+
+The non-positive-`x` branch returns zeros for the primal and all three
+partials, matching `_gamma_cdf`'s early-return behaviour.
+"""
+function _gamma_cdf_value_and_partials(k::Real, θ::Real, x::Real)
+    if x <= 0
+        T = float(promote_type(typeof(k), typeof(θ), typeof(x)))
+        z = zero(T)
+        return (z, z, z, z)
+    end
+    z = x / θ
+    Ω = first(gamma_inc(promote(k, z)...))
+    f = pdf(Gamma(k, θ), x)
+    dk = _grad_p_a_series(k, z)
+    dθ = -(x / θ) * f
+    dx = f
+    return (Ω, dk, dθ, dx)
+end
+
+@doc raw"""
 AD-safe `logcdf(dist, u)` for use inside differentiable integrands.
 
 Generic dispatch falls through to `Distributions.logcdf`. The
