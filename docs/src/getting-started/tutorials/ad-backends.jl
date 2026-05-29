@@ -239,8 +239,17 @@ plot_df = @chain rel begin
     stack([:rel_time, :rel_bytes],
         variable_name = :metric, value_name = :value)
     @rsubset :value > 0
-    @rtransform :metric = :metric == "rel_time" ?
-                          "Relative time" : "Relative allocations"
+    @rtransform begin
+        :metric = :metric == "rel_time" ? "Relative time" :
+                  "Relative allocations"
+        :family = startswith(:backend, "Enzyme") ? "Enzyme" :
+                  startswith(:backend, "Mooncake") ? "Mooncake" :
+                  startswith(:backend, "ReverseDiff") ? "ReverseDiff" :
+                  "ForwardDiff"
+        :mode = (occursin("reverse", :backend) ||
+                 startswith(:backend, "ReverseDiff")) ? "reverse" :
+                "forward"
+    end
 end
 
 ## Order the facets time-then-allocations.
@@ -286,7 +295,8 @@ fig_scenarios = draw(
     mapping(
         :scenario => "",
         :value => "Cost relative to ForwardDiff",
-        color = :backend => "Backend",
+        color = :family => "Backend family",
+        marker = :mode => "Mode",
         col = :metric => metric_order) *
     visual(Scatter, markersize = 9);
     figure = (size = (1000, 600),),
