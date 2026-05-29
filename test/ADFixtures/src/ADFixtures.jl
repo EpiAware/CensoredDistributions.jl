@@ -81,14 +81,13 @@ Scenario names that fail for every backend (universal scenario-level
 failures). Returns a `Vector{String}`.
 """
 function broken_scenario_names()
-    # `IntervalCensored Gamma arbitrary` routes through stock
-    # `Distributions.cdf(Gamma, x)` → `gamma_inc`, which the
-    # ForwardDiff Dual extension does not cover (it only handles the
-    # `_gamma_cdf` helper used by primary-censored analytical paths).
-    # Tracked in #217.
-    return [
-        "IntervalCensored Gamma arbitrary"
-    ]
+    # No scenario fails on every backend. `IntervalCensored Gamma
+    # arbitrary` previously did (#217/#257): it routed through stock
+    # `Distributions.cdf(Gamma, x)` → `gamma_inc`, which no AD backend
+    # covers. It now routes through the `_gamma_cdf` helper, so it works
+    # everywhere except Mooncake forward (the shared #270 gap, listed in
+    # `backend_broken_scenarios`).
+    return String[]
 end
 
 """
@@ -100,9 +99,11 @@ backend `name` from [`working_backends`](@ref).
 
 Mooncake forward mode has no rule for `_gamma_cdf`: only a reverse-mode
 `rrule` is shipped (lifted via the ChainRules extension), so scenarios
-whose CDF routes through the incomplete-gamma path — every `Gamma`
-delay, plus `Weibull` analytical, which uses the lower incomplete gamma
-— cannot be differentiated in forward mode. Tracked in
+whose CDF routes through the incomplete-gamma path cannot be
+differentiated in forward mode: every `Gamma` delay, `Weibull`
+analytical (which uses the lower incomplete gamma), and
+`IntervalCensored Gamma arbitrary` (which routes through `_gamma_cdf`,
+see #257). Tracked in
 [#270](https://github.com/EpiAware/CensoredDistributions.jl/issues/270).
 """
 function backend_broken_scenarios()
@@ -110,7 +111,8 @@ function backend_broken_scenarios()
         "PrimaryCensored Gamma+Uniform analytical",
         "PrimaryCensored Gamma+Uniform numerical",
         "PrimaryCensored Weibull+Uniform analytical",
-        "PrimaryCensored Gamma+ExponentiallyTilted numerical"
+        "PrimaryCensored Gamma+ExponentiallyTilted numerical",
+        "IntervalCensored Gamma arbitrary"
     ])
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
