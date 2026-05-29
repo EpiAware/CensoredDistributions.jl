@@ -49,14 +49,8 @@ function working_backends()
         (name = "Mooncake reverse",
             backend = AutoMooncake(config = nothing)),
         (name = "Mooncake forward", backend = AutoMooncakeForward()),
-        # Enzyme reverse needs three settings to work through the full
-        # censored pipeline: the `_gamma_cdf` + `gamma` rules in
-        # `CensoredDistributionsEnzymeExt`, `function_annotation =
-        # Duplicated` so the closure over `obs` is not flagged
-        # non-readonly, and `set_runtime_activity` so per-value activity
-        # is resolved at runtime through the `Integrals` quadrature and
-        # the distribution constructors. With all three it matches the
-        # ForwardDiff reference on every scenario (#263).
+        # `set_runtime_activity` + `Duplicated` are the user-facing
+        # Enzyme settings documented in the ad-backends tutorial.
         (name = "Enzyme reverse",
             backend = AutoEnzyme(
                 mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
@@ -75,11 +69,9 @@ all-or-nothing. Tracked in
 [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
 """
 function broken_backends()
-    # Enzyme forward works on the ExponentiallyTilted primaries and the
-    # LogNormal interval/double-interval scenarios but trips an
-    # upstream mixed-activity check on the `jl_new_struct` of the
-    # Uniform-primary delay constructors (Gamma/LogNormal/Weibull), so
-    # it stays partial. Same rule set + annotations as reverse.
+    # Same Enzyme settings as reverse, but forward stays partial: it
+    # trips an upstream mixed-activity check on the Uniform-primary
+    # delay constructors (see the ad-backends tutorial).
     return [
         (name = "Enzyme forward",
         backend = AutoEnzyme(

@@ -21,17 +21,15 @@ EnzymeRules.@easy_rule(_gamma_cdf(k::Real, θ::Real, x::Real),
         dx=_vp[4],),
     (dk, dθ, dx))
 
-# `SpecialFunctions.gamma` has no correct Enzyme rule of its own. With
-# only `EnzymeSpecialFunctionsExt` loaded, Enzyme mis-lowers `gamma(x)`
-# to the `loggamma` known-op and returns `digamma(x)` for the
-# derivative instead of `Γ(x) ψ(x)` — silently wrong by a factor of
-# `Γ(x)` in both forward and reverse mode. The analytical Gamma and
-# Weibull `primarycensored_cdf` paths call `gamma(k + 1)` and
-# `gamma(1 + 1/k)` outside the `_gamma_cdf` rule, so without this the
-# whole-pipeline `k`-partial is wrong (the cause of the scenario-level
-# Enzyme failures in #263). The derivative is the standard
-# `d/dx Γ(x) = Γ(x) ψ(x)`; `Ω` binds to the primal `Γ(x)`. See the
-# ChainRules `gamma` frule/rrule for the same formula.
+# Rule for `SpecialFunctions.gamma`, derivative `d/dx Γ(x) = Γ(x) ψ(x)`
+# (`Ω` binds to the primal `Γ(x)`; same formula as the ChainRules
+# `gamma` frule/rrule that Mooncake/ReverseDiff pick up). Enzyme's own
+# `EnzymeSpecialFunctionsExt` ships no `gamma` rule and instead
+# mis-lowers `gamma(x)` to the `loggamma` known-op, returning `ψ(x)` —
+# wrong by a factor of `Γ(x)` in both modes (upstream bug). The
+# analytical Gamma and Weibull `primarycensored_cdf` paths call
+# `gamma(k + 1)` / `gamma(1 + 1/k)` outside the `_gamma_cdf` rule, so
+# without this the pipeline shape-partial is wrong (#263).
 EnzymeRules.@easy_rule(gamma(x::Real), (Ω * digamma(x),))
 
 end

@@ -46,11 +46,25 @@ and the benchmark suite in `benchmark/src/ad_gradients.jl`.
   partial of the whole pipeline (see
   [#263](https://github.com/EpiAware/CensoredDistributions.jl/issues/263)).
   - **Reverse mode** now matches the ForwardDiff reference on every
-    scenario when run with `function_annotation = Duplicated` (so the
-    closure over the observations is not flagged non-readonly) and
-    `Enzyme.set_runtime_activity` (so per-value activity is resolved at
-    runtime through the `Integrals` quadrature and the distribution
-    constructors). The `ADFixtures` `Enzyme reverse` backend sets both.
+    scenario, but only when invoked with two settings that are the
+    caller's responsibility (not something the extension can set):
+
+    ```julia
+    using ADTypes, Enzyme
+    AutoEnzyme(
+        mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+        function_annotation = Enzyme.Duplicated)
+    ```
+
+    `function_annotation = Duplicated` stops Enzyme flagging the closure
+    over the observation data as non-readonly (a generic Enzyme
+    requirement for closures over arrays, including Turing likelihoods),
+    and `set_runtime_activity` resolves per-value activity at runtime
+    through the `Integrals` quadrature and the distribution
+    constructors. The analytical paths work with just `Duplicated`; the
+    numerical (quadrature) paths additionally need `set_runtime_activity`,
+    so passing both is the recommended default. These are the settings
+    the `ADFixtures` `Enzyme reverse` backend uses.
   - **Forward mode** is partial: it works on the `ExponentiallyTilted`
     primaries and the LogNormal interval/double-interval scenarios but
     still trips an upstream Enzyme mixed-activity check on the
@@ -207,8 +221,11 @@ md"""
   broadly compatible backend in this package.
 - **ReverseDiff (tape) / (compiled)** — scales better as the parameter
   count grows; the compiled tape amortises its setup over many calls.
-- **Enzyme forward / reverse** — high-performance AD via LLVM; forward
-  mode suits very small dimensions, reverse mode the larger ones.
+- **Enzyme reverse** — high-performance AD via LLVM; works through the
+  full pipeline when called with
+  `AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+  function_annotation = Enzyme.Duplicated)` (see the status notes
+  above). Forward mode is only partial.
 - **Mooncake** — newer reverse-mode AD; recommended where it works.
 
 The full matrix of supported (scenario, backend) pairs is checked in
