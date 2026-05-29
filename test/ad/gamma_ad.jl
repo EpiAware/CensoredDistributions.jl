@@ -89,6 +89,61 @@ end
     end
 end
 
+@testset "Enzyme gamma rule (issue #263)" begin
+    # Pins the `SpecialFunctions.gamma` rule in
+    # CensoredDistributionsEnzymeExt. With only EnzymeSpecialFunctionsExt
+    # loaded, Enzyme mis-lowers `gamma` to the `loggamma` known-op and
+    # returns `ψ(x)` instead of `Γ(x) ψ(x)` — silently wrong by a factor
+    # of `Γ(x)` in both modes. The analytical Gamma/Weibull
+    # `primarycensored_cdf` paths call `gamma(k + 1)` / `gamma(1 + 1/k)`
+    # outside the `_gamma_cdf` rule, so this gap corrupted the shape
+    # partial of the whole pipeline.
+    using ADTypes: AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    using Enzyme: Enzyme
+    using SpecialFunctions: gamma, digamma
+
+    f(v) = gamma(v[1])
+    for x in (0.7, 1.5, 2.0, 3.4, 7.0)
+        truth = gamma(x) * digamma(x)
+        g_rev = gradient(f, AutoEnzyme(mode = Enzyme.Reverse), [x])
+        g_fwd = gradient(f, AutoEnzyme(mode = Enzyme.Forward), [x])
+        @test isapprox(g_rev[1], truth; rtol = 1e-10, atol = 1e-12)
+        @test isapprox(g_fwd[1], truth; rtol = 1e-10, atol = 1e-12)
+    end
+end
+
+@testset "Enzyme reverse on analytical scenarios (issue #263)" begin
+    # End-to-end check that the gamma + _gamma_cdf rules together make
+    # Enzyme reverse match ForwardDiff on the analytical pipeline,
+    # including the shape (k) partial that the gamma gap previously
+    # corrupted. Uses the same runtime-activity + Duplicated settings as
+    # the ADFixtures `Enzyme reverse` backend.
+    using ADTypes: AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    using Enzyme: Enzyme
+    using Distributions: Gamma, Weibull, Uniform, logpdf
+
+    be = AutoEnzyme(
+        mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+        function_annotation = Enzyme.Duplicated)
+    obs = [0.5, 1.2, 2.5, 3.8, 5.1]
+    for ctor in (Gamma, Weibull)
+        f = θ -> sum(
+            x -> logpdf(
+                primary_censored(ctor(θ[1], θ[2]), Uniform(0.0, 1.0)), x),
+            obs)
+        ref = gradient(f, AutoForwardDiff(), [2.0, 1.5])
+        g = gradient(f, be, [2.0, 1.5])
+        # rtol bounded below by `PrimaryCensored.logpdf`'s internal
+        # finite-difference step (h = 1e-8; see ADFixtures docstring),
+        # which limits the ForwardDiff reference's own accuracy to
+        # ~1e-6. 1e-4 still catches the pre-fix shape partial, which was
+        # wrong by a factor of `Γ(x)` (~150%).
+        @test isapprox(g, ref; rtol = 1e-4, atol = 1e-6)
+    end
+end
+
 @testset "_gamma_cdf rrule and _make_weibull_g zero-input guards" begin
     # Exercise the non-positive-input early-return branches that the
     # scenario suite never hits (all gradient grids use strictly positive

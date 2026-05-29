@@ -48,22 +48,43 @@ function working_backends()
             backend = AutoReverseDiff(compile = false)),
         (name = "Mooncake reverse",
             backend = AutoMooncake(config = nothing)),
-        (name = "Mooncake forward", backend = AutoMooncakeForward())
+        (name = "Mooncake forward", backend = AutoMooncakeForward()),
+        # Enzyme reverse needs three settings to work through the full
+        # censored pipeline: the `_gamma_cdf` + `gamma` rules in
+        # `CensoredDistributionsEnzymeExt`, `function_annotation =
+        # Duplicated` so the closure over `obs` is not flagged
+        # non-readonly, and `set_runtime_activity` so per-value activity
+        # is resolved at runtime through the `Integrals` quadrature and
+        # the distribution constructors. With all three it matches the
+        # ForwardDiff reference on every scenario (#263).
+        (name = "Enzyme reverse",
+            backend = AutoEnzyme(
+                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Duplicated))
     ]
 end
 
 """
     broken_backends()
 
-AD backends that currently fail for every scenario. Tracked in
+AD backends that fail on at least some scenarios. `check_broken` in
+`test/ad/runtests.jl` runs each through plain
+`DifferentiationInterface.gradient` and marks the scenarios that do
+work as passing, so a partially-working backend is not forced to be
+all-or-nothing. Tracked in
 [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225).
 """
 function broken_backends()
+    # Enzyme forward works on the ExponentiallyTilted primaries and the
+    # LogNormal interval/double-interval scenarios but trips an
+    # upstream mixed-activity check on the `jl_new_struct` of the
+    # Uniform-primary delay constructors (Gamma/LogNormal/Weibull), so
+    # it stays partial. Same rule set + annotations as reverse.
     return [
         (name = "Enzyme forward",
-            backend = AutoEnzyme(mode = Enzyme.Forward)),
-        (name = "Enzyme reverse",
-            backend = AutoEnzyme(mode = Enzyme.Reverse))
+        backend = AutoEnzyme(
+            mode = Enzyme.set_runtime_activity(Enzyme.Forward),
+            function_annotation = Enzyme.Duplicated))
     ]
 end
 
@@ -118,7 +139,11 @@ function backend_broken_scenarios()
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => mooncake_broken,
-        "Mooncake forward" => mooncake_broken
+        "Mooncake forward" => mooncake_broken,
+        # Enzyme reverse matches the reference on every scenario except
+        # the universally-broken `IntervalCensored Gamma arbitrary`
+        # (#217), which is already excluded via `broken_scenario_names`.
+        "Enzyme reverse" => Set{String}()
     )
 end
 
