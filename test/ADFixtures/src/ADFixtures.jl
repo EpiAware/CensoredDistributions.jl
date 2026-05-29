@@ -94,14 +94,13 @@ Scenario names that fail for every backend (universal scenario-level
 failures). Returns a `Vector{String}`.
 """
 function broken_scenario_names()
-    # `IntervalCensored Gamma arbitrary` routes through stock
-    # `Distributions.cdf(Gamma, x)` → `gamma_inc`, which the
-    # ForwardDiff Dual extension does not cover (it only handles the
-    # `_gamma_cdf` helper used by primary-censored analytical paths).
-    # Tracked in #217.
-    return [
-        "IntervalCensored Gamma arbitrary"
-    ]
+    # No scenario fails on every backend. `IntervalCensored Gamma
+    # arbitrary` previously did (#217/#257): it routed through stock
+    # `Distributions.cdf(Gamma, x)` → `gamma_inc`, which no AD backend
+    # covers. It now routes through the `_gamma_cdf` helper, so it works
+    # everywhere except Mooncake forward (the shared #270 gap, listed in
+    # `backend_broken_scenarios`).
+    return String[]
 end
 
 """
@@ -111,30 +110,13 @@ Per-backend scenario names that fail even though the backend works on
 other scenarios. Returns a `Dict{String, Set{String}}` keyed on the
 backend `name` from [`working_backends`](@ref).
 
-Mooncake's DIT-driven path throws `DomainError: Gamma: α > 0` on the
-Gamma/Weibull scenarios even though plain `DifferentiationInterface.gradient`
-succeeds; the LogNormal numerical correctness disagreement is similar.
-Suspected DIT-Mooncake interaction; tracked in #225.
 """
 function backend_broken_scenarios()
-    mooncake_broken = Set([
-        "PrimaryCensored Gamma+Uniform analytical",
-        "PrimaryCensored Gamma+Uniform numerical",
-        "PrimaryCensored LogNormal+Uniform numerical",
-        "PrimaryCensored Weibull+Uniform analytical",
-        "PrimaryCensored Weibull+Uniform numerical",
-        "PrimaryCensored Gamma+ExponentiallyTilted numerical",
-        "PrimaryCensored LogNormal+ExponentiallyTilted numerical",
-        "PrimaryCensored Weibull+ExponentiallyTilted numerical"
-    ])
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
-        "Mooncake reverse" => mooncake_broken,
-        "Mooncake forward" => mooncake_broken,
-        # Enzyme reverse matches the reference on every scenario except
-        # the universally-broken `IntervalCensored Gamma arbitrary`
-        # (#217), which is already excluded via `broken_scenario_names`.
+        "Mooncake reverse" => Set{String}(),
+        "Mooncake forward" => Set{String}(),
         "Enzyme reverse" => Set{String}()
     )
 end
@@ -168,10 +150,16 @@ function scenarios(; with_reference::Bool = false)
         # runner can still mark them broken without erroring here.
         res1 = (with_reference && !(name in skip_ref)) ?
                _reference(f, θ₀) : nothing
+        # Prepare at the real parameter point. DIT's default
+        # `prep_args` is `zero(x)`, which builds e.g. `Gamma(0, 0)`
+        # and trips the distribution's `α > 0` domain assertion.
+        prep_args = (; x = θ₀, contexts = ())
         push!(out,
             res1 === nothing ?
-            DIT.Scenario{:gradient, :out}(f, θ₀; name = name) :
-            DIT.Scenario{:gradient, :out}(f, θ₀; res1 = res1, name = name))
+            DIT.Scenario{:gradient, :out}(
+                f, θ₀; prep_args = prep_args, name = name) :
+            DIT.Scenario{:gradient, :out}(
+                f, θ₀; res1 = res1, prep_args = prep_args, name = name))
     end
 
     for spec in primary_specs, force_numeric in (false, true)

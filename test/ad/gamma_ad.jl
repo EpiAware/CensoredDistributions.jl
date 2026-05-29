@@ -35,11 +35,12 @@
 end
 
 @testset "_gamma_cdf passes Mooncake.TestUtils.test_rule" begin
-    # Mooncake's canonical rule test. `mode = Mooncake.ReverseMode` skips
-    # the forward-mode interface check — we only register an rrule via
-    # @from_chainrules, no frule. Verifies (a) the rule is actually being
+    # Mooncake's canonical rule test, run for both reverse and forward
+    # mode. `@from_chainrules` (default mode) lifts the `rrule` into an
+    # `rrule!!` and the `frule` into an `frule!!`, so both interfaces are
+    # registered (#270). For each mode, verifies (a) the rule is actually
     # invoked (is_primitive = true asserts this) and (b) primal +
-    # pullback match Richardson-extrapolated finite differences.
+    # derivative match Richardson-extrapolated finite differences.
     using Random: MersenneTwister
     using Mooncake: Mooncake
     using CensoredDistributions: _gamma_cdf
@@ -51,13 +52,15 @@ end
         (10.0, 1.0, 9.5),
         (0.3, 1.0, 0.5)
     ]
-    for (k, θ, x) in cases
+    for mode in (Mooncake.ReverseMode, Mooncake.ForwardMode),
+        (k, θ, x) in cases
+
         Mooncake.TestUtils.test_rule(
             MersenneTwister(20260526),
             _gamma_cdf, k, θ, x;
             is_primitive = true,
             perf_flag = :none,
-            mode = Mooncake.ReverseMode
+            mode = mode
         )
     end
 end
