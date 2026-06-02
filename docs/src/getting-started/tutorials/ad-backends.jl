@@ -53,8 +53,8 @@ the [Enzyme FAQ](https://enzymead.github.io/Enzyme.jl/stable/faq/) for what
 it does.
 These are the settings the benchmark below uses.
 The observation data is passed as a `Constant` DifferentiationInterface
-context rather than captured in a closure, so the differentiated function
-holds no active fields and no `function_annotation = Duplicated` is needed.
+context rather than captured in a closure, which keeps the differentiated
+function free of active fields.
 Runtime activity is not free.
 On the analytical paths, which do not need it, it makes Enzyme several
 times slower here, so its benchmark rows are conservative; the benchmark
