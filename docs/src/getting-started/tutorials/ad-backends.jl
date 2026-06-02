@@ -29,12 +29,24 @@ The badges below show the latest run of each on `main`, tested on Julia 1
 <td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-reverse.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-reverse.yaml/badge.svg?branch=main" alt="AD Enzyme reverse"></a></td>
 <td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-reverse.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-reverse.yaml/badge.svg?branch=main" alt="AD Mooncake reverse"></a></td>
 <td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-forward.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-forward.yaml/badge.svg?branch=main" alt="AD Mooncake forward"></a></td>
+</tr>
+<tr>
+<td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-forwarddiff"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-forwarddiff" alt="coverage ForwardDiff"></a></td>
+<td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-reversediff"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-reversediff" alt="coverage ReverseDiff"></a></td>
+<td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-enzyme-forward"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-enzyme-forward" alt="coverage Enzyme forward"></a></td>
+<td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-enzyme-reverse"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-enzyme-reverse" alt="coverage Enzyme reverse"></a></td>
+<td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-mooncake-reverse"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-mooncake-reverse" alt="coverage Mooncake reverse"></a></td>
+<td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-mooncake-forward"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-mooncake-forward" alt="coverage Mooncake forward"></a></td>
 </tr></tbody>
 </table>
 ```
 
-A green badge means that backend differentiates the scenarios we test for
-it; it does not by itself mean full coverage.
+The top row is each backend's latest CI run: a green badge means that
+backend differentiates the scenarios we test for it, which does not by
+itself mean full coverage.
+The second row is each backend's code coverage from the gradient suite
+(Codecov flag `ad-<backend>`), reporting which package lines that backend
+exercises.
 All six backends (ForwardDiff, ReverseDiff (tape), Enzyme forward, Enzyme
 reverse, Mooncake reverse, Mooncake forward) cover the whole scenario set.
 
