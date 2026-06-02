@@ -40,21 +40,21 @@ reverse, Mooncake reverse, Mooncake forward) cover the whole scenario set.
 
 ### Configuring Enzyme
 
-Enzyme needs two caller-side settings to work through the numerical
+Enzyme needs one caller-side setting to work through the numerical
 (quadrature) paths.
 
 ```julia
 using ADTypes, Enzyme
-AutoEnzyme(
-    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
-    function_annotation = Enzyme.Duplicated)
+AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Reverse))
 ```
 
-`Duplicated` marks the closure over the observation data as active, and
 `set_runtime_activity` defers per-value activity decisions to runtime; see
 the [Enzyme FAQ](https://enzymead.github.io/Enzyme.jl/stable/faq/) for what
-they do.
+it does.
 These are the settings the benchmark below uses.
+The observation data is passed as a `Constant` DifferentiationInterface
+context rather than captured in a closure, which keeps the differentiated
+function free of active fields.
 Runtime activity is not free.
 On the analytical paths, which do not need it, it makes Enzyme several
 times slower here, so its benchmark rows are conservative; the benchmark
