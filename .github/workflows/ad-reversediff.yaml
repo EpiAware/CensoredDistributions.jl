@@ -16,3 +16,6 @@ jobs:
     with:
       name: ReverseDiff (tape)
       tag: reversediff
+      flag: ad-reversediff
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}  # pragma: allowlist secret

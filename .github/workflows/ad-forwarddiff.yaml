@@ -16,3 +16,6 @@ jobs:
     with:
       name: ForwardDiff
       tag: forwarddiff
+      flag: ad-forwarddiff
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}  # pragma: allowlist secret

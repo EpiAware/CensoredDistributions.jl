@@ -16,3 +16,6 @@ jobs:
     with:
       name: Enzyme forward
       tag: enzyme_forward
+      flag: ad-enzyme-forward
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}  # pragma: allowlist secret

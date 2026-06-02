@@ -16,3 +16,6 @@ jobs:
     with:
       name: Mooncake forward
       tag: mooncake_forward
+      flag: ad-mooncake-forward
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}  # pragma: allowlist secret

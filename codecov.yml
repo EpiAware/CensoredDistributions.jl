@@ -1,0 +1,44 @@
+# Coverage is reported under flags so the main unit suite and each
+# per-backend AD gradient suite stay separately attributable (each gets
+# its own Codecov badge) while still rolling up into one project total.
+#
+# `carryforward: true` keeps a flag's last value when a given workflow run
+# does not re-upload it: the `unit` job (codecoverage.yaml) and the six AD
+# jobs (ad-*.yaml) run and upload independently, so without carryforward a
+# run that posts only some flags would blank the others.
+flags:
+  unit:
+    paths:
+      - src
+      - ext
+    carryforward: true
+  ad-forwarddiff:
+    paths:
+      - src
+      - ext
+    carryforward: true
+  ad-reversediff:
+    paths:
+      - src
+      - ext
+    carryforward: true
+  ad-enzyme-forward:
+    paths:
+      - src
+      - ext
+    carryforward: true
+  ad-enzyme-reverse:
+    paths:
+      - src
+      - ext
+    carryforward: true
+  ad-mooncake-reverse:
+    paths:
+      - src
+      - ext
+    carryforward: true
+  ad-mooncake-forward:
+    paths:
+      - src
+      - ext
+    carryforward: true

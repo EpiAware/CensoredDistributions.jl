@@ -65,6 +65,7 @@ distributions-knowledge-base.md
 
 *.cov
 lcov.info
+lcov-ad.info
 worktree-*
 
 # Documentation dependencies
