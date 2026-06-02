@@ -16,3 +16,5 @@ jobs:
     with:
       name: ForwardDiff
       tag: forwarddiff
+      flag: ad-forwarddiff
+    secrets: inherit  # pragma: allowlist secret

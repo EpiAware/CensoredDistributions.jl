@@ -16,3 +16,5 @@ jobs:
     with:
       name: Enzyme forward
       tag: enzyme_forward
+      flag: ad-enzyme-forward
+    secrets: inherit  # pragma: allowlist secret

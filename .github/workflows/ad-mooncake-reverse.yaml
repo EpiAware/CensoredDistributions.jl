@@ -16,3 +16,5 @@ jobs:
     with:
       name: Mooncake reverse
       tag: mooncake_reverse
+      flag: ad-mooncake-reverse
+    secrets: inherit  # pragma: allowlist secret

@@ -16,11 +16,18 @@ on:
         description: Test-item tag to select (e.g. enzyme_reverse)
         required: true
         type: string
+      flag:
+        description: Codecov flag for this backend (e.g. ad-enzyme-reverse)
+        required: true
+        type: string
       julia-version:
         description: Julia version to test on
         required: false
         type: string
         default: '1'
+    secrets:
+      CODECOV_TOKEN:
+        required: false
 
 jobs:
   ad:
@@ -34,5 +41,21 @@ jobs:
       - uses: julia-actions/cache@v3
       - name: Instantiate test/ad
         run: julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
+      # `--code-coverage=user` instruments `src/` and `ext/` (the package
+      # is a path dependency of `test/ad`, so `.cov` files land next to the
+      # source) so we can attribute which lines this backend exercises.
       - name: Run AD gradient tests
-        run: julia --project=test/ad test/ad/runtests.jl ${{ inputs.tag }}
+        run: |
+          julia --project=test/ad --code-coverage=user \
+            test/ad/runtests.jl ${{ inputs.tag }}
+      # Walk `src/` and `ext/` explicitly. Each AD job runs a single Julia
+      # version, so extension coverage attributes reproducibly (#252).
+      - uses: julia-actions/julia-processcoverage@v1
+        with:
+          directories: src,ext
+      - uses: codecov/codecov-action@v6
+        with:
+          files: lcov.info
+          flags: ${{ inputs.flag }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false

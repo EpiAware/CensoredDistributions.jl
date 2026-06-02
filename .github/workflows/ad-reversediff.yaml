@@ -16,3 +16,5 @@ jobs:
     with:
       name: ReverseDiff (tape)
       tag: reversediff
+      flag: ad-reversediff
+    secrets: inherit  # pragma: allowlist secret

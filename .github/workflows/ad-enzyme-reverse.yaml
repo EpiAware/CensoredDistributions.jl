@@ -16,3 +16,5 @@ jobs:
     with:
       name: Enzyme reverse
       tag: enzyme_reverse
+      flag: ad-enzyme-reverse
+    secrets: inherit  # pragma: allowlist secret

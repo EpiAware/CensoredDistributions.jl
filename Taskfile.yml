@@ -87,6 +87,19 @@ tasks:
       - julia --project=test -e 'using Pkg; Pkg.add("Coverage"); using Coverage; coverage = process_folder(); LCOV.writefile("lcov.info", coverage)'
       - echo "✅ Coverage report generated (lcov.info)"
 
+  coverage-ad:
+    desc: >
+      Run AD gradient tests with coverage over src + ext and write
+      lcov-ad.info (mirrors CI). Pass a backend tag to scope it, e.g.
+      `task coverage-ad -- enzyme_reverse`; omit for the full union.
+    cmds:
+      - echo "📊 Running AD gradient tests with coverage..."
+      - julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=test/ad --code-coverage=user test/ad/runtests.jl {{.CLI_ARGS}}
+      - echo "📊 Processing AD coverage data (src + ext)..."
+      - julia --project=test -e 'using Pkg; Pkg.add("Coverage"); using Coverage; cov = vcat(process_folder("src"), process_folder("ext")); LCOV.writefile("lcov-ad.info", cov); clean_folder("src"); clean_folder("ext")'
+      - echo "✅ AD coverage report generated (lcov-ad.info)"
+
   # === DOCUMENTATION WORKFLOWS ===
   docs:
     desc: Build complete documentation including Literate tutorials (slow)

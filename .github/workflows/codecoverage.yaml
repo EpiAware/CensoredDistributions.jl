@@ -27,5 +27,6 @@ jobs:
       - uses: codecov/codecov-action@v6
         with:
           file: lcov.info
+          flags: unit
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
