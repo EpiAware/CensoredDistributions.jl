@@ -18,21 +18,22 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     steps:
-      # `benchmark/Project.toml` declares ADFixtures as a path source
-      # at `../test/ADFixtures`. AirspeedVelocity's action runs
-      # `benchpkg`, which calls `mktempdir()` (default location `/tmp/`)
-      # and copies just `benchmark/Project.toml` into that env. Pkg then
-      # resolves the relative source path to `/tmp/test/ADFixtures` —
-      # which doesn't exist, so the run aborts before any benchmarking
-      # happens. Staging ADFixtures into `/tmp/test/` here gives Pkg the
-      # path it expects without touching the action or the project file.
+      # Full checkout: AirspeedVelocity's action reads the repo-root
+      # `Project.toml` (to get the package name) and benchmarks `src/` +
+      # `benchmark/`, so the working tree needs the whole package, not a
+      # sparse slice.
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          sparse-checkout: |
-            test/ADFixtures
-          sparse-checkout-cone-mode: false
 
+      # `benchmark/Project.toml` declares ADFixtures as a path source at
+      # `../test/ADFixtures`. AirspeedVelocity runs `benchpkg`, which calls
+      # `mktempdir()` (default `/tmp/`) and copies just
+      # `benchmark/Project.toml` into that env. Pkg then resolves the
+      # relative source path to `/tmp/test/ADFixtures` — which doesn't
+      # exist, so the run aborts before any benchmarking. Staging
+      # ADFixtures into `/tmp/test/` gives Pkg the path it expects without
+      # touching the action or the project file.
       - name: Stage ADFixtures for AirspeedVelocity
         run: |
           mkdir -p /tmp/test
