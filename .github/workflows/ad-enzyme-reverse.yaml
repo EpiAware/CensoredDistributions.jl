@@ -17,4 +17,5 @@ jobs:
       name: Enzyme reverse
       tag: enzyme_reverse
       flag: ad-enzyme-reverse
-    secrets: inherit  # pragma: allowlist secret
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}  # pragma: allowlist secret

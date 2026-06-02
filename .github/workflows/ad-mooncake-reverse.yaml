@@ -17,4 +17,5 @@ jobs:
       name: Mooncake reverse
       tag: mooncake_reverse
       flag: ad-mooncake-reverse
-    secrets: inherit  # pragma: allowlist secret
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}  # pragma: allowlist secret
