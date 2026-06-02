@@ -22,7 +22,7 @@
         for scen in scenarios_list
             ok = try
                 g = DifferentiationInterface.gradient(
-                    scen.f, backend, scen.x)
+                    scen.f, backend, scen.x, scen.contexts...)
                 ref = scen.res1
                 g isa AbstractVector && all(isfinite, g) &&
                     ref !== nothing &&

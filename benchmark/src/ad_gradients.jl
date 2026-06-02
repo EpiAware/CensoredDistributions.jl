@@ -27,7 +27,7 @@ for scen in ADFixtures.scenarios()
     for entry in ADFixtures.backends()
         grad_ok = try
             g = DifferentiationInterface.gradient(
-                scen.f, entry.backend, scen.x)
+                scen.f, entry.backend, scen.x, scen.contexts...)
             g isa AbstractVector && all(isfinite, g)
         catch
             false
@@ -37,7 +37,8 @@ for scen in ADFixtures.scenarios()
         f = scen.f
         backend = entry.backend
         x = scen.x
+        contexts = scen.contexts
         SUITE["AD gradients"][scen.name][entry.name] = @benchmarkable DifferentiationInterface.gradient(
-            $f, $backend, $x)
+            $f, $backend, $x, $contexts...)
     end
 end

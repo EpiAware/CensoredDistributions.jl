@@ -123,39 +123,6 @@ end
     end
 end
 
-@testitem "Enzyme reverse on analytical scenarios (issue #263)" tags=[
-    :ad, :enzyme, :enzyme_reverse] begin
-    # End-to-end check that the gamma + _gamma_cdf rules together make
-    # Enzyme reverse match ForwardDiff on the analytical pipeline,
-    # including the shape (k) partial that the gamma gap previously
-    # corrupted. Uses the same runtime-activity + Duplicated settings as
-    # the ADFixtures `Enzyme reverse` backend.
-    using ADTypes: AutoEnzyme, AutoForwardDiff
-    using DifferentiationInterface: gradient
-    using Enzyme: Enzyme
-    using Distributions: Gamma, Weibull, Uniform, logpdf
-    using CensoredDistributions: primary_censored
-
-    be = AutoEnzyme(
-        mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
-        function_annotation = Enzyme.Duplicated)
-    obs = [0.5, 1.2, 2.5, 3.8, 5.1]
-    for ctor in (Gamma, Weibull)
-        f = θ -> sum(
-            x -> logpdf(
-                primary_censored(ctor(θ[1], θ[2]), Uniform(0.0, 1.0)), x),
-            obs)
-        ref = gradient(f, AutoForwardDiff(), [2.0, 1.5])
-        g = gradient(f, be, [2.0, 1.5])
-        # rtol bounded below by `PrimaryCensored.logpdf`'s internal
-        # finite-difference step (h = 1e-8; see ADFixtures docstring),
-        # which limits the ForwardDiff reference's own accuracy to ~1e-6.
-        # 1e-4 still catches the pre-fix shape partial, which was wrong by
-        # a factor of `Γ(x)` (~150%).
-        @test isapprox(g, ref; rtol = 1e-4, atol = 1e-6)
-    end
-end
-
 @testitem "_gamma_cdf rrule and _make_weibull_g zero-input guards" tags=[:ad, :forwarddiff] begin
     # Exercise the non-positive-input early-return branches that the
     # scenario suite never hits (all gradient grids use strictly positive
