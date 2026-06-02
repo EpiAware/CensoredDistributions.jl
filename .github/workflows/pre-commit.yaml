@@ -14,5 +14,9 @@ jobs:
     - uses: actions/setup-python@v6
     - uses: julia-actions/setup-julia@v3
     - uses: julia-actions/cache@v3
-    - run: julia -e 'using Pkg; Pkg.add("JuliaFormatter")'
+    # Pin so the `julia-formatter` pre-commit hook (which formats via the
+    # global env's JuliaFormatter) matches the version pinned in
+    # `test/formatter`; otherwise it floats to the latest release and
+    # reformats files the rest of the matrix leaves alone.
+    - run: julia -e 'using Pkg; Pkg.add(name="JuliaFormatter", version="2.5.5")'
     - uses: ./.github/actions/pre-commit
