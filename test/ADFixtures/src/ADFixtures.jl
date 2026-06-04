@@ -224,6 +224,37 @@ function scenarios(; with_reference::Bool = false)
             obs),
         [2.0, 1.5], (Constant(obs),))
 
+    # Latent formulation: the cdf/logpdf path collapses to the exact shifted
+    # delay logpdf `logpdf(delay, x - p)` (no quadrature, no finite diff), so
+    # gradients flow straight through the delay distribution's own logpdf.
+    # `p = 0.3 < min(obs) = 0.5`, keeping `x - p` in the delay support.
+    # Constructed with literal delay distributions for the #278 Enzyme
+    # forward reason noted above.
+    _push!("PrimaryCensored Gamma+Uniform latent",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(
+                primary_censored(Gamma(θ[1], θ[2]), Uniform(0.0, 1.0);
+                    formulation = Latent(0.3)), x),
+            obs),
+        [2.0, 1.5], (Constant(obs),))
+    _push!("PrimaryCensored LogNormal+Uniform latent",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(
+                primary_censored(LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0);
+                    formulation = Latent(0.3)), x),
+            obs),
+        [1.0, 0.75], (Constant(obs),))
+    _push!("PrimaryCensored Weibull+Uniform latent",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(
+                primary_censored(Weibull(θ[1], θ[2]), Uniform(0.0, 1.0);
+                    formulation = Latent(0.3)), x),
+            obs),
+        [2.0, 1.5], (Constant(obs),))
+
     # ExponentiallyTilted primary event — no analytical
     # `primarycensored_cdf(::Delay, ::ExponentiallyTilted, ...)` exists,
     # so the scalar `r` parameter of the prior is included in θ (as θ[3])
