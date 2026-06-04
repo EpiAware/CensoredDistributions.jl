@@ -3,6 +3,7 @@
 # Core distribution types (public but not exported)
 public PrimaryCensored
 public IntervalCensored
+public WithinWindowPrimary
 public Weighted
 
 # Primary censoring utilities and solver methods (public but not exported)

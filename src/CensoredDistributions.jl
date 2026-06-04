@@ -34,6 +34,7 @@ using OptimizationOptimJL: NelderMead
 
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
+export within_window_primary
 
 # Export underlying methods for user extension
 export primarycensored_cdf, primarycensored_logcdf
@@ -52,6 +53,7 @@ include("censoring/primarycensored_cdf.jl")
 include("censoring/PrimaryCensored.jl")
 include("censoring/IntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
+include("censoring/WithinWindowPrimary.jl")
 
 include("distributions/ExponentiallyTilted.jl")
 
