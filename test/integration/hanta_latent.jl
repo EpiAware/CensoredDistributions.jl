@@ -177,8 +177,9 @@
     # baseline keeps it minimal but enough to recover the order of the
     # generating parameters.
     Random.seed!(20260508)
+    # NUTS(n_adapts, δ): explicit adaptation steps and target acceptance.
     chain = sample(
-        model, NUTS(0.8), 300;
+        model, NUTS(150, 0.8), 300;
         chain_type = VNChain, progress = false
     )
 
