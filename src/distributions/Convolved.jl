@@ -253,6 +253,30 @@ end
 
 sampler(d::Convolved) = d
 
+@doc "
+
+Compute the quantile (inverse CDF) of the convolution.
+
+No closed form exists for a generic convolution, so the quantile is found
+by numerically inverting [`cdf`](@ref). The initial guess is the sum of the
+component quantiles, which is exact when the components are degenerate and a
+good starting point otherwise. Providing this method lets a `Convolved`
+compose under `truncated`, where `Distributions` derives the truncated
+quantile and inverse-CDF sampler from the base `quantile`.
+
+See also: [`cdf`](@ref)
+"
+function quantile(d::Convolved, p::Real)
+    return _quantile_optimization(
+        d, p; initial_guess_fn = _convolved_quantile_guess)
+end
+
+# Sum of component quantiles as the inversion starting point.
+function _convolved_quantile_guess(d::Convolved, p::Real)
+    guess = sum(c -> float(quantile(c, p)), d.components)
+    return [guess]
+end
+
 # ---------------------------------------------------------------------------
 # Analytical fast path via Distributions.convolve
 # ---------------------------------------------------------------------------
