@@ -13,10 +13,10 @@ import Distributions: params, insupport, pdf, logpdf, cdf, logcdf,
 # Import from Base for functions we extend that are re-exported by Distributions
 import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
-using Distributions: UnivariateDistribution, Continuous, ValueSupport,
-                     Truncated, Product, Censored, truncated,
+using Distributions: Distributions, UnivariateDistribution, Continuous,
+                     ValueSupport, Truncated, Product, Censored, truncated,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
-                     Weibull, shape, scale, meanlogx, stdlogx,
+                     Weibull, Normal, shape, scale, meanlogx, stdlogx,
                      _in_closed_interval
 
 using PrecompileTools: @setup_workload, @compile_workload
@@ -41,6 +41,9 @@ export primarycensored_cdf, primarycensored_logcdf
 # Exported distributions
 export ExponentiallyTilted
 
+# Exported convolution constructor
+export convolved
+
 # Exported utilities
 export weight, get_dist, get_dist_recursive
 
@@ -54,6 +57,7 @@ include("censoring/IntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")
+include("distributions/Convolved.jl")
 
 include("utils/Weighted.jl")
 include("utils/get_dist.jl")

@@ -4,6 +4,7 @@
 public PrimaryCensored
 public IntervalCensored
 public Weighted
+public Convolved
 
 # Primary censoring utilities and solver methods (public but not exported)
 public AbstractSolverMethod
