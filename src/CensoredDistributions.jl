@@ -13,7 +13,8 @@ import Distributions: params, insupport, pdf, logpdf, cdf, logcdf,
 # Import from Base for functions we extend that are re-exported by Distributions
 import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
-using Distributions: Distributions, UnivariateDistribution, Continuous,
+using Distributions: Distributions, Distribution, Multivariate,
+                     UnivariateDistribution, Continuous,
                      ValueSupport, Truncated, Product, Censored, truncated,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
                      Weibull, Normal, shape, scale, meanlogx, stdlogx,
@@ -47,6 +48,9 @@ export convolve_distributions
 # Exported right-truncation helpers (single-delay vs convolved-chain)
 export truncate_to_horizon, truncate_chain
 
+# Exported sequential-distribution constructor
+export sequential_distribution
+
 # Exported utilities
 export weight, get_dist, get_dist_recursive
 
@@ -61,6 +65,7 @@ include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")
 include("distributions/Convolved.jl")
+include("distributions/SequentialDistribution.jl")
 
 include("censoring/truncation.jl")
 

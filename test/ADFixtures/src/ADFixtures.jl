@@ -425,6 +425,31 @@ function scenarios(; with_reference::Bool = false)
             [0.5, 0.4], (Constant(obs),))
     end
 
+    # SequentialDistribution (chained delays with an unobserved intermediate
+    # event). The first segment marginalises the unobserved event by
+    # convolution (numeric quadrature: Gamma+LogNormal has no analytic pair,
+    # matching the Enzyme-safe `Convolved Gamma+LogNormal numerical`
+    # scenario), the second segment is a bare delay logpdf. The gradient
+    # flows through both. The structure-first (boolean-design) constructor is
+    # used rather than the `Missing`/value pattern so the differentiated path
+    # carries no `Union{Missing}`-typed vector, which Enzyme cannot type-
+    # analyse (the value-pattern constructor is for inference, not AD).
+    # Guarded on `sequential_distribution` for the AirspeedVelocity baseline
+    # (see the `generic_convolve` guard above). Gaps travel as a `Constant`
+    # context.
+    if isdefined(CensoredDistributions, :sequential_distribution)
+        gaps_sc = [3.0, 2.0]
+        _push!("SequentialDistribution missing intermediate",
+            (θ,
+                gaps) -> logpdf(
+                CensoredDistributions.sequential_distribution(
+                    [Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4),
+                        Weibull(2.0, 1.5)],
+                    [true, false, true, true]),
+                gaps),
+            [2.0, 1.0], (Constant(gaps_sc),))
+    end
+
     # High-dimensional scenarios. Each observation carries its own delay
     # parameter, so the gradient is taken with respect to many inputs.
     # These give the reverse-mode backends (ReverseDiff, Enzyme reverse,

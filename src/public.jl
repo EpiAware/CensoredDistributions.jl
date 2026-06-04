@@ -5,6 +5,7 @@ public PrimaryCensored
 public IntervalCensored
 public Weighted
 public Convolved
+public SequentialDistribution
 
 # Primary censoring utilities and solver methods (public but not exported)
 public AbstractSolverMethod
