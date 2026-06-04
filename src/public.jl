@@ -5,6 +5,7 @@ public PrimaryCensored
 public IntervalCensored
 public Weighted
 public Convolved
+public ParallelDistribution
 
 # Internal bounded-primary prior (public but not exported); folded former
 # WithinWindowPrimary used by the coupled Latent path (#299)

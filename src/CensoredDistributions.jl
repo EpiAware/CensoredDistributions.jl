@@ -17,7 +17,7 @@ using Distributions: Distributions, UnivariateDistribution, Continuous,
                      ValueSupport, Truncated, Product, Censored, truncated,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
                      Weibull, Normal, shape, scale, meanlogx, stdlogx,
-                     _in_closed_interval
+                     _in_closed_interval, Distribution, Multivariate
 
 using PrecompileTools: @setup_workload, @compile_workload
 
@@ -47,6 +47,9 @@ export ExponentiallyTilted
 # Exported convolution constructor
 export generic_convolve
 
+# Exported parallel shared-origin constructor
+export parallel_distribution
+
 # Exported utilities
 export weight, get_dist, get_dist_recursive
 
@@ -63,6 +66,7 @@ include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")
 include("distributions/Convolved.jl")
+include("distributions/ParallelDistribution.jl")
 
 include("utils/Weighted.jl")
 include("utils/get_dist.jl")

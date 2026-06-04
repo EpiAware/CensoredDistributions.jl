@@ -356,6 +356,27 @@ function scenarios(; with_reference::Bool = false)
             [2.0, 1.0], (Constant(obs),))
     end
 
+    # ParallelDistribution (parallel shared-origin marginalisation). Two
+    # children share a latent uniform origin, marginalised by one
+    # quadrature inside logpdf. The gradient flows through both child delay
+    # parameters and the Gamma child's CDF-free density path. Each
+    # observation is a 2-vector `[y1, y2]`; the data context is a vector of
+    # such pairs. Literal constructors keep Enzyme forward working (#278).
+    # Guarded on `parallel_distribution` existing for the AirspeedVelocity
+    # baseline (see the Convolved guard above).
+    if isdefined(CensoredDistributions, :parallel_distribution)
+        obs_pairs = [[2.0, 3.0], [1.5, 2.5], [3.0, 4.5], [2.5, 3.5]]
+        _push!("ParallelDistribution Gamma+LogNormal numerical",
+            (θ,
+                pairs) -> sum(
+                y -> logpdf(
+                    CensoredDistributions.parallel_distribution(
+                        Uniform(0.0, 1.0),
+                        Gamma(θ[1], θ[2]), LogNormal(1.0, 0.5)), y),
+                pairs),
+            [2.0, 1.0], (Constant(obs_pairs),))
+    end
+
     # High-dimensional scenarios. Each observation carries its own delay
     # parameter, so the gradient is taken with respect to many inputs.
     # These give the reverse-mode backends (ReverseDiff, Enzyme reverse,
