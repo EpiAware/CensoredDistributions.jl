@@ -341,7 +341,7 @@ end
 # Sampler method for efficient sampling
 sampler(d::PrimaryCensored) = d
 
-@doc raw"""
+@doc "
 
 Return the prior distribution over the latent primary event time `p`.
 
@@ -387,7 +387,7 @@ coupled = primary_prior(d, 0.6)     # bounded to [0.0, 0.6]
 
 # See also
 - [`Latent`](@ref): the formulation that consumes this prior
-"""
+"
 primary_prior(d::PrimaryCensored) = d.primary_event
 
 function primary_prior(d::PrimaryCensored, secondary::Real)

@@ -1,4 +1,4 @@
-@doc raw"""
+@doc "
 
 Abstract type for the formulation of a primary-censored delay.
 
@@ -15,10 +15,10 @@ only in the cdf/logcdf path, which `pdf`/`logpdf` then cascade from.
 - [`Marginal`](@ref): integrate the primary event (default)
 - [`Latent`](@ref): condition on a sampled primary event
 - [`primary_prior`](@ref): the prior over the latent primary `p`
-"""
+"
 abstract type AbstractFormulation end
 
-@doc raw"""
+@doc "
 
 Marginal formulation: integrate the latent primary event time out.
 
@@ -29,16 +29,16 @@ otherwise).
 
 # See also
 - [`Latent`](@ref): the data-augmentation counterpart
-"""
+"
 struct Marginal <: AbstractFormulation end
 
-@doc raw"""
+@doc """
 
 Latent formulation: condition on a concrete sampled primary event time `p`.
 
 Given a sampled primary event time `p`, the observed delay is the deterministic
-difference, so the conditional cdf collapses to ``F_\mathrm{delay}(x - p)`` and
-the logpdf to ``\log f_\mathrm{delay}(x - p)`` exactly, with no quadrature and
+difference, so the conditional cdf collapses to ``F_\\mathrm{delay}(x - p)`` and
+the logpdf to ``\\log f_\\mathrm{delay}(x - p)`` exactly, with no quadrature and
 no finite differencing.
 
 `p` is supplied per draw by sampling the prior returned by
@@ -50,9 +50,6 @@ y ~ <Latent-formulation delay conditioned on p>
 ```
 
 so the package never depends on any particular PPL.
-
-# Fields
-- `p`: the sampled primary event time the delay is conditioned on.
 
 # See also
 - [`Marginal`](@ref): the integrate-out counterpart

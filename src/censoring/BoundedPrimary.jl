@@ -1,4 +1,4 @@
-@doc raw"""
+@doc """
 
 Bounded within-window prior on a latent primary event time.
 
@@ -19,15 +19,16 @@ in [park2024estimating](@cite) (and the bdbv joint fit) the primary time is
 drawn from a window bounded above by the secondary time,
 
 ```math
-T_\mathrm{secondary} \sim \mathrm{Uniform}(L_s, L_s + w), \qquad
-T_\mathrm{primary}   \sim \mathrm{Uniform}(L_p, \min(L_p + w, T_\mathrm{secondary})).
+T_\\mathrm{secondary} \\sim \\mathrm{Uniform}(L_s, L_s + w), \\qquad
+T_\\mathrm{primary} \\sim
+    \\mathrm{Uniform}(L_p, \\min(L_p + w, T_\\mathrm{secondary})).
 ```
 
 Sampling on this bounded support changes the implied prior, so a Jacobian
-correction ``+\log(\mathrm{upper} - L_p)`` (with
-``\mathrm{upper} = \min(L_p + w, T_\mathrm{secondary})``) is added to `logpdf`.
-This restores the implicit independent-uniform-over-window prior of the
-equivalent marginalised model: `logpdf` of this distribution equals
+correction ``+\\log(\\mathrm{upper} - L_p)`` (with
+``\\mathrm{upper} = \\min(L_p + w, T_\\mathrm{secondary})``) is added to
+`logpdf`. This restores the implicit independent-uniform-over-window prior of
+the equivalent marginalised model: `logpdf` of this distribution equals
 `logpdf(Uniform(lower, lower + width), t)` for any admissible `t`.
 
 # See also
@@ -66,14 +67,14 @@ minimum(d::BoundedPrimary) = d.lower
 maximum(d::BoundedPrimary) = _upper(d)
 insupport(d::BoundedPrimary, x::Real) = d.lower <= x <= _upper(d)
 
-@doc raw"""
+@doc """
 
 Log density of the latent primary event time.
 
-Returns the bounded-Uniform log density plus the ``\log(\mathrm{upper} - L_p)``
-Jacobian correction, which equals `logpdf(Uniform(lower, lower + width), x)` for
-admissible `x`, so the sampled latent prior matches the marginalised model's
-implicit prior.
+Returns the bounded-Uniform log density plus the
+``\\log(\\mathrm{upper} - L_p)`` Jacobian correction, which equals
+`logpdf(Uniform(lower, lower + width), x)` for admissible `x`, so the sampled
+latent prior matches the marginalised model's implicit prior.
 
 See also: [`pdf`](@ref)
 """
@@ -86,22 +87,22 @@ function logpdf(d::BoundedPrimary, x::Real)
     return -log(d.width)
 end
 
-@doc raw"""
+@doc "
 
 Density of the latent primary event time.
 
 See also: [`logpdf`](@ref)
-"""
+"
 pdf(d::BoundedPrimary, x::Real) = exp(logpdf(d, x))
 
-@doc raw"""
+@doc "
 
 Cumulative distribution function over the bounded sampling support
 `Uniform(lower, upper)`. The Jacobian in [`logpdf`](@ref) affects only the
 scored density, not the support over which the latent time is drawn.
 
 See also: [`logcdf`](@ref)
-"""
+"
 function cdf(d::BoundedPrimary, x::Real)
     u = _upper(d)
     x <= d.lower && return zero(float(x))
@@ -109,21 +110,21 @@ function cdf(d::BoundedPrimary, x::Real)
     return (x - d.lower) / (u - d.lower)
 end
 
-@doc raw"""
+@doc "
 
 Log cumulative distribution function.
 
 See also: [`cdf`](@ref)
-"""
+"
 logcdf(d::BoundedPrimary, x::Real) = log(cdf(d, x))
 
-@doc raw"""
+@doc "
 
 Sample a latent primary event time uniformly from the bounded window
 `[lower, min(lower + width, secondary)]`.
 
 See also: [`logpdf`](@ref)
-"""
+"
 function Base.rand(rng::AbstractRNG, d::BoundedPrimary{T}) where {T}
     u = _upper(d)
     return d.lower + (u - d.lower) * rand(rng, T)
