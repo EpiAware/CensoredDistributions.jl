@@ -565,6 +565,83 @@ end
     @test (cdf(d, maximum(d)) / total) ≈ 1.0 atol=1e-8
 end
 
+@testitem "Convolved inner truncation three-component nested rest" begin
+    using Distributions, Random, Statistics
+
+    # A finite bound forces the numeric path with a two-component nested
+    # `Convolved` rest, exercising the nested `_rest_distribution`,
+    # `_rest_min`/`_rest_max`, and the `_convolution_cdf(::Convolved)`
+    # kernel under bounds. Compared against Monte Carlo for the joint
+    # event over all three components.
+    c1 = LogNormal(1.6, 0.4)
+    c2 = Gamma(1.5, 1.0)
+    c3 = Gamma(2.0, 1.5)
+    d = convolve_distributions(c1, c2, c3;
+        bounds = [(0.0, 8.0), (-Inf, Inf), (1.0, 5.0)])
+
+    rng = MersenneTwister(11)
+    n = 2_000_000
+    s1 = rand(rng, c1, n)
+    s2 = rand(rng, c2, n)
+    s3 = rand(rng, c3, n)
+    for x in (6.0, 10.0, 40.0)
+        mc = mean((s1 .>= 0) .& (s1 .<= 8) .& (s3 .>= 1) .& (s3 .<= 5) .&
+                  (s1 .+ s2 .+ s3 .<= x))
+        @test cdf(d, x) ≈ mc atol=3e-3
+    end
+    @test pdf(d, 8.0) >= 0
+end
+
+@testitem "Convolved inner truncation saturated mass (bounded Uniform)" begin
+    using Distributions
+
+    # Bounded uniforms: the cdf decomposition's saturated term fires
+    # (`cut > clo`) for an interior `x`, exercising `_saturated_mass` and
+    # `_rest_total_mass` on a finite-support rest. The closed-form joint
+    # mass P(a1≤U1≤b1 ∧ a2≤U2≤b2 ∧ U1+U2≤x) is checked at a few points.
+    a1, b1 = 0.5, 1.5      # within Uniform(0, 2)
+    a2, b2 = 1.0, 2.5      # within Uniform(0, 3)
+    d = convolve_distributions(Uniform(0.0, 2.0), Uniform(0.0, 3.0);
+        bounds = [(a1, b1), (a2, b2)])
+
+    # Total truncation mass = P(a1≤U1≤b1)·P(a2≤U2≤b2)
+    m1 = (b1 - a1) / 2.0
+    m2 = (b2 - a2) / 3.0
+    total = m1 * m2
+    @test cdf(d, 10.0) ≈ total atol=1e-6
+    @test cdf(d, 10.0) < 1.0
+
+    # Below the joint minimum a1+a2: zero mass.
+    @test cdf(d, a1 + a2 - 0.1) == 0.0
+
+    # Density per unit area inside the box is 1/((b1-a1)(b2-a2)); for a
+    # point x with the full lower-left corner accumulated, the saturated
+    # term plus the transition integral must stay within [0, total].
+    @test 0.0 <= cdf(d, 2.5) <= total
+    @test pdf(d, 2.5) > 0
+end
+
+@testitem "Convolved inner truncation rand respects bounds" begin
+    using Distributions, Random, Statistics
+
+    # `rand` truncates each finite-bounded component before summing, so
+    # samples lie within the bounded support and exercise `_maybe_truncate`.
+    d = convolve_distributions(Uniform(0.0, 4.0), Uniform(0.0, 4.0);
+        bounds = [(1.0, 3.0), (2.0, 3.0)])
+    rng = MersenneTwister(5)
+    s = [rand(rng, d) for _ in 1:50_000]
+    @test all(s .>= 1.0 + 2.0)      # min of truncated components
+    @test all(s .<= 3.0 + 3.0)      # max of truncated components
+    @test minimum(d) == 3.0
+    @test maximum(d) == 6.0
+
+    # Unbounded components are sampled untruncated (mean ~ sum of means).
+    du = convolve_distributions(Normal(2.0, 0.5), Normal(3.0, 0.5);
+        bounds = [(-Inf, Inf), (-Inf, Inf)])
+    su = [rand(rng, du) for _ in 1:50_000]
+    @test mean(su) ≈ 5.0 atol=5e-2
+end
+
 @testitem "Convolved eltype and sampler" begin
     using Distributions, Random
 

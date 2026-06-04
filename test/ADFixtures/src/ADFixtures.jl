@@ -400,19 +400,29 @@ function scenarios(; with_reference::Bool = false)
                         Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), x),
                 obs),
             [2.0, 1.0], (Constant(obs),))
-        # Component-wise inner truncation (#296): the second component is
-        # capped above at 3.0, so the gradient flows through the bounded
-        # numeric quadrature. Bounds are literals to keep Enzyme forward
-        # working (#278), as for the other Convolved scenarios.
+        # Component-wise inner truncation (#296): the integration component
+        # (the last one) is capped above at 5.0, so the gradient flows
+        # through the bounded numeric quadrature — the per-component window
+        # clamp, the saturated-mass term, and the bounded rest CDF. The
+        # differentiated component is a `LogNormal` rather than a `Gamma`:
+        # the integration component's `_finite_window` calls `quantile`,
+        # and `quantile(::Gamma)` (SpecialFunctions' `gamma_inc_inv`) is
+        # not differentiable under Enzyme (forward or reverse) — a
+        # pre-existing engine/backend gap unrelated to the bounds, tracked
+        # in #314. Putting the bound on a `LogNormal` integration component
+        # keeps the bounded path AD-green on all six backends while still
+        # exercising every bounded code path. Bounds are literals to keep
+        # Enzyme forward working (#278), as for the other Convolved
+        # scenarios.
         _push!("Convolved inner-truncated numerical",
             (θ,
                 obs) -> sum(
                 x -> logpdf(
                     CensoredDistributions.convolve_distributions(
-                        LogNormal(0.5, 0.4), Gamma(θ[1], θ[2]);
-                        bounds = ((-Inf, Inf), (-Inf, 3.0))), x),
+                        Gamma(2.0, 1.0), LogNormal(θ[1], θ[2]);
+                        bounds = ((-Inf, Inf), (-Inf, 5.0))), x),
                 obs),
-            [2.0, 1.0], (Constant(obs),))
+            [0.5, 0.4], (Constant(obs),))
     end
 
     # High-dimensional scenarios. Each observation carries its own delay
