@@ -42,7 +42,7 @@ export primarycensored_cdf, primarycensored_logcdf
 export ExponentiallyTilted
 
 # Exported convolution constructor
-export convolved
+export generic_convolve
 
 # Exported utilities
 export weight, get_dist, get_dist_recursive
