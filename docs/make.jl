@@ -20,6 +20,7 @@ if !skip_notebooks
     )
     tutorial_files = [
         "analytical-primarycensored-cdfs.jl",
+        "convolve-and-formulation.jl",
         "exponentially-tilted-primary-events.jl",
         "ad-backends.jl",
         "fitting-with-turing.jl"
@@ -120,7 +121,8 @@ bib = CitationBibliography(
 
 makedocs(; sitename = "CensoredDistributions.jl",
     authors = "Sam Abbott, and contributors",
-    clean = true, doctest = false, linkcheck = true,
+    clean = true, doctest = false,
+    linkcheck = get(ENV, "SKIP_LINKCHECK", "false") != "true",
     warnonly = [
         :docs_block, :missing_docs,
         :autodocs_block
