@@ -124,16 +124,26 @@ sampler(d::Convolved) = d
 # Analytical fast path via Distributions.convolve
 # ---------------------------------------------------------------------------
 
-# `_try_convolve` returns the analytically convolved distribution when
-# `Distributions.convolve` supports the pair, otherwise `nothing`. The
-# `try`/`catch` is the supported way to probe: `convolve` throws for
-# unsupported pairs (different-rate Gamma, mismatched types, ...).
-function _try_convolve(a::UnivariateDistribution, b::UnivariateDistribution)
-    return try
-        Distributions.convolve(a, b)
-    catch
-        nothing
-    end
+# `_try_convolve` returns the analytically convolved distribution when a
+# closed form exists for the pair, otherwise `nothing`. Dispatch (rather
+# than `try`/`catch`) selects the analytic pairs so the path stays
+# differentiable under every AD backend — Mooncake reverse cannot
+# differentiate through `try`/`catch`. Only continuous families whose
+# `Distributions.convolve` always succeeds for the given parameters are
+# enabled; `Gamma` additionally needs equal scale (else the runtime
+# `convolve` would throw), so a parameter check guards it.
+_try_convolve(a::UnivariateDistribution, b::UnivariateDistribution) = nothing
+
+function _try_convolve(a::Normal, b::Normal)
+    return Distributions.convolve(a, b)
+end
+
+function _try_convolve(a::Exponential, b::Exponential)
+    return Distributions.convolve(a, b)
+end
+
+function _try_convolve(a::Gamma, b::Gamma)
+    return scale(a) ≈ scale(b) ? Distributions.convolve(a, b) : nothing
 end
 
 # Reduce the component tuple to a single distribution, folding pairwise

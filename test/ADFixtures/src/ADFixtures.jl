@@ -25,7 +25,7 @@ __precompile__(false)
 
 using CensoredDistributions
 using Distributions: Distributions, Gamma, LogNormal, Weibull, Uniform, Normal,
-                     truncated, logpdf, logccdf
+                     truncated, logpdf, logccdf, cdf
 using ADTypes: ADTypes, AutoForwardDiff, AutoReverseDiff, AutoMooncake,
                AutoMooncakeForward, AutoEnzyme
 using DifferentiationInterface: DifferentiationInterface, Constant
@@ -370,6 +370,27 @@ function scenarios(; with_reference::Bool = false)
             x -> logpdf(interval_censored(Weibull(θ[1], θ[2]), 1.0), x),
             obs),
         [2.0, 1.5], (Constant(obs_int),))
+
+    # Convolved (sum of independent delays). The analytic Normal+Normal
+    # pair differentiates through `Distributions.convolve`; the
+    # Gamma+LogNormal pair has no analytic convolution and exercises the
+    # AD-safe numeric quadrature path (the same fixed-domain Gauss-Legendre
+    # construction as PrimaryCensored). Literal constructors keep Enzyme
+    # forward working (#278).
+    _push!("Convolved Normal+Normal analytical",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(
+                convolved(Normal(θ[1], θ[2]), Normal(0.0, 1.0)), x),
+            obs),
+        [1.0, 2.0], (Constant(obs),))
+    _push!("Convolved Gamma+LogNormal numerical",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(
+                convolved(Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), x),
+            obs),
+        [2.0, 1.0], (Constant(obs),))
 
     # High-dimensional scenarios. Each observation carries its own delay
     # parameter, so the gradient is taken with respect to many inputs.
