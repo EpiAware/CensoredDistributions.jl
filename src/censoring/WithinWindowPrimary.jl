@@ -155,9 +155,9 @@ Sample a latent primary event time uniformly from the bounded window
 
 See also: [`logpdf`](@ref)
 """
-function Base.rand(rng::AbstractRNG, d::WithinWindowPrimary)
+function Base.rand(rng::AbstractRNG, d::WithinWindowPrimary{T}) where {T}
     u = _upper(d)
-    return d.lower + (u - d.lower) * rand(rng)
+    return d.lower + (u - d.lower) * rand(rng, T)
 end
 
 sampler(d::WithinWindowPrimary) = d

@@ -77,6 +77,25 @@ end
     @test logcdf(d, 0.25) ≈ log(0.5)
 end
 
+@testitem "WithinWindowPrimary params, eltype and sampler" begin
+    using Distributions
+
+    d = within_window_primary(1.0, 2.0, 1.5)
+    @test params(d) == (1.0, 2.0, 1.5)
+    @test eltype(typeof(d)) == Float64
+
+    # Float32 inputs preserve the element type
+    d32 = within_window_primary(1.0f0, 2.0f0, 1.5f0)
+    @test eltype(typeof(d32)) == Float32
+    @test rand(d32) isa Float32
+
+    # sampler returns the distribution itself (self-sampling)
+    s = sampler(d)
+    @test s === d
+    r = rand(s)
+    @test 1.0 <= r <= 1.5
+end
+
 @testitem "WithinWindowPrimary sampling stays in bounded window" begin
     using Distributions, Random
 
