@@ -262,12 +262,12 @@ function _convolved_quadrature(
     end
 
     prob = IntegralProblem(integrand, (-one(m), one(m)), (m, h))
-    # `Integrals.solve` returns an `IntegralSolution` whose element type
-    # the compiler leaves as a free parameter (it cannot see through the
-    # quadrature), so `[1]` infers as `Any`. Pin it to the bound type `m`
-    # so the numeric path stays type stable, as the interface methods
-    # expect. (Same Integrals.jl inference gap as `primarycensored_cdf`.)
-    return oftype(m, solve(prob, GaussLegendre(; n = _CONVOLVED_NODES))[1])
+    # NB: `solve(...)[1]` infers as `Any` (Integrals.jl hides the element
+    # type behind the quadrature). Pinning it to the integrand's own type
+    # broke Enzyme-forward / Mooncake-reverse, so the numeric path is left
+    # type-unstable for now; the Integrals.jl-free `gl_integrate` rewrite
+    # (#208) restores type stability AD-safely.
+    return solve(prob, GaussLegendre(; n = _CONVOLVED_NODES))[1]
 end
 
 # Vector-valued companion: one solve for a batch of points. The integrand
@@ -287,11 +287,9 @@ function _convolved_quadrature_batched(
     end
 
     prob = IntegralProblem(integrand, (-one(m), one(m)), (m, h))
-    # Pin the element type (see scalar `_convolved_quadrature`); the
-    # batched callers also re-convert per entry, but this keeps the helper
-    # itself inferrable.
-    return convert(Vector{typeof(m)},
-        solve(prob, GaussLegendre(; n = _CONVOLVED_NODES)).u)
+    # Left type-unstable for now (see scalar `_convolved_quadrature`); the
+    # `gl_integrate` rewrite (#208) restores type stability AD-safely.
+    return solve(prob, GaussLegendre(; n = _CONVOLVED_NODES)).u
 end
 
 # Numeric convolution CDF.
