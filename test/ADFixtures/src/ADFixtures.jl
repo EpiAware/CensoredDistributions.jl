@@ -255,6 +255,41 @@ function scenarios(; with_reference::Bool = false)
             obs),
         [2.0, 1.5], (Constant(obs),))
 
+    # Latent gradient w.r.t. the sampled primary `p` itself. In the
+    # data-augmentation workflow a PPL differentiates `logpdf(delay, x - p)`
+    # w.r.t. the sampled `p`, so here the *varied* parameter is `p = θ[1]`
+    # while the delay parameters are fixed literals. Observations are all
+    # greater than the starting `p = 0.3` so `x - p` stays in the delay
+    # support. Complements the latent scenarios above, which vary the delay
+    # parameters but never `p`. Literal delay constructor for the #278 reason.
+    obs_gt_p = [0.8, 1.5, 2.6, 3.9, 5.2]
+    _push!("PrimaryCensored LogNormal+Uniform latent wrt p",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(
+                primary_censored(LogNormal(1.0, 0.75), Uniform(0.0, 1.0);
+                    formulation = Latent(θ[1])), x),
+            obs),
+        [0.3], (Constant(obs_gt_p),))
+
+    # BoundedPrimary logpdf gradient, reached through the public
+    # `primary_prior(d, secondary)` path (the coupled prior). Its logpdf is
+    # `-log(width)` once the `log(upper - lower)` Jacobian cancels the bounded
+    # uniform normaliser, valid when `secondary >= upper`. So
+    # `θ = [width, secondary]` gives a gradient of `[-n/width, 0]`: the width
+    # derivative is `-n/width` and the secondary derivative is exactly zero
+    # (finite) by design. `width = θ[1]` enters via the `Uniform(0, width)`
+    # primary window; the `p` values stay inside `[0, width]`.
+    p_obs = [0.1, 0.2, 0.35]
+    _push!("BoundedPrimary logpdf wrt width via primary_prior",
+        (θ,
+            ps) -> begin
+            d = primary_censored(LogNormal(1.0, 0.75), Uniform(0.0, θ[1]))
+            bp = primary_prior(d, θ[2])
+            sum(p -> logpdf(bp, p), ps)
+        end,
+        [1.0, 2.0], (Constant(p_obs),))
+
     # ExponentiallyTilted primary event — no analytical
     # `primarycensored_cdf(::Delay, ::ExponentiallyTilted, ...)` exists,
     # so the scalar `r` parameter of the prior is included in θ (as θ[3])
