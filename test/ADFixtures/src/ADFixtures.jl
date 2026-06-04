@@ -24,7 +24,8 @@ module ADFixtures
 __precompile__(false)
 
 using CensoredDistributions
-using Distributions: Distributions, Gamma, LogNormal, Weibull, Uniform, logpdf
+using Distributions: Distributions, Gamma, LogNormal, Weibull, Uniform, Normal,
+                     truncated, logpdf, logccdf
 using ADTypes: ADTypes, AutoForwardDiff, AutoReverseDiff, AutoMooncake,
                AutoMooncakeForward, AutoEnzyme
 using DifferentiationInterface: DifferentiationInterface, Constant
@@ -279,6 +280,96 @@ function scenarios(; with_reference::Bool = false)
                     upper = 10.0, interval = 1.0), x),
             obs),
         [1.0, 0.75], (Constant(obs_double),))
+
+    # Weighted scalar logpdf: a count/aggregated-data likelihood term
+    # `n * logpdf(dist, x)`. The integer count is an inactive `Constant`
+    # context; the gradient flows through the delay parameters only.
+    counts = [3.0, 1.0, 4.0, 2.0, 5.0]
+    _push!("Weighted LogNormal scalar logpdf",
+        (θ, obs,
+            cts) -> sum(
+            i -> logpdf(weight(LogNormal(θ[1], θ[2]), cts[i]), obs[i]),
+            eachindex(obs)),
+        [1.0, 0.75], (Constant(obs), Constant(counts)))
+
+    # Product{Weighted} vector logpdf via `weight(dist, counts::Vector)`,
+    # which builds a `Product` of `Weighted` and routes the vector
+    # observation through `_logpdf_product`. Counts are the (inactive)
+    # constructor weights; the gradient is w.r.t. the shared delay params.
+    _push!("Product{Weighted} LogNormal vector logpdf",
+        (θ, obs,
+            cts) -> logpdf(weight(LogNormal(θ[1], θ[2]), cts), obs),
+        [1.0, 0.75], (Constant(obs), Constant(counts)))
+
+    # PrimaryCensored with a NON-Uniform primary event: a truncated Normal
+    # whose mean is a differentiable parameter (θ[3]). No analytical
+    # `primarycensored_cdf(::Delay, ::Truncated, ...)` exists, so this runs
+    # the numeric quadrature integrand with a differentiable primary param.
+    _push!("PrimaryCensored LogNormal+truncNormal numerical",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(
+                primary_censored(LogNormal(θ[1], θ[2]),
+                    truncated(Normal(θ[3], 0.3), 0.0, 1.0)), x),
+            obs),
+        [1.0, 0.75, 0.5], (Constant(obs),))
+
+    # DoubleIntervalCensored with a Gamma delay (only LogNormal covered).
+    _push!("DoubleIntervalCensored Gamma",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(
+                double_interval_censored(Gamma(θ[1], θ[2]);
+                    primary_event = Uniform(0.0, 1.0),
+                    upper = 10.0, interval = 1.0), x),
+            obs),
+        [2.0, 1.5], (Constant(obs_double),))
+
+    # DoubleIntervalCensored with a Weibull delay.
+    _push!("DoubleIntervalCensored Weibull",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(
+                double_interval_censored(Weibull(θ[1], θ[2]);
+                    primary_event = Uniform(0.0, 1.0),
+                    upper = 10.0, interval = 1.0), x),
+            obs),
+        [2.0, 1.5], (Constant(obs_double),))
+
+    # Survival path `logccdf` of PrimaryCensored (LogNormal). Interior
+    # observations only: `logccdf` has constant-return branches at the
+    # support boundaries (returns 0.0 / -Inf), which would zero the
+    # gradient and break the reference comparison.
+    obs_ccdf = [1.0, 2.0, 3.0, 4.0]
+    _push!("PrimaryCensored LogNormal+Uniform logccdf",
+        (θ,
+            obs) -> sum(
+            x -> logccdf(
+                primary_censored(LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                x),
+            obs),
+        [1.0, 0.75], (Constant(obs_ccdf),))
+
+    # Standalone ExponentiallyTilted logpdf w.r.t. its rate `r` (θ[1]).
+    # Observations must lie inside [min, max] = [0, 1].
+    obs_et = [0.2, 0.4, 0.6, 0.8]
+    _push!("ExponentiallyTilted logpdf wrt r",
+        (θ, obs) -> sum(
+            x -> logpdf(ExponentiallyTilted(0.0, 1.0, θ[1]), x), obs),
+        [0.5], (Constant(obs_et),))
+
+    # IntervalCensored with regular intervals for Gamma and Weibull (only
+    # LogNormal covered).
+    _push!("IntervalCensored Gamma regular",
+        (θ, obs) -> sum(
+            x -> logpdf(interval_censored(Gamma(θ[1], θ[2]), 1.0), x),
+            obs),
+        [2.0, 1.5], (Constant(obs_int),))
+    _push!("IntervalCensored Weibull regular",
+        (θ, obs) -> sum(
+            x -> logpdf(interval_censored(Weibull(θ[1], θ[2]), 1.0), x),
+            obs),
+        [2.0, 1.5], (Constant(obs_int),))
 
     # High-dimensional scenarios. Each observation carries its own delay
     # parameter, so the gradient is taken with respect to many inputs.
