@@ -222,3 +222,75 @@ end
     @test got isa AbstractVector
     @test length(got) == 2
 end
+
+@testitem "Convolved logcdf/ccdf/logccdf branches" begin
+    using Distributions
+
+    # Analytic path: logcdf/ccdf agree with the convolved reference.
+    da = convolved(Normal(0.0, 1.0), Normal(1.0, 2.0))
+    refa = convolve(Normal(0.0, 1.0), Normal(1.0, 2.0))
+    @test logcdf(da, 2.0) ≈ logcdf(refa, 2.0) atol=1e-10
+    @test ccdf(da, 2.0) ≈ ccdf(refa, 2.0) atol=1e-10
+    @test logccdf(da, 2.0) ≈ logccdf(refa, 2.0) atol=1e-8
+
+    # Numeric path: logcdf matches log of cdf and ccdf = 1 - cdf.
+    dn = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    @test logcdf(dn, 3.0) ≈ log(cdf(dn, 3.0)) atol=1e-10
+    @test ccdf(dn, 3.0) ≈ 1 - cdf(dn, 3.0) atol=1e-10
+    @test logccdf(dn, 3.0) ≈ log1p(-cdf(dn, 3.0)) atol=1e-6
+
+    # logccdf edge cases via a bounded numeric-path distribution where
+    # the support endpoints give exact CDF 0 and 1.
+    db = convolved(Uniform(0.0, 2.0), Uniform(0.0, 3.0))
+    @test logccdf(db, -1.0) == 0.0   # CDF = 0 -> logccdf = 0
+    @test logccdf(db, 6.0) == -Inf   # CDF = 1 -> logccdf = -Inf
+end
+
+@testitem "Convolved logpdf outside support on numeric path" begin
+    using Distributions
+
+    # Gamma+LogNormal has support [0, Inf) and no analytic convolution,
+    # so a negative x exercises the numeric-path !insupport branch.
+    dn = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    @test logpdf(dn, -1.0) == -Inf
+    @test pdf(dn, -1.0) == 0.0
+    @test !insupport(dn, -1.0)
+end
+
+@testitem "Convolved batched bounded-support clamps and fallback" begin
+    using Distributions
+
+    # Uniform+Uniform has no analytic convolution and bounded support
+    # [0, 5], so a batch spanning below/above support exercises the
+    # xi<=dmin -> 0 and xi>=dmax -> 1 clamps in the batched path.
+    d = convolved(Uniform(0.0, 2.0), Uniform(0.0, 3.0))
+    @test minimum(d) == 0.0
+    @test maximum(d) == 5.0
+    xs = [-1.0, 1.0, 2.5, 4.0, 6.0]
+    cb = cdf(d, xs)
+    @test cb[1] == 0.0
+    @test cb[end] == 1.0
+    @test all(0.0 .<= cb .<= 1.0)
+    @test cb ≈ [cdf(d, x) for x in xs] rtol=1e-3
+
+    # logpdf batched outside-support entry returns -Inf.
+    lp = logpdf(d, xs)
+    @test lp[1] == -Inf
+    @test lp[end] == -Inf
+    @test isfinite(lp[3])
+
+    # All-below-support batch collapses the shared window, hitting the
+    # per-point scalar fallback (every entry is 0).
+    cb_low = cdf(d, [-3.0, -2.0, -1.0])
+    @test all(cb_low .== 0.0)
+end
+
+@testitem "Convolved eltype and sampler" begin
+    using Distributions, Random
+
+    d = convolved(Gamma(2.0, 1.0), Normal(0.0, 1.0))
+    @test eltype(d) == Float64
+    @test sampler(d) === d
+    rng = MersenneTwister(3)
+    @test rand(rng, d) isa Real
+end

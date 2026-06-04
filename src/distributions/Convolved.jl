@@ -189,13 +189,20 @@ end
 
 # Numeric convolution CDF over the fixed reference domain (-1, 1).
 #
-# Bounds are passed through `params` to the integrand so the
-# Integrals.jl reverse rule stays on the parameter-tangent AD path; the
-# change of variable t = m + h·s (s ∈ (-1, 1)) is applied inside the
-# integrand. The integrand is
-#   F_rest(x - t) · f_last(t)
-# with f_last the pdf of the integration component and F_rest the CDF of
-# the remaining convolution.
+# X = C + R with C the integration component (`last_comp`) and R the
+# convolution of the remaining components (`rest`):
+#   F_X(x) = ∫ F_R(x - t) f_C(t) dt   over t ∈ support(C).
+# F_R(x - t) is 1 for t ≤ x - max(R) and 0 for t ≥ x - min(R), so the
+# integral splits into a saturated constant term plus a transition
+# integral over [lo, hi]:
+#   F_X(x) = F_C(x - max(R)) + ∫_{lo}^{hi} F_R(x - t) f_C(t) dt
+# Dropping the F_C term (as an earlier version did) loses the mass of C
+# in the region where R is already certain to be below x — that bug
+# shows up sharply for bounded components (e.g. Uniform).
+#
+# Bounds are passed through `params` to the integrand so the Integrals.jl
+# reverse rule stays on the parameter-tangent AD path; the change of
+# variable t = m + h·s (s ∈ (-1, 1)) is applied inside the integrand.
 function _convolved_numeric_cdf(d::Convolved, x::Real)
     isnan(x) && return convert(float(typeof(x)), NaN)
     x <= minimum(d) && return zero(float(typeof(x)))
@@ -204,10 +211,17 @@ function _convolved_numeric_cdf(d::Convolved, x::Real)
     last_comp = d.components[end]
     rest = _rest_distribution(d.components[1:(end - 1)])
 
-    lower = _max2(minimum(last_comp), x - maximum(rest))
+    cmin = minimum(last_comp)
+    cut = x - maximum(rest)              # t below this: F_R(x - t) = 1
+    lower = _max2(cmin, cut)
     upper = _min2(maximum(last_comp), x - minimum(rest))
 
-    upper <= lower && return zero(float(typeof(x)))
+    # Mass of C below the saturated cut (where F_R = 1). Guard the
+    # support boundary, where cdf at minimum is 0 by construction.
+    saturated = cut > cmin ? _cdf_ad_safe(last_comp, cut) :
+                zero(float(typeof(x)))
+
+    upper <= lower && return clamp(saturated, zero(saturated), one(saturated))
 
     m = (lower + upper) / 2
     h = (upper - lower) / 2
@@ -219,7 +233,7 @@ function _convolved_numeric_cdf(d::Convolved, x::Real)
     end
 
     prob = IntegralProblem(integrand, (-one(m), one(m)), (m, h))
-    result = solve(prob, GaussLegendre(; n = 64))[1]
+    result = saturated + solve(prob, GaussLegendre(; n = 64))[1]
     return clamp(result, zero(result), one(result))
 end
 
@@ -336,27 +350,37 @@ function cdf(d::Convolved, x::AbstractVector{<:Real})
     return _convolved_numeric_cdf_batched(d, x)
 end
 
-# Batched numeric CDF: integrate over the union bounds spanning all
-# evaluation points in one solve. The integrand returns a vector, one
-# entry per point, so a single Gauss-Legendre call serves the whole
-# batch. Points outside support are handled by clamping after the solve.
+# Batched numeric CDF: one Gauss-Legendre solve for all points. The
+# integrand returns a vector (one entry per point), so a single solve
+# serves the whole batch.
+#
+# Same decomposition as the scalar path:
+#   F_X(x_i) = F_C(lower) + ∫_{lower}^{upper} F_R(x_i - t) f_C(t) dt
+# where `lower` is the shared window start. F_C(lower) is the mass of the
+# integration component C below the window (where F_R(x_i - t) = 1 for
+# every point, since x_i ≥ min(x)); the integral then picks up each
+# point's transition region, with F_R returning 1 between `lower` and
+# x_i - max(R). The saturated constant is shared across points.
 function _convolved_numeric_cdf_batched(d::Convolved, x::AbstractVector{<:Real})
     T = promote_type(eltype(x), float(eltype(d)))
     last_comp = d.components[end]
     rest = _rest_distribution(d.components[1:(end - 1)])
 
+    cmin = minimum(last_comp)
     dmin = minimum(d)
     dmax = maximum(d)
 
-    # Shared integration window covering the integration component
-    # support intersected with the reachable range across all points.
-    lower = max(minimum(last_comp), minimum(x) - maximum(rest))
+    # Shared integration window: component support intersected with the
+    # reachable range across all points.
+    lower = max(cmin, minimum(x) - maximum(rest))
     upper = min(maximum(last_comp), maximum(x) - minimum(rest))
 
     if !(upper > lower) || !isfinite(lower) || !isfinite(upper)
         # Degenerate shared window: fall back to per-point scalar solves.
         return map(xi -> _convolved_numeric_cdf(d, T(xi)), x)
     end
+
+    saturated = lower > cmin ? T(_cdf_ad_safe(last_comp, lower)) : zero(T)
 
     m = (lower + upper) / 2
     h = (upper - lower) / 2
@@ -377,7 +401,7 @@ function _convolved_numeric_cdf_batched(d::Convolved, x::AbstractVector{<:Real})
         elseif xi >= dmax
             one(T)
         else
-            clamp(T(ri), zero(T), one(T))
+            clamp(saturated + T(ri), zero(T), one(T))
         end
     end
 end
