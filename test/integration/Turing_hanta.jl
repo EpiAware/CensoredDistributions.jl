@@ -1,4 +1,8 @@
-# Hanta (Andes virus) latent delay model — integration scaffold.
+# Hanta (Andes virus) latent delay model — Turing integration scaffold.
+#
+# Turing is an optional dependency, so these test items are tagged
+# `:turing` (matching `test/integration/Turing.jl`) and only run in the
+# Turing-enabled test environment, not the general test suite.
 #
 # This file is a LIVING INTEGRATION TARGET. It reproduces the latent-time
 # data-augmentation part of the Epuyén ANDV outbreak model from
@@ -44,7 +48,7 @@
 # also gives ground truth for parameter recovery. A future PR may add the
 # real data behind the equivalence checks once #299 lands.
 
-@testitem "hanta latent: simulate -> recover (no Rt)" tags=[:turing, :integration] begin
+@testitem "hanta latent: simulate -> recover (no Rt)" tags=[:turing] begin
     using Turing
     using DynamicPPL
     using Distributions
@@ -202,7 +206,7 @@
     @test isapprox(mean(μ_δ_post), μ_δ_true; atol = 2.0)
 end
 
-@testitem "hanta latent: swap-point functions are isolated" tags=[:turing, :integration] begin
+@testitem "hanta latent: swap-point functions are isolated" tags=[:turing] begin
     # A guard test asserting the hand-rolled swap points behave as the
     # package features they will be replaced by must behave. When #295 /
     # #298 / #299 land, these become equivalence checks against the
