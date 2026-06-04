@@ -343,6 +343,110 @@ end
     @test all(pdf(d, [-3.0, -2.0, -1.0]) .== 0.0)
 end
 
+@testitem "Convolved inner truncation reduces to ordinary convolution" begin
+    using Distributions
+
+    # Infinite bounds must give exactly the unbounded result on both the
+    # analytic and numeric paths.
+    da = generic_convolve(Normal(0.0, 1.0), Normal(1.0, 2.0))
+    dab = generic_convolve(Normal(0.0, 1.0), Normal(1.0, 2.0);
+        bounds = [(-Inf, Inf), (-Inf, Inf)])
+    for x in -3.0:1.0:6.0
+        @test cdf(dab, x) ≈ cdf(da, x) atol=1e-10
+        @test pdf(dab, x) ≈ pdf(da, x) atol=1e-10
+    end
+
+    dn = generic_convolve(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    dnb = generic_convolve(Gamma(2.0, 1.0), LogNormal(0.5, 0.4);
+        bounds = [(-Inf, Inf), (-Inf, Inf)])
+    for x in (1.5, 3.0, 5.0)
+        @test cdf(dnb, x) == cdf(dn, x)
+        @test pdf(dnb, x) == pdf(dn, x)
+    end
+    # Infinite bounds keep the analytic fast path (numeric would differ by
+    # quadrature error); equality above confirms the fast path is taken.
+end
+
+@testitem "Convolved reproduces andv pipeline probability" begin
+    using Distributions, Random, Statistics
+
+    # andv `_pipeline_probability`: P(δ ≤ Δ_q ∧ δ + Inc > Δ_p)
+    #   = cdf(δ, Δ_q) − P(Inc + δ ≤ Δ_p ∧ δ ≤ Δ_q).
+    # The δ component is the integration variable (last component), capped
+    # above at Δ_q through the inner truncation bound.
+    inc = LogNormal(1.6, 0.4)
+    δd = Gamma(2.0, 1.5)
+    Δ_q = 4.0
+    Δ_p = 6.0
+
+    dconv = generic_convolve(inc, δd; bounds = [(-Inf, Inf), (-Inf, Δ_q)])
+    pp = cdf(δd, Δ_q) - cdf(dconv, Δ_p)
+
+    rng = MersenneTwister(2024)
+    n = 4_000_000
+    δs = rand(rng, δd, n)
+    incs = rand(rng, inc, n)
+    mc = mean((δs .<= Δ_q) .& (δs .+ incs .> Δ_p))
+    @test pp ≈ mc atol=2e-3
+
+    # Natural-chain limit Δ_q = +Inf reduces to 1 − cdf(Inc + δ, Δ_p).
+    dfull = generic_convolve(inc, δd)
+    @test (cdf(δd, Inf) - cdf(dfull, Δ_p)) ≈ (1 - cdf(dfull, Δ_p)) atol=1e-10
+end
+
+@testitem "Convolved inner truncation matches Monte Carlo" begin
+    using Distributions, Random, Statistics
+
+    inc = LogNormal(1.6, 0.4)
+    δd = Gamma(2.0, 1.5)
+    rng = MersenneTwister(7)
+    n = 4_000_000
+    δs = rand(rng, δd, n)
+    incs = rand(rng, inc, n)
+
+    # Both components bounded: joint event P(sum ≤ x ∧ bounds).
+    a1, b1 = 0.0, 8.0      # inc bounds
+    a2, b2 = 1.0, 5.0      # δ bounds
+    d = generic_convolve(inc, δd; bounds = [(a1, b1), (a2, b2)])
+    for x in (4.0, 7.0, 9.0, 20.0)
+        mc = mean((incs .>= a1) .& (incs .<= b1) .&
+                  (δs .>= a2) .& (δs .<= b2) .& (incs .+ δs .<= x))
+        @test cdf(d, x) ≈ mc atol=3e-3
+    end
+
+    # Above the bounded support the cdf saturates at the total truncation
+    # mass, strictly below 1.
+    total = mean((incs .>= a1) .& (incs .<= b1) .&
+                 (δs .>= a2) .& (δs .<= b2))
+    @test cdf(d, 30.0) ≈ total atol=3e-3
+    @test cdf(d, 30.0) < 1.0
+end
+
+@testitem "Convolved inner truncation batched matches scalar" begin
+    using Distributions
+
+    inc = LogNormal(1.6, 0.4)
+    δd = Gamma(2.0, 1.5)
+    d = generic_convolve(inc, δd; bounds = [(0.0, 8.0), (1.0, 5.0)])
+    xs = [3.0, 5.0, 7.0, 9.0, 12.0]
+
+    @test cdf(d, xs) ≈ [cdf(d, x) for x in xs] atol=1e-10
+    @test pdf(d, xs) ≈ [pdf(d, x) for x in xs] atol=1e-10
+    @test logpdf(d, xs) ≈ [logpdf(d, x) for x in xs] atol=1e-10
+end
+
+@testitem "Convolved inner truncation validation" begin
+    using Distributions
+
+    # Wrong number of bounds.
+    @test_throws ArgumentError generic_convolve(
+        Normal(0.0, 1.0), Normal(1.0, 1.0); bounds = [(-Inf, Inf)])
+    # lower > upper.
+    @test_throws ArgumentError generic_convolve(
+        Normal(0.0, 1.0), Normal(1.0, 1.0);
+        bounds = [(-Inf, Inf), (5.0, 1.0)])
+end
+
 @testitem "Convolved eltype and sampler" begin
     using Distributions, Random
 

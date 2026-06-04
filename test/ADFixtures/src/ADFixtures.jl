@@ -310,6 +310,19 @@ function scenarios(; with_reference::Bool = false)
                         Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), x),
                 obs),
             [2.0, 1.0], (Constant(obs),))
+        # Component-wise inner truncation (#296): the second component is
+        # capped above at 3.0, so the gradient flows through the bounded
+        # numeric quadrature. Bounds are literals to keep Enzyme forward
+        # working (#278), as for the other Convolved scenarios.
+        _push!("Convolved inner-truncated numerical",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    CensoredDistributions.generic_convolve(
+                        LogNormal(0.5, 0.4), Gamma(θ[1], θ[2]);
+                        bounds = ((-Inf, Inf), (-Inf, 3.0))), x),
+                obs),
+            [2.0, 1.0], (Constant(obs),))
     end
 
     # High-dimensional scenarios. Each observation carries its own delay
