@@ -1,8 +1,15 @@
 @doc raw"""
 
-Bounded within-window prior on a latent primary event time, for rendering a
-primary-censored delay as a sampled latent event (data augmentation) rather
-than marginalising it.
+Bounded within-window prior on a latent primary event time.
+
+This is the building block consumed by the `Latent` formulation of
+`primary_censored` / `double_interval_censored` (tracked in #299): the
+`Latent` formulation samples the primary event time `p` and scores the delay as
+the deterministic difference, and `WithinWindowPrimary` supplies the bounded
+prior on `p` (with the Jacobian) that makes that sampled prior match the
+`Marginal` formulation's implicit prior. It is not a standalone user-facing
+mode on its own; users select the representation through the formulation method
+rather than constructing this directly.
 
 A primary-censored delay built with a uniform primary window of width ``w``
 implies that the latent primary event time is uniform over its window,
@@ -48,6 +55,10 @@ end
 @doc raw"""
 
 Create a bounded within-window prior on a latent primary event time.
+
+This is the building block used by the `Latent` formulation of
+`primary_censored` / `double_interval_censored` (#299), which supplies the
+sampled primary time `p`; it is not intended as a standalone user mode.
 
 The primary event time is drawn from `Uniform(lower, min(lower + width,
 secondary))`. The `logpdf` includes the ``\log(\mathrm{upper} - L_p)`` Jacobian
