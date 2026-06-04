@@ -35,6 +35,9 @@ using OptimizationOptimJL: NelderMead
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
 
+# Exported formulation method types and the latent-primary prior accessor
+export Marginal, Latent, primary_prior
+
 # Export underlying methods for user extension
 export primarycensored_cdf, primarycensored_logcdf
 
@@ -52,7 +55,9 @@ include("docstrings.jl")
 include("utils/gamma_ad.jl")
 
 include("censoring/primarycensored_cdf.jl")
+include("censoring/formulation.jl")
 include("censoring/PrimaryCensored.jl")
+include("censoring/BoundedPrimary.jl")
 include("censoring/IntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
 

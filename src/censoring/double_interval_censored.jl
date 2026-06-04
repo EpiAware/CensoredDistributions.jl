@@ -19,6 +19,10 @@ The order of operations ensures mathematical correctness, particularly that trun
 - `upper`: Upper truncation bound (e.g., observation time `D`). If `nothing`, no upper truncation is applied.
 - `interval`: Secondary censoring interval width (e.g., daily reporting). If `nothing`, no interval censoring is applied.
 - `force_numeric`: Force numerical integration for primary censoring even when analytical solutions exist.
+- `formulation`: Primary-censoring formulation, [`Marginal`](@ref) (default,
+  integrate the primary event out) or [`Latent`](@ref)`(p)` (condition on a
+  sampled primary event time `p`). See [`primary_prior`](@ref) for the prior to
+  sample `p` from.
 
 # Returns
 A composed distribution that can be used with all standard `Distributions.jl` methods (`rand`, `pdf`, `cdf`, etc.).
@@ -65,10 +69,13 @@ function double_interval_censored(
         lower::Union{Real, Nothing} = nothing,
         upper::Union{Real, Nothing} = nothing,
         interval::Union{Real, Nothing} = nothing,
-        force_numeric::Bool = false
+        force_numeric::Bool = false,
+        formulation::AbstractFormulation = Marginal()
 )
     # Start with primary censoring (always applied)
-    result = primary_censored(dist, primary_event; force_numeric = force_numeric)
+    result = primary_censored(
+        dist, primary_event; force_numeric = force_numeric,
+        formulation = formulation)
 
     # Apply truncation if specified
     if !isnothing(lower) || !isnothing(upper)

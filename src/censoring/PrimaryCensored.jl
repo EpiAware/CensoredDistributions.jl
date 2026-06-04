@@ -30,6 +30,10 @@ necessary for certain AD backends or when debugging.
 - `solver`: Quadrature solver (default: `GaussLegendre(; n = 64)`, AD-friendly;
   pass `QuadGKJL()` for adaptive accuracy)
 - `force_numeric`: Force numeric integration even when analytical available (default: `false`)
+- `formulation`: [`Marginal`](@ref)`()` (default) integrates the primary event
+  out; [`Latent`](@ref)`(p)` conditions on a sampled primary event time `p`, so
+  the cdf becomes `cdf(delay, x - p)` and the logpdf `logpdf(delay, x - p)`
+  exactly. Sample `p` from [`primary_prior`](@ref).
 
 This is useful for modeling:
 - Infection-to-symptom onset times when infection time is uncertain
@@ -59,13 +63,14 @@ d_numeric = primary_censored(incubation, infection_window; force_numeric=true)
 "
 function primary_censored(
         dist::UnivariateDistribution, primary_event::UnivariateDistribution;
-        solver = GaussLegendre(; n = 64), force_numeric = false)
+        solver = GaussLegendre(; n = 64), force_numeric = false,
+        formulation::AbstractFormulation = Marginal())
     method = if force_numeric
         NumericSolver(solver)
     else
         AnalyticalSolver(solver)
     end
-    return PrimaryCensored(dist, primary_event, method)
+    return PrimaryCensored(dist, primary_event, method, formulation)
 end
 
 @doc "
@@ -90,9 +95,11 @@ d2 = primary_censored(LogNormal(1.5, 0.75); primary_event=Uniform(0, 2))
 function primary_censored(
         dist::UnivariateDistribution;
         primary_event::UnivariateDistribution = Uniform(0, 1),
-        solver = GaussLegendre(; n = 64), force_numeric = false)
+        solver = GaussLegendre(; n = 64), force_numeric = false,
+        formulation::AbstractFormulation = Marginal())
     return primary_censored(
-        dist, primary_event; solver = solver, force_numeric = force_numeric)
+        dist, primary_event; solver = solver, force_numeric = force_numeric,
+        formulation = formulation)
 end
 
 @doc "
@@ -107,13 +114,22 @@ The `method` field determines computation strategy:
   LogNormal, Weibull with Uniform primary), falls back to numeric otherwise
 - `NumericSolver`: Always uses quadrature integration
 
+The `formulation` field selects the representation:
+- [`Marginal`](@ref) (default): integrate the primary event out via the
+  `method` above.
+- [`Latent`](@ref): condition on a sampled primary event time `p`, so the cdf
+  collapses to the shifted delay cdf `F_delay(x - p)` and the logpdf to
+  `logpdf(delay, x - p)` exactly.
+
 # See also
 - [`primary_censored`](@ref): Constructor function
 - [`primarycensored_cdf`](@ref): CDF computation with method dispatch
+- [`Marginal`](@ref), [`Latent`](@ref): formulation method types
+- [`primary_prior`](@ref): prior over the latent primary `p`
 "
 struct PrimaryCensored{
     D1 <: UnivariateDistribution, D2 <: UnivariateDistribution,
-    M <: AbstractSolverMethod} <:
+    M <: AbstractSolverMethod, F <: AbstractFormulation} <:
        UnivariateDistribution{Continuous}
     "The delay distribution from primary event to observation."
     dist::D1
@@ -121,11 +137,14 @@ struct PrimaryCensored{
     primary_event::D2
     "The solver method for CDF computation."
     method::M
+    "The formulation (Marginal or Latent) selecting the cdf/logpdf path."
+    formulation::F
 
     function PrimaryCensored(
-            dist::D1, primary_event::D2, method::M) where {
-            D1, D2, M <: AbstractSolverMethod}
-        new{D1, D2, M}(dist, primary_event, method)
+            dist::D1, primary_event::D2, method::M,
+            formulation::F = Marginal()) where {
+            D1, D2, M <: AbstractSolverMethod, F <: AbstractFormulation}
+        new{D1, D2, M, F}(dist, primary_event, method, formulation)
     end
 end
 
@@ -144,20 +163,47 @@ insupport(d::PrimaryCensored, x::Real) = insupport(get_dist(d), x)
 
 Compute the cumulative distribution function.
 
+Dispatches on the [`formulation`](@ref AbstractFormulation): [`Marginal`](@ref)
+integrates the primary event out via [`primarycensored_cdf`](@ref); [`Latent`](@ref)
+conditions on the sampled primary `p` and returns the shifted delay cdf
+`cdf(delay, x - p)`.
+
 See also: [`logcdf`](@ref)
 "
 function cdf(d::PrimaryCensored, x::Real)
+    return _primarycensored_cdf(d, d.formulation, x)
+end
+
+# Marginal: integrate the primary event out (existing behaviour).
+function _primarycensored_cdf(d::PrimaryCensored, ::Marginal, x::Real)
     primarycensored_cdf(get_dist(d), d.primary_event, x, d.method)
+end
+
+# Latent: condition on the sampled primary p -> shifted delay cdf.
+function _primarycensored_cdf(d::PrimaryCensored, f::Latent, x::Real)
+    return cdf(get_dist(d), x - f.p)
 end
 
 @doc "
 
 Compute the log cumulative distribution function.
 
+Dispatches on the [`formulation`](@ref AbstractFormulation): [`Marginal`](@ref)
+uses [`primarycensored_logcdf`](@ref); [`Latent`](@ref) returns
+`logcdf(delay, x - p)`.
+
 See also: [`cdf`](@ref)
 "
 function logcdf(d::PrimaryCensored, x::Real)
+    return _primarycensored_logcdf(d, d.formulation, x)
+end
+
+function _primarycensored_logcdf(d::PrimaryCensored, ::Marginal, x::Real)
     primarycensored_logcdf(get_dist(d), d.primary_event, x, d.method)
+end
+
+function _primarycensored_logcdf(d::PrimaryCensored, f::Latent, x::Real)
+    return logcdf(get_dist(d), x - f.p)
 end
 
 function ccdf(d::PrimaryCensored, x::Real)
@@ -192,12 +238,26 @@ end
 
 @doc "
 
-Compute the log probability density function using numerical differentiation
-of the log CDF.
+Compute the log probability density function.
+
+Dispatches on the [`formulation`](@ref AbstractFormulation): [`Latent`](@ref)
+returns the exact shifted delay logpdf `logpdf(delay, x - p)` (no quadrature,
+no finite differencing); [`Marginal`](@ref) numerically differentiates the log
+CDF.
 
 See also: [`pdf`](@ref), [`logcdf`](@ref)
 "
 function logpdf(d::PrimaryCensored, x::Real)
+    return _primarycensored_logpdf(d, d.formulation, x)
+end
+
+# Latent: exact shifted delay density conditioned on the sampled primary p.
+function _primarycensored_logpdf(d::PrimaryCensored, f::Latent, x::Real)
+    return logpdf(get_dist(d), x - f.p)
+end
+
+# Marginal: numerically differentiate the log CDF (existing behaviour).
+function _primarycensored_logpdf(d::PrimaryCensored, ::Marginal, x::Real)
     if !insupport(d, x)
         return -Inf
     end
@@ -280,3 +340,63 @@ end
 
 # Sampler method for efficient sampling
 sampler(d::PrimaryCensored) = d
+
+@doc raw"""
+
+Return the prior distribution over the latent primary event time `p`.
+
+This is the distribution a user samples to drive the [`Latent`](@ref)
+formulation, e.g. in their own PPL
+
+```julia
+p ~ primary_prior(d)
+y ~ <Latent-formulation delay conditioned on p>
+```
+
+# Arguments
+- `d`: A primary-censored distribution.
+- `secondary`: (optional) An already-sampled secondary time bounding the primary
+  window from above, for the coupled case.
+
+# Uncoupled case
+`primary_prior(d)` returns the distribution's own `primary_event`. Sampling it
+and conditioning the delay on `p` recovers the [`Marginal`](@ref) formulation in
+expectation (the marginal integrates this same prior out).
+
+# Coupled case
+`primary_prior(d, secondary)` returns a bounded prior whose window is truncated
+above by an already-sampled `secondary` time (so the implied delay is
+non-negative), with the `log(upper - lower)` Jacobian that restores the
+implicit uniform-over-window prior. This is the folded former
+`WithinWindowPrimary` logic; it requires `d.primary_event` to be a `Uniform`
+window.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+d = primary_censored(LogNormal(1.5, 0.75), Uniform(0.0, 1.0))
+
+# Uncoupled prior over p
+prior = primary_prior(d)            # === Uniform(0.0, 1.0)
+p = rand(prior)
+
+# Coupled prior bounded by a sampled secondary time
+coupled = primary_prior(d, 0.6)     # bounded to [0.0, 0.6]
+```
+
+# See also
+- [`Latent`](@ref): the formulation that consumes this prior
+"""
+primary_prior(d::PrimaryCensored) = d.primary_event
+
+function primary_prior(d::PrimaryCensored, secondary::Real)
+    pe = d.primary_event
+    pe isa Uniform ||
+        throw(ArgumentError(
+            "Coupled primary_prior requires a Uniform primary_event window; " *
+            "got $(typeof(pe))"))
+    lower = minimum(pe)
+    width = maximum(pe) - lower
+    return _bounded_primary(lower, width, secondary)
+end
