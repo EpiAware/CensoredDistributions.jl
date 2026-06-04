@@ -17,8 +17,9 @@
         # Skip check for internal/non-public functions that we need to use:
         # - Censored: Used in get_dist.jl for Distributions.jl compatibility
         # - _in_closed_interval: Internal Distributions utility used for bounds checking
-        # - _gamma_cdf, _grad_p_a_series: Internal AD-safe gamma CDF used by the
-        #   ChainRulesCore and ForwardDiff extensions
+        # - _gamma_cdf, _grad_p_a_series, _gamma_cdf_value_and_partials:
+        #   Internal AD-safe gamma CDF helpers used by the ChainRulesCore
+        #   and ForwardDiff extensions
         # - Dual, value, partials: ForwardDiff internals used by the
         #   ForwardDiff extension to construct Dual return values; no public
         #   alternative for the Dual reconstruction pattern.
@@ -28,6 +29,7 @@
         #   public-by-convention tape value type, neither marked `public`.
         ignore = (
             :Censored, :_in_closed_interval, :_gamma_cdf, :_grad_p_a_series,
+            :_gamma_cdf_value_and_partials,
             :Dual, :value, :partials,
             Symbol("@grad_from_chainrules"), :TrackedReal
         )
