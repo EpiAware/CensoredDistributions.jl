@@ -445,6 +445,45 @@ end
     @test_throws ArgumentError generic_convolve(
         Normal(0.0, 1.0), Normal(1.0, 1.0);
         bounds = [(-Inf, Inf), (5.0, 1.0)])
+
+    # Empty intersection with the component support is rejected at
+    # construction (would otherwise feed an inverted window into the
+    # quadrature and silently produce NaN, especially for nested rests).
+    # Gamma support is [0, Inf); a wholly negative bound has no overlap.
+    @test_throws ArgumentError generic_convolve(
+        LogNormal(0.5, 0.4), Gamma(2.0, 1.0);
+        bounds = [(-Inf, Inf), (-5.0, -1.0)])
+    @test_throws ArgumentError generic_convolve(
+        LogNormal(0.5, 0.4), Gamma(2.0, 1.0), Normal(0.0, 1.0);
+        bounds = [(-Inf, Inf), (-5.0, -1.0), (-Inf, Inf)])
+    # A degenerate point bound that touches the support is allowed (the
+    # effective support is the single point, zero-width but non-empty).
+    @test generic_convolve(
+        Uniform(0.0, 2.0), Uniform(0.0, 3.0);
+        bounds = [(-Inf, Inf), (1.0, 1.0)]) isa
+          CensoredDistributions.Convolved
+end
+
+@testitem "Convolved inner truncation is unnormalised joint mass" begin
+    using Distributions
+
+    # With finite bounds the cdf is the unnormalised joint mass and
+    # saturates below 1 at the total truncation mass; the pdf integrates
+    # to that same mass, not to 1.
+    inc = LogNormal(1.6, 0.4)
+    δd = Gamma(2.0, 1.5)
+    d = generic_convolve(inc, δd; bounds = [(0.0, 8.0), (1.0, 5.0)])
+
+    total = cdf(d, maximum(d))
+    @test total < 1.0
+    @test total ≈ cdf(d, 1e6) atol=1e-8
+
+    # The unnormalised density integrates to the same total mass.
+    grid = collect(0.05:0.1:25.0)
+    @test sum(pdf(d, grid)) * 0.1 ≈ total atol=1e-2
+
+    # Dividing by the saturated mass recovers a normalised conditional CDF.
+    @test (cdf(d, maximum(d)) / total) ≈ 1.0 atol=1e-8
 end
 
 @testitem "Convolved eltype and sampler" begin

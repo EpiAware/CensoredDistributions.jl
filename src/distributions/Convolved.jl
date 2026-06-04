@@ -53,6 +53,16 @@ limits, so they travel on the same `params` tangent as the integration
 window and stay AD-safe. The analytic fast path is used only when every
 bound is ``\pm\infty``; any finite bound forces the numeric path.
 
+With finite bounds `cdf` returns the **unnormalised joint mass**
+``P(\sum_i X_i \le x \wedge a_i \le X_i \le b_i\ \forall i)``, not a
+conditional (normalised) CDF: it saturates at the total truncation mass
+``P(a_i \le X_i \le b_i\ \forall i) < 1`` rather than 1, so
+`cdf(d, maximum(d)) < 1`. Likewise `pdf` is the corresponding
+unnormalised joint density. This is intended for use as a per-record
+likelihood term; divide by the saturated mass if a normalised
+conditional distribution is wanted. A bound whose intersection with its
+component's support is empty is rejected at construction.
+
 # See also
 - [`generic_convolve`](@ref): Constructor function
 """
@@ -74,8 +84,23 @@ struct Convolved{C <: Tuple, B <: Tuple} <: UnivariateDistribution{Continuous}
         all(b -> length(b) == 2 && b[1] <= b[2], bounds) ||
             throw(ArgumentError(
                 "each bound must be a (lower, upper) pair with lower <= upper"))
+        # Reject bounds whose intersection with a component's support is
+        # empty (e.g. an upper bound below the component minimum). Such a
+        # degenerate window has no mass and would otherwise feed an
+        # inverted [lower, upper] into the quadrature, producing silent
+        # `NaN` for nested components. Erroring at construction keeps the
+        # failure loud and local.
+        all(((c, b),) -> _bound_overlaps_support(c, b),
+            zip(components, bounds)) || throw(ArgumentError(
+            "a bound has empty intersection with its component's support"))
         new{C, B}(components, bounds)
     end
+end
+
+# Whether bound `b = (a, b₂)` overlaps the component's support, i.e. the
+# effective support `[max(min(c), a), min(max(c), b₂)]` is non-empty.
+function _bound_overlaps_support(c::UnivariateDistribution, b)
+    return _max2(minimum(c), b[1]) <= _min2(maximum(c), b[2])
 end
 
 # Default: unbounded components.
