@@ -36,7 +36,7 @@ change of variable applied inside the integrand, keeping the
 Integrals.jl reverse rule on the AD path.
 
 # See also
-- [`convolved`](@ref): Constructor function
+- [`generic_convolve`](@ref): Constructor function
 """
 struct Convolved{C <: Tuple} <: UnivariateDistribution{Continuous}
     "Tuple of independent component distributions to be summed."
@@ -69,31 +69,32 @@ distribution.
 using CensoredDistributions, Distributions
 
 # Sum of two delays
-d = convolved(Gamma(2.0, 1.0), LogNormal(1.5, 0.5))
+d = generic_convolve(Gamma(2.0, 1.0), LogNormal(1.5, 0.5))
 cdf_at_5 = cdf(d, 5.0)
 
 # Sum of three delays from a vector
-d3 = convolved([Gamma(2.0, 1.0), Gamma(1.0, 1.0), Normal(0.0, 1.0)])
+d3 = generic_convolve([Gamma(2.0, 1.0), Gamma(1.0, 1.0), Normal(0.0, 1.0)])
 mean_sample = rand(d3)
 ```
 
 # See also
 - [`Convolved`](@ref): The distribution type
 "
-function convolved(components::AbstractVector{<:UnivariateDistribution})
+function generic_convolve(components::AbstractVector{<:UnivariateDistribution})
     length(components) >= 2 ||
-        throw(ArgumentError("convolved needs at least two components"))
+        throw(ArgumentError("generic_convolve needs at least two components"))
     return Convolved(Tuple(components))
 end
 
-function convolved(c1::UnivariateDistribution, c2::UnivariateDistribution,
+function generic_convolve(
+        c1::UnivariateDistribution, c2::UnivariateDistribution,
         rest::UnivariateDistribution...)
     return Convolved((c1, c2, rest...))
 end
 
-function convolved(components::Tuple)
+function generic_convolve(components::Tuple)
     length(components) >= 2 ||
-        throw(ArgumentError("convolved needs at least two components"))
+        throw(ArgumentError("generic_convolve needs at least two components"))
     return Convolved(components)
 end
 
@@ -162,13 +163,13 @@ function _analytic_convolution(components::Tuple)
 end
 
 # ---------------------------------------------------------------------------
-# Numeric convolution CDF (AD-safe fixed-domain Gauss-Legendre)
+# Numeric convolution (AD-safe fixed-domain Gauss-Legendre)
 # ---------------------------------------------------------------------------
 
-# CDF of the convolution of the first `length - 1` components evaluated
-# at `x - t`, where the last component is integrated out. The "rest"
-# distribution is itself a `Convolved` (or single distribution) so the
-# computation folds recursively for more than two components.
+# Integrate the last component out against a function `kernel` of the
+# remaining convolution `rest`. The "rest" distribution is itself a
+# `Convolved` (or a single distribution) so both the CDF and PDF kernels
+# fold recursively for more than two components.
 _rest_distribution(c::Tuple{<:UnivariateDistribution}) = c[1]
 _rest_distribution(c::Tuple) = Convolved(c)
 
@@ -177,32 +178,70 @@ _rest_distribution(c::Tuple) = Convolved(c)
 _min2(a, b) = a < b ? a : b
 _max2(a, b) = a > b ? a : b
 
-# Numeric CDF for a single (degenerate) component: just the component
-# CDF. Used as the recursion base for `_convolution_cdf`.
-function _convolution_cdf(d::UnivariateDistribution, x::Real)
-    return _cdf_ad_safe(d, x)
+# Recursion bases / steps for the two kernels. For a single (degenerate)
+# component the kernel is just that component's CDF/PDF; for a nested
+# `Convolved` it recurses through the numeric routines.
+_convolution_cdf(d::UnivariateDistribution, x::Real) = _cdf_ad_safe(d, x)
+_convolution_cdf(d::Convolved, x::Real) = _convolved_numeric_cdf(d, x)
+
+_convolution_pdf(d::UnivariateDistribution, x::Real) = pdf(d, x)
+_convolution_pdf(d::Convolved, x::Real) = _convolved_numeric_pdf(d, x)
+
+# Shared fixed-domain quadrature scaffold for the convolution
+#   ∫ kernel(rest, x - t) · f_C(t) dt   over t ∈ support(C),
+# where C is the last component and `rest` the convolution of the others.
+# The integral is mapped onto the fixed reference domain (-1, 1) with the
+# real bounds carried as `params` and the change of variable t = m + h·s
+# applied inside the integrand, so the Integrals.jl reverse rule stays on
+# the parameter-tangent AD path. `kernel` is `_convolution_cdf` (CDF) or
+# `_convolution_pdf` (PDF). Returns the bare integral; callers add any
+# saturated constant and clamp.
+function _convolved_quadrature(
+        last_comp, rest, kernel::F, x::Real, lower, upper) where {F}
+    m = (lower + upper) / 2
+    h = (upper - lower) / 2
+
+    function integrand(s, p)
+        m_, h_ = p
+        t = m_ + h_ * s
+        return h_ * kernel(rest, x - t) * pdf(last_comp, t)
+    end
+
+    prob = IntegralProblem(integrand, (-one(m), one(m)), (m, h))
+    return solve(prob, GaussLegendre(; n = 64))[1]
 end
 
-function _convolution_cdf(d::Convolved, x::Real)
-    return _convolved_numeric_cdf(d, x)
+# Vector-valued companion: one solve for a batch of points. The integrand
+# returns a vector (one entry per point), so a single Gauss-Legendre call
+# serves the whole batch over the shared window [lower, upper].
+function _convolved_quadrature_batched(
+        last_comp, rest, kernel::F,
+        x::AbstractVector{<:Real}, lower, upper) where {F}
+    m = (lower + upper) / 2
+    h = (upper - lower) / 2
+
+    function integrand(s, p)
+        m_, h_ = p
+        t = m_ + h_ * s
+        ft = pdf(last_comp, t)
+        return [h_ * kernel(rest, xi - t) * ft for xi in x]
+    end
+
+    prob = IntegralProblem(integrand, (-one(m), one(m)), (m, h))
+    return solve(prob, GaussLegendre(; n = 64)).u
 end
 
-# Numeric convolution CDF over the fixed reference domain (-1, 1).
+# Numeric convolution CDF.
 #
 # X = C + R with C the integration component (`last_comp`) and R the
 # convolution of the remaining components (`rest`):
 #   F_X(x) = ∫ F_R(x - t) f_C(t) dt   over t ∈ support(C).
 # F_R(x - t) is 1 for t ≤ x - max(R) and 0 for t ≥ x - min(R), so the
 # integral splits into a saturated constant term plus a transition
-# integral over [lo, hi]:
-#   F_X(x) = F_C(x - max(R)) + ∫_{lo}^{hi} F_R(x - t) f_C(t) dt
-# Dropping the F_C term (as an earlier version did) loses the mass of C
-# in the region where R is already certain to be below x — that bug
-# shows up sharply for bounded components (e.g. Uniform).
-#
-# Bounds are passed through `params` to the integrand so the Integrals.jl
-# reverse rule stays on the parameter-tangent AD path; the change of
-# variable t = m + h·s (s ∈ (-1, 1)) is applied inside the integrand.
+# integral over [lower, upper]:
+#   F_X(x) = F_C(x - max(R)) + ∫_{lower}^{upper} F_R(x - t) f_C(t) dt
+# Dropping the F_C term loses the mass of C in the region where R is
+# already certain to be below x — wrong for bounded components (Uniform).
 function _convolved_numeric_cdf(d::Convolved, x::Real)
     isnan(x) && return convert(float(typeof(x)), NaN)
     x <= minimum(d) && return zero(float(typeof(x)))
@@ -223,18 +262,33 @@ function _convolved_numeric_cdf(d::Convolved, x::Real)
 
     upper <= lower && return clamp(saturated, zero(saturated), one(saturated))
 
-    m = (lower + upper) / 2
-    h = (upper - lower) / 2
-
-    function integrand(s, p)
-        m_, h_ = p
-        t = m_ + h_ * s
-        return h_ * _convolution_cdf(rest, x - t) * pdf(last_comp, t)
-    end
-
-    prob = IntegralProblem(integrand, (-one(m), one(m)), (m, h))
-    result = saturated + solve(prob, GaussLegendre(; n = 64))[1]
+    result = saturated +
+             _convolved_quadrature(
+        last_comp, rest, _convolution_cdf, x, lower, upper)
     return clamp(result, zero(result), one(result))
+end
+
+# Numeric convolution PDF.
+#
+# f_X(x) = ∫ f_R(x - t) f_C(t) dt   over t ∈ support(C).
+# f_R(x - t) is 0 outside R's support, so there is no saturated constant:
+# the natural window is the component support intersected with the range
+# where x - t lands in R's support.
+function _convolved_numeric_pdf(d::Convolved, x::Real)
+    isnan(x) && return convert(float(typeof(x)), NaN)
+    (x <= minimum(d) || x >= maximum(d)) && return zero(float(typeof(x)))
+
+    last_comp = d.components[end]
+    rest = _rest_distribution(d.components[1:(end - 1)])
+
+    lower = _max2(minimum(last_comp), x - maximum(rest))
+    upper = _min2(maximum(last_comp), x - minimum(rest))
+
+    upper <= lower && return zero(float(typeof(x)))
+
+    result = _convolved_quadrature(
+        last_comp, rest, _convolution_pdf, x, lower, upper)
+    return max(result, zero(result))
 end
 
 # ---------------------------------------------------------------------------
@@ -291,8 +345,9 @@ end
 
 Compute the probability density function.
 
-Uses the analytical convolved density where available, otherwise
-numerical differentiation of the CDF.
+Uses the exact analytical convolved density where `Distributions.convolve`
+applies to all component pairs, otherwise the AD-safe numeric density
+convolution ``f_X(x) = \\int f_R(x - t) f_C(t) \\, dt``.
 
 See also: [`logpdf`](@ref)
 "
@@ -301,7 +356,7 @@ function pdf(d::Convolved, x::Real)
     if analytic !== nothing
         return pdf(analytic, x)
     end
-    return exp(logpdf(d, x))
+    return _convolved_numeric_pdf(d, x)
 end
 
 @doc "
@@ -318,17 +373,8 @@ function logpdf(d::Convolved, x::Real)
     if !insupport(d, x)
         return oftype(float(x), -Inf)
     end
-
-    # Central difference on the numeric CDF, matching the PrimaryCensored
-    # logpdf strategy. Bounds-clamped so we never evaluate outside support.
-    h = 1e-6
-    lo = max(x - h / 2, minimum(d))
-    hi = min(x + h / 2, maximum(d))
-    cdf_hi = _convolved_numeric_cdf(d, hi)
-    cdf_lo = _convolved_numeric_cdf(d, lo)
-    diff = cdf_hi - cdf_lo
-    diff <= 0 && return oftype(float(x), -Inf)
-    return log(diff) - log(hi - lo)
+    p = _convolved_numeric_pdf(d, x)
+    return p <= 0 ? oftype(float(x), -Inf) : log(p)
 end
 
 # ---------------------------------------------------------------------------
@@ -350,9 +396,8 @@ function cdf(d::Convolved, x::AbstractVector{<:Real})
     return _convolved_numeric_cdf_batched(d, x)
 end
 
-# Batched numeric CDF: one Gauss-Legendre solve for all points. The
-# integrand returns a vector (one entry per point), so a single solve
-# serves the whole batch.
+# Batched numeric CDF: one Gauss-Legendre solve for all points via the
+# shared `_convolved_quadrature_batched` scaffold.
 #
 # Same decomposition as the scalar path:
 #   F_X(x_i) = F_C(lower) + ∫_{lower}^{upper} F_R(x_i - t) f_C(t) dt
@@ -381,19 +426,8 @@ function _convolved_numeric_cdf_batched(d::Convolved, x::AbstractVector{<:Real})
     end
 
     saturated = lower > cmin ? T(_cdf_ad_safe(last_comp, lower)) : zero(T)
-
-    m = (lower + upper) / 2
-    h = (upper - lower) / 2
-
-    function integrand(s, p)
-        m_, h_ = p
-        t = m_ + h_ * s
-        ft = pdf(last_comp, t)
-        return [h_ * _convolution_cdf(rest, xi - t) * ft for xi in x]
-    end
-
-    prob = IntegralProblem(integrand, (-one(m), one(m)), (m, h))
-    raw = solve(prob, GaussLegendre(; n = 64)).u
+    raw = _convolved_quadrature_batched(
+        last_comp, rest, _convolution_cdf, x, lower, upper)
 
     return map(zip(x, raw)) do (xi, ri)
         if xi <= dmin
@@ -406,12 +440,54 @@ function _convolved_numeric_cdf_batched(d::Convolved, x::AbstractVector{<:Real})
     end
 end
 
+# Batched numeric PDF: one Gauss-Legendre solve for all points via the
+# shared scaffold. No saturated constant (f_R vanishes outside support).
+function _convolved_numeric_pdf_batched(d::Convolved, x::AbstractVector{<:Real})
+    T = promote_type(eltype(x), float(eltype(d)))
+    last_comp = d.components[end]
+    rest = _rest_distribution(d.components[1:(end - 1)])
+
+    dmin = minimum(d)
+    dmax = maximum(d)
+
+    # Shared integration window covering every point's transition region.
+    lower = max(minimum(last_comp), minimum(x) - maximum(rest))
+    upper = min(maximum(last_comp), maximum(x) - minimum(rest))
+
+    if !(upper > lower) || !isfinite(lower) || !isfinite(upper)
+        # Degenerate shared window: fall back to per-point scalar solves.
+        return map(xi -> _convolved_numeric_pdf(d, T(xi)), x)
+    end
+
+    raw = _convolved_quadrature_batched(
+        last_comp, rest, _convolution_pdf, x, lower, upper)
+
+    return map(zip(x, raw)) do (xi, ri)
+        (xi <= dmin || xi >= dmax) ? zero(T) : max(T(ri), zero(T))
+    end
+end
+
 @doc "
 
-Compute log densities for a vector of points. Falls back to the scalar
-`logpdf` per point, reusing the batched CDF solve for the numeric path.
+Compute densities for a vector of points using a single quadrature solve
+(the integrand returns a vector).
 
-See also: [`logpdf`](@ref)
+See also: [`pdf`](@ref)
+"
+function pdf(d::Convolved, x::AbstractVector{<:Real})
+    analytic = _analytic_convolution(d.components)
+    if analytic !== nothing
+        return map(xi -> pdf(analytic, xi), x)
+    end
+    return _convolved_numeric_pdf_batched(d, x)
+end
+
+@doc "
+
+Compute log densities for a vector of points, reusing the batched PDF
+solve for the numeric path.
+
+See also: [`logpdf`](@ref), [`pdf`](@ref)
 "
 function logpdf(d::Convolved, x::AbstractVector{<:Real})
     analytic = _analytic_convolution(d.components)
@@ -420,24 +496,13 @@ function logpdf(d::Convolved, x::AbstractVector{<:Real})
     end
 
     T = promote_type(eltype(x), float(eltype(d)))
-    h = 1e-6
-    dmin = minimum(d)
-    dmax = maximum(d)
+    pdfs = _convolved_numeric_pdf_batched(d, x)
 
-    los = [max(xi - h / 2, dmin) for xi in x]
-    his = [min(xi + h / 2, dmax) for xi in x]
-    pts = vcat(los, his)
-    cdfs = _convolved_numeric_cdf_batched(d, pts)
-    n = length(x)
-    cdf_lo = cdfs[1:n]
-    cdf_hi = cdfs[(n + 1):end]
-
-    return map(1:n) do i
-        if !insupport(d, x[i])
+    return map(zip(x, pdfs)) do (xi, p)
+        if !insupport(d, xi)
             T(-Inf)
         else
-            diff = cdf_hi[i] - cdf_lo[i]
-            diff <= 0 ? T(-Inf) : T(log(diff) - log(his[i] - los[i]))
+            p <= 0 ? T(-Inf) : T(log(p))
         end
     end
 end

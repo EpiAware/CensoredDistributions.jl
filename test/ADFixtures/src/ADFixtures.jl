@@ -377,18 +377,18 @@ function scenarios(; with_reference::Bool = false)
     # AD-safe numeric quadrature path (the same fixed-domain Gauss-Legendre
     # construction as PrimaryCensored). Literal constructors keep Enzyme
     # forward working (#278).
-    # Guarded on `convolved` existing: AirspeedVelocity benchmarks the PR
-    # against the `main` baseline, building the baseline package while
-    # still loading this (PR-tree) fixtures module. Referencing `convolved`
-    # unconditionally would throw `UndefVarError` on the baseline, where it
-    # does not yet exist. The guard lets the baseline skip these scenarios
-    # and the PR include them.
-    if isdefined(CensoredDistributions, :convolved)
+    # Guarded on `generic_convolve` existing: AirspeedVelocity benchmarks
+    # the PR against the `main` baseline, building the baseline package
+    # while still loading this (PR-tree) fixtures module. Referencing
+    # `generic_convolve` unconditionally would throw `UndefVarError` on the
+    # baseline, where it does not yet exist. The guard lets the baseline
+    # skip these scenarios and the PR include them.
+    if isdefined(CensoredDistributions, :generic_convolve)
         _push!("Convolved Normal+Normal analytical",
             (θ,
                 obs) -> sum(
                 x -> logpdf(
-                    CensoredDistributions.convolved(
+                    CensoredDistributions.generic_convolve(
                         Normal(θ[1], θ[2]), Normal(0.0, 1.0)), x),
                 obs),
             [1.0, 2.0], (Constant(obs),))
@@ -396,7 +396,7 @@ function scenarios(; with_reference::Bool = false)
             (θ,
                 obs) -> sum(
                 x -> logpdf(
-                    CensoredDistributions.convolved(
+                    CensoredDistributions.generic_convolve(
                         Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), x),
                 obs),
             [2.0, 1.0], (Constant(obs),))
