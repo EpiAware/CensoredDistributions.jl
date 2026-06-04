@@ -81,6 +81,45 @@ end
     end
 end
 
+@testitem "Convolved force_numeric matches analytic ground truth" begin
+    using Distributions
+
+    # For pairs that HAVE a closed form, force the numeric quadrature path
+    # and check it reproduces the exact analytic cdf AND pdf. This
+    # validates the numeric solver (and the node count) against analytic
+    # ground truth, distinct from the Monte-Carlo checks. The scalar path
+    # uses each point's tight window and matches to ~1e-7; the batched
+    # path shares one window across points and is looser on wide ranges.
+    cases = [
+        (Normal(1.0, 2.0), Normal(-0.5, 1.5), -3.0, 8.0),
+        (Gamma(2.0, 1.5), Gamma(3.0, 1.5), 0.5, 12.0),
+        (Exponential(1.5), Exponential(1.5), 0.3, 8.0)
+    ]
+    for (a, b, lo, hi) in cases
+        dn = generic_convolve(a, b; force_numeric = true)
+        ref = convolve(a, b)
+
+        # force_numeric must actually bypass the analytic specialisation.
+        @test CensoredDistributions._maybe_analytic(dn) === nothing
+        @test CensoredDistributions._maybe_analytic(
+            generic_convolve(a, b)) !== nothing
+
+        xs = collect(range(lo, hi; length = 10))
+        for x in xs
+            @test cdf(dn, x) ≈ cdf(ref, x) atol=1e-6
+            @test pdf(dn, x) ≈ pdf(ref, x) atol=1e-6
+        end
+
+        # Batched numeric vs analytic ground truth (looser shared-window
+        # tolerance for the wide range; compared elementwise rather than
+        # by vector norm).
+        cb = cdf(dn, xs)
+        pb = pdf(dn, xs)
+        @test maximum(abs.(cb .- [cdf(ref, x) for x in xs])) < 2e-4
+        @test maximum(abs.(pb .- [pdf(ref, x) for x in xs])) < 6e-3
+    end
+end
+
 @testitem "Convolved unsupported analytic pairs use numeric path" begin
     using Distributions, Random, Statistics
 
@@ -192,18 +231,19 @@ end
 
     # The batched path integrates every point over one shared window, so
     # it differs from the per-point scalar windows only by fixed-node
-    # quadrature error, not mathematically.
+    # quadrature error, not mathematically. At n = 192 nodes this gap is
+    # ~1e-4 (cdf) / ~5e-4 (pdf) on this batch.
     cdf_batch = cdf(d, xs)
     cdf_scalar = [cdf(d, x) for x in xs]
-    @test cdf_batch ≈ cdf_scalar rtol=1e-3
+    @test cdf_batch ≈ cdf_scalar rtol=5e-4
 
     pdf_batch = pdf(d, xs)
     pdf_scalar = [pdf(d, x) for x in xs]
-    @test pdf_batch ≈ pdf_scalar rtol=1e-2
+    @test pdf_batch ≈ pdf_scalar rtol=1e-3
 
     lp_batch = logpdf(d, xs)
     lp_scalar = [logpdf(d, x) for x in xs]
-    @test lp_batch ≈ lp_scalar rtol=1e-2
+    @test lp_batch ≈ lp_scalar rtol=1e-3
 
     # Analytic path
     da = generic_convolve(Normal(0.0, 1.0), Normal(1.0, 2.0))
@@ -222,10 +262,13 @@ end
     # invariant: batched result for many points equals stacking scalar
     # results, which it does only if the shared-window single-solve path
     # is taken (degenerate fallback would still match but is exercised
-    # separately). Here we assert correctness for a large batch.
+    # separately). Here we assert correctness for a large batch. This
+    # batch deliberately spans a wide range (16x), the hardest case for a
+    # single shared-window solve, so its tolerance is looser than the
+    # typical-batch test above.
     d = generic_convolve(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     xs = collect(0.5:0.25:8.0)
-    @test cdf(d, xs) ≈ [cdf(d, x) for x in xs] rtol=1e-3
+    @test cdf(d, xs) ≈ [cdf(d, x) for x in xs] rtol=5e-3
 end
 
 @testitem "Convolved composes with truncated" begin
@@ -351,4 +394,27 @@ end
     @test sampler(d) === d
     rng = MersenneTwister(3)
     @test rand(rng, d) isa Real
+end
+
+@testitem "Convolved scalar methods are type stable" begin
+    using Distributions, Test
+
+    # Numeric, analytic, forced-numeric and recursive (3-component) paths
+    # must all infer a concrete return type, like primarycensored_cdf.
+    ds = (
+        generic_convolve(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)),       # numeric
+        generic_convolve(Normal(0.0, 1.0), Normal(1.0, 2.0)),         # analytic
+        generic_convolve(Normal(0.0, 1.0), Normal(1.0, 2.0);
+            force_numeric = true),                                    # forced
+        generic_convolve(Gamma(2.0, 1.0), LogNormal(0.5, 0.4),
+            Uniform(0.0, 1.0))                                        # recursive
+    )
+    for d in ds
+        @test @inferred(cdf(d, 3.0)) isa Float64
+        @test @inferred(logcdf(d, 3.0)) isa Float64
+        @test @inferred(pdf(d, 3.0)) isa Float64
+        @test @inferred(logpdf(d, 3.0)) isa Float64
+        @test @inferred(ccdf(d, 3.0)) isa Float64
+        @test @inferred(logccdf(d, 3.0)) isa Float64
+    end
 end

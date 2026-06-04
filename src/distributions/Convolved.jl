@@ -1,16 +1,16 @@
-@doc raw"""
+@doc """
 
 Distribution of a sum of independent random variables (a convolution).
 
-`Convolved` represents ``X = X_1 + X_2 + \dots + X_n`` where the
+`Convolved` represents ``X = X_1 + X_2 + \\dots + X_n`` where the
 ``X_i`` are independent univariate distributions. It is the keystone
 primitive for multi-delay epidemiological models, where an observed
 delay is the sum of several independent stages (e.g.
-onset-to-death = onset-to-admission ``\oplus`` admission-to-death).
+onset-to-death = onset-to-admission ``\\oplus`` admission-to-death).
 
 Components may have negative support (for example a `Normal` capturing
 pre-symptomatic transmission timing); `minimum` and `maximum` are the
-sums of the component supports, taking the value ``\pm\infty`` where a
+sums of the component supports, taking the value ``\\pm\\infty`` where a
 component is unbounded.
 
 # CDF computation
@@ -19,7 +19,7 @@ The CDF is computed by integrating one component out against the CDF of
 the others:
 
 ```math
-F_X(x) = \int F_{R}(x - t)\, f_{C}(t)\, \mathrm{d}t
+F_X(x) = \\int F_{R}(x - t)\\, f_{C}(t)\\, \\mathrm{d}t
 ```
 
 where ``C`` is the last component (the integration variable) and ``R``
@@ -27,13 +27,18 @@ is the convolution of the remaining components. For more than two
 components the remaining convolution is folded recursively.
 
 Where an analytical convolution is available (`Distributions.convolve`
-applies, e.g. `Normal`+`Normal`, equal-rate `Gamma`, `Poisson`) the
-two-component CDF is taken directly from the convolved distribution. All
-other cases use AD-safe fixed-node Gauss-Legendre quadrature mirroring
+applies, e.g. `Normal`+`Normal`, equal-scale `Gamma`, equal-rate
+`Exponential`) the two-component result is taken directly from the
+convolved distribution unless `force_numeric` is set. All other cases use
+AD-safe fixed-node Gauss-Legendre quadrature mirroring
 `primarycensored_cdf`: the integral is mapped onto the fixed reference
 domain ``(-1, 1)`` with the real bounds carried as `params` and the
 change of variable applied inside the integrand, keeping the
 Integrals.jl reverse rule on the AD path.
+
+The `force_numeric` field forces the numeric quadrature path even when an
+analytic convolution exists, mirroring `primary_censored`; it is useful
+for validation and debugging.
 
 # See also
 - [`generic_convolve`](@ref): Constructor function
@@ -41,14 +46,17 @@ Integrals.jl reverse rule on the AD path.
 struct Convolved{C <: Tuple} <: UnivariateDistribution{Continuous}
     "Tuple of independent component distributions to be summed."
     components::C
+    "Force numeric quadrature even when an analytic convolution exists."
+    force_numeric::Bool
 
-    function Convolved(components::C) where {C <: Tuple}
+    function Convolved(components::C; force_numeric::Bool = false) where {
+            C <: Tuple}
         length(components) >= 1 ||
             throw(ArgumentError("Convolved needs at least one component"))
         all(c -> c isa UnivariateDistribution, components) ||
             throw(ArgumentError(
                 "All components must be UnivariateDistributions"))
-        new{C}(components)
+        new{C}(components, force_numeric)
     end
 end
 
@@ -64,6 +72,11 @@ distribution.
 - `components`: Two or more `UnivariateDistribution`s, or a vector/tuple
   of them.
 
+# Keyword Arguments
+- `force_numeric`: Force numeric quadrature even when an analytic
+  convolution is available (default: `false`), mirroring
+  `primary_censored`.
+
 # Examples
 ```@example
 using CensoredDistributions, Distributions
@@ -75,27 +88,33 @@ cdf_at_5 = cdf(d, 5.0)
 # Sum of three delays from a vector
 d3 = generic_convolve([Gamma(2.0, 1.0), Gamma(1.0, 1.0), Normal(0.0, 1.0)])
 mean_sample = rand(d3)
+
+# Force numeric quadrature even for an analytic pair
+dn = generic_convolve(Normal(0.0, 1.0), Normal(1.0, 2.0); force_numeric=true)
+cdf_numeric = cdf(dn, 2.0)
 ```
 
 # See also
 - [`Convolved`](@ref): The distribution type
 "
-function generic_convolve(components::AbstractVector{<:UnivariateDistribution})
+function generic_convolve(
+        components::AbstractVector{<:UnivariateDistribution};
+        force_numeric::Bool = false)
     length(components) >= 2 ||
         throw(ArgumentError("generic_convolve needs at least two components"))
-    return Convolved(Tuple(components))
+    return Convolved(Tuple(components); force_numeric = force_numeric)
 end
 
 function generic_convolve(
         c1::UnivariateDistribution, c2::UnivariateDistribution,
-        rest::UnivariateDistribution...)
-    return Convolved((c1, c2, rest...))
+        rest::UnivariateDistribution...; force_numeric::Bool = false)
+    return Convolved((c1, c2, rest...); force_numeric = force_numeric)
 end
 
-function generic_convolve(components::Tuple)
+function generic_convolve(components::Tuple; force_numeric::Bool = false)
     length(components) >= 2 ||
         throw(ArgumentError("generic_convolve needs at least two components"))
-    return Convolved(components)
+    return Convolved(components; force_numeric = force_numeric)
 end
 
 # ---------------------------------------------------------------------------
@@ -162,6 +181,29 @@ function _analytic_convolution(components::Tuple)
     return acc
 end
 
+# The analytic convolution to use for `d`, or `nothing` when none exists
+# or when `d.force_numeric` requests the numeric quadrature path.
+function _maybe_analytic(d::Convolved)
+    d.force_numeric && return nothing
+    return _analytic_convolution(d.components)
+end
+
+# Fraction of probability trimmed from each tail of an unbounded
+# integration component when clamping an infinite quadrature window.
+const _CONVOLVED_TAIL = 1e-8
+
+# Clamp an integration window to a finite range. Both the integrand's
+# `f_C(t)` factor and (for the CDF) the transition of `F_R(x - t)` are
+# negligible outside the integration component's effective support, so an
+# infinite endpoint is replaced by an extreme quantile of `last_comp`.
+# This lets the numeric path handle components unbounded on either side
+# (e.g. Normal+Normal under `force_numeric`).
+function _finite_window(last_comp, lower::Real, upper::Real)
+    lo = isfinite(lower) ? lower : quantile(last_comp, _CONVOLVED_TAIL)
+    hi = isfinite(upper) ? upper : quantile(last_comp, 1 - _CONVOLVED_TAIL)
+    return lo, hi
+end
+
 # ---------------------------------------------------------------------------
 # Numeric convolution (AD-safe fixed-domain Gauss-Legendre)
 # ---------------------------------------------------------------------------
@@ -187,6 +229,18 @@ _convolution_cdf(d::Convolved, x::Real) = _convolved_numeric_cdf(d, x)
 _convolution_pdf(d::UnivariateDistribution, x::Real) = pdf(d, x)
 _convolution_pdf(d::Convolved, x::Real) = _convolved_numeric_pdf(d, x)
 
+# Number of Gauss-Legendre nodes for the convolution quadrature. The
+# batched path integrates every point over one shared window, so a small
+# point whose natural window is much tighter than the shared one is
+# resolved by only the nodes that fall in its sub-range; a peaked
+# component density (e.g. LogNormal) makes this the accuracy-limiting
+# case. n = 192 brings the batched-vs-scalar gap on a typical batch to
+# ~5e-4 (n = 64 left it at ~4e-3) and shrinks it ~15x on a deliberately
+# wide batch. Cost is roughly linear in the node count and still small
+# for these smooth, density-weighted integrands. The scalar path stays
+# the accurate reference; raise this if a batch spans an extreme range.
+const _CONVOLVED_NODES = 192
+
 # Shared fixed-domain quadrature scaffold for the convolution
 #   ∫ kernel(rest, x - t) · f_C(t) dt   over t ∈ support(C),
 # where C is the last component and `rest` the convolution of the others.
@@ -208,7 +262,12 @@ function _convolved_quadrature(
     end
 
     prob = IntegralProblem(integrand, (-one(m), one(m)), (m, h))
-    return solve(prob, GaussLegendre(; n = 64))[1]
+    # `Integrals.solve` returns an `IntegralSolution` whose element type
+    # the compiler leaves as a free parameter (it cannot see through the
+    # quadrature), so `[1]` infers as `Any`. Pin it to the bound type `m`
+    # so the numeric path stays type stable, as the interface methods
+    # expect. (Same Integrals.jl inference gap as `primarycensored_cdf`.)
+    return oftype(m, solve(prob, GaussLegendre(; n = _CONVOLVED_NODES))[1])
 end
 
 # Vector-valued companion: one solve for a batch of points. The integrand
@@ -228,7 +287,11 @@ function _convolved_quadrature_batched(
     end
 
     prob = IntegralProblem(integrand, (-one(m), one(m)), (m, h))
-    return solve(prob, GaussLegendre(; n = 64)).u
+    # Pin the element type (see scalar `_convolved_quadrature`); the
+    # batched callers also re-convert per entry, but this keeps the helper
+    # itself inferrable.
+    return convert(Vector{typeof(m)},
+        solve(prob, GaussLegendre(; n = _CONVOLVED_NODES)).u)
 end
 
 # Numeric convolution CDF.
@@ -262,6 +325,7 @@ function _convolved_numeric_cdf(d::Convolved, x::Real)
 
     upper <= lower && return clamp(saturated, zero(saturated), one(saturated))
 
+    lower, upper = _finite_window(last_comp, lower, upper)
     result = saturated +
              _convolved_quadrature(
         last_comp, rest, _convolution_cdf, x, lower, upper)
@@ -286,6 +350,7 @@ function _convolved_numeric_pdf(d::Convolved, x::Real)
 
     upper <= lower && return zero(float(typeof(x)))
 
+    lower, upper = _finite_window(last_comp, lower, upper)
     result = _convolved_quadrature(
         last_comp, rest, _convolution_pdf, x, lower, upper)
     return max(result, zero(result))
@@ -304,12 +369,18 @@ all component pairs, otherwise AD-safe numeric quadrature.
 
 See also: [`logcdf`](@ref)
 "
+# Concrete return type for the scalar interface methods. Pins the output
+# to a single float type so the analytic/numeric branch (a `Union` from
+# `_maybe_analytic`) does not leak into the inferred return type.
+_convolved_T(d::Convolved, x::Real) = float(promote_type(eltype(d), typeof(x)))
+
 function cdf(d::Convolved, x::Real)
-    analytic = _analytic_convolution(d.components)
+    T = _convolved_T(d, x)
+    analytic = _maybe_analytic(d)
     if analytic !== nothing
-        return cdf(analytic, x)
+        return T(cdf(analytic, x))
     end
-    return _convolved_numeric_cdf(d, x)
+    return T(_convolved_numeric_cdf(d, x))
 end
 
 @doc "
@@ -319,12 +390,13 @@ Compute the log cumulative distribution function.
 See also: [`cdf`](@ref)
 "
 function logcdf(d::Convolved, x::Real)
-    analytic = _analytic_convolution(d.components)
+    T = _convolved_T(d, x)
+    analytic = _maybe_analytic(d)
     if analytic !== nothing
-        return logcdf(analytic, x)
+        return T(logcdf(analytic, x))
     end
     c = _convolved_numeric_cdf(d, x)
-    return c <= 0 ? oftype(float(c), -Inf) : log(c)
+    return c <= 0 ? T(-Inf) : T(log(c))
 end
 
 function ccdf(d::Convolved, x::Real)
@@ -352,11 +424,12 @@ convolution ``f_X(x) = \\int f_R(x - t) f_C(t) \\, dt``.
 See also: [`logpdf`](@ref)
 "
 function pdf(d::Convolved, x::Real)
-    analytic = _analytic_convolution(d.components)
+    T = _convolved_T(d, x)
+    analytic = _maybe_analytic(d)
     if analytic !== nothing
-        return pdf(analytic, x)
+        return T(pdf(analytic, x))
     end
-    return _convolved_numeric_pdf(d, x)
+    return T(_convolved_numeric_pdf(d, x))
 end
 
 @doc "
@@ -366,15 +439,16 @@ Compute the log probability density function.
 See also: [`pdf`](@ref), [`logcdf`](@ref)
 "
 function logpdf(d::Convolved, x::Real)
-    analytic = _analytic_convolution(d.components)
+    T = _convolved_T(d, x)
+    analytic = _maybe_analytic(d)
     if analytic !== nothing
-        return logpdf(analytic, x)
+        return T(logpdf(analytic, x))
     end
     if !insupport(d, x)
-        return oftype(float(x), -Inf)
+        return T(-Inf)
     end
     p = _convolved_numeric_pdf(d, x)
-    return p <= 0 ? oftype(float(x), -Inf) : log(p)
+    return p <= 0 ? T(-Inf) : T(log(p))
 end
 
 # ---------------------------------------------------------------------------
@@ -389,7 +463,7 @@ quadrature solve (the integrand returns a vector).
 See also: [`cdf`](@ref)
 "
 function cdf(d::Convolved, x::AbstractVector{<:Real})
-    analytic = _analytic_convolution(d.components)
+    analytic = _maybe_analytic(d)
     if analytic !== nothing
         return map(xi -> cdf(analytic, xi), x)
     end
@@ -475,7 +549,7 @@ Compute densities for a vector of points using a single quadrature solve
 See also: [`pdf`](@ref)
 "
 function pdf(d::Convolved, x::AbstractVector{<:Real})
-    analytic = _analytic_convolution(d.components)
+    analytic = _maybe_analytic(d)
     if analytic !== nothing
         return map(xi -> pdf(analytic, xi), x)
     end
@@ -490,7 +564,7 @@ solve for the numeric path.
 See also: [`logpdf`](@ref), [`pdf`](@ref)
 "
 function logpdf(d::Convolved, x::AbstractVector{<:Real})
-    analytic = _analytic_convolution(d.components)
+    analytic = _maybe_analytic(d)
     if analytic !== nothing
         return map(xi -> logpdf(analytic, xi), x)
     end
