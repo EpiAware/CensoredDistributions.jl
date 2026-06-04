@@ -30,11 +30,11 @@ Where an analytical convolution is available (`Distributions.convolve`
 applies, e.g. `Normal`+`Normal`, equal-scale `Gamma`, equal-rate
 `Exponential`) the two-component result is taken directly from the
 convolved distribution unless `force_numeric` is set. All other cases use
-AD-safe fixed-node Gauss-Legendre quadrature mirroring
-`primarycensored_cdf`: the integral is mapped onto the fixed reference
-domain ``(-1, 1)`` with the real bounds carried as `params` and the
-change of variable applied inside the integrand, keeping the
-Integrals.jl reverse rule on the AD path.
+AD-safe fixed-node Gauss-Legendre quadrature: the integral is mapped from
+the fixed reference domain ``(-1, 1)`` onto the real bounds inside the
+integrand and reduced as a bare weighted dot product (`gl_integrate`),
+which lets every AD backend specialise on the integrand's own type so
+component `Dual`s and tangents propagate.
 
 The `force_numeric` field forces the numeric quadrature path even when an
 analytic convolution exists, mirroring `primary_censored`; it is useful
@@ -205,7 +205,7 @@ function _finite_window(last_comp, lower::Real, upper::Real)
 end
 
 # ---------------------------------------------------------------------------
-# Numeric convolution (AD-safe fixed-domain Gauss-Legendre)
+# Numeric convolution (AD-safe Gauss-Legendre dot product)
 # ---------------------------------------------------------------------------
 
 # Integrate the last component out against a function `kernel` of the
@@ -241,55 +241,84 @@ _convolution_pdf(d::Convolved, x::Real) = _convolved_numeric_pdf(d, x)
 # the accurate reference; raise this if a batch spans an extreme range.
 const _CONVOLVED_NODES = 192
 
-# Shared fixed-domain quadrature scaffold for the convolution
-#   ∫ kernel(rest, x - t) · f_C(t) dt   over t ∈ support(C),
-# where C is the last component and `rest` the convolution of the others.
-# The integral is mapped onto the fixed reference domain (-1, 1) with the
-# real bounds carried as `params` and the change of variable t = m + h·s
-# applied inside the integrand, so the Integrals.jl reverse rule stays on
-# the parameter-tangent AD path. `kernel` is `_convolution_cdf` (CDF) or
-# `_convolution_pdf` (PDF). Returns the bare integral; callers add any
-# saturated constant and clamp.
-function _convolved_quadrature(
-        last_comp, rest, kernel::F, x::Real, lower, upper) where {F}
-    m = (lower + upper) / 2
-    h = (upper - lower) / 2
-
-    function integrand(s, p)
-        m_, h_ = p
-        t = m_ + h_ * s
-        return h_ * kernel(rest, x - t) * pdf(last_comp, t)
-    end
-
-    prob = IntegralProblem(integrand, (-one(m), one(m)), (m, h))
-    # NB: `solve(...)[1]` infers as `Any` (Integrals.jl hides the element
-    # type behind the quadrature). Pinning it to the integrand's own type
-    # broke Enzyme-forward / Mooncake-reverse, so the numeric path is left
-    # type-unstable for now; the Integrals.jl-free `gl_integrate` rewrite
-    # (#208) restores type stability AD-safely.
-    return solve(prob, GaussLegendre(; n = _CONVOLVED_NODES))[1]
+# Fixed Gauss-Legendre rule carrying its own reference nodes/weights on
+# `[-1, 1]`, built once at load. Holding the nodes/weights directly (and
+# calling the integrand inline in `_gl_reduce`) rather than going through
+# an Integrals.jl `IntegralProblem`/`solve` boundary lets Julia specialise
+# on the integrand's concrete return type, so `Dual`s and AD tangents
+# propagate and the result type is inferred. This is the AD-safe pattern
+# from epiforecasts/BVDOutbreakSize `src/integrate.jl`.
+struct _GL{N, W}
+    nodes::N
+    weights::W
 end
 
-# Vector-valued companion: one solve for a batch of points. The integrand
-# returns a vector (one entry per point), so a single Gauss-Legendre call
-# serves the whole batch over the shared window [lower, upper].
+_GL(n::Int) = _GL(FastGaussQuadrature.gausslegendre(n)...)
+
+const _CONVOLVED_GL = _GL(_CONVOLVED_NODES)
+
+# Reduce an integrand `g` over the reference domain `[-1, 1]` against the
+# `alg` rule. Seeding `acc` with `weights[1] * g(nodes[1])` fixes the
+# accumulator's element type from the integrand itself, so a component
+# `Dual` flows into the result rather than being forced to `Float64`.
+@inline function _gl_reduce(g::G, alg::_GL) where {G}
+    n, w = alg.nodes, alg.weights
+    @inbounds acc = w[1] * g(n[1])
+    @inbounds for i in 2:length(n)
+        acc += w[i] * g(n[i])
+    end
+    return acc
+end
+
+# Integrate a scalar function `f` over `[lo, hi]` by Gauss-Legendre
+# quadrature, mapping the reference domain `[-1, 1]` onto `[lo, hi]` inside
+# the integrand. Returns a typed zero when `hi <= lo`.
+function gl_integrate(f::F, lo, hi, alg::_GL = _CONVOLVED_GL) where {F}
+    hi <= lo && return zero(f(lo))
+    h = (hi - lo) / 2
+    m = (lo + hi) / 2
+    return h * _gl_reduce(s -> f(m + h * s), alg)
+end
+
+# Scalar convolution quadrature:
+#   ∫ kernel(rest, x - t) · f_C(t) dt   over t ∈ [lower, upper],
+# where C is the last component and `rest` the convolution of the others.
+# `kernel` is `_convolution_cdf` (CDF) or `_convolution_pdf` (PDF).
+# Returns the bare integral; callers add any saturated constant and clamp.
+function _convolved_quadrature(
+        last_comp, rest, kernel::F, x::Real, lower, upper) where {F}
+    return gl_integrate(
+        t -> kernel(rest, x - t) * pdf(last_comp, t), lower, upper)
+end
+
+# Vector-valued companion: one quadrature pass for a batch of points. Each
+# node's `f_C(t)` factor is evaluated once and reused across every point,
+# and the accumulator vector's element type is seeded from the first
+# node's contribution so `Dual`s propagate (mirroring `_gl_reduce`).
 function _convolved_quadrature_batched(
         last_comp, rest, kernel::F,
         x::AbstractVector{<:Real}, lower, upper) where {F}
-    m = (lower + upper) / 2
-    h = (upper - lower) / 2
-
-    function integrand(s, p)
-        m_, h_ = p
-        t = m_ + h_ * s
-        ft = pdf(last_comp, t)
-        return [h_ * kernel(rest, xi - t) * ft for xi in x]
+    if upper <= lower
+        z = zero(kernel(rest, first(x) - lower) * pdf(last_comp, lower))
+        return fill(z, length(x))
     end
+    h = (upper - lower) / 2
+    m = (lower + upper) / 2
+    n, w = _CONVOLVED_GL.nodes, _CONVOLVED_GL.weights
 
-    prob = IntegralProblem(integrand, (-one(m), one(m)), (m, h))
-    # Left type-unstable for now (see scalar `_convolved_quadrature`); the
-    # `gl_integrate` rewrite (#208) restores type stability AD-safely.
-    return solve(prob, GaussLegendre(; n = _CONVOLVED_NODES)).u
+    @inbounds begin
+        t1 = m + h * n[1]
+        ft1 = pdf(last_comp, t1)
+        acc = [w[1] * kernel(rest, xi - t1) * ft1 for xi in x]
+        for i in 2:length(n)
+            ti = m + h * n[i]
+            fti = pdf(last_comp, ti)
+            for j in eachindex(x)
+                acc[j] += w[i] * kernel(rest, x[j] - ti) * fti
+            end
+        end
+    end
+    return h .* acc
 end
 
 # Numeric convolution CDF.
@@ -367,18 +396,12 @@ all component pairs, otherwise AD-safe numeric quadrature.
 
 See also: [`logcdf`](@ref)
 "
-# Concrete return type for the scalar interface methods. Pins the output
-# to a single float type so the analytic/numeric branch (a `Union` from
-# `_maybe_analytic`) does not leak into the inferred return type.
-_convolved_T(d::Convolved, x::Real) = float(promote_type(eltype(d), typeof(x)))
-
 function cdf(d::Convolved, x::Real)
-    T = _convolved_T(d, x)
     analytic = _maybe_analytic(d)
     if analytic !== nothing
-        return T(cdf(analytic, x))
+        return cdf(analytic, x)
     end
-    return T(_convolved_numeric_cdf(d, x))
+    return _convolved_numeric_cdf(d, x)
 end
 
 @doc "
@@ -388,13 +411,12 @@ Compute the log cumulative distribution function.
 See also: [`cdf`](@ref)
 "
 function logcdf(d::Convolved, x::Real)
-    T = _convolved_T(d, x)
     analytic = _maybe_analytic(d)
     if analytic !== nothing
-        return T(logcdf(analytic, x))
+        return logcdf(analytic, x)
     end
     c = _convolved_numeric_cdf(d, x)
-    return c <= 0 ? T(-Inf) : T(log(c))
+    return c <= 0 ? oftype(float(c), -Inf) : log(c)
 end
 
 function ccdf(d::Convolved, x::Real)
@@ -422,12 +444,11 @@ convolution ``f_X(x) = \\int f_R(x - t) f_C(t) \\, dt``.
 See also: [`logpdf`](@ref)
 "
 function pdf(d::Convolved, x::Real)
-    T = _convolved_T(d, x)
     analytic = _maybe_analytic(d)
     if analytic !== nothing
-        return T(pdf(analytic, x))
+        return pdf(analytic, x)
     end
-    return T(_convolved_numeric_pdf(d, x))
+    return _convolved_numeric_pdf(d, x)
 end
 
 @doc "
@@ -437,16 +458,15 @@ Compute the log probability density function.
 See also: [`pdf`](@ref), [`logcdf`](@ref)
 "
 function logpdf(d::Convolved, x::Real)
-    T = _convolved_T(d, x)
     analytic = _maybe_analytic(d)
     if analytic !== nothing
-        return T(logpdf(analytic, x))
+        return logpdf(analytic, x)
     end
     if !insupport(d, x)
-        return T(-Inf)
+        return oftype(float(x), -Inf)
     end
     p = _convolved_numeric_pdf(d, x)
-    return p <= 0 ? T(-Inf) : T(log(p))
+    return p <= 0 ? oftype(float(x), -Inf) : log(p)
 end
 
 # ---------------------------------------------------------------------------

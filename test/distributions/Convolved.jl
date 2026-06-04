@@ -167,6 +167,42 @@ end
     @test mean(samples) ≈ mean(a) + mean(b) atol=2e-2
 end
 
+@testitem "Convolved numeric path with unbounded-below component" begin
+    using Distributions, Random, Statistics
+
+    # Gamma + Normal has an unbounded-below integration component, so the
+    # numeric quadrature window starts at -Inf and must be clamped to a
+    # finite quantile (the `_CONVOLVED_TAIL` window) before the
+    # Gauss-Legendre mapping. Without the clamp the change of variable maps
+    # an infinite bound and the scalar cdf/pdf return NaN.
+    rng = MersenneTwister(91)
+    a = Gamma(2.0, 1.0)
+    b = Normal(0.0, 1.0)
+    d = generic_convolve(a, b)
+
+    @test minimum(d) == -Inf
+    @test maximum(d) == Inf
+
+    n = 400_000
+    samples = [rand(rng, a) + rand(rng, b) for _ in 1:n]
+
+    for q in (-1.0, 1.0, 3.0, 5.0)
+        c = cdf(d, q)
+        p = pdf(d, q)
+        @test isfinite(c)
+        @test isfinite(p)
+        @test 0.0 <= c <= 1.0
+        @test p >= 0.0
+        @test insupport(d, q)
+        @test c ≈ mean(samples .<= q) atol=5e-3
+    end
+
+    # Scalar and batched paths agree for the unbounded-below component.
+    xs = [-1.0, 0.5, 2.0, 4.0]
+    @test cdf(d, xs) ≈ [cdf(d, x) for x in xs] rtol=5e-4
+    @test pdf(d, xs) ≈ [pdf(d, x) for x in xs] rtol=1e-3
+end
+
 @testitem "Convolved pdf matches analytic and Monte Carlo" begin
     using Distributions, Random, Statistics
 
@@ -396,23 +432,21 @@ end
     @test rand(rng, d) isa Real
 end
 
-@testitem "Convolved scalar methods value-correct (type stability #208)" begin
+@testitem "Convolved scalar methods value-correct and inferrable" begin
     using Distributions, Test
 
-    # The interface methods always return a `Float64` value, but their
-    # return type is not yet inferrable: `Integrals.solve` hides the
-    # quadrature element type behind a free type parameter (the same gap
-    # `primarycensored_cdf` has), and pinning it broke Enzyme-forward /
-    # Mooncake-reverse. Type stability is deferred to the Integrals.jl-free
-    # `gl_integrate` rewrite (#208). Here we lock in the value type and use
-    # `@test_broken` for inference so the marker flips once #208 lands.
+    # The interface methods return a concrete `Float64` and infer as such.
+    # The numeric path uses the Integrals.jl-free `gl_integrate` dot
+    # product, whose accumulator type is seeded from the integrand, so the
+    # quadrature element type no longer leaks as `Any` (the gap closed in
+    # #208; previously `Integrals.solve` hid it behind a free parameter).
     analytic = generic_convolve(Normal(0.0, 1.0), Normal(1.0, 2.0))
     numeric = generic_convolve(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     for d in (analytic, numeric)
         for f in (cdf, logcdf, pdf, logpdf, ccdf, logccdf)
             @test f(d, 3.0) isa Float64
         end
-        @test_broken (@inferred(cdf(d, 3.0)); true)
-        @test_broken (@inferred(pdf(d, 3.0)); true)
+        @test (@inferred(cdf(d, 3.0)); true)
+        @test (@inferred(pdf(d, 3.0)); true)
     end
 end
