@@ -139,7 +139,9 @@ function _try_convolve(a::Normal, b::Normal)
 end
 
 function _try_convolve(a::Exponential, b::Exponential)
-    return Distributions.convolve(a, b)
+    # convolve(::Exponential, ::Exponential) asserts equal rate and throws
+    # otherwise, so guard the parameters and fall back to numeric.
+    return scale(a) ≈ scale(b) ? Distributions.convolve(a, b) : nothing
 end
 
 function _try_convolve(a::Gamma, b::Gamma)

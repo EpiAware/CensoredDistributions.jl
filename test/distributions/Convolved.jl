@@ -71,6 +71,35 @@ end
     for x in -5.0:1.0:8.0
         @test cdf(d3, x) ≈ cdf(ref3, x) atol=1e-10
     end
+
+    # Equal-rate Exponentials convolve to a Gamma analytically
+    e1 = Exponential(1.5)
+    de = convolved(e1, Exponential(1.5))
+    refe = convolve(e1, Exponential(1.5))
+    for x in 0.5:1.0:10.0
+        @test cdf(de, x) ≈ cdf(refe, x) atol=1e-10
+    end
+end
+
+@testitem "Convolved unsupported analytic pairs use numeric path" begin
+    using Distributions, Random, Statistics
+
+    # Different-scale Gamma and different-rate Exponential have no
+    # closed-form convolution; these must fall back to numeric quadrature
+    # rather than throwing from Distributions.convolve.
+    rng = MersenneTwister(7)
+
+    dg = convolved(Gamma(2.0, 1.0), Gamma(3.0, 2.0))
+    @test 0.0 <= cdf(dg, 5.0) <= 1.0
+    sg = [rand(rng, Gamma(2.0, 1.0)) + rand(rng, Gamma(3.0, 2.0))
+          for _ in 1:200_000]
+    @test cdf(dg, 8.0) ≈ mean(sg .<= 8.0) atol=5e-3
+
+    de = convolved(Exponential(1.0), Exponential(2.0))
+    @test 0.0 <= cdf(de, 3.0) <= 1.0
+    se = [rand(rng, Exponential(1.0)) + rand(rng, Exponential(2.0))
+          for _ in 1:200_000]
+    @test cdf(de, 3.0) ≈ mean(se .<= 3.0) atol=5e-3
 end
 
 @testitem "Convolved numeric path matches Monte Carlo" begin
