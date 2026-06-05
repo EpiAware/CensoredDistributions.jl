@@ -54,7 +54,14 @@
             type_stability = :none,
             logging = false,
             rtol = 5e-2,
-            atol = 1e-6
+            atol = 1e-6,
+            # The post-run `scen == scen` integrity check compares the
+            # `Constant` context data element-wise; the auto-missingness
+            # scenarios carry a `Union{Missing}` primary vector, and `missing ==
+            # missing` is `missing` (not a Bool), which errors that check. The
+            # gradient correctness itself is unaffected, so skip the intact
+            # comparison.
+            scenario_intact = false
         )
         check_broken(broken_scens, backend)
     end
