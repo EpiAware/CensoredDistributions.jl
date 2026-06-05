@@ -539,6 +539,142 @@ and the 90% credible intervals include the true parameters.
 """
 
 md"""
+## Using the censored submodels
+
+The model above hand-rolls the likelihood with `obs ~ weight(pcens_dists)`.
+When `Turing` (or `DynamicPPL`) is loaded, `CensoredDistributions.jl`
+provides ready-made submodels for the censored distributions, so we do not
+have to write the likelihood term ourselves:
+
+- `primary_censored_model(d, y)`
+- `interval_censored_model(d, y)`
+- `double_interval_censored_model(d, y)`
+
+These come from a `DynamicPPL` extension. The base package stays
+Turing-free; the submodels load only when a Turing-stack package is
+present (as it is in this tutorial). Each submodel reads the distribution's
+already-resolved formulation `mode` and scores the right thing: a marginal
+distribution is scored through `logpdf`, while a `Latent()` distribution
+declares its primary event as a sampler-owned latent inside the submodel.
+
+Below we refit the full double-censored model using
+`double_interval_censored_model`. The multiplicity counts enter through the
+submodel's `weight` keyword, which uses the same `weight` distribution
+wrapper as before, so the contribution is still `count * logpdf`.
+"""
+
+@model function submodel_double_censored(pwindows, swindows, obs_times, ys, ns)
+    dist ~ to_submodel(latent_delay_dist())
+
+    for i in eachindex(ys)
+        d = double_interval_censored(
+            dist;
+            primary_event = Uniform(0, pwindows[i]),
+            upper = obs_times[i],
+            interval = swindows[i]
+        )
+        obs ~ to_submodel(
+            prefix(
+                double_interval_censored_model(d, ys[i]; weight = ns[i]),
+                Symbol("obs", i)
+            ),
+            false
+        )
+    end
+end
+
+md"""
+We instantiate the model directly on the aggregated unique combinations
+and their counts, fix nothing (the windows are passed as data), and fit:
+"""
+
+submodel_mdl = @with simulated_counts begin
+    submodel_double_censored(
+        :pwindows, :swindows, :obs_times, :obs, :n
+    )
+end
+
+submodel_fit = sample(
+    submodel_mdl,
+    NUTS(; adtype = AutoMooncakeForward()), MCMCThreads(), 1000, 4;
+    chain_type = VNChain
+);
+
+summarystats(submodel_fit)
+
+md"""
+The pair plot shows the same parameter recovery as the hand-rolled model,
+now with the likelihood supplied by the submodel:
+"""
+
+plot_fit_with_truth(
+    submodel_fit,
+    (; mu = meanlog, sigma = sdlog)
+)
+
+md"""
+### Switching to the latent formulation
+
+The decision to marginalise the primary event or to keep it as a
+sampler-owned latent lives on the distribution, via its `mode`. To switch
+the model from the marginal default to the latent formulation we change
+**only** the distribution build, adding `mode = Latent()` to the inner
+`primary_censored`; the model body and the `double_interval_censored_model`
+call are unchanged. The submodel dispatches on the resolved mode and
+declares the latent primary internally.
+
+Here we demonstrate the latent switch on the primary-censored delay alone
+(without the interval and truncation layers, which marginalise the
+continuous delay and so are scored marginally). Each observation gets its
+own latent primary event, so the latent path vectorises over records rather
+than weighting aggregated counts.
+"""
+
+@model function submodel_latent_primary(pwindows, ys)
+    dist ~ to_submodel(latent_delay_dist())
+
+    for i in eachindex(ys)
+        d = primary_censored(
+            dist, Uniform(0, pwindows[i]); mode = Latent()
+        )
+        obs ~ to_submodel(
+            prefix(
+                primary_censored_model(d, ys[i]),
+                Symbol("obs", i)
+            ),
+            false
+        )
+    end
+end
+
+md"""
+We fit a small latent model on a subset of the simulated delays to keep
+the documentation build quick (the latent formulation samples one primary
+event per observation, so it is heavier than the marginal default):
+"""
+
+latent_subset = first(simulated_data, 200)
+
+latent_primary_mdl = @with latent_subset begin
+    submodel_latent_primary(:pwindows, :obs .+ 1e-6)
+end
+
+latent_primary_fit = sample(
+    latent_primary_mdl,
+    NUTS(; adtype = AutoMooncakeForward()), 500;
+    chain_type = VNChain
+);
+
+summarystats(latent_primary_fit)
+
+md"""
+The latent fit recovers the same delay parameters, demonstrating the
+marginal-versus-latent equivalence: the marginal default integrates the
+primary event out inside `logpdf`, while the latent formulation samples it,
+and switching between them needs only the `mode` flag on the distribution.
+"""
+
+md"""
 ## Working with FlexiChains output
 
 Because we asked Turing to return a `VNChain`, the posterior is keyed
