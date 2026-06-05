@@ -3,19 +3,19 @@ module CensoredDistributions
 # Non-submodule imports
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS, TYPEDEF, TYPEDFIELDS,
                            TYPEDSIGNATURES
-using Random: AbstractRNG
+using Random: AbstractRNG, default_rng
 
 # Explicit imports approach for issue #121
 # Import functions that we extend (for method extension)
 import Distributions: params, insupport, pdf, logpdf, cdf, logcdf,
                       ccdf, logccdf, quantile, mean, var, std, median, sampler,
-                      loglikelihood
+                      loglikelihood, truncated
 # Import from Base for functions we extend that are re-exported by Distributions
 import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
 using Distributions: Distributions, Distribution, Multivariate,
                      UnivariateDistribution, Continuous,
-                     ValueSupport, Truncated, Product, Censored, truncated,
+                     ValueSupport, Truncated, Product, Censored,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
                      Weibull, Normal, shape, scale, meanlogx, stdlogx,
                      _in_closed_interval

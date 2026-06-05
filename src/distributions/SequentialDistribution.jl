@@ -1,106 +1,115 @@
+# Internal alias for the convolution constructor. The function was renamed
+# from `generic_convolve` to `convolve_distributions`; bind whichever the
+# loaded module exports so this file builds on either base. New code below
+# calls `_convolve` exclusively.
+const _convolve = isdefined(@__MODULE__, :convolve_distributions) ?
+                  convolve_distributions : generic_convolve
+
 @doc """
 
-Distribution of the observed gaps along a chain of sequential delays with
-mixed observed / unobserved intermediate events.
+Data-free distribution of a chain of sequential delays evaluated against a
+per-event observation vector that may contain `Missing`.
 
 A chain ``E_0 \\to E_1 \\to \\dots \\to E_k`` links events through delays
-``D_1, \\dots, D_k`` where ``D_i`` is the delay from ``E_{i-1}`` to
-``E_i``. Each event carries an observation specification: an *unobserved*
-event (`Missing`) is marginalised by convolution over its delay; an
-*observed* event cuts the chain there and is conditioned on.
-`SequentialDistribution` is the multivariate distribution of the gaps
-between consecutive observed events.
+``D_1, \\dots, D_k`` where ``D_i`` is the continuous delay from ``E_{i-1}``
+to ``E_i``. `SequentialDistribution` stores only the delays and the
+censoring parameters, never the data. The observation vector is supplied to
+[`logpdf`](@ref) at evaluation time, and the marginalise-versus-condition
+choice is made per record from the missingness pattern of that vector.
 
-The chain is split at construction into independent **segments**, one per
-consecutive pair of observed events:
+For a given observation vector with entries ``E_0, \\dots, E_k`` (each a
+value or `Missing`):
 
-- a maximal run of delays between two observed events (the events between
-  them unobserved) becomes one convolution segment
-  ([`generic_convolve`](@ref) over the run);
-- a single delay between two adjacent observed events becomes one factor
-  segment (that delay directly).
+- an **unobserved** intermediate event (`Missing`) is marginalised: the run
+  of delays it spans is convolved (via the convolution constructor) and
+  evaluated at the observed gap between the two surrounding observed events;
+- an **observed** intermediate event cuts the chain there and conditions:
+  its adjacent delay becomes an independent factor evaluated at the observed
+  gap.
 
-Censoring attaches to events, not to delays. Primary event censoring is
-applied at the origin end of the *first* segment; truncation (`upper`) and
-interval censoring (`interval`) are applied at the observed end of *each*
-segment, via [`double_interval_censored`](@ref). Two adjacent observed
-intermediate events therefore yield two separate double-censored factors,
-never a convolution of two interval-censored quantities.
-
-The segments condition only on their two surrounding observed events, so
-they are independent and the joint log-density factorises:
+The log-density is the scalar sum of the per-segment log-densities at the
+observed gaps:
 
 ```math
-\\log f(g_1, \\dots, g_m) = \\sum_{j=1}^m \\log f_{S_j}(g_j),
+\\log f(E_0, \\dots, E_k) = \\sum_{j=1}^m \\log f_{S_j}(g_j),
 ```
 
-where ``g_j`` is the observed gap for segment ``S_j`` and ``m`` is the
-number of segments (one fewer than the number of observed events). This is
-the composition layer over the existing convolution and censoring
-primitives; it adds no new quadrature.
+where the segments ``S_j`` and their gaps ``g_j`` are determined by the
+observation vector's missingness, and ``m`` is one fewer than the number of
+observed events.
+
+# Automatic differentiation
+
+`logpdf` is safe to differentiate with the observation vector passed as a
+constant. The missingness pattern drives only control flow when grouping the
+chain into segments; the differentiated arithmetic sees only the concrete
+observed values, so no `Union{Missing}` type ever enters the gradient tape.
+This is verified across every supported backend.
+
+# Censoring
+
+Censoring attaches to events, not to delays. Primary event censoring is
+applied at the origin end of the first segment; interval censoring and
+right-truncation to the observation horizon are applied at the observed end
+of each segment, via [`double_interval_censored`](@ref) and the
+[`truncated`](@ref) method on this type.
 
 # See also
 - [`sequential_distribution`](@ref): Constructor function
-- [`generic_convolve`](@ref): Marginalises an unobserved run
+- [`logpdf`](@ref): Per-record missingness-dispatched evaluation
 - [`double_interval_censored`](@ref): Per-segment censoring
 """
-struct SequentialDistribution{S <: Tuple} <:
-       Distribution{Multivariate, Continuous}
-    "Tuple of independent univariate gap distributions, one per segment."
-    segments::S
+struct SequentialDistribution{
+    D <: Tuple, P, I, H} <: Distribution{Multivariate, Continuous}
+    "Tuple of the continuous delay distributions ``D_1, \\dots, D_k``."
+    delays::D
+    "Primary event distribution censoring the origin, or `nothing`."
+    primary_event::P
+    "Secondary interval-censoring width, or `nothing`."
+    interval::I
+    "Right-truncation horizon (observation cut-off), or `nothing`."
+    horizon::H
+    "Whether to force numeric primary-censoring integration."
+    force_numeric::Bool
 
-    function SequentialDistribution(segments::S) where {S <: Tuple}
-        length(segments) >= 1 ||
-            throw(ArgumentError("SequentialDistribution needs at least one segment"))
-        all(s -> s isa UnivariateDistribution, segments) ||
-            throw(ArgumentError(
-                "all segments must be UnivariateDistributions"))
-        new{S}(segments)
+    function SequentialDistribution(
+            delays::D, primary_event::P, interval::I, horizon::H,
+            force_numeric::Bool) where {D <: Tuple, P, I, H}
+        length(delays) >= 1 ||
+            throw(ArgumentError("SequentialDistribution needs >= 1 delay"))
+        all(d -> d isa UnivariateDistribution, delays) ||
+            throw(ArgumentError("all delays must be UnivariateDistributions"))
+        new{D, P, I, H}(
+            delays, primary_event, interval, horizon, force_numeric)
     end
 end
 
 @doc """
 
-Build a [`SequentialDistribution`](@ref) from a chain's delays and per-event
-observations (event-first interface).
+Build a [`SequentialDistribution`](@ref) from a chain's continuous delays and
+its censoring parameters.
 
-`delays[i]` is the *continuous* delay distribution ``D_i`` from event
-``E_{i-1}`` to ``E_i``, so `delays` has length ``k`` and `observations`
-has length ``k + 1`` (one entry per event ``E_0, \\dots, E_k``). An
-observation entry is either `Missing` (the event is unobserved and its
-delay marginalised) or a value (the event is observed and conditioned on,
-cutting the chain there).
+`delays[i]` is the continuous delay distribution ``D_i`` from event
+``E_{i-1}`` to ``E_i``. The distribution is data-free: which events are
+observed is decided per record from the observation vector passed to
+[`logpdf`](@ref), not at construction.
 
-The constructor finds the observed events, then for each consecutive pair
-groups the spanning delays into one segment: a single delay between
-adjacent observed events becomes one factor, a run of two or more delays
-(unobserved events between the pair) becomes one [`generic_convolve`](@ref).
-Per-event censoring is then applied as a unit to each segment via
-[`double_interval_censored`](@ref): `primary_event` at the origin end of
-the first segment, and `upper` / `interval` at the observed end of every
-segment. Unobserved events at the ends of the chain (before the first or
-after the last observed event) carry no segment and are dropped.
-
-Pass *continuous* delays only: never pre-wrap a component in
-`primary_censored` / `double_interval_censored` here, since censoring is
-driven by the observation specification. To compose pre-built segment
-distributions directly, use the escape-hatch method
-[`sequential_distribution(segments)`](@ref).
+Pass continuous delays only. Censoring is driven by the observation vector
+and the keyword parameters below, not by pre-wrapping a component in
+`primary_censored` or `double_interval_censored`.
 
 # Arguments
-- `delays`: Vector/tuple of the ``k`` continuous delay
+- `delays`: Vector or tuple of the ``k`` continuous delay
   `UnivariateDistribution`s.
-- `observations`: Vector of length ``k + 1`` of observed event times or
-  `Missing`.
 
 # Keyword Arguments
-- `primary_event`: Primary event distribution censoring the origin ``E_0``;
+- `primary_event`: Primary event distribution censoring the origin ``E_0``,
   applied to the first segment. Defaults to `nothing` (no primary
   censoring).
-- `upper`: Truncation horizon applied at the observed end of each segment.
-  Defaults to `nothing`.
-- `interval`: Secondary interval-censoring width applied at the observed
-  end of each segment. Defaults to `nothing`.
+- `interval`: Secondary interval-censoring width applied at the observed end
+  of each segment. Defaults to `nothing`.
+- `horizon`: Right-truncation horizon applied at the observed end of each
+  segment. Defaults to `nothing`.
 - `force_numeric`: Force numeric primary-censoring integration. Defaults to
   `false`.
 
@@ -108,258 +117,229 @@ distributions directly, use the escape-hatch method
 ```@example
 using CensoredDistributions, Distributions
 
-# Three delays, middle event unobserved: segments are
-# (D1 ⊕ D2) for the first gap and D3 for the second.
 delays = [Gamma(2.0, 1.0), Gamma(1.0, 1.0), LogNormal(0.5, 0.4)]
-obs = [0.0, missing, 3.0, 5.0]
-d = sequential_distribution(delays, obs)
-logpdf(d, [3.0, 2.0])
+d = sequential_distribution(delays)
+# Middle event unobserved: first gap marginalises D1+D2, second is D3.
+logpdf(d, [0.0, missing, 3.0, 5.0])
 ```
 
 # See also
 - [`SequentialDistribution`](@ref): The distribution type
-- [`double_interval_censored`](@ref): Per-segment censoring
+- [`logpdf`](@ref): Per-record missingness-dispatched evaluation
 """
 function sequential_distribution(
-        delays::AbstractVector{<:UnivariateDistribution},
-        observations::AbstractVector{<:Union{Missing, Real}};
-        kwargs...)
-    length(observations) == length(delays) + 1 || throw(ArgumentError(
-        "observations must have length(delays) + 1 entries " *
-        "(one per event E0..Ek)"))
-    # Derive the design (which events are observed) from the value pattern:
-    # `Missing` means unobserved-by-design, a value means observed. The
-    # values themselves do not enter the gap distributions (gaps are
-    # differences), only the observed/unobserved pattern does.
-    observed = [!(o === missing) for o in observations]
-    return sequential_distribution(delays, observed; kwargs...)
+        delays::AbstractVector{<:UnivariateDistribution};
+        primary_event = nothing, interval = nothing, horizon = nothing,
+        force_numeric::Bool = false)
+    return SequentialDistribution(
+        Tuple(delays), primary_event, interval, horizon, force_numeric)
 end
+
+function sequential_distribution(
+        delays::Tuple; primary_event = nothing, interval = nothing,
+        horizon = nothing, force_numeric::Bool = false)
+    return SequentialDistribution(
+        delays, primary_event, interval, horizon, force_numeric)
+end
+
+# Number of delays (chain edges).
+_nedges(d::SequentialDistribution) = length(d.delays)
+
+Base.length(d::SequentialDistribution) = _nedges(d)
+
+function Base.eltype(::Type{<:SequentialDistribution{D}}) where {D <: Tuple}
+    return mapreduce(eltype, promote_type, fieldtypes(D))
+end
+
+params(d::SequentialDistribution) = map(params, d.delays)
+
+# ---------------------------------------------------------------------------
+# Right-truncation as a `truncated` method on the chain
+# ---------------------------------------------------------------------------
 
 @doc """
 
-Build a [`SequentialDistribution`](@ref) from a chain's delays and an
-observation *design* (structure-first interface).
+Right-truncate a [`SequentialDistribution`](@ref) to an observation horizon.
 
-`delays[i]` is the continuous delay ``D_i`` from ``E_{i-1}`` to ``E_i``
-(length ``k``); `observed[i]` is `true` when event ``E_{i-1}`` is observed
-and `false` when it is unobserved-by-design (length ``k + 1``, one per
-event ``E_0, \\dots, E_k``).
-
-This constructor takes the design only, with no observed values, so the
-returned distribution can be sampled (`rand(d)` simulates the observed
-gaps) before any data exist, and evaluated (`logpdf(d, gaps)`) once gaps
-are available. The value-pattern method
-[`sequential_distribution(delays, observations)`](@ref) derives this
-boolean design from a `Missing`/value vector for inference.
-
-Segments and per-segment censoring are assembled exactly as for the
-value-pattern method (convolve unobserved runs, factorise observed-adjacent
-delays, primary at the origin end of the first segment, `upper`/`interval`
-at the observed end of each segment).
+Returns a copy of `d` carrying `horizon` as its right-truncation cut-off.
+The truncation denominator is applied per record inside [`logpdf`](@ref):
+for a segment whose intermediate events are observed the denominator is the
+single-delay CDF up to the remaining window, while for a segment spanning
+unobserved events it is the CDF of the convolution of those delays. The
+correct denominator is chosen from the observation vector's missingness, so
+a single horizon expresses both forms without a separate mask.
 
 # Arguments
-- `delays`: Vector of the ``k`` continuous delay `UnivariateDistribution`s.
-- `observed`: Boolean vector of length ``k + 1`` marking observed events.
-
-# Keyword Arguments
-- `primary_event`, `upper`, `interval`, `force_numeric`: as for the
-  value-pattern method.
+- `d`: the chain to right-truncate.
+- `horizon`: the observation cut-off time.
 
 # Examples
 ```@example
 using CensoredDistributions, Distributions
 
-delays = [Gamma(2.0, 1.0), Gamma(1.0, 1.0), LogNormal(0.5, 0.4)]
-# E0, E2, E3 observed; E1 unobserved-by-design.
-d = sequential_distribution(delays, [true, false, true, true])
-sim_gaps = rand(d)
-logpdf(d, sim_gaps)
+d = sequential_distribution([Gamma(2.0, 1.0), Gamma(1.5, 1.0)])
+dt = truncated(d, 8.0)
+logpdf(dt, [0.0, missing, 4.0])
 ```
 
 # See also
 - [`SequentialDistribution`](@ref): The distribution type
+- [`logpdf`](@ref): Applies the per-record truncation denominator
 """
-function sequential_distribution(
-        delays::AbstractVector{<:UnivariateDistribution},
-        observed::AbstractVector{Bool};
-        primary_event = nothing, upper = nothing, interval = nothing,
-        force_numeric::Bool = false)
-    length(observed) == length(delays) + 1 || throw(ArgumentError(
-        "observed must have length(delays) + 1 entries " *
-        "(one per event E0..Ek)"))
+function truncated(d::SequentialDistribution, horizon::Real)
+    return SequentialDistribution(
+        d.delays, d.primary_event, d.interval, horizon, d.force_numeric)
+end
 
-    # Indices (1-based over events E0..Ek) of the observed events.
-    obs_idx = [i for i in eachindex(observed) if observed[i]]
+# ---------------------------------------------------------------------------
+# logpdf: per-record missingness dispatch returning a scalar
+# ---------------------------------------------------------------------------
+
+@doc """
+
+Compute the joint log probability density of a chain observation vector.
+
+`observations` has one entry per event ``E_0, \\dots, E_k`` (length
+`length(d) + 1`); each entry is a value (the event is observed) or `Missing`
+(the event is unobserved). The chain is grouped into segments from the
+missingness pattern, each segment is built and censored, and the result is
+the scalar sum of the per-segment log-densities at the observed gaps.
+
+Missingness drives only the control flow that groups segments; the
+differentiated arithmetic sees only the concrete observed values, so this is
+safe to differentiate with `observations` held constant.
+
+See also: [`SequentialDistribution`](@ref), [`pdf`](@ref)
+"""
+function logpdf(d::SequentialDistribution, observations::AbstractVector)
+    length(observations) == _nedges(d) + 1 || throw(DimensionMismatch(
+        "expected $(_nedges(d) + 1) observation entries, got " *
+        "$(length(observations))"))
+
+    # Pre-pass (pure control flow on the constant observation vector):
+    # collect the observed event indices and their concrete values into
+    # plain `Int` / `Float64` vectors. Reading the `Union{Missing}` entries
+    # happens only here; the differentiated arithmetic below touches only the
+    # resulting concrete `Float64` gaps, so no `Union` type ever reaches the
+    # gradient tape (the property that lets every AD backend differentiate
+    # `logpdf` with `observations` passed as a constant).
+    obs_idx, obs_val = _observed_indices_values(observations)
     length(obs_idx) >= 2 || throw(ArgumentError(
         "need at least two observed events to define a gap"))
 
-    # One segment per consecutive observed pair. The delays spanning the
-    # pair (a, b) are D_{a}, ..., D_{b-1} in 1-based delay indexing, since
-    # delay i links event i to event i+1.
-    segments = map(1:(length(obs_idx) - 1)) do j
-        a = obs_idx[j]
-        b = obs_idx[j + 1]
-        run = delays[a:(b - 1)]
-        is_first = j == 1
-        return _build_segment(
-            run, is_first ? primary_event : nothing, upper, interval,
-            force_numeric)
+    # Sum the per-segment log-densities at the observed gaps. The segment
+    # distribution is built from the delays (control flow), then evaluated at
+    # a concrete value gap.
+    total = zero(promote_type(eltype(obs_val), float(eltype(d))))
+    for j in 1:(length(obs_idx) - 1)
+        seg = _segment_distribution(d, obs_idx[j], obs_idx[j + 1], j == 1)
+        gap = obs_val[j + 1] - obs_val[j]
+        total += logpdf(seg, gap)
     end
+    return total
+end
 
-    return SequentialDistribution(Tuple(segments))
+# Pre-pass: walk the (constant) observation vector and return the observed
+# event indices (`Vector{Int}`) and their concrete values (`Vector{Float64}`).
+# Kept separate from the arithmetic so the `Union{Missing}` handling is pure
+# control flow and the differentiated path sees only concrete values.
+function _observed_indices_values(observations)
+    idx = Int[]
+    val = Float64[]
+    for i in eachindex(observations)
+        o = observations[i]
+        if !(o === missing)
+            push!(idx, i)
+            push!(val, Float64(o))
+        end
+    end
+    return idx, val
+end
+
+# Build the segment distribution spanning observed events at chain indices
+# `a` and `b` (1-based over E0..Ek). The delays linking them are
+# `delays[a:(b-1)]`. A single delay (adjacent observed events) is one factor;
+# a run of two or more (unobserved events between) is one convolution of the
+# continuous cores. Per-segment censoring (primary at the origin segment,
+# interval and horizon truncation at the observed end) is then applied.
+function _segment_distribution(d::SequentialDistribution, a, b, is_first)
+    run = d.delays[a:(b - 1)]
+    base = length(run) == 1 ? run[1] :
+           _convolve(map(_continuous_delay, collect(run)))
+    pe = is_first ? d.primary_event : nothing
+    return _censor_segment(base, pe, d.interval, d.horizon, d.force_numeric)
+end
+
+# Continuous underlying delay of a component, for marginalisation. Strips
+# every censoring layer via `get_dist_recursive` so a censored component
+# contributes only its continuous delay to the convolution, never a discrete
+# object. A `Convolved` run component is already a continuous sum, so it is
+# left intact for the convolution to fold.
+_continuous_delay(d::UnivariateDistribution) = get_dist_recursive(d)
+_continuous_delay(d::Convolved) = d
+
+# Apply the per-segment censoring. With no censoring the base distribution is
+# returned untouched. Primary censoring (with interval) is composed via
+# `double_interval_censored`; otherwise interval and horizon truncation are
+# applied directly so the origin is not censored spuriously. The horizon is
+# applied as right-truncation, dispatching the single-delay versus
+# convolved-chain denominator from whether `base` is a `Convolved`.
+function _censor_segment(base, primary_event, interval, horizon, force_numeric)
+    if primary_event === nothing && interval === nothing && horizon === nothing
+        return base
+    end
+    if primary_event === nothing
+        return _truncate_interval(base, horizon, interval)
+    end
+    return double_interval_censored(
+        base; primary_event = primary_event, upper = horizon,
+        interval = interval, force_numeric = force_numeric)
+end
+
+# Right-truncate to the horizon then interval-censor, mirroring the order in
+# `double_interval_censored`. The horizon denominator is the segment's own
+# CDF, which is the single-delay CDF for a bare delay and the convolution CDF
+# for a `Convolved` run (the per-record dispatch required for chain
+# truncation).
+function _truncate_interval(base, horizon, interval)
+    result = horizon === nothing ? base : truncated(base; upper = horizon)
+    return interval === nothing ? result : interval_censored(result, interval)
 end
 
 @doc """
 
-Build a [`SequentialDistribution`](@ref) from pre-built segment distributions
-(escape hatch).
-
-Each element of `segments` is the gap distribution for one segment (any
-`UnivariateDistribution`, e.g. a [`generic_convolve`](@ref) for an
-unobserved run or a [`double_interval_censored`](@ref) factor). The
-log-density is the sum of the per-segment log-densities at the observed
-gaps. Use this when composing the segment structure manually; the
-event-first method [`sequential_distribution(delays, observations)`](@ref) is
-preferred when starting from raw delays and an observation specification.
-
-# Arguments
-- `segments`: Vector/tuple of the per-segment `UnivariateDistribution`s.
-
-# Examples
-```@example
-using CensoredDistributions, Distributions
-
-run = generic_convolve(Gamma(2.0, 1.0), Gamma(1.0, 1.0))
-factor = double_interval_censored(LogNormal(0.5, 0.4); interval = 1.0)
-d = sequential_distribution([run, factor])
-logpdf(d, [3.0, 2.0])
-```
-
-# See also
-- [`SequentialDistribution`](@ref): The distribution type
-"""
-function sequential_distribution(
-        segments::AbstractVector{<:UnivariateDistribution})
-    return SequentialDistribution(Tuple(segments))
-end
-
-sequential_distribution(segments::Tuple) = SequentialDistribution(segments)
-
-# Build one segment's gap distribution from its run of delays and the
-# per-event censoring specification, dispatching on whether the run spans
-# observed events (a single delay) or marginalises unobserved ones (a run
-# of >= 2).
-#
-# - OBSERVED-adjacent single delay: the component is kept as a FACTOR,
-#   retaining whatever censoring it already carries (e.g. a passed
-#   `double_interval_censored`/`truncated`/`primary_censored`), then any
-#   additional per-segment endpoint censoring is composed on top.
-# - UNOBSERVED run (>= 2 delays): the intermediate events are marginalised,
-#   so the run is convolved over the *continuous* underlying delays
-#   (extracted with `get_dist_recursive` so a censored component contributes
-#   its continuous core, never a discrete interval-censored object), then
-#   the endpoint censoring is applied to the convolution as a unit.
-function _build_segment(run, primary_event, upper, interval, force_numeric)
-    if length(run) == 1
-        return _censor_segment(
-            run[1], primary_event, upper, interval, force_numeric)
-    end
-    base = generic_convolve(map(_continuous_delay, collect(run)))
-    return _censor_segment(base, primary_event, upper, interval, force_numeric)
-end
-
-# Continuous underlying delay of a component, for marginalisation. Strips
-# every censoring layer (primary/interval/truncation) via
-# `get_dist_recursive` so a `double_interval_censored` component contributes
-# only its continuous delay to the convolution, never a discrete object. A
-# bare distribution is returned unchanged; a `Convolved` run component is
-# already a continuous sum, so it is left intact for the convolution to
-# fold.
-_continuous_delay(d::UnivariateDistribution) = get_dist_recursive(d)
-_continuous_delay(d::Convolved) = d
-
-# Apply the per-segment censoring. When no censoring is requested the base
-# distribution is returned untouched (keeping the bare-delay / convolution
-# fast paths). Otherwise `double_interval_censored` composes primary
-# censoring, truncation and interval censoring in the correct order.
-function _censor_segment(base, primary_event, upper, interval, force_numeric)
-    if primary_event === nothing && upper === nothing && interval === nothing
-        return base
-    end
-    pe = primary_event === nothing ? Uniform(0, 1) : primary_event
-    # `double_interval_censored` always applies primary censoring; when the
-    # caller gave no primary_event for this segment, fall back to truncation
-    # / interval censoring of the bare delay so the origin is not censored
-    # spuriously.
-    if primary_event === nothing
-        return _truncate_interval(base, upper, interval)
-    end
-    return double_interval_censored(
-        base; primary_event = pe, upper = upper, interval = interval,
-        force_numeric = force_numeric)
-end
-
-# Truncation then interval censoring of a delay with no primary censoring,
-# mirroring the order in `double_interval_censored`.
-function _truncate_interval(base, upper, interval)
-    result = upper === nothing ? base : truncated(base; upper = upper)
-    return interval === nothing ? result : interval_censored(result, interval)
-end
-
-# ---------------------------------------------------------------------------
-# Distributions.jl interface
-# ---------------------------------------------------------------------------
-
-Base.length(d::SequentialDistribution) = length(d.segments)
-
-function Base.eltype(::Type{<:SequentialDistribution{S}}) where {S <: Tuple}
-    mapreduce(eltype, promote_type, fieldtypes(S))
-end
-
-params(d::SequentialDistribution) = map(params, d.segments)
-
-function insupport(d::SequentialDistribution, x::AbstractVector{<:Real})
-    length(x) == length(d) || return false
-    return all(((s, xi),) -> insupport(s, xi), zip(d.segments, x))
-end
-
-@doc "
-
-Compute the joint log probability density of the segment gaps.
-
-The segments are independent, so this is the sum of the per-segment
-log-densities.
-
-See also: [`SequentialDistribution`](@ref)
-"
-function logpdf(d::SequentialDistribution, x::AbstractVector{<:Real})
-    length(x) == length(d) || throw(DimensionMismatch(
-        "expected $(length(d)) gaps, got $(length(x))"))
-    return sum(((s, xi),) -> logpdf(s, xi), zip(d.segments, x))
-end
-
-@doc "
-
-Compute the joint probability density of the segment gaps.
+Compute the joint probability density of a chain observation vector.
 
 See also: [`logpdf`](@ref)
-"
-function pdf(d::SequentialDistribution, x::AbstractVector{<:Real})
-    return exp(logpdf(d, x))
+"""
+function pdf(d::SequentialDistribution, observations::AbstractVector)
+    return exp(logpdf(d, observations))
 end
 
-@doc "
+# ---------------------------------------------------------------------------
+# rand: full event-time path
+# ---------------------------------------------------------------------------
 
-Sample a gap for each segment, returning the vector of gaps.
+@doc """
+
+Sample a full event-time path ``(E_0, E_1, \\dots, E_k)`` for the chain.
+
+The origin ``E_0`` is at time zero and each subsequent event time is the
+previous time plus a draw from the corresponding delay. Returns the length
+``k + 1`` vector of event times.
 
 See also: [`SequentialDistribution`](@ref)
-"
-function Distributions._rand!(
-        rng::AbstractRNG, d::SequentialDistribution, x::AbstractVector{<:Real})
-    for (i, s) in enumerate(d.segments)
-        x[i] = rand(rng, s)
+"""
+function Base.rand(rng::AbstractRNG, d::SequentialDistribution)
+    k = _nedges(d)
+    times = Vector{float(eltype(d))}(undef, k + 1)
+    times[1] = zero(eltype(times))
+    for i in 1:k
+        times[i + 1] = times[i] + rand(rng, d.delays[i])
     end
-    return x
+    return times
 end
+
+Base.rand(d::SequentialDistribution) = rand(default_rng(), d)
 
 sampler(d::SequentialDistribution) = d
