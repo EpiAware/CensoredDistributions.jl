@@ -276,3 +276,260 @@ end
     @test occursin("admit -> death", str)
     @test occursin("Gamma", str)
 end
+
+@testitem "Competing node validation" begin
+    using Distributions
+
+    D = Gamma(1.5, 1.0)
+
+    # Branch probabilities that do not sum to one are rejected.
+    @test_throws ArgumentError Competing(
+        :death => (D, 0.3), :disch => (D, 0.3))
+
+    # A branch probability outside [0, 1] is rejected.
+    @test_throws ArgumentError Competing(
+        :death => (D, 1.2), :disch => (D, -0.2))
+
+    # At least two competing outcomes are required.
+    @test_throws ArgumentError Competing(:death => (D, 1.0))
+
+    # A non-Symbol child is rejected.
+    @test_throws ArgumentError Competing(
+        "death" => (D, 0.4), :disch => (D, 0.6))
+
+    # A valid competing node constructs and lowers to a MixtureModel.
+    node = Competing(:death => (D, 0.4), :disch => (Gamma(2.0, 0.8), 0.6))
+    mix = CensoredDistributions.as_mixture(node)
+    @test mix isa MixtureModel
+    @test mean(mix) ≈ 0.4 * mean(D) + 0.6 * mean(Gamma(2.0, 0.8))
+end
+
+@testitem "EventTree Competing node selects the realised branch" begin
+    using Distributions
+
+    cfr = 0.3
+    D_oa = Gamma(2.0, 1.0)
+    D_death = Gamma(1.5, 1.0)
+    D_disch = Gamma(2.0, 0.8)
+    pe = Uniform(0.0, 1.0)
+    edges = (parent = [:onset, :admit],
+        child = [:admit, :outcome],
+        delay = [D_oa,
+            Competing(:death => (D_death, cfr),
+                :disch => (D_disch, 1 - cfr))])
+    tree = primary_censored(edges, pe)
+
+    # Realised death branch: log(cfr) + the death delay logpdf.
+    obs_d = (onset = 0.0, admit = 2.0, death = 5.0, disch = missing)
+    @test logpdf(tree, obs_d) ≈
+          logpdf(pe, 0.0) + logpdf(D_oa, 2.0) + log(cfr) +
+          logpdf(D_death, 3.0)
+
+    # Realised discharge branch: log(1 - cfr) + the discharge delay logpdf.
+    obs_r = (onset = 0.0, admit = 2.0, death = missing, disch = 4.0)
+    @test logpdf(tree, obs_r) ≈
+          logpdf(pe, 0.0) + logpdf(D_oa, 2.0) + log(1 - cfr) +
+          logpdf(D_disch, 2.0)
+
+    # Two competing outcomes cannot both occur for one case.
+    obs_both = (onset = 0.0, admit = 2.0, death = 5.0, disch = 4.0)
+    @test logpdf(tree, obs_both) == -Inf
+end
+
+@testitem "EventTree Competing unresolved case is the survival mixture" begin
+    using Distributions
+
+    cfr = 0.3
+    D_oa = Gamma(2.0, 1.0)
+    D_death = Gamma(1.5, 1.5)
+    D_disch = Gamma(2.0, 0.8)
+    horizon = 10.0
+    pe = Uniform(0.0, 1.0)
+    edges = (parent = [:onset, :admit],
+        child = [:admit, :outcome],
+        delay = [D_oa,
+            Competing(:death => (D_death, cfr),
+                :disch => (D_disch, 1 - cfr))])
+    tree = primary_censored(edges, pe; horizon = horizon)
+
+    # Admitted but no outcome by the horizon: log of the survival mixture, with
+    # the conjunctive onset->admit edge right-truncated to the horizon.
+    obs = (onset = 0.0, admit = 2.0, death = missing, disch = missing)
+    window = horizon - 2.0
+    surv = cfr * ccdf(D_death, window) + (1 - cfr) * ccdf(D_disch, window)
+    ref = logpdf(pe, 0.0) +
+          logpdf(truncated(D_oa; upper = horizon), 2.0) + log(surv)
+    @test logpdf(tree, obs) ≈ ref
+end
+
+@testitem "EventTree latent Competing parent and MC match" begin
+    using Distributions, Random
+
+    function tref(f, lo, hi; n = 200_000)
+        xs = range(lo, hi; length = n)
+        h = (hi - lo) / (n - 1)
+        s = (f(xs[1]) + f(xs[end])) / 2
+        @inbounds for i in 2:(n - 1)
+            s += f(xs[i])
+        end
+        return s * h
+    end
+
+    cfr = 0.3
+    D_oa = Gamma(2.0, 1.0)
+    D_death = Gamma(1.5, 1.0)
+    D_disch = Gamma(2.0, 0.8)
+    pe = Uniform(0.0, 1.0)
+    edges = (parent = [:onset, :admit],
+        child = [:admit, :outcome],
+        delay = [D_oa,
+            Competing(:death => (D_death, cfr),
+                :disch => (D_disch, 1 - cfr))])
+    tree = primary_censored(edges, pe)
+
+    # Latent admit (the disjunctive parent), realised death observed at onset 0:
+    # the competing-outcome density is marginalised over the admit time. onset = 0
+    # makes the primary-event prior a constant pdf(Uniform(0, 1), 0) = 1.
+    obs = (onset = 0.0, admit = missing, death = 4.5, disch = missing)
+    integ = tref(a -> pdf(D_oa, a) * cfr * pdf(D_death, 4.5 - a), 0.0, 4.5)
+    @test logpdf(tree, obs)≈log(integ) atol=1e-5
+
+    # Monte-Carlo check: `rand` draws onset from the primary window and the
+    # competing branch, so the simulated fraction of cases where death is
+    # realised and falls in a window matches the onset-and-admit-marginalised
+    # density integrated over that window (both average over the same primary
+    # window, and a window probability is far less Monte-Carlo-noisy than a point
+    # density estimate).
+    Random.seed!(7)
+    lo, hi = 4.0, 5.0
+    n_total = 4_000_000
+    function mc_window(tr, lo, hi, N)
+        cnt = 0
+        for _ in 1:N
+            s = rand(tr)
+            if isfinite(s.death) && lo <= s.death <= hi
+                cnt += 1
+            end
+        end
+        return cnt / N
+    end
+    mc_prob = mc_window(tree, lo, hi, n_total)
+    analytic_prob = tref(
+        y -> exp(logpdf(tree,
+            (onset = missing, admit = missing, death = y, disch = missing))),
+        lo, hi; n = 2000)
+    @test mc_prob≈analytic_prob rtol=0.03
+end
+
+@testitem "EventTree recovers a delay-adjusted CFR under right-truncation" begin
+    using Distributions, Random
+
+    Random.seed!(2024)
+    true_cfr = 0.35
+    D_oa = Gamma(2.0, 1.0)
+    D_death = Gamma(1.5, 1.5)   # slow deaths are disproportionately censored
+    D_disch = Gamma(2.0, 0.8)
+    horizon = 8.0
+    pe = Uniform(0.0, horizon)
+
+    records = NamedTuple[]
+    for _ in 1:8000
+        onset = rand(pe)
+        admit = onset + rand(D_oa)
+        admit > horizon && continue
+        if rand() < true_cfr
+            t = admit + rand(D_death)
+            death = t <= horizon ? t : missing
+            disch = missing
+        else
+            t = admit + rand(D_disch)
+            disch = t <= horizon ? t : missing
+            death = missing
+        end
+        push!(records, (onset = onset, admit = admit, death = death,
+            disch = disch))
+    end
+
+    function negll(p)
+        edges = (parent = [:onset, :admit],
+            child = [:admit, :outcome],
+            delay = [D_oa,
+                Competing(:death => (D_death, p),
+                    :disch => (D_disch, 1 - p))])
+        tree = primary_censored(edges, pe; horizon = horizon)
+        return -sum(logpdf(tree, r) for r in records)
+    end
+
+    function golden(f, a, b; tol = 1e-5)
+        gr = (sqrt(5) - 1) / 2
+        c = b - gr * (b - a)
+        d = a + gr * (b - a)
+        fc = f(c)
+        fd = f(d)
+        while (b - a) > tol
+            if fc < fd
+                b = d
+                d = c
+                fd = fc
+                c = b - gr * (b - a)
+                fc = f(c)
+            else
+                a = c
+                c = d
+                fc = fd
+                d = a + gr * (b - a)
+                fd = f(d)
+            end
+        end
+        return (a + b) / 2
+    end
+
+    phat = golden(negll, 0.01, 0.99)
+
+    # The joint delay-adjusted estimate recovers the true CFR; the naive
+    # resolved-only ratio is biased low by the censored slow deaths.
+    resolved = count(r -> r.death !== missing || r.disch !== missing, records)
+    naive = count(r -> r.death !== missing, records) / resolved
+    @test phat≈true_cfr atol=0.03
+    @test naive < true_cfr - 0.02
+end
+
+@testitem "EventTree rand marks the unrealised competing outcome" begin
+    using Distributions, Random
+
+    cfr = 0.4
+    edges = (parent = [:onset, :admit],
+        child = [:admit, :outcome],
+        delay = [Gamma(2.0, 1.0),
+            Competing(:death => (Gamma(1.5, 1.0), cfr),
+                :disch => (Gamma(2.0, 0.8), 1 - cfr))])
+    tree = primary_censored(edges, Uniform(0.0, 1.0))
+
+    Random.seed!(11)
+    n = 40_000
+    samples = [rand(tree) for _ in 1:n]
+    # Exactly one competing outcome is realised (finite); the other is NaN.
+    @test all(s -> isfinite(s.death) ⊻ isfinite(s.disch), samples)
+    deaths = count(s -> isfinite(s.death), samples)
+    @test deaths / n≈cfr rtol=0.05
+end
+
+@testitem "EventTree Competing node prints in show" begin
+    using Distributions
+
+    edges = (parent = [:onset, :admit],
+        child = [:admit, :outcome],
+        delay = [Gamma(2.0, 1.0),
+            Competing(:death => (Gamma(1.5, 1.0), 0.3),
+                :disch => (Gamma(2.0, 0.8), 0.7))])
+    tree = primary_censored(edges, Uniform(0.0, 1.0))
+
+    str = sprint(show, MIME("text/plain"), tree)
+    @test occursin("admit =?> death", str)
+    @test occursin("p = 0.3", str)
+
+    node_str = sprint(show, MIME("text/plain"),
+        Competing(:death => (Gamma(1.5, 1.0), 0.3),
+            :disch => (Gamma(2.0, 0.8), 0.7)))
+    @test occursin("Competing node with 2 outcomes", node_str)
+end

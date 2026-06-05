@@ -142,9 +142,18 @@ function backend_broken_scenarios()
     # The gradients are correct on the other five backends (ForwardDiff,
     # ReverseDiff, both Mooncake modes), so the scenarios stay in the suite and
     # are marked broken only for Enzyme.
+    #
+    # The competing-outcome CFR scenarios recurse through the same heterogeneous
+    # edge tuple plus the `Competing` node, so they hit the identical Enzyme gap
+    # and are marked broken for both Enzyme modes too. The completeness-thinning
+    # scenario is a plain convolution CDF with no tree recursion, so it
+    # differentiates on every backend and is NOT listed here.
     event_tree_scenarios = Set{String}([
         "EventTree bdbv all-observed",
-        "EventTree bdbv shared-latent admit"
+        "EventTree bdbv shared-latent admit",
+        "EventTree Competing CFR observed death",
+        "EventTree Competing CFR observed discharge",
+        "EventTree Competing CFR unresolved horizon"
     ])
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
@@ -334,10 +343,10 @@ function scenarios(; with_reference::Bool = false)
     # `Union{Missing, Float64}`-element vectors per record exercise the
     # constant control-flow / concrete-arithmetic split on every backend.
     par_mix_obs = Vector{Union{Missing, Float64}}[
-        [
-            missing, 1.2, missing], [missing, missing, 3.4],
-        [
-            missing, 3.8, 4.5], [missing, 5.1, missing]]
+    [
+        missing, 1.2, missing], [missing, missing, 3.4],
+    [
+        missing, 3.8, 4.5], [missing, 5.1, missing]]
     _push!("ParallelPrimaryCensored Gamma+LogNormal mixed missingness",
         (θ,
             obs) -> sum(
@@ -613,6 +622,7 @@ function scenarios(; with_reference::Bool = false)
                     Gamma(1.5, 1.0)),
                 CensoredDistributions.EventEdge(:admit, :disch,
                     Gamma(2.0, 0.8))),
+            _tree_template.competing,
             _tree_template.events, _tree_template.primary_event,
             _tree_template.interval, _tree_template.horizon,
             _tree_template.solver)
@@ -628,6 +638,75 @@ function scenarios(; with_reference::Bool = false)
         _push!("EventTree bdbv shared-latent admit",
             (θ, obs) -> logpdf(_tree_oa(θ), obs),
             [2.0, 1.0], (Constant(et_obs_latent),))
+
+        # Competing-outcome CFR tree. The gradient is taken with respect to the
+        # case-fatality ratio `θ[1]` itself (and the onset->admit delay shape
+        # `θ[2]`), so the branch probability is a first-class, differentiable
+        # quantity. The tree structure is built once (parameter-free) and the
+        # differentiated closure rebuilds only the θ-carrying delays and the
+        # `Competing` node, keeping the table machinery off the gradient tape.
+        # Three records exercise the three branches of `_tree_competing_logpdf`:
+        # an observed death, an observed discharge, and an unresolved case under
+        # a horizon (the survival mixture). Literal delays for the #278 Enzyme
+        # reason.
+        _cfr_template = primary_censored(
+            (parent = [:onset, :admit], child = [:admit, :outcome],
+                delay = [Gamma(2.0, 1.0),
+                    CensoredDistributions.Competing(
+                        :death => (Gamma(1.5, 1.5), 0.3),
+                        :disch => (Gamma(2.0, 0.8), 0.7))]),
+            Uniform(0.0, 1.0))
+        _cfr_template_h = primary_censored(
+            (parent = [:onset, :admit], child = [:admit, :outcome],
+                delay = [Gamma(2.0, 1.0),
+                    CensoredDistributions.Competing(
+                        :death => (Gamma(1.5, 1.5), 0.3),
+                        :disch => (Gamma(2.0, 0.8), 0.7))]),
+            Uniform(0.0, 1.0); horizon = 10.0)
+        function _cfr_tree(θ, template)
+            node = CensoredDistributions.Competing(
+                :death => (Gamma(1.5, 1.5), θ[1]),
+                :disch => (Gamma(2.0, 0.8), 1 - θ[1]))
+            edges = (CensoredDistributions.EventEdge(:onset, :admit,
+                Gamma(θ[2], 1.0)),)
+            competing = (:admit => node,)
+            return CensoredDistributions.EventTree(
+                template.root, edges, competing, template.events,
+                template.primary_event, template.interval, template.horizon,
+                template.solver)
+        end
+
+        cfr_obs_death = (onset = 0.0, admit = 2.0, death = 5.0,
+            disch = missing)
+        cfr_obs_disch = (onset = 0.0, admit = 2.0, death = missing,
+            disch = 4.0)
+        cfr_obs_unres = (onset = 0.0, admit = 2.0, death = missing,
+            disch = missing)
+        _push!("EventTree Competing CFR observed death",
+            (θ, obs) -> logpdf(_cfr_tree(θ, _cfr_template), obs),
+            [0.3, 2.0], (Constant(cfr_obs_death),))
+        _push!("EventTree Competing CFR observed discharge",
+            (θ, obs) -> logpdf(_cfr_tree(θ, _cfr_template), obs),
+            [0.3, 2.0], (Constant(cfr_obs_disch),))
+        _push!("EventTree Competing CFR unresolved horizon",
+            (θ, obs) -> logpdf(_cfr_tree(θ, _cfr_template_h), obs),
+            [0.3, 2.0], (Constant(cfr_obs_unres),))
+    end
+
+    # Completeness thinning (andv R_eff = R * p). The gradient is taken with
+    # respect to the chain-delay parameters `θ`, so the completeness probability
+    # `p = cdf(convolve_distributions(...), horizon)` and the thinned quantity
+    # `R * p` flow through the convolution CDF. Literal constructors keep Enzyme
+    # forward working (#278). Guarded on the helper for the AirspeedVelocity
+    # baseline.
+    if isdefined(CensoredDistributions, :thin_by_completeness)
+        _push!("Completeness thinning R*p convolved chain",
+            (θ,
+                R) -> CensoredDistributions.thin_by_completeness(
+                R, CensoredDistributions.convolve_distributions(
+                    LogNormal(θ[1], 0.5), Gamma(θ[2], 1.0)),
+                6.0),
+            [1.5, 2.0], (Constant(2.5),))
     end
 
     # High-dimensional scenarios. Each observation carries its own delay

@@ -16,10 +16,10 @@ import Base: minimum, maximum
 using Distributions: Distributions, Distribution, UnivariateDistribution,
                      Continuous, ValueSupport, VariateForm, Univariate,
                      Multivariate, MultivariateDistribution,
-                     Truncated, Product, Censored,
+                     Truncated, Product, Censored, MixtureModel,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
                      Weibull, Normal, shape, scale, meanlogx, stdlogx,
-                     _in_closed_interval
+                     probs, components, _in_closed_interval
 
 using PrecompileTools: @setup_workload, @compile_workload
 
@@ -63,6 +63,13 @@ export sequential_distribution
 # Tables.jl edge list)
 export event_names
 
+# Exported competing-outcome (disjunctive) node for the edge list, carrying the
+# branch probabilities that are the case-fatality ratio
+export Competing
+
+# Exported path-ascertainment / completeness-thinning helpers
+export completeness_probability, thin_by_completeness
+
 # Exported utilities
 export weight, get_dist, get_dist_recursive
 
@@ -84,11 +91,13 @@ include("distributions/ExponentiallyTilted.jl")
 include("distributions/Convolved.jl")
 include("distributions/SequentialDistribution.jl")
 
+include("censoring/Competing.jl")
 include("censoring/EventTree.jl")
 
 include("censoring/truncation.jl")
 
 include("utils/Weighted.jl")
+include("utils/ascertainment.jl")
 include("utils/get_dist.jl")
 include("utils/quantile_optimization.jl")
 

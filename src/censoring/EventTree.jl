@@ -31,10 +31,13 @@
 # integration kernel recurses into its children's kernels, so a shared interior
 # latent node couples its whole downstream subtree under one joint integral.
 #
-# Only CONJUNCTIVE (all-children-occur) nodes are modelled here. DISJUNCTIVE
-# (competing-outcome) nodes carrying a branch probability are #300; the edge
-# representation leaves a clean extension point (a per-edge field can carry a
-# branch weight without changing the node/observation layout).
+# CONJUNCTIVE (all-children-occur) nodes are the [`EventEdge`](@ref) rows.
+# DISJUNCTIVE (competing-outcome) nodes (#300) are [`Competing`](@ref) values
+# placed in a row's `delay` cell: at such a node exactly one of several competing
+# children occurs, governed by branch probabilities (the case-fatality ratio).
+# A `Competing` node is stored in the tree's `competing` field, keyed by its
+# parent event, and is honoured by the missingness-dispatched `logpdf`, the
+# latent-node marginalisation, and `rand` alongside the conjunctive edges.
 # ============================================================================
 
 @doc """
@@ -116,28 +119,44 @@ latent nodes; the differentiated arithmetic sees only the concrete observed
 times and the delay parameters, so no `Union{Missing}` type ever enters the
 gradient tape. This is verified across every supported backend.
 
+# Competing-outcome nodes
+
+A [`Competing`](@ref) value in a row's `delay` cell makes that row's `parent` a
+disjunctive node: exactly one of the competing children occurs, governed by
+branch probabilities (the case-fatality ratio). The realised branch contributes
+``\\log p_{\\text{branch}} + \\log f_{\\text{branch}}(\\text{gap})``; an
+unresolved case under a [`horizon`](@ref truncated) contributes the survival
+mixture ``\\log \\sum_k p_k\\, S_k(\\text{horizon} - t_{\\text{node}})``, the
+right-truncation correction that makes the branch probability a real-time,
+delay-adjusted case-fatality ratio. Two competing children observed for one
+record score ``-\\infty``.
+
 # Fields
 
 `root` is the name of the origin event, `edges` the tuple of [`EventEdge`](@ref)
-delays, `events` the ordered tuple of all event names, `primary_event` the root
+conjunctive delays, `competing` the tuple of `parent => Competing` disjunctive
+nodes, `events` the ordered tuple of all event names, `primary_event` the root
 censoring window (or `nothing`), `interval` the secondary interval-censoring
 width (or `nothing`), `horizon` the right-truncation cut-off (or `nothing`),
 and `solver` the latent-node quadrature rule. The parent-to-children adjacency
-is recomputed on demand from `edges` rather than stored, which keeps the struct
-fully differentiable.
+is recomputed on demand from `edges` and `competing` rather than stored, which
+keeps the struct fully differentiable.
 
 # See also
 - [`primary_censored`](@ref): constructor (an edge list builds the tree; a
   single delay recovers the single-edge case this generalises)
+- [`Competing`](@ref): the competing-outcome node placed in the edge list
 - [`logpdf`](@ref): per-record missingness-dispatched evaluation
 - [`sequential_distribution`](@ref): the chain (single-path) special case
 """
-struct EventTree{E <: Tuple, EV <: Tuple, P, I, H, S} <:
+struct EventTree{E <: Tuple, CG <: Tuple, EV <: Tuple, P, I, H, S} <:
        Distribution{Multivariate, Continuous}
     "Name of the root (origin) event."
     root::Symbol
-    "Tuple of the directed delay edges."
+    "Tuple of the directed conjunctive delay edges."
     edges::E
+    "Tuple of `parent => Competing` disjunctive (competing-outcome) nodes."
+    competing::CG
     "Ordered tuple of every event name in the tree."
     events::EV
     "Root censoring window (primary event distribution), or `nothing`."
@@ -150,11 +169,12 @@ struct EventTree{E <: Tuple, EV <: Tuple, P, I, H, S} <:
     solver::S
 end
 
-# Outgoing edge indices of the event `name`, computed on the fly from the edge
-# tuple. Storing the adjacency as a `Dict` field instead defeats Enzyme's type
-# analysis (the `Dict{Symbol, Vector{Int}}` embedded in the differentiated
-# struct produces a "bad enzyme_type" failure); scanning the small edge tuple
-# keeps the struct a plain tuple-of-distributions that every backend handles.
+# Outgoing CONJUNCTIVE edge indices of the event `name`, computed on the fly from
+# the edge tuple. Storing the adjacency as a `Dict` field instead defeats
+# Enzyme's type analysis (the `Dict{Symbol, Vector{Int}}` embedded in the
+# differentiated struct produces a "bad enzyme_type" failure); scanning the
+# small edge tuple keeps the struct a plain tuple-of-distributions that every
+# backend handles.
 function _tree_children(d::EventTree, name::Symbol)
     idx = Int[]
     @inbounds for i in eachindex(d.edges)
@@ -163,27 +183,52 @@ function _tree_children(d::EventTree, name::Symbol)
     return idx
 end
 
-# Validate that the edges form a single tree and INFER its root: every event
-# has at most one parent, exactly one event has no parent (the root), and every
-# event is reachable from that root with no cycles. A shared interior node (one
-# parent, several children) is allowed and is integrated once; an event with
-# two incoming edges (two parents) is rejected, since that is not a conjunctive
-# tree node. Returns the inferred root and the ordered event-name tuple. The
-# adjacency is recomputed on the fly by `_tree_children`, so it is not stored.
-function _build_tree_topology(edges::Tuple)
+# The [`Competing`](@ref) node whose parent is `name`, or `nothing` if `name` is
+# not a disjunctive node. Scanned on the fly from the `competing` tuple, for the
+# same Enzyme type-analysis reason as `_tree_children`.
+function _tree_competing(d::EventTree, name::Symbol)
+    @inbounds for i in eachindex(d.competing)
+        d.competing[i].first === name && return d.competing[i].second
+    end
+    return nothing
+end
+
+# Validate that the edges (conjunctive [`EventEdge`](@ref)s and the competing
+# children of any [`Competing`](@ref) node) form a single tree and INFER its
+# root: every event has at most one parent, exactly one event has no parent (the
+# root), and every event is reachable from that root with no cycles. A shared
+# interior node (one parent, several children) is allowed and is integrated once;
+# an event with two incoming edges (two parents) is rejected, since that is not a
+# conjunctive tree node. A competing node's children are registered as children
+# of its parent, so the same one-parent rule covers competing outcomes. Returns
+# the inferred root and the ordered event-name tuple. The adjacency is recomputed
+# on the fly by `_tree_children`/`_tree_competing`, so it is not stored.
+function _build_tree_topology(edges::Tuple, competing::Tuple)
     parents = Dict{Symbol, Symbol}()
     names = Symbol[]
+
+    function _register!(parent::Symbol, child::Symbol)
+        haskey(parents, child) &&
+            throw(ArgumentError(
+                "event $child has more than one parent; the structure " *
+                "must be a tree (shared children are not conjunctive nodes)"))
+        parents[child] = parent
+        parent in names || push!(names, parent)
+        child in names || push!(names, child)
+        return nothing
+    end
 
     for e in edges
         e isa EventEdge ||
             throw(ArgumentError("every edge must be an EventEdge"))
-        haskey(parents, e.child) &&
-            throw(ArgumentError(
-                "event $(e.child) has more than one parent; the structure " *
-                "must be a tree (shared children are not conjunctive nodes)"))
-        parents[e.child] = e.parent
-        e.parent in names || push!(names, e.parent)
-        e.child in names || push!(names, e.child)
+        _register!(e.parent, e.child)
+    end
+    for cg in competing
+        parent = cg.first
+        node = cg.second
+        for child in node.children
+            _register!(parent, child)
+        end
     end
 
     # The root is the single event that is never a child.
@@ -274,10 +319,23 @@ tree = primary_censored(edges, Uniform(0.0, 1.0))
 # observed and missing. Missing events are marginalised.
 obs = (onset = 0.0, admit = 2.0, death = 5.0, disch = missing, notif = 1.5)
 logpdf(tree, obs)
+
+# A competing-outcome tree: admission resolves to death OR discharge with a
+# case-fatality ratio, expressed as a `Competing` node in the `delay` cell.
+cfr = 0.3
+cfr_edges = (parent = [:onset, :admit],
+    child = [:admit, :outcome],
+    delay = [Gamma(2.0, 1.0),
+        Competing(:death => (Gamma(1.5, 1.0), cfr),
+            :disch => (Gamma(2.0, 1.5), 1 - cfr))])
+cfr_tree = primary_censored(cfr_edges, Uniform(0.0, 1.0))
+logpdf(cfr_tree,
+    (onset = 0.0, admit = 2.0, death = 5.0, disch = missing))
 ```
 
 # See also
 - [`EventTree`](@ref): the distribution type
+- [`Competing`](@ref): the competing-outcome node placed in the edge list
 - [`logpdf`](@ref): per-record missingness-dispatched evaluation
 """
 # The edge-list constructor is given two concrete dispatch forms so a bare
@@ -297,17 +355,21 @@ end
 function _eventtree_from_table(edges, primary_event::UnivariateDistribution;
         interval = nothing, horizon = nothing,
         solver = GaussLegendre(; n = 64))
-    edge_tuple = _edges_from_table(edges)
-    length(edge_tuple) >= 1 ||
+    edge_tuple, competing_tuple = _edges_from_table(edges)
+    (length(edge_tuple) + length(competing_tuple)) >= 1 ||
         throw(ArgumentError("the edge list needs at least one edge"))
-    root, names = _build_tree_topology(edge_tuple)
+    root, names = _build_tree_topology(edge_tuple, competing_tuple)
     return EventTree(
-        root, edge_tuple, names, primary_event, interval, horizon, solver)
+        root, edge_tuple, competing_tuple, names, primary_event,
+        interval, horizon, solver)
 end
 
-# Read a Tables.jl edge list into a tuple of `EventEdge`s. Requires the
-# `parent`, `child`, and `delay` columns; each row becomes one edge. Reading
-# happens here, kept apart from the differentiated arithmetic.
+# Read a Tables.jl edge list into a tuple of conjunctive `EventEdge`s and a tuple
+# of `parent => Competing` disjunctive nodes. Requires the `parent`, `child`, and
+# `delay` columns; a row whose `delay` cell is a `Competing` becomes a
+# disjunctive node (its `child` cell is a node label only), every other row a
+# conjunctive edge. Reading happens here, kept apart from the differentiated
+# arithmetic.
 function _edges_from_table(edges)
     Tables.istable(edges) ||
         throw(ArgumentError(
@@ -323,9 +385,28 @@ function _edges_from_table(edges)
     parents = Tables.getcolumn(cols, :parent)
     children = Tables.getcolumn(cols, :child)
     delays = Tables.getcolumn(cols, :delay)
-    return Tuple(
-        _edge_from_fields(parents[i], children[i], delays[i])
-    for i in eachindex(parents))
+    edge_list = EventEdge[]
+    competing_list = Pair{Symbol, <:Competing}[]
+    for i in eachindex(parents)
+        entry = _row_to_edge(parents[i], children[i], delays[i])
+        if entry isa EventEdge
+            push!(edge_list, entry)
+        else
+            push!(competing_list, entry)
+        end
+    end
+    return Tuple(edge_list), Tuple(competing_list)
+end
+
+# Turn one edge-list row into a conjunctive `EventEdge` or a `parent =>
+# Competing` disjunctive node, dispatching on the `delay` cell kind.
+function _row_to_edge(parent, child, delay::Competing)
+    parent isa Symbol ||
+        throw(ArgumentError("the `parent` entry must be a Symbol"))
+    return parent => delay
+end
+function _row_to_edge(parent, child, delay)
+    return _edge_from_fields(parent, child, delay)
 end
 
 # Coerce one edge's `parent`, `child`, and `delay` fields to an `EventEdge`,
@@ -371,23 +452,37 @@ event_names(tree)
 event_names(d::EventTree) = d.events
 
 function Base.eltype(::Type{<:EventTree{E}}) where {E <: Tuple}
+    isempty(fieldtypes(E)) && return Float64
     return mapreduce(e -> eltype(fieldtype(e, :delay)), promote_type,
         fieldtypes(E))
 end
 
 # Numeric element type carrying any AD tangent in the distribution parameters,
-# recovered from the delay params (and the root prior) rather than the sample
-# `eltype`, which would drop a Dual. Mirrors the ParallelPrimaryCensored helper.
+# recovered from the delay params (the conjunctive edges, the competing nodes'
+# branch delays and branch probabilities, and the root prior) rather than the
+# sample `eltype`, which would drop a Dual. Mirrors the ParallelPrimaryCensored
+# helper. A branch probability is a model parameter too (the differentiable
+# case-fatality ratio), so its type is promoted in.
 function _tree_eltype(d::EventTree)
-    T = float(mapreduce(
-        e -> _parallel_param_eltype(e.delay), promote_type, d.edges))
+    T = Float64
+    for e in d.edges
+        T = promote_type(T, float(_parallel_param_eltype(e.delay)))
+    end
+    for cg in d.competing
+        T = promote_type(T, _competing_param_eltype(cg.second))
+    end
     if d.primary_event !== nothing
         T = promote_type(T, float(_parallel_param_eltype(d.primary_event)))
     end
     return T
 end
 
-params(d::EventTree) = map(e -> params(e.delay), d.edges)
+function params(d::EventTree)
+    edge_params = map(e -> params(e.delay), d.edges)
+    competing_params = map(
+        cg -> map(params, cg.second.delays), d.competing)
+    return (edge_params..., competing_params...)
+end
 
 # ---------------------------------------------------------------------------
 # Observation access: map a (named or positional) observation to event times
@@ -470,16 +565,92 @@ function _eventtree_logpdf(d::EventTree, observation)
     return lp
 end
 
-# Sum of the outgoing-edge log contributions for an OBSERVED node at time
-# `node_time`. Each outgoing edge is handled by `_tree_edge_logpdf`, which
-# conditions on or marginalises its child subtree.
+# Sum of the outgoing log contributions for an OBSERVED node at time
+# `node_time`. Each conjunctive outgoing edge is handled by `_tree_edge_logpdf`,
+# which conditions on or marginalises its child subtree; a competing-outcome
+# node adds the single disjunctive factor from `_tree_competing_logpdf`.
 function _tree_observed_node_logpdf(
         d::EventTree, observation, name::Symbol, node_time::T, ::Type{T}) where {T}
     lp = zero(T)
     for ei in _tree_children(d, name)
         lp += _tree_edge_logpdf(d, observation, d.edges[ei], node_time, T)
     end
+    node = _tree_competing(d, name)
+    node === nothing ||
+        (lp += _tree_competing_logpdf(d, observation, node, node_time, T))
     return lp
+end
+
+# Log contribution of a [`Competing`](@ref) (competing-outcome) node whose parent
+# is observed at `node_time`. Exactly one of the competing children occurs. Per
+# record the contribution is one of:
+#
+# - the realised branch: the child of one competing outcome is observed at `ct`,
+#   so the factor is `log(branch_prob) + logpdf(branch_delay, ct - node_time)`
+#   plus the realised child's own subtree. More than one competing child observed
+#   is inconsistent and scores `-Inf`.
+# - unresolved by the horizon: every competing child is missing, so the case has
+#   not yet resolved. The factor is the log of the survival mixture
+#   `sum_k branch_prob_k * ccdf(branch_delay_k, window)`, the probability the
+#   competition has not concluded by the horizon (`window = horizon -
+#   node_time`). This is the right-truncation correction that makes the branch
+#   probability a real-time, delay-adjusted case-fatality ratio.
+# - a missing child with no horizon: the competing children are latent and each
+#   branch marginalises away, contributing nothing.
+function _tree_competing_logpdf(
+        d::EventTree, observation, node::Competing, node_time::T,
+        ::Type{T}) where {T}
+    observed = _competing_observed_index(d, observation, node)
+
+    if observed > 0
+        ct = convert(T, _obs_get(d, observation, node.children[observed]))
+        lp = convert(T, log(node.branch_probs[observed]))
+        lp += _tree_edge_conditional_logpdf(
+            d, node.delays[observed], ct - node_time, T)
+        lp += _tree_observed_node_logpdf(
+            d, observation, node.children[observed], ct, T)
+        return lp
+    elseif observed == -1
+        # Two competing outcomes cannot both have occurred for one case.
+        return convert(T, -Inf)
+    end
+
+    # No competing child observed: the case is unresolved. With a horizon this is
+    # the survival mixture; with no horizon there is no observation window, so the
+    # group integrates to one and adds nothing.
+    d.horizon === nothing && return zero(T)
+    surv = _competing_survival(d, node, node_time, T)
+    return surv <= 0 ? convert(T, -Inf) : log(surv)
+end
+
+# Index of the single observed competing child in `node`, `0` if none observed
+# (unresolved), or `-1` if more than one is observed (inconsistent record).
+function _competing_observed_index(d::EventTree, observation, node::Competing)
+    observed = 0
+    for k in 1:_n_branches(node)
+        if _obs_get(d, observation, node.children[k]) !== missing
+            observed == 0 || return -1
+            observed = k
+        end
+    end
+    return observed
+end
+
+# Survival mixture `sum_k branch_prob_k * (1 - cdf(branch_delay_k, window))` over
+# the competing branches, the probability the competition has not concluded by
+# the horizon (`window = horizon - node_time`). The CDF goes through
+# `_cdf_ad_safe`, which routes a `Gamma` through the AD-covered incomplete-gamma
+# helper, so the survival term differentiates on every backend even when the
+# branch probability carries an AD tangent.
+function _competing_survival(
+        d::EventTree, node::Competing, node_time, ::Type{T}) where {T}
+    window = convert(T, d.horizon) - node_time
+    surv = zero(T)
+    for k in 1:_n_branches(node)
+        comp = one(T) - convert(T, _cdf_ad_safe(node.delays[k], window))
+        surv += convert(T, node.branch_probs[k]) * comp
+    end
+    return surv
 end
 
 # Log contribution of one edge whose PARENT is observed at `parent_time`. If the
@@ -561,11 +732,12 @@ function _tree_latent_logpdf(
     upper = _prior_max(prior)
 
     kids = _tree_children(d, name)
+    node = _tree_competing(d, name)
 
-    # A latent leaf: its prior integrates to one over its full support, so the
-    # marginal contributes log 1 = 0. (The node is unobserved and childless,
-    # so it carries no likelihood information.)
-    isempty(kids) && return zero(T)
+    # A latent leaf with no children at all: its prior integrates to one over its
+    # full support, so the marginal contributes log 1 = 0. (The node is
+    # unobserved and childless, so it carries no likelihood information.)
+    isempty(kids) && node === nothing && return zero(T)
 
     # Tighten the integration window to where every outgoing subtree kernel can
     # be non-zero, so the quadrature spends its nodes on the supported region.
@@ -579,26 +751,82 @@ function _tree_latent_logpdf(
         lower = max(lower, ctv - float(maximum(edge.delay)))
         upper = min(upper, ctv - float(minimum(edge.delay)))
     end
+    # Tighten against an observed competing child too.
+    if node !== nothing
+        obsk = _competing_observed_index(d, observation, node)
+        if obsk > 0
+            ctv = convert(T, _obs_get(d, observation, node.children[obsk]))
+            lower = max(lower, ctv - float(maximum(node.delays[obsk])))
+            upper = min(upper, ctv - float(minimum(node.delays[obsk])))
+        end
+    end
     upper > lower || return convert(T, -Inf)
 
     # Density-weighted integrand over the node time t: the prior times the
-    # product of the outgoing subtree kernels (each a PROBABILITY DENSITY in t).
-    integrand = let d = d, observation = observation, name = name, prior = prior,
-        kids = kids, T = T
-
+    # downstream density of the node's children (conjunctive kernels multiplied,
+    # the competing group as one disjunctive factor), each a PROBABILITY DENSITY
+    # in t.
+    integrand = let d = d, observation = observation, name = name, prior = prior, T = T
         t -> begin
             val = _prior_pdf(prior, t)
             val <= 0 && return zero(val)
-            for ei in kids
-                val *= _tree_subtree_kernel(d, observation, d.edges[ei], t, T)
-                val <= 0 && return zero(val)
-            end
-            return val
+            return val *
+                   _tree_node_downstream_density(d, observation, name, t, T)
         end
     end
 
     integral = gl_integrate(integrand, lower, upper, _tree_gl(d))
     return integral <= 0 ? convert(T, -Inf) : convert(T, log(integral))
+end
+
+# Downstream density (in the node time `t`) of a node's outgoing children: the
+# product of the conjunctive subtree kernels times the competing-group factor.
+# The density companion of `_tree_observed_node_logpdf`, used by every
+# latent-node integrand so a latent parent of a competing-outcome group is
+# marginalised correctly.
+function _tree_node_downstream_density(
+        d::EventTree, observation, name::Symbol, t, ::Type{T}) where {T}
+    val = one(promote_type(typeof(t), T))
+    for ei in _tree_children(d, name)
+        val *= _tree_subtree_kernel(d, observation, d.edges[ei], t, T)
+        val <= 0 && return zero(val)
+    end
+    node = _tree_competing(d, name)
+    node === nothing ||
+        (val *= _tree_competing_density(d, observation, node, t, T))
+    return val
+end
+
+# Density (in the parent node time `t`) of a competing-outcome node whose parent
+# is latent. The density companion of `_tree_competing_logpdf`: a single observed
+# competing child contributes `branch_prob * density(branch_delay, ct - t)` times
+# the realised child's own downstream factor; all children missing contributes
+# the survival mixture when a horizon is set, and one otherwise (each latent
+# branch marginalises away).
+function _tree_competing_density(
+        d::EventTree, observation, node::Competing, t, ::Type{T}) where {T}
+    R = promote_type(typeof(t), T)
+    observed = _competing_observed_index(d, observation, node)
+
+    if observed > 0
+        ct = convert(T, _obs_get(d, observation, node.children[observed]))
+        dens = _tree_edge_conditional_density(d, node.delays[observed], ct - t)
+        dens <= 0 && return zero(R)
+        sub = _tree_observed_node_logpdf(
+            d, observation, node.children[observed], ct, T)
+        return convert(R, node.branch_probs[observed]) * dens * exp(sub)
+    elseif observed == -1
+        return zero(R)
+    end
+
+    d.horizon === nothing && return one(R)
+    window = convert(R, d.horizon) - t
+    surv = zero(R)
+    for k in 1:_n_branches(node)
+        comp = one(R) - convert(R, _cdf_ad_safe(node.delays[k], window))
+        surv += convert(R, node.branch_probs[k]) * comp
+    end
+    return surv
 end
 
 # Density kernel (in the PARENT node time `t`) of one outgoing edge's subtree.
@@ -651,7 +879,9 @@ end
 function _tree_latent_kernel(
         d::EventTree, observation, edge::EventEdge, t, ::Type{T}) where {T}
     grandkids = _tree_children(d, edge.child)
-    isempty(grandkids) && return one(promote_type(typeof(t), T))
+    node = _tree_competing(d, edge.child)
+    isempty(grandkids) && node === nothing &&
+        return one(promote_type(typeof(t), T))
 
     prior = _ShiftedDelay(_tree_horizon_delay(d, edge.delay), t)
     lower = _shifted_min(prior)
@@ -664,19 +894,23 @@ function _tree_latent_kernel(
         lower = max(lower, ctv - float(maximum(gk.delay)))
         upper = min(upper, ctv - float(minimum(gk.delay)))
     end
+    if node !== nothing
+        obsk = _competing_observed_index(d, observation, node)
+        if obsk > 0
+            ctv = convert(T, _obs_get(d, observation, node.children[obsk]))
+            lower = max(lower, ctv - float(maximum(node.delays[obsk])))
+            upper = min(upper, ctv - float(minimum(node.delays[obsk])))
+        end
+    end
     upper > lower || return zero(promote_type(typeof(t), T))
 
-    inner = let d = d, observation = observation, prior = prior, grandkids = grandkids,
-        T = T
-
+    child = edge.child
+    inner = let d = d, observation = observation, prior = prior, child = child, T = T
         u -> begin
             val = _shifted_pdf(prior, u)
             val <= 0 && return zero(val)
-            for ei in grandkids
-                val *= _tree_subtree_kernel(d, observation, d.edges[ei], u, T)
-                val <= 0 && return zero(val)
-            end
-            return val
+            return val *
+                   _tree_node_downstream_density(d, observation, child, u, T)
         end
     end
     return gl_integrate(inner, lower, upper, _tree_gl(d))
@@ -732,7 +966,7 @@ out of scope here.
 """
 function truncated(d::EventTree, horizon::Real)
     return EventTree(
-        d.root, d.edges, d.events, d.primary_event, d.interval,
+        d.root, d.edges, d.competing, d.events, d.primary_event, d.interval,
         float(horizon), d.solver)
 end
 
@@ -746,7 +980,10 @@ Sample a full event-time path for an [`EventTree`](@ref).
 
 Draws the root event time from the `primary_event` prior (zero when there is no
 primary event), then walks the tree from the root adding a draw of each edge's
-delay to its parent's time. Returns a `NamedTuple` of event name to event time.
+delay to its parent's time. At a competing-outcome node exactly one competing
+child is realised (drawn from the branch probabilities, then its delay); the
+unrealised competing children are marked with a sentinel `NaN` event time.
+Returns a `NamedTuple` of event name to event time.
 
 See also: [`EventTree`](@ref)
 """
@@ -762,7 +999,9 @@ end
 Base.rand(d::EventTree) = rand(default_rng(), d)
 
 # Recursively sample each child's event time as its parent's time plus an edge
-# delay draw, in tree order.
+# delay draw, in tree order. Conjunctive children all occur; at a competing node
+# exactly one competing child occurs (chosen by the branch probabilities), the
+# unrealised competing children getting a sentinel `NaN` event time.
 function _tree_sample_subtree!(
         rng::AbstractRNG, d::EventTree, name::Symbol, times, ::Type{T}) where {T}
     for ei in _tree_children(d, name)
@@ -770,7 +1009,34 @@ function _tree_sample_subtree!(
         times[edge.child] = times[name] + convert(T, rand(rng, edge.delay))
         _tree_sample_subtree!(rng, d, edge.child, times, T)
     end
+    node = _tree_competing(d, name)
+    if node !== nothing
+        chosen = _competing_sample_branch(rng, node, T)
+        for k in 1:_n_branches(node)
+            child = node.children[k]
+            if k == chosen
+                times[child] = times[name] +
+                               convert(T, rand(rng, node.delays[k]))
+                _tree_sample_subtree!(rng, d, child, times, T)
+            else
+                times[child] = convert(T, NaN)
+            end
+        end
+    end
     return times
+end
+
+# Draw the index of the realised competing outcome by its branch probabilities
+# (a categorical draw over the group).
+function _competing_sample_branch(
+        rng::AbstractRNG, node::Competing, ::Type{T}) where {T}
+    u = rand(rng, T)
+    acc = zero(T)
+    for k in 1:_n_branches(node)
+        acc += convert(T, node.branch_probs[k])
+        u <= acc && return k
+    end
+    return _n_branches(node)
 end
 
 sampler(d::EventTree) = d
@@ -801,17 +1067,35 @@ function Base.show(io::IO, ::MIME"text/plain", d::EventTree)
 end
 
 # Recursively print each outgoing edge of `name` as `parent -> child: delay`,
-# indenting one level per tree depth.
+# indenting one level per tree depth. A competing-outcome node is printed as a
+# `parent =?> child` line per branch, annotated with the branch probability.
 function _tree_show_subtree(io::IO, d::EventTree, name::Symbol, indent::String)
     kids = _tree_children(d, name)
-    for (k, ei) in enumerate(kids)
+    node = _tree_competing(d, name)
+    n_competing = node === nothing ? 0 : _n_branches(node)
+    total = length(kids) + n_competing
+    shown = 0
+    for ei in kids
         edge = d.edges[ei]
-        last = k == length(kids)
+        shown += 1
+        last = shown == total
         branch = last ? "└─ " : "├─ "
         println(io, indent, branch,
             "$(edge.parent) -> $(edge.child): $(edge.delay)")
         child_indent = indent * (last ? "   " : "│  ")
         _tree_show_subtree(io, d, edge.child, child_indent)
+    end
+    if node !== nothing
+        for k in 1:n_competing
+            shown += 1
+            last = shown == total
+            branch = last ? "└─ " : "├─ "
+            println(io, indent, branch,
+                "$name =?> $(node.children[k]) " *
+                "(p = $(node.branch_probs[k])): $(node.delays[k])")
+            child_indent = indent * (last ? "   " : "│  ")
+            _tree_show_subtree(io, d, node.children[k], child_indent)
+        end
     end
     return nothing
 end
