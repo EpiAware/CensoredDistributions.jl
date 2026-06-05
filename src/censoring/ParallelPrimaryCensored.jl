@@ -40,13 +40,15 @@ marginals (see the coupling note below). This is the "parallel" (shared-origin)
 construction, distinct from [`primary_censored`](@ref) with a single delay (one
 branch).
 
-Like the single-delay [`Auto`](@ref) formulation, `logpdf` dispatches on the
-missingness of the event-time vector:
+Like the single-delay [`Latent`](@ref) formulation, this is a multivariate
+distribution over the event-time vector `[primary, observed_1, ..., observed_n]`,
+and `logpdf` dispatches on the missingness of that vector:
 
 - a missing primary is marginalised by a single one-dimensional origin integral,
-- a concrete primary conditions on that origin,
+- a concrete primary gives the self-contained joint that owns the primary prior
+  (the primary is a sampler-owned latent variable, never passed in as data),
 - a missing branch observation is marginalised (it drops out of the joint),
-- a present branch observation is conditioned on.
+- a present branch observation enters the joint.
 
 # Joint density (marginalised primary)
 
@@ -121,7 +123,7 @@ truncation), `solver` the origin quadrature rule.
 
 # See also
 - [`primary_censored`](@ref): constructor (vector of delays selects this type)
-- [`primary_prior`](@ref): the prior over the shared primary event time
+- [`get_primary_event`](@ref): the prior over the shared primary event time
 """
 struct ParallelPrimaryCensored{
     P <: UnivariateDistribution, C <: Tuple, S} <:
@@ -297,14 +299,24 @@ end
 
 @doc "
 
-Return the shared-origin prior of a [`ParallelPrimaryCensored`](@ref).
+Return the shared-origin primary event distribution of a
+[`ParallelPrimaryCensored`](@ref).
 
 The shared origin is the primary event distribution. Mirrors
-[`primary_prior`](@ref) for the single-delay `PrimaryCensored`.
+[`get_primary_event`](@ref) for the single-delay `PrimaryCensored`.
 
-See also: [`primary_prior`](@ref)
+See also: [`get_primary_event`](@ref)
 "
-primary_prior(d::ParallelPrimaryCensored) = d.primary_event
+get_primary_event(d::ParallelPrimaryCensored) = d.primary_event
+
+@doc "
+
+Deprecated alias for [`get_primary_event`](@ref) on a
+[`ParallelPrimaryCensored`](@ref), retained for backward compatibility.
+
+See also: [`get_primary_event`](@ref)
+"
+primary_prior(d::ParallelPrimaryCensored) = get_primary_event(d)
 
 @doc "
 
@@ -443,7 +455,7 @@ Missingness is inspected only through control flow; concrete values alone enter
 the differentiated arithmetic, so the log density differentiates on every
 supported backend.
 
-See also: [`pdf`](@ref), [`primary_prior`](@ref)
+See also: [`pdf`](@ref), [`get_primary_event`](@ref)
 "
 function logpdf(d::ParallelPrimaryCensored, x::AbstractVector)
     length(x) == length(d) ||
@@ -644,8 +656,12 @@ function Base.eltype(::Type{<:TruncatedParallelPrimaryCensored{D}}) where {D}
     return eltype(D)
 end
 
+function get_primary_event(d::TruncatedParallelPrimaryCensored)
+    return get_primary_event(d.untruncated)
+end
+
 function primary_prior(d::TruncatedParallelPrimaryCensored)
-    return primary_prior(d.untruncated)
+    return get_primary_event(d.untruncated)
 end
 
 # Log denominator: log P(all branches <= horizon) via the joint CDF, evaluated

@@ -70,6 +70,8 @@ end
     pe = Uniform(0.0, 2.0)
     d = primary_censored(
         [Gamma(2.0, 1.0) LogNormal(1.0, 0.5)], pe)
+    @test get_primary_event(d) === pe
+    # primary_prior is the deprecated alias of get_primary_event.
     @test primary_prior(d) === pe
     p = params(d)
     @test p[1] == params(pe)
