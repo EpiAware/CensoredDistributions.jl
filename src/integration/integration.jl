@@ -19,6 +19,13 @@ flow and the accumulator type being seeded from the integrand make this
 the AD-safe default: every supported AD backend can differentiate through
 it, unlike adaptive schemes whose node count depends on integrand values.
 
+The reference nodes and weights are built once at construction and held on
+the solver, so the differentiated hot path is a pure weighted sum with no
+shared mutable state. This matters for trace-based reverse-mode backends
+(Enzyme, ReverseDiff): resolving the rule through a mutated global cache
+inside the integrand crashes Enzyme reverse, so the rule travels with the
+solver instead.
+
 `n = 64` is accurate to about `1e-13` on the smooth, density-weighted
 integrands used in this package. This is the core default and needs no
 heavy dependency. Load Integrals.jl and pass an Integrals.jl algorithm
@@ -28,12 +35,12 @@ heavy dependency. Load Integrals.jl and pass an Integrals.jl algorithm
 - [`gl_integrate`](@ref): The underlying quadrature reduction.
 - [`integrate`](@ref): The pluggable entry point dispatching on a solver.
 "
-struct GaussLegendre
+struct GaussLegendre{R}
     "Number of Gauss-Legendre nodes."
     n::Int
+    "The reference Gauss-Legendre rule (nodes/weights on `[-1, 1]`)."
+    rule::R
 end
-
-GaussLegendre(; n::Int = 64) = GaussLegendre(n)
 
 # Fixed Gauss-Legendre rule carrying its own reference nodes/weights on
 # `[-1, 1]`. Holding the nodes/weights directly (and calling the integrand
@@ -64,14 +71,30 @@ const _CONVOLVED_NODES = 192
 # Default rule for the convolution quadrature, built once at load.
 const _CONVOLVED_GL = _GL(_CONVOLVED_NODES)
 
-# Cache of reference rules keyed on node count, so each distinct `n` builds
-# its nodes/weights once. The convolution and primary-censoring defaults
-# (192 and 64 nodes) are the common keys.
-const _GL_CACHE = Dict{Int, _GL}(_CONVOLVED_NODES => _CONVOLVED_GL)
+# Number of Gauss-Legendre nodes for the primary-censoring default solver.
+const _PRIMARY_NODES = 64
 
+# Default rule for the primary-censoring solver, built once at load.
+const _PRIMARY_GL = _GL(_PRIMARY_NODES)
+
+# Resolve the reference rule for `n` nodes. The two defaults (192 for the
+# convolution quadrature, 64 for primary censoring) are precomputed
+# constants; any other `n` builds its nodes/weights fresh. There is no
+# shared mutable cache: the rule is built at solver-construction time and
+# then held on the `GaussLegendre` solver, so the differentiated hot path
+# never resolves a rule. A mutated global cache here would be written
+# inside the traced region and crash Enzyme reverse. `gausslegendre`
+# returns plain `Float64` nodes/weights independent of any AD inputs, so
+# even building a fresh rule under tracing is differentiation-safe.
 function _gl_rule(n::Int)
-    return get!(() -> _GL(n), _GL_CACHE, n)
+    n == _CONVOLVED_NODES && return _CONVOLVED_GL
+    n == _PRIMARY_NODES && return _PRIMARY_GL
+    return _GL(n)
 end
+
+# Build the solver with its reference rule resolved once, here at
+# construction, so `integrate` only reads `solver.rule`.
+GaussLegendre(; n::Int = _PRIMARY_NODES) = GaussLegendre(n, _gl_rule(n))
 
 # Reduce an integrand `g` over the reference domain `[-1, 1]` against the
 # `rule`. Seeding `acc` with `weights[1] * g(nodes[1])` fixes the
@@ -153,5 +176,5 @@ approx = CensoredDistributions.integrate(solver, x -> x^2, 0.0, 1.0)
 - [`gl_integrate`](@ref): The default quadrature reduction.
 "
 function integrate(solver::GaussLegendre, f::F, lower, upper) where {F}
-    return gl_integrate(f, lower, upper, _gl_rule(solver.n))
+    return gl_integrate(f, lower, upper, solver.rule)
 end
