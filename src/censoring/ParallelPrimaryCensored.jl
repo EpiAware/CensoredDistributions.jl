@@ -50,7 +50,7 @@ f(y_1, \dots, y_n)
       \prod_{i=1}^{n} \mathbf{1}[a_i \le y_i - o \le b_i]\; \mathrm{d}o,
 ```
 
-where ``(a_i, b_i)`` are the per-branch [`child_bounds`](@ref). The indicators
+where ``(a_i, b_i)`` are the per-branch `child_bounds`. The indicators
 restrict the origin to the single interval
 ``[\,\max_i (y_i - b_i),\ \min_i (y_i - a_i)\,]``, intersected with
 ``\mathrm{support}(O)``, giving one finite integration window. Missing branches
@@ -86,6 +86,13 @@ For ``n = 1`` and infinite bounds the branch marginal equals
 `primary_censored(delays[1], primary_event)`: the `[missing, y]` `logpdf` and
 the joint `cdf` of the one-element vector match the scalar primary-censored
 numerics.
+
+# Fields
+
+The `primary_event` field holds the shared latent origin distribution, `delays`
+the tuple of branch delay distributions, `child_bounds` the per-branch
+``(a_i, b_i)`` truncation pairs, `solver` the origin quadrature rule, and
+`log_norm` the precomputed ``\log Z`` normalisation constant.
 
 # See also
 - [`primary_censored`](@ref): constructor (vector of delays selects this type)
