@@ -1,11 +1,15 @@
 # ============================================================================
 # Recursive event-tree / nesting layer (#298)
 #
-# `event_tree(root, edges)` declares a tree of events whose directed edges are
-# delay distributions from a parent event to a child event. A single
-# `EventTree` distribution then evaluates the joint log density of a per-record
-# observation (one entry per event, each a concrete time or `Missing`) as a
-# scalar sum that dispatches on the per-record missingness:
+# `primary_censored(edges, primary_event)` declares a tree of events whose
+# directed edges are delay distributions from a parent event to a child event.
+# The `edges` argument is a Tables.jl edge list: any Tables.jl source with the
+# columns `parent`, `child`, and `delay`, one row per edge. The root event (the
+# single node that is never a child) is inferred from the edge list and takes
+# `primary_event` as its censoring window. A single `EventTree` distribution
+# then evaluates the joint log density of a per-record observation (one entry
+# per event, each a concrete time or `Missing`) as a scalar sum that dispatches
+# on the per-record missingness:
 #
 # - an OBSERVED node fixes its event time; every outgoing edge becomes an
 #   independent conditional factor `logpdf(delay, child_time - node_time)`,
@@ -45,7 +49,8 @@ continuous `UnivariateDistribution` is admissible (a bare delay, a
 
 # See also
 - [`EventTree`](@ref): the tree this edge belongs to
-- [`event_tree`](@ref): constructor that assembles edges into a tree
+- [`primary_censored`](@ref): constructor that assembles an edge list into a
+  tree
 """
 struct EventEdge{D <: UnivariateDistribution}
     "Name of the parent (origin) event."
@@ -122,9 +127,9 @@ is recomputed on demand from `edges` rather than stored, which keeps the struct
 fully differentiable.
 
 # See also
-- [`event_tree`](@ref): constructor function
+- [`primary_censored`](@ref): constructor (an edge list builds the tree; a
+  single delay recovers the single-edge case this generalises)
 - [`logpdf`](@ref): per-record missingness-dispatched evaluation
-- [`primary_censored`](@ref): the single-edge case this generalises
 - [`sequential_distribution`](@ref): the chain (single-path) special case
 """
 struct EventTree{E <: Tuple, EV <: Tuple, P, I, H, S} <:
@@ -158,35 +163,41 @@ function _tree_children(d::EventTree, name::Symbol)
     return idx
 end
 
-# Validate that the edges form a tree rooted at `root` (every non-root event
-# has exactly one parent and is reachable from the root, with no cycles) and
-# return the ordered event-name tuple. The adjacency itself is recomputed on the
-# fly by `_tree_children`, so it is not stored.
-function _build_tree_topology(root::Symbol, edges::Tuple)
+# Validate that the edges form a single tree and INFER its root: every event
+# has at most one parent, exactly one event has no parent (the root), and every
+# event is reachable from that root with no cycles. A shared interior node (one
+# parent, several children) is allowed and is integrated once; an event with
+# two incoming edges (two parents) is rejected, since that is not a conjunctive
+# tree node. Returns the inferred root and the ordered event-name tuple. The
+# adjacency is recomputed on the fly by `_tree_children`, so it is not stored.
+function _build_tree_topology(edges::Tuple)
     parents = Dict{Symbol, Symbol}()
-    names = Symbol[root]
+    names = Symbol[]
 
-    for (i, e) in enumerate(edges)
+    for e in edges
         e isa EventEdge ||
             throw(ArgumentError("every edge must be an EventEdge"))
         haskey(parents, e.child) &&
             throw(ArgumentError(
                 "event $(e.child) has more than one parent; the structure " *
                 "must be a tree (shared children are not conjunctive nodes)"))
-        e.child == root &&
-            throw(ArgumentError("the root event cannot be a child"))
         parents[e.child] = e.parent
         e.parent in names || push!(names, e.parent)
         e.child in names || push!(names, e.child)
     end
 
-    # Every non-root event must be reachable from the root by walking parents.
+    # The root is the single event that is never a child.
+    roots = filter(n -> !haskey(parents, n), names)
+    length(roots) == 1 ||
+        throw(ArgumentError(
+            "the edge list must have exactly one root (an event that is " *
+            "never a child); found $(length(roots)): $(Tuple(roots))"))
+    root = roots[1]
+
+    # Every non-root event must reach the root by walking parents, with no
+    # cycles. Catching a cycle here also rejects a self-loop edge.
     for name in names
         name == root && continue
-        haskey(parents, name) ||
-            throw(ArgumentError(
-                "event $name has no parent edge and is not the root"))
-        # Walk to the root, detecting cycles.
         seen = Set{Symbol}()
         cur = name
         while cur != root
@@ -200,32 +211,42 @@ function _build_tree_topology(root::Symbol, edges::Tuple)
         end
     end
 
-    return Tuple(names)
+    # Place the root first so the event order starts at the origin.
+    ordered = Symbol[root]
+    for n in names
+        n == root || push!(ordered, n)
+    end
+    return root, Tuple(ordered)
 end
 
 @doc """
 
-Build an [`EventTree`](@ref) from a root event and a list of delay edges.
+Build an [`EventTree`](@ref) from a Tables.jl edge list and a primary event.
 
-Each edge is a `parent => child => delay` (or an [`EventEdge`](@ref)) declaring
-the delay distribution from a parent event to a child event. The edges must
-form a tree rooted at `root`: every non-root event has exactly one parent edge
-and is reachable from the root. An interior event that several edges descend
-*from* is a shared node; an event with two incoming edges (two parents) is
-rejected, since that is not a conjunctive tree node.
+`edges` is any Tables.jl source with the columns `parent`, `child`, and
+`delay`, one row per directed edge. Each row declares the `delay` distribution
+of the time from its `parent` event to its `child` event. The root event (the
+single event that is never a child) is inferred from the edge list and takes
+`primary_event` as its censoring window.
+
+The edge list must form one tree: every event has at most one parent, exactly
+one event has no parent (the root), and every event is reachable from the root
+with no cycles. An interior event that several rows descend *from* is a shared
+node, integrated exactly once; an event named as `child` by two rows (two
+parents) is rejected, since that is not a conjunctive tree node.
 
 The distribution is data-free: which events are observed is decided per record
 from the observation passed to [`logpdf`](@ref), not at construction.
 
 # Arguments
-- `root`: the name (`Symbol`) of the origin event.
-- `edges`: the delay edges, each given as `parent => (child => delay)` (a
-  nested `Pair`) or directly as an [`EventEdge`](@ref). `parent` and `child`
-  are `Symbol`s and `delay` is a continuous `UnivariateDistribution`.
+- `edges`: a Tables.jl source with columns `parent` (`Symbol`), `child`
+  (`Symbol`), and `delay` (a continuous `UnivariateDistribution`), one row per
+  edge. A `NamedTuple` of column vectors, a vector of `NamedTuple` rows, or a
+  `DataFrame` all work.
+- `primary_event`: the root censoring window (primary event distribution)
+  applied to the origin event.
 
 # Keyword Arguments
-- `primary_event`: root censoring window applied to the origin event. Defaults
-  to `nothing` (no primary censoring).
 - `interval`: secondary interval-censoring width. Defaults to `nothing`.
 - `horizon`: right-truncation horizon (observation cut-off). Defaults to
   `nothing`.
@@ -236,13 +257,13 @@ from the observation passed to [`logpdf`](@ref), not at construction.
 ```@example
 using CensoredDistributions, Distributions
 
-# The bdbv tree: onset feeds admission and notification; admission feeds
-# death and discharge. Admission is the shared interior node.
-tree = event_tree(:onset,
-    [:onset => :admit => Gamma(2.0, 1.0),
-     :onset => :notif => LogNormal(1.0, 0.5),
-     :admit => :death => Gamma(1.5, 1.0),
-     :admit => :disch => Gamma(2.0, 1.5)])
+# The bdbv tree as an edge list: onset feeds admission and notification;
+# admission feeds death and discharge. Admission is the shared interior node.
+edges = (parent = [:onset, :onset, :admit, :admit],
+    child = [:admit, :notif, :death, :disch],
+    delay = [Gamma(2.0, 1.0), LogNormal(1.0, 0.5),
+        Gamma(1.5, 1.0), Gamma(2.0, 1.5)])
+tree = primary_censored(edges, Uniform(0.0, 1.0))
 
 # A per-case observation: onset and admission observed, the rest a mix of
 # observed and missing. Missing events are marginalised.
@@ -254,27 +275,48 @@ logpdf(tree, obs)
 - [`EventTree`](@ref): the distribution type
 - [`logpdf`](@ref): per-record missingness-dispatched evaluation
 """
-function event_tree(root::Symbol, edges;
-        primary_event = nothing, interval = nothing, horizon = nothing,
+function primary_censored(edges, primary_event::UnivariateDistribution;
+        interval = nothing, horizon = nothing,
         solver = GaussLegendre(; n = 64))
-    edge_tuple = Tuple(_as_edge(e) for e in edges)
+    edge_tuple = _edges_from_table(edges)
     length(edge_tuple) >= 1 ||
-        throw(ArgumentError("event_tree needs at least one edge"))
-    names = _build_tree_topology(root, edge_tuple)
+        throw(ArgumentError("the edge list needs at least one edge"))
+    root, names = _build_tree_topology(edge_tuple)
     return EventTree(
         root, edge_tuple, names, primary_event, interval, horizon, solver)
 end
 
-# Coerce a `parent => (child => delay)` nested pair to an `EventEdge`. An
-# `EventEdge` passes through unchanged.
-_as_edge(e::EventEdge) = e
-function _as_edge(e::Pair{Symbol, <:Pair{Symbol, <:UnivariateDistribution}})
-    return EventEdge(e.first, e.second.first, e.second.second)
+# Read a Tables.jl edge list into a tuple of `EventEdge`s. Requires the
+# `parent`, `child`, and `delay` columns; each row becomes one edge. Reading
+# happens here, kept apart from the differentiated arithmetic.
+function _edges_from_table(edges)
+    Tables.istable(edges) ||
+        throw(ArgumentError(
+            "edges must be a Tables.jl source with columns parent, child, " *
+            "and delay; got $(typeof(edges))"))
+    rows = Tables.rows(edges)
+    cols = Tables.columnnames(rows)
+    for required in (:parent, :child, :delay)
+        required in cols ||
+            throw(ArgumentError(
+                "the edge list is missing the `$required` column"))
+    end
+    return Tuple(_edge_from_row(row) for row in rows)
 end
-function _as_edge(e)
-    throw(ArgumentError(
-        "each edge must be `parent => child => delay` or an EventEdge; " *
-        "got $(typeof(e))"))
+
+# Coerce one Tables.jl row to an `EventEdge`, checking the field kinds.
+function _edge_from_row(row)
+    parent = Tables.getcolumn(row, :parent)
+    child = Tables.getcolumn(row, :child)
+    delay = Tables.getcolumn(row, :delay)
+    parent isa Symbol ||
+        throw(ArgumentError("the `parent` entry must be a Symbol"))
+    child isa Symbol ||
+        throw(ArgumentError("the `child` entry must be a Symbol"))
+    delay isa UnivariateDistribution ||
+        throw(ArgumentError(
+            "the `delay` entry must be a UnivariateDistribution"))
+    return EventEdge(parent, child, delay)
 end
 
 # ---------------------------------------------------------------------------
@@ -295,12 +337,13 @@ The order matches the entries returned by [`rand`](@ref) and accepted by
 ```@example
 using CensoredDistributions, Distributions
 
-tree = event_tree(:onset, [:onset => :admit => Gamma(2.0, 1.0)])
+edges = (parent = [:onset], child = [:admit], delay = [Gamma(2.0, 1.0)])
+tree = primary_censored(edges, Uniform(0.0, 1.0))
 event_names(tree)
 ```
 
 # See also
-- [`event_tree`](@ref): constructor function
+- [`primary_censored`](@ref): constructor function
 - [`EventTree`](@ref): the distribution type
 "
 event_names(d::EventTree) = d.events
@@ -709,3 +752,44 @@ function _tree_sample_subtree!(
 end
 
 sampler(d::EventTree) = d
+
+# ---------------------------------------------------------------------------
+# show: a readable tree of parent -> child edges and their delays
+# ---------------------------------------------------------------------------
+
+@doc """
+
+Print an [`EventTree`](@ref) as an indented tree of its `parent -> child`
+edges, each annotated with the edge delay distribution. The root line records
+the primary event, and the interval, horizon, and solver settings are summarised
+when set.
+
+See also: [`EventTree`](@ref), [`primary_censored`](@ref)
+"""
+function Base.show(io::IO, ::MIME"text/plain", d::EventTree)
+    println(io, "EventTree with $(length(d.events)) events")
+    pe = d.primary_event === nothing ? "none" : string(d.primary_event)
+    println(io, "  root: $(d.root) (primary_event: $pe)")
+    _tree_show_subtree(io, d, d.root, "  ")
+    extras = String[]
+    d.interval === nothing || push!(extras, "interval = $(d.interval)")
+    d.horizon === nothing || push!(extras, "horizon = $(d.horizon)")
+    isempty(extras) || print(io, "  (", join(extras, ", "), ")")
+    return nothing
+end
+
+# Recursively print each outgoing edge of `name` as `parent -> child: delay`,
+# indenting one level per tree depth.
+function _tree_show_subtree(io::IO, d::EventTree, name::Symbol, indent::String)
+    kids = _tree_children(d, name)
+    for (k, ei) in enumerate(kids)
+        edge = d.edges[ei]
+        last = k == length(kids)
+        branch = last ? "└─ " : "├─ "
+        println(io, indent, branch,
+            "$(edge.parent) -> $(edge.child): $(edge.delay)")
+        child_indent = indent * (last ? "   " : "│  ")
+        _tree_show_subtree(io, d, edge.child, child_indent)
+    end
+    return nothing
+end

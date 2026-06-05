@@ -34,6 +34,8 @@ using Optimization: OptimizationFunction, OptimizationProblem, solve, ReturnCode
 
 using OptimizationOptimJL: NelderMead
 
+using Tables: Tables
+
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
 
@@ -57,8 +59,9 @@ export truncate_to_horizon, truncate_chain
 # Exported sequential-distribution constructor
 export sequential_distribution
 
-# Exported event-tree constructor and accessor
-export event_tree, event_names
+# Exported event-tree accessor (the tree is built via `primary_censored` on a
+# Tables.jl edge list)
+export event_names
 
 # Exported utilities
 export weight, get_dist, get_dist_recursive
