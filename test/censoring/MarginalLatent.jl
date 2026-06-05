@@ -71,7 +71,7 @@ end
     @test d.method isa Latent
     @test length(d) == 2
 
-    # method = Latent() is equivalent to method = Latent()
+    # Latent forces the multivariate formulation
     d2 = primary_censored(delay, pe; method = Latent())
     @test d2 isa Distribution{Multivariate, Continuous}
 
@@ -124,23 +124,48 @@ end
     end
 end
 
-@testitem "primary_prior accessor (uncoupled and coupled)" begin
+@testitem "get_primary_event accessor (uncoupled and coupled)" begin
     using Distributions
 
     delay = LogNormal(1.5, 0.75)
     d = primary_censored(delay, Uniform(0.0, 1.0))
 
-    # Uncoupled prior is the primary_event itself
-    @test primary_prior(d) === d.primary_event
+    # Uncoupled accessor returns the primary_event itself
+    @test get_primary_event(d) === d.primary_event
 
     # Coupled prior is a BoundedPrimary truncated by the secondary time
-    bp = primary_prior(d, 0.6)
+    bp = get_primary_event(d, 0.6)
     @test bp isa CensoredDistributions.BoundedPrimary
     @test minimum(bp) == 0.0
     @test maximum(bp) == 0.6
 
     # secondary beyond the window keeps the full window
-    @test maximum(primary_prior(d, 5.0)) == 1.0
+    @test maximum(get_primary_event(d, 5.0)) == 1.0
+
+    # primary_prior is a backward-compatible alias of get_primary_event
+    @test primary_prior(d) === get_primary_event(d)
+    @test maximum(primary_prior(d, 0.6)) == maximum(get_primary_event(d, 0.6))
+end
+
+@testitem "conditional_logpdf excludes the prior (no double-counting)" begin
+    using Distributions
+
+    delay = LogNormal(1.5, 0.75)
+    pe = Uniform(0.0, 1.0)
+    d = primary_censored(delay, pe)
+
+    p, y = 0.3, 2.7
+    # conditional_logpdf is the delay term only (prior excluded)
+    @test conditional_logpdf(d, p, y) ≈ logpdf(delay, y - p)
+
+    # The joint logpdf (vector form) adds the prior on top of the conditional
+    dl = primary_censored(delay, pe; method = Latent())
+    @test logpdf(dl, [p, y]) ≈ logpdf(pe, p) + conditional_logpdf(d, p, y)
+
+    # Decomposed workflow (p ~ prior; y ~ conditional) does not double-count:
+    # scoring prior once + conditional once == the joint exactly.
+    decomposed = logpdf(get_primary_event(d), p) + conditional_logpdf(d, p, y)
+    @test decomposed ≈ logpdf(dl, [p, y])
 end
 
 @testitem "BoundedPrimary Jacobian property and non-Uniform error" begin
