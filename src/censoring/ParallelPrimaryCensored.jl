@@ -477,7 +477,7 @@ function _parallel_marginal_logpdf(d::ParallelPrimaryCensored, x)
     yvals === nothing && return convert(T, NaN)
 
     # No present branch: nothing to condition on, the joint over an all-missing
-    # observation marginalises to 1 (log 0).
+    # observation marginalises to 1, so the log-density is log 1 = 0.
     isempty(present) && return zero(T)
 
     lower, upper = _parallel_origin_window(d, present, yvals)
