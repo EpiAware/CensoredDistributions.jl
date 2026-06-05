@@ -19,8 +19,8 @@ end
 
     @test d.dist === dist
     @test d.primary_event === primary
-    @test d.method isa CensoredDistributions.AnalyticalSolver
-    @test d.method.solver isa GaussLegendre
+    @test d.solver isa CensoredDistributions.AnalyticalSolver
+    @test d.solver.solver isa GaussLegendre
 end
 
 @testitem "Constructor with force_numeric" begin
@@ -33,8 +33,8 @@ end
 
     @test d.dist === dist
     @test d.primary_event === primary
-    @test d.method isa CensoredDistributions.NumericSolver
-    @test d.method.solver isa GaussLegendre
+    @test d.solver isa CensoredDistributions.NumericSolver
+    @test d.solver.solver isa GaussLegendre
 end
 
 @testitem "Constructor with custom solver" begin
@@ -46,8 +46,8 @@ end
     custom_solver = HCubatureJL()
     d = primary_censored(dist, primary; solver = custom_solver, force_numeric = false)
 
-    @test d.method isa CensoredDistributions.AnalyticalSolver
-    @test d.method.solver === custom_solver
+    @test d.solver isa CensoredDistributions.AnalyticalSolver
+    @test d.solver.solver === custom_solver
 end
 
 @testitem "Test random generation" begin
@@ -281,7 +281,7 @@ end
     @test typeof(d) <: CensoredDistributions.PrimaryCensored
     @test d.dist === delay_dist
     @test d.primary_event === primary_event
-    @test d.method isa CensoredDistributions.AnalyticalSolver
+    @test d.solver isa CensoredDistributions.AnalyticalSolver
 
     # Test basic functionality
     @test isfinite(pdf(d, 1.0))

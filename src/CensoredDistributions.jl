@@ -13,9 +13,9 @@ import Distributions: params, insupport, pdf, logpdf, cdf, logcdf,
 # Import from Base for functions we extend that are re-exported by Distributions
 import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
-using Distributions: Distributions, Distribution, Multivariate,
-                     UnivariateDistribution, Continuous,
-                     ValueSupport, Truncated, Product, Censored,
+using Distributions: Distributions, Distribution, UnivariateDistribution,
+                     Continuous, ValueSupport, VariateForm, Univariate,
+                     Multivariate, Truncated, Product, Censored, truncated,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
                      Weibull, Normal, shape, scale, meanlogx, stdlogx,
                      _in_closed_interval
@@ -35,6 +35,9 @@ using OptimizationOptimJL: NelderMead
 
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
+
+# Exported formulation method types and the primary-event prior accessor
+export Marginal, Latent, primary_prior
 
 # Export underlying methods for user extension
 export primarycensored_cdf, primarycensored_logcdf
@@ -59,8 +62,11 @@ include("docstrings.jl")
 include("utils/gamma_ad.jl")
 
 include("censoring/primarycensored_cdf.jl")
+include("censoring/pc_method.jl")
 include("censoring/PrimaryCensored.jl")
+include("censoring/BoundedPrimary.jl")
 include("censoring/IntervalCensored.jl")
+include("censoring/LatentIntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")

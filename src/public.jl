@@ -7,10 +7,17 @@ public Weighted
 public Convolved
 public SequentialDistribution
 
+# Latent-formulation internals (public but not exported)
+public BoundedPrimary
+public LatentIntervalCensored
+
 # Primary censoring utilities and solver methods (public but not exported)
 public AbstractSolverMethod
 public AnalyticalSolver
 public NumericSolver
+
+# Formulation method types (Marginal/Latent exported; abstract type public)
+public AbstractPCMethod
 
 # Extension helper for user-defined analytical CDF pairs (public but not exported)
 public primarycensored_uniform_cdf_formula

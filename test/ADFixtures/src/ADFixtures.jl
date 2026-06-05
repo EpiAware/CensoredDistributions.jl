@@ -242,6 +242,46 @@ function scenarios(; with_reference::Bool = false)
             obs),
         [2.0, 1.5], (Constant(obs),))
 
+    # Latent (multivariate) formulation. The joint logpdf is
+    # `logpdf(primary_event, p) + logpdf(delay, y - p)`, so gradients flow
+    # through the delay distribution's own logpdf. Event-time pairs are passed
+    # as concrete `[primary, observed]` vectors via a `Constant` context, never
+    # as `Union{Missing}` (which Enzyme cannot differentiate). The delay
+    # parameters are varied; observed > primary keeps `y - p` in support.
+    # Literal delay constructors for the #278 Enzyme forward reason.
+    latent_obs = [[0.3, 1.2], [0.5, 2.6], [0.2, 3.8], [0.7, 5.1]]
+    _push!("PrimaryCensored LogNormal+Uniform latent",
+        (θ,
+            pys) -> sum(
+            py -> logpdf(
+                primary_censored(LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0);
+                    latent = true), py),
+            pys),
+        [1.0, 0.75], (Constant(latent_obs),))
+    _push!("PrimaryCensored Gamma+Uniform latent",
+        (θ,
+            pys) -> sum(
+            py -> logpdf(
+                primary_censored(Gamma(θ[1], θ[2]), Uniform(0.0, 1.0);
+                    latent = true), py),
+            pys),
+        [2.0, 1.5], (Constant(latent_obs),))
+
+    # Latent gradient with respect to the sampled primary times themselves. The
+    # varied parameter vector IS the per-observation primary `p`; the delay
+    # parameters are fixed literals. Observed times (fixed data) all exceed the
+    # starting primaries so `y - p` stays in support. This is the gradient a
+    # sampler takes over the augmented primaries.
+    latent_y = [1.2, 2.6, 3.8, 5.1]
+    _push!("PrimaryCensored LogNormal+Uniform latent wrt primary",
+        (θ,
+            ys) -> sum(
+            i -> logpdf(
+                primary_censored(LogNormal(1.0, 0.75), Uniform(0.0, 1.0);
+                    latent = true), [θ[i], ys[i]]),
+            eachindex(ys)),
+        [0.3, 0.5, 0.2, 0.7], (Constant(latent_y),))
+
     # ExponentiallyTilted primary event — no analytical
     # `primarycensored_cdf(::Delay, ::ExponentiallyTilted, ...)` exists,
     # so the scalar `r` parameter of the prior is included in θ (as θ[3])
