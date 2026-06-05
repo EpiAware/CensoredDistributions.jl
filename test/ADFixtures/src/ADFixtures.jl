@@ -585,17 +585,37 @@ function scenarios(; with_reference::Bool = false)
     # `Constant` NamedTuple: missingness is constant control flow, only the
     # concrete event times enter the differentiated arithmetic, so every
     # backend differentiates cleanly. Delays are literal constructors built
-    # inside the function (Enzyme forward #278). The tree is built from a
-    # Tables.jl edge list via `primary_censored`. Guarded on the `EventTree`
-    # type for the AirspeedVelocity baseline (the `convolve_distributions`
-    # guard pattern).
+    # inside the function (Enzyme forward #278). The public front-end builds
+    # the tree from a Tables.jl edge list via `primary_censored`; that
+    # construction (Tables column reads, the topology `Dict`/`filter`) is
+    # parameter-free and is run once OUTSIDE the differentiated function. The
+    # differentiated path rebuilds only the θ-carrying delay tuple and the
+    # `EventTree` struct, so no table machinery enters the gradient tape (a
+    # round-trip through it crashes Mooncake's reverse rule on the dynamic
+    # `Dict`/`resize!`). Guarded on the `EventTree` type for the
+    # AirspeedVelocity baseline (the `convolve_distributions` guard pattern).
     if isdefined(CensoredDistributions, :EventTree)
-        _tree_oa(θ) = primary_censored(
+        # Build the tree structure once (parameter-free) to capture its root,
+        # event order, and solver; the differentiated closure reuses them.
+        _tree_template = primary_censored(
             (parent = [:onset, :onset, :admit, :admit],
                 child = [:admit, :notif, :death, :disch],
-                delay = [Gamma(θ[1], θ[2]), LogNormal(1.0, 0.4),
+                delay = [Gamma(2.0, 1.0), LogNormal(1.0, 0.4),
                     Gamma(1.5, 1.0), Gamma(2.0, 0.8)]),
             Uniform(0.0, 1.0))
+        _tree_oa(θ) = CensoredDistributions.EventTree(
+            _tree_template.root,
+            (CensoredDistributions.EventEdge(:onset, :admit,
+                    Gamma(θ[1], θ[2])),
+                CensoredDistributions.EventEdge(:onset, :notif,
+                    LogNormal(1.0, 0.4)),
+                CensoredDistributions.EventEdge(:admit, :death,
+                    Gamma(1.5, 1.0)),
+                CensoredDistributions.EventEdge(:admit, :disch,
+                    Gamma(2.0, 0.8))),
+            _tree_template.events, _tree_template.primary_event,
+            _tree_template.interval, _tree_template.horizon,
+            _tree_template.solver)
 
         et_obs_full = (onset = 0.0, admit = 2.0, death = 5.0,
             disch = 4.0, notif = 1.5)
