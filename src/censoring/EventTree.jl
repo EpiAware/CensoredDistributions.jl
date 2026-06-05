@@ -114,12 +114,12 @@ gradient tape. This is verified across every supported backend.
 # Fields
 
 `root` is the name of the origin event, `edges` the tuple of [`EventEdge`](@ref)
-delays, `children` a map from each event name to the indices of its outgoing
-edges, `events` the ordered tuple of all event names, `primary_event` the root
+delays, `events` the ordered tuple of all event names, `primary_event` the root
 censoring window (or `nothing`), `interval` the secondary interval-censoring
 width (or `nothing`), `horizon` the right-truncation cut-off (or `nothing`),
-`solver` the latent-node quadrature rule and `force_numeric` the flag forcing
-numeric integration.
+and `solver` the latent-node quadrature rule. The parent-to-children adjacency
+is recomputed on demand from `edges` rather than stored, which keeps the struct
+fully differentiable.
 
 # See also
 - [`event_tree`](@ref): constructor function
@@ -127,14 +127,12 @@ numeric integration.
 - [`primary_censored`](@ref): the single-edge case this generalises
 - [`sequential_distribution`](@ref): the chain (single-path) special case
 """
-struct EventTree{E <: Tuple, C, EV <: Tuple, P, I, H, S} <:
+struct EventTree{E <: Tuple, EV <: Tuple, P, I, H, S} <:
        Distribution{Multivariate, Continuous}
     "Name of the root (origin) event."
     root::Symbol
     "Tuple of the directed delay edges."
     edges::E
-    "Map from each event name to the indices of its outgoing edges."
-    children::C
     "Ordered tuple of every event name in the tree."
     events::EV
     "Root censoring window (primary event distribution), or `nothing`."
@@ -145,16 +143,26 @@ struct EventTree{E <: Tuple, C, EV <: Tuple, P, I, H, S} <:
     horizon::H
     "Quadrature solver for latent-node marginalisation."
     solver::S
-    "Whether to force numeric integration even when a faster path exists."
-    force_numeric::Bool
 end
 
-# Build the children adjacency map (event name -> outgoing edge indices) and the
-# ordered event-name tuple from the root and edges. Validates that the graph is
-# a tree rooted at `root`: every non-root event has exactly one parent and is
-# reachable from the root, with no cycles.
+# Outgoing edge indices of the event `name`, computed on the fly from the edge
+# tuple. Storing the adjacency as a `Dict` field instead defeats Enzyme's type
+# analysis (the `Dict{Symbol, Vector{Int}}` embedded in the differentiated
+# struct produces a "bad enzyme_type" failure); scanning the small edge tuple
+# keeps the struct a plain tuple-of-distributions that every backend handles.
+function _tree_children(d::EventTree, name::Symbol)
+    idx = Int[]
+    @inbounds for i in eachindex(d.edges)
+        d.edges[i].parent === name && push!(idx, i)
+    end
+    return idx
+end
+
+# Validate that the edges form a tree rooted at `root` (every non-root event
+# has exactly one parent and is reachable from the root, with no cycles) and
+# return the ordered event-name tuple. The adjacency itself is recomputed on the
+# fly by `_tree_children`, so it is not stored.
 function _build_tree_topology(root::Symbol, edges::Tuple)
-    children = Dict{Symbol, Vector{Int}}()
     parents = Dict{Symbol, Symbol}()
     names = Symbol[root]
 
@@ -168,7 +176,6 @@ function _build_tree_topology(root::Symbol, edges::Tuple)
         e.child == root &&
             throw(ArgumentError("the root event cannot be a child"))
         parents[e.child] = e.parent
-        push!(get!(children, e.parent, Int[]), i)
         e.parent in names || push!(names, e.parent)
         e.child in names || push!(names, e.child)
     end
@@ -193,7 +200,7 @@ function _build_tree_topology(root::Symbol, edges::Tuple)
         end
     end
 
-    return children, Tuple(names)
+    return Tuple(names)
 end
 
 @doc """
@@ -224,8 +231,6 @@ from the observation passed to [`logpdf`](@ref), not at construction.
   `nothing`.
 - `solver`: quadrature rule for latent-node marginalisation. Defaults to
   `GaussLegendre(; n = 64)`.
-- `force_numeric`: force numeric integration even where a faster path exists.
-  Defaults to `false`.
 
 # Examples
 ```@example
@@ -251,14 +256,13 @@ logpdf(tree, obs)
 """
 function event_tree(root::Symbol, edges;
         primary_event = nothing, interval = nothing, horizon = nothing,
-        solver = GaussLegendre(; n = 64), force_numeric::Bool = false)
+        solver = GaussLegendre(; n = 64))
     edge_tuple = Tuple(_as_edge(e) for e in edges)
     length(edge_tuple) >= 1 ||
         throw(ArgumentError("event_tree needs at least one edge"))
-    children, names = _build_tree_topology(root, edge_tuple)
+    names = _build_tree_topology(root, edge_tuple)
     return EventTree(
-        root, edge_tuple, children, names, primary_event, interval, horizon,
-        solver, force_numeric)
+        root, edge_tuple, names, primary_event, interval, horizon, solver)
 end
 
 # Coerce a `parent => (child => delay)` nested pair to an `EventEdge`. An
@@ -282,11 +286,22 @@ Base.length(d::EventTree) = length(d.events)
 
 @doc "
 
-The ordered tuple of every event name in an [`EventTree`](@ref).
+Return the ordered tuple of every event name in an [`EventTree`](@ref).
 
-The order matches the entries of the event-time vector returned by
-[`rand`](@ref) and accepted by [`logpdf`](@ref) when a positional vector is
-used. See also: [`event_tree`](@ref).
+The order matches the entries returned by [`rand`](@ref) and accepted by
+[`logpdf`](@ref) when a positional observation vector is used.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+tree = event_tree(:onset, [:onset => :admit => Gamma(2.0, 1.0)])
+event_names(tree)
+```
+
+# See also
+- [`event_tree`](@ref): constructor function
+- [`EventTree`](@ref): the distribution type
 "
 event_names(d::EventTree) = d.events
 
@@ -355,7 +370,20 @@ held constant.
 
 See also: [`EventTree`](@ref), [`pdf`](@ref)
 """
-function logpdf(d::EventTree, observation)
+function logpdf(d::EventTree, observation::NamedTuple)
+    return _eventtree_logpdf(d, observation)
+end
+function logpdf(d::EventTree, observation::AbstractDict)
+    return _eventtree_logpdf(d, observation)
+end
+# A positional observation vector (event_names order). The explicit
+# `AbstractVector` signature resolves the ambiguity with the generic
+# `Distributions.logpdf(::Distribution{ArrayLikeVariate}, ::AbstractArray)`.
+function logpdf(d::EventTree, observation::AbstractVector)
+    return _eventtree_logpdf(d, observation)
+end
+
+function _eventtree_logpdf(d::EventTree, observation)
     T = _tree_eltype(d)
 
     root_time = _obs_get(d, observation, d.root)
@@ -383,7 +411,7 @@ end
 function _tree_observed_node_logpdf(
         d::EventTree, observation, name::Symbol, node_time::T, ::Type{T}) where {T}
     lp = zero(T)
-    for ei in get(d.children, name, Int[])
+    for ei in _tree_children(d, name)
         lp += _tree_edge_logpdf(d, observation, d.edges[ei], node_time, T)
     end
     return lp
@@ -467,7 +495,7 @@ function _tree_latent_logpdf(
     lower = _prior_min(prior)
     upper = _prior_max(prior)
 
-    kids = get(d.children, name, Int[])
+    kids = _tree_children(d, name)
 
     # A latent leaf: its prior integrates to one over its full support, so the
     # marginal contributes log 1 = 0. (The node is unobserved and childless,
@@ -557,7 +585,7 @@ end
 # its delay to one, so the kernel is one and the edge drops from the joint.
 function _tree_latent_kernel(
         d::EventTree, observation, edge::EventEdge, t, ::Type{T}) where {T}
-    grandkids = get(d.children, edge.child, Int[])
+    grandkids = _tree_children(d, edge.child)
     isempty(grandkids) && return one(promote_type(typeof(t), T))
 
     prior = _ShiftedDelay(_tree_horizon_delay(d, edge.delay), t)
@@ -589,10 +617,20 @@ function _tree_latent_kernel(
     return gl_integrate(inner, lower, upper, _tree_gl(d))
 end
 
-# Fixed Gauss-Legendre rule for the tree's latent-node quadrature. Reuses the
-# convolution layer's shared rule so latent marginalisation and convolution
-# integrate on the same AD-safe scaffold.
-_tree_gl(d::EventTree) = _CONVOLVED_GL
+# Fixed Gauss-Legendre rule for the tree's latent-node quadrature. The user's
+# `solver` (an Integrals.jl `GaussLegendre`) already carries reference nodes and
+# weights on `[-1, 1]`; wrap them in the `_GL` rule the convolution layer's
+# `gl_integrate` consumes, so latent marginalisation runs on the same AD-safe
+# fixed-node scaffold. Falls back to the shared `_CONVOLVED_GL` for any solver
+# without explicit nodes/weights.
+function _tree_gl(d::EventTree)
+    s = d.solver
+    if hasproperty(s, :nodes) && hasproperty(s, :weights) &&
+       !isempty(s.nodes)
+        return _GL(s.nodes, s.weights)
+    end
+    return _CONVOLVED_GL
+end
 
 @doc "
 
@@ -600,9 +638,9 @@ Compute the joint probability density of an event-tree observation.
 
 See also: [`logpdf`](@ref)
 "
-function pdf(d::EventTree, observation)
-    return exp(logpdf(d, observation))
-end
+pdf(d::EventTree, observation::NamedTuple) = exp(logpdf(d, observation))
+pdf(d::EventTree, observation::AbstractDict) = exp(logpdf(d, observation))
+pdf(d::EventTree, observation::AbstractVector) = exp(logpdf(d, observation))
 
 # ---------------------------------------------------------------------------
 # Right-truncation as a `truncated` method on the tree
@@ -629,8 +667,8 @@ out of scope here.
 """
 function truncated(d::EventTree, horizon::Real)
     return EventTree(
-        d.root, d.edges, d.children, d.events, d.primary_event, d.interval,
-        float(horizon), d.solver, d.force_numeric)
+        d.root, d.edges, d.events, d.primary_event, d.interval,
+        float(horizon), d.solver)
 end
 
 # ---------------------------------------------------------------------------
@@ -662,7 +700,7 @@ Base.rand(d::EventTree) = rand(default_rng(), d)
 # delay draw, in tree order.
 function _tree_sample_subtree!(
         rng::AbstractRNG, d::EventTree, name::Symbol, times, ::Type{T}) where {T}
-    for ei in get(d.children, name, Int[])
+    for ei in _tree_children(d, name)
         edge = d.edges[ei]
         times[edge.child] = times[name] + convert(T, rand(rng, edge.delay))
         _tree_sample_subtree!(rng, d, edge.child, times, T)

@@ -133,13 +133,26 @@ backend `name` from [`working_backends`](@ref).
 
 """
 function backend_broken_scenarios()
+    # The EventTree scenarios recurse through a HETEROGENEOUS tuple of edges
+    # (`EventEdge{Gamma}`, `EventEdge{LogNormal}`, ...) in `_tree_edge_logpdf`.
+    # Both Enzyme modes fail type analysis on that recursion ("bad enzyme_type"
+    # / "Canonicalization failed"), the same heterogeneous-tuple / mixed
+    # activity gap as #278; a single-edge tree differentiates under Enzyme, so
+    # the marginalisation maths is AD-safe and the gap is structural to Enzyme.
+    # The gradients are correct on the other five backends (ForwardDiff,
+    # ReverseDiff, both Mooncake modes), so the scenarios stay in the suite and
+    # are marked broken only for Enzyme.
+    event_tree_scenarios = Set{String}([
+        "EventTree bdbv all-observed",
+        "EventTree bdbv shared-latent admit"
+    ])
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => Set{String}(),
         "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => Set{String}(),
-        "Enzyme forward" => Set{String}()
+        "Enzyme reverse" => copy(event_tree_scenarios),
+        "Enzyme forward" => copy(event_tree_scenarios)
     )
 end
 
@@ -321,10 +334,10 @@ function scenarios(; with_reference::Bool = false)
     # `Union{Missing, Float64}`-element vectors per record exercise the
     # constant control-flow / concrete-arithmetic split on every backend.
     par_mix_obs = Vector{Union{Missing, Float64}}[
-        [
-            missing, 1.2, missing], [missing, missing, 3.4],
-        [
-            missing, 3.8, 4.5], [missing, 5.1, missing]]
+    [
+        missing, 1.2, missing], [missing, missing, 3.4],
+    [
+        missing, 3.8, 4.5], [missing, 5.1, missing]]
     _push!("ParallelPrimaryCensored Gamma+LogNormal mixed missingness",
         (θ,
             obs) -> sum(
@@ -560,6 +573,38 @@ function scenarios(; with_reference::Bool = false)
                     Weibull(2.0, 1.5))),
                 obs),
             [2.0, 1.0], (Constant(obs_seq),))
+    end
+
+    # EventTree (design B: recursive tree whose `logpdf` dispatches on the
+    # per-record missingness). The bdbv topology onset -> {admit, notif};
+    # admit -> {death, disch} with `admit` a SHARED interior node. Two
+    # scenarios exercise the dispatch branches: an all-observed record
+    # (pure factorisation, each edge a conditional delay logpdf) and a
+    # shared-latent record (admit MISSING, marginalised by the numeric
+    # quadrature that jointly couples death and disch). The observation is a
+    # `Constant` NamedTuple: missingness is constant control flow, only the
+    # concrete event times enter the differentiated arithmetic, so every
+    # backend differentiates cleanly. Delays are literal constructors built
+    # inside the function (Enzyme forward #278). Guarded on `event_tree` for
+    # the AirspeedVelocity baseline (see the `convolve_distributions` guard).
+    if isdefined(CensoredDistributions, :event_tree)
+        _tree_oa(θ) = CensoredDistributions.event_tree(:onset,
+            [:onset => :admit => Gamma(θ[1], θ[2]),
+                :onset => :notif => LogNormal(1.0, 0.4),
+                :admit => :death => Gamma(1.5, 1.0),
+                :admit => :disch => Gamma(2.0, 0.8)])
+
+        et_obs_full = (onset = 0.0, admit = 2.0, death = 5.0,
+            disch = 4.0, notif = 1.5)
+        _push!("EventTree bdbv all-observed",
+            (θ, obs) -> logpdf(_tree_oa(θ), obs),
+            [2.0, 1.0], (Constant(et_obs_full),))
+
+        et_obs_latent = (onset = 0.0, admit = missing, death = 5.0,
+            disch = 4.0, notif = 1.5)
+        _push!("EventTree bdbv shared-latent admit",
+            (θ, obs) -> logpdf(_tree_oa(θ), obs),
+            [2.0, 1.0], (Constant(et_obs_latent),))
     end
 
     # High-dimensional scenarios. Each observation carries its own delay
