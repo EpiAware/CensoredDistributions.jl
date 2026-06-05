@@ -334,10 +334,10 @@ function scenarios(; with_reference::Bool = false)
     # `Union{Missing, Float64}`-element vectors per record exercise the
     # constant control-flow / concrete-arithmetic split on every backend.
     par_mix_obs = Vector{Union{Missing, Float64}}[
-    [
-        missing, 1.2, missing], [missing, missing, 3.4],
-    [
-        missing, 3.8, 4.5], [missing, 5.1, missing]]
+        [
+            missing, 1.2, missing], [missing, missing, 3.4],
+        [
+            missing, 3.8, 4.5], [missing, 5.1, missing]]
     _push!("ParallelPrimaryCensored Gamma+LogNormal mixed missingness",
         (θ,
             obs) -> sum(
