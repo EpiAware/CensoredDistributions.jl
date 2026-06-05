@@ -35,14 +35,16 @@ module CensoredDistributionsDynamicPPLExt
 
 using CensoredDistributions: CensoredDistributions, PrimaryCensored,
                              IntervalCensored, MarginalPrimaryCensored,
-                             LatentPrimaryCensored, get_dist, get_primary_event,
-                             weight
+                             LatentPrimaryCensored, ParallelPrimaryCensored,
+                             SequentialDistribution, EventTree, Competing,
+                             as_mixture, event_names, get_dist,
+                             get_primary_event, weight
 # Import the constructor names so the `@model` definitions add methods to the
 # core declarations rather than shadowing them.
 import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model
-using DynamicPPL: DynamicPPL, @model
-using Distributions: UnivariateDistribution
+using DynamicPPL: DynamicPPL, @model, to_submodel, @addlogprob!
+using Distributions: UnivariateDistribution, MultivariateDistribution, logpdf
 
 # ============================================================================
 # Marginal weighting helper
@@ -119,13 +121,132 @@ end
     return y
 end
 
+# ============================================================================
+# Composed-type submodels (the grammar engine types #317/#309/#318/#320)
+# ============================================================================
+#
+# The composed engine types are data-driven multivariate distributions: the
+# marginal-versus-latent decision for each interior node is carried by the
+# OBSERVATION VECTOR, not by a type parameter. A `Missing` entry marks a node
+# that is integrated out inside `logpdf` (the marginal mechanic); a concrete
+# entry is conditioned on. This is the per-node mode living on the data the
+# struct is evaluated against, the multivariate counterpart of the `mode` type
+# parameter on the single `PrimaryCensored`. The submodels honour that pattern:
+#
+# * the MARGINAL mechanic scores the observation vector (with its `Missing`
+#   entries) through the pure `logpdf`, so every latent node is integrated inside
+#   that `logpdf` and nothing is exposed to the sampler;
+# * the LATENT mechanic samples the latent (would-be-`Missing`) interior nodes
+#   INSIDE the submodel, scores the fully-resolved joint, and returns the
+#   internal node times for parent plumbing.
+#
+# Weighting: the composed types are multivariate, so the univariate `weight`
+# wrapper does not apply. A multiplicity weight is therefore applied with
+# `@addlogprob!` scaling the joint `logpdf` (the documented fallback for the
+# non-univariate marginal path). The default is `nothing`: add the plain
+# `logpdf`.
+
+# Score a multivariate composed-type observation, with an optional multiplicity
+# weight. The composed engine types implement `logpdf(d, obs)` (the per-record
+# missingness dispatch) but not `loglikelihood`, and they are multivariate so the
+# univariate `weight` wrapper does not apply; the contribution is therefore added
+# with `@addlogprob!`. This is the documented multivariate counterpart of the
+# univariate `~`/`weight` marginal path. A `nothing` weight adds the plain
+# `logpdf`; a real weight scales it by the multiplicity.
+@model function _score_multivariate(d, obs; weight = nothing)
+    w = weight === nothing ? 1 : weight
+    @addlogprob! w * logpdf(d, obs)
+    return obs
+end
+
 # ----------------------------------------------------------------------------
-# STUB (slots in with the composed-grammar stack #309/#317/#318/#320)
+# Sequential chain (`SequentialDistribution`, #309)
 # ----------------------------------------------------------------------------
-# Latent composed types (sequential / parallel vector-of-delays / event tree /
-# Competing) recurse into child submodels, each reading its own node's resolved
-# mode and `to_submodel`-ing the appropriate child. Those engine types do not
-# exist on this base branch yet; the methods land once the stack is rebased in.
-# The single-primary latent path above is the load-bearing piece for now.
+
+# `SequentialDistribution` is data-free and multivariate: its `logpdf` takes the
+# per-event observation vector and, per record, marginalises the runs of delays
+# spanning `Missing` (unobserved) events and conditions on the observed ones.
+# Scoring its `logpdf` therefore reads each node's mode straight off the vector's
+# missingness — observed nodes are conditioned, missing intermediate nodes are
+# integrated inside `logpdf`. This is the marginal mechanic for the whole chain.
+@model function primary_censored_model(
+        d::SequentialDistribution, obs; weight = nothing)
+    result ~ to_submodel(_score_multivariate(d, obs; weight = weight), false)
+    return result
+end
+
+# ----------------------------------------------------------------------------
+# Parallel shared-origin branches (`ParallelPrimaryCensored`, #317)
+# ----------------------------------------------------------------------------
+
+# `ParallelPrimaryCensored` is multivariate over `[primary, observed...]` with
+# one shared latent origin. The observation vector's first entry is the primary:
+# `missing` marginalises it (the marginal mechanic, one origin integral inside
+# `logpdf`); a concrete value conditions on it.
+#
+# `observed` is the length-`n` branch-observation vector (entries may themselves
+# be `Missing` to drop a branch).
+#
+# Marginal mechanic (`latent = false`, the default): score
+# `[missing, observed...] ~ d`, integrating the shared origin inside `logpdf`.
+#
+# Latent mechanic (`latent = true`): sample the shared origin INSIDE the
+# submodel, then score each present branch's implied delay `observed_i - p`
+# against that branch's delay distribution. The branches are coupled through the
+# single shared `p`, so they are scored against one sampled origin (not
+# independent per-branch origins). The internal origin time is returned for
+# parent plumbing.
+@model function primary_censored_model(
+        d::ParallelPrimaryCensored, observed; weight = nothing,
+        latent::Bool = false)
+    if latent
+        p ~ get_primary_event(d)
+        branches = d.delays
+        for i in eachindex(branches)
+            observed[i] === missing && continue
+            delay = observed[i] - p
+            delay ~ branches[i]
+        end
+        return (; p, observed)
+    else
+        obs = vcat(missing, observed)
+        result ~ to_submodel(
+            _score_multivariate(d, obs; weight = weight), false)
+        return result
+    end
+end
+
+# ----------------------------------------------------------------------------
+# Event tree (`EventTree`, #318) and competing nodes (`Competing`, #320)
+# ----------------------------------------------------------------------------
+
+# `EventTree` is multivariate and data-driven: its `logpdf` takes one time per
+# event (keyed by `event_names(d)`), marginalising the `Missing` (latent)
+# interior nodes by nested integrals — a node shared by several edges is
+# integrated once — and conditioning on the observed ones. Competing
+# (disjunctive) nodes lower to a `MixtureModel` via `as_mixture` and are
+# marginalised over the branch by the tree `logpdf` (the realised branch is
+# selected from the observed outcome). Scoring its `logpdf` therefore honours
+# each node's mode straight off the observation's missingness and handles the
+# competing branches, the recursion over edges, and the shared interior nodes
+# inside the pure `logpdf`. This is the marginal mechanic for the whole tree.
+@model function primary_censored_model(
+        d::EventTree, obs; weight = nothing)
+    result ~ to_submodel(_score_multivariate(d, obs; weight = weight), false)
+    return result
+end
+
+# A `Competing` node on its own (outside a tree) lowers to its `MixtureModel`
+# over the branch delays weighted by the branch probabilities. The marginal
+# mechanic marginalises the branch: score the resolution gap against the
+# mixture. The realised-branch (latent-category) mechanic is selected by the
+# tree from the observed outcome, so a stand-alone competing submodel here only
+# needs the marginalised mixture form.
+@model function primary_censored_model(
+        c::Competing, gap; weight = nothing)
+    mixture = as_mixture(c)
+    gap ~ _weighted(mixture, weight)
+    return gap
+end
 
 end # module
