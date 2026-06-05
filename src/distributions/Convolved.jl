@@ -41,7 +41,7 @@ analytic convolution exists, mirroring `primary_censored`; it is useful
 for validation and debugging.
 
 # See also
-- [`generic_convolve`](@ref): Constructor function
+- [`convolve_distributions`](@ref): Constructor function
 """
 struct Convolved{C <: Tuple} <: UnivariateDistribution{Continuous}
     "Tuple of independent component distributions to be summed."
@@ -82,38 +82,38 @@ distribution.
 using CensoredDistributions, Distributions
 
 # Sum of two delays
-d = generic_convolve(Gamma(2.0, 1.0), LogNormal(1.5, 0.5))
+d = convolve_distributions(Gamma(2.0, 1.0), LogNormal(1.5, 0.5))
 cdf_at_5 = cdf(d, 5.0)
 
 # Sum of three delays from a vector
-d3 = generic_convolve([Gamma(2.0, 1.0), Gamma(1.0, 1.0), Normal(0.0, 1.0)])
+d3 = convolve_distributions([Gamma(2.0, 1.0), Gamma(1.0, 1.0), Normal(0.0, 1.0)])
 mean_sample = rand(d3)
 
 # Force numeric quadrature even for an analytic pair
-dn = generic_convolve(Normal(0.0, 1.0), Normal(1.0, 2.0); force_numeric=true)
+dn = convolve_distributions(Normal(0.0, 1.0), Normal(1.0, 2.0); force_numeric=true)
 cdf_numeric = cdf(dn, 2.0)
 ```
 
 # See also
 - [`Convolved`](@ref): The distribution type
 "
-function generic_convolve(
+function convolve_distributions(
         components::AbstractVector{<:UnivariateDistribution};
         force_numeric::Bool = false)
     length(components) >= 2 ||
-        throw(ArgumentError("generic_convolve needs at least two components"))
+        throw(ArgumentError("convolve_distributions needs at least two components"))
     return Convolved(Tuple(components); force_numeric = force_numeric)
 end
 
-function generic_convolve(
+function convolve_distributions(
         c1::UnivariateDistribution, c2::UnivariateDistribution,
         rest::UnivariateDistribution...; force_numeric::Bool = false)
     return Convolved((c1, c2, rest...); force_numeric = force_numeric)
 end
 
-function generic_convolve(components::Tuple; force_numeric::Bool = false)
+function convolve_distributions(components::Tuple; force_numeric::Bool = false)
     length(components) >= 2 ||
-        throw(ArgumentError("generic_convolve needs at least two components"))
+        throw(ArgumentError("convolve_distributions needs at least two components"))
     return Convolved(components; force_numeric = force_numeric)
 end
 
