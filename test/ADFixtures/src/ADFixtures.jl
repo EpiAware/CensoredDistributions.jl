@@ -402,6 +402,30 @@ function scenarios(; with_reference::Bool = false)
             [2.0, 1.0], (Constant(obs),))
     end
 
+    # Pluggable integration path (#208). The numeric primary-censored CDF
+    # routes its quadrature through the package's default `GaussLegendre`
+    # solver passed explicitly via the `solver` keyword. This is the cost
+    # the integration refactor touches, so benchmarking it per backend
+    # gives a clean before/after signal on the integration path; the test
+    # suite runs it as a gradient-correctness check too. A 128-node rule
+    # (twice the default) makes the quadrature cost the dominant term.
+    # Guarded on `GaussLegendre` existing: on the `main` baseline the
+    # solver type lived in Integrals.jl, not the package, so referencing
+    # it unconditionally would throw `UndefVarError` when AirspeedVelocity
+    # builds the baseline against this PR-tree fixtures module.
+    if isdefined(CensoredDistributions, :GaussLegendre)
+        _push!("PrimaryCensored Gamma+truncNormal numerical GaussLegendre solver",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    primary_censored(Gamma(θ[1], θ[2]),
+                        truncated(Normal(0.5, 0.3), 0.0, 1.0);
+                        solver = CensoredDistributions.GaussLegendre(; n = 128)),
+                    x),
+                obs),
+            [2.0, 1.5], (Constant(obs),))
+    end
+
     # High-dimensional scenarios. Each observation carries its own delay
     # parameter, so the gradient is taken with respect to many inputs.
     # These give the reverse-mode backends (ReverseDiff, Enzyme reverse,

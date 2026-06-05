@@ -70,15 +70,16 @@ end
 
 # Default fallback integrator for AnalyticalSolver()/NumericSolver().
 #
-# Fixed-node Gauss-Legendre quadrature is chosen over adaptive schemes
-# (QuadGKJL, HCubatureJL) because its constant control flow is traceable
-# by reverse-mode AD; adaptive schemes change their node count based on
-# integrand values, which prevents trace-based AD backends from
-# differentiating through them regardless of how well-behaved the
-# integrand is. n = 64 is accurate to ~1e-13 on the smooth,
-# density-weighted CDF integrands used in this package. Pass an explicit
-# solver (e.g. NumericSolver(QuadGKJL())) when adaptive accuracy is
-# required and AD isn't.
+# The package's own fixed-node `GaussLegendre` solver (no heavy
+# dependency) is chosen over adaptive schemes (QuadGKJL, HCubatureJL)
+# because its constant control flow is traceable by reverse-mode AD;
+# adaptive schemes change their node count based on integrand values,
+# which prevents trace-based AD backends from differentiating through them
+# regardless of how well-behaved the integrand is. n = 64 is accurate to
+# ~1e-13 on the smooth, density-weighted CDF integrands used in this
+# package. Load Integrals.jl and pass an Integrals.jl algorithm
+# (e.g. NumericSolver(QuadGKJL())) when adaptive accuracy is required and
+# AD isn't.
 AnalyticalSolver() = AnalyticalSolver(GaussLegendre(; n = 64))
 NumericSolver() = NumericSolver(GaussLegendre(; n = 64))
 
@@ -104,19 +105,23 @@ The cumulative probability P(X ≤ x) where X is the observed delay time.
 
 # Examples
 ```@example
-using CensoredDistributions, Distributions, Integrals
+using CensoredDistributions, Distributions
 
-# Analytical solution for Gamma with Uniform primary event
+# Analytical solution for Gamma with Uniform primary event. The default
+# `GaussLegendre` solver (no heavy dependency) is the numeric fallback.
 gamma_dist = Gamma(2.0, 1.5)
 primary_uniform = Uniform(0, 2)
-analytical_method = AnalyticalSolver(QuadGKJL())
+analytical_method = AnalyticalSolver()
 
 cdf_val = primarycensored_cdf(gamma_dist, primary_uniform, 3.0, analytical_method)
 
 # Force numerical integration
-numeric_method = NumericSolver(QuadGKJL())
+numeric_method = NumericSolver()
 cdf_numeric = primarycensored_cdf(gamma_dist, primary_uniform, 3.0, numeric_method)
 ```
+
+For adaptive accuracy, load Integrals.jl and pass an Integrals.jl
+algorithm (e.g. `NumericSolver(QuadGKJL())`).
 
 "
 function primarycensored_cdf(
@@ -208,9 +213,13 @@ function primarycensored_cdf(
         end
     end
 
-    # Set up and solve the integral problem
-    prob = IntegralProblem(integrand, (lower, upper), x)
-    result = solve(prob, method.solver)[1]
+    # Integrate through the pluggable solver. The default
+    # `GaussLegendre` routes to the AD-safe `gl_integrate` dot product;
+    # loading the Integrals.jl extension lets `method.solver` be an
+    # Integrals.jl algorithm instead. `integrand` takes the evaluation
+    # point `x` as a second argument (the Integrals.jl `IntegralProblem`
+    # parameter), so the closure threads it through.
+    result = integrate(method.solver, u -> integrand(u, x), lower, upper)
 
     # Clamp to valid CDF range for numerical stability
     return clamp(result, zero(result), one(result))

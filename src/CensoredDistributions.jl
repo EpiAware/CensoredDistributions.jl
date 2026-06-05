@@ -25,8 +25,7 @@ using LogExpFunctions: logsubexp, log1mexp
 
 using SpecialFunctions: gamma, gamma_inc, loggamma, digamma
 
-using Integrals: IntegralProblem, solve, GaussLegendre
-import FastGaussQuadrature  # activates IntegralsFastGaussQuadratureExt for GaussLegendre
+import FastGaussQuadrature  # provides Gauss-Legendre nodes for the default solver
 
 using Optimization: OptimizationFunction, OptimizationProblem, solve, ReturnCode
 
@@ -50,6 +49,8 @@ export weight, get_dist, get_dist_recursive
 include("docstrings.jl")
 
 include("utils/gamma_ad.jl")
+
+include("integration/integration.jl")
 
 include("censoring/primarycensored_cdf.jl")
 include("censoring/PrimaryCensored.jl")
