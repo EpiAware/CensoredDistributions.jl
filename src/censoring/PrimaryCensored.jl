@@ -98,7 +98,23 @@ function primary_censored(
     else
         AnalyticalSolver(solver)
     end
-    return PrimaryCensored(dist, primary_event, solver_method, mode)
+    # Build with the Marginal -> Latent fallback applied. `_build_with_fallback`
+    # branches on the concrete `mode` and constructs inside each branch, so the
+    # build stays type-stable (a function barrier) despite the runtime fallback.
+    return _build_with_fallback(dist, primary_event, solver_method, mode)
+end
+
+# Construct the distribution applying the Marginal -> Latent fallback. Each
+# method body builds with a single concrete mode, so inference stays stable.
+function _build_with_fallback(dist, primary_event, solver, mode::Latent)
+    return PrimaryCensored(dist, primary_event, solver, mode)
+end
+function _build_with_fallback(dist, primary_event, solver, mode::Marginal)
+    if _can_marginalise(dist, primary_event, solver)
+        return PrimaryCensored(dist, primary_event, solver, mode)
+    else
+        return PrimaryCensored(dist, primary_event, solver, Latent())
+    end
 end
 
 @doc "
@@ -170,33 +186,35 @@ struct PrimaryCensored{
     "The formulation mode ([`Marginal`](@ref) default, or [`Latent`](@ref))."
     method::M
 
+    # Inner constructor: `mode` is a CONCRETE mode, so `V` and `M` are concrete
+    # and the build is type-stable. The `Marginal -> Latent` fallback is applied
+    # before this is reached (see the `_resolve_mode` function barrier used by
+    # `primary_censored`).
     function PrimaryCensored(
             dist::D1, primary_event::D2, solver::S,
-            mode::AbstractPCMethod = Marginal()) where {
-            D1, D2, S <: AbstractSolverMethod}
-        # `Marginal` auto-falls-back to `Latent` for any component that cannot be
-        # marginalised; `Latent` is always latent. `eff` is the effective mode.
-        eff = _resolve_mode(dist, primary_event, solver, mode)
-        M = typeof(eff)
-        V = _variate_form(eff)
-        new{V, D1, D2, S, M}(dist, primary_event, solver, eff)
+            mode::M = Marginal()) where {
+            D1, D2, S <: AbstractSolverMethod, M <: AbstractPCMethod}
+        V = _variate_form(mode)
+        new{V, D1, D2, S, M}(dist, primary_event, solver, mode)
     end
-end
-
-# Resolve the requested mode into the effective mode actually used. `Latent`
-# stays latent. `Marginal` stays marginal when the component can be marginalised
-# and otherwise falls back to `Latent` (real runtime behaviour, not just docs).
-_resolve_mode(dist, primary_event, solver, mode::Latent) = mode
-function _resolve_mode(dist, primary_event, solver, mode::Marginal)
-    return _can_marginalise(dist, primary_event, solver) ? mode : Latent()
 end
 
 # Whether the primary event can be marginalised out of the delay. For a single
 # delay the marginal CDF always has a quadrature route (see `primarycensored_cdf`
 # / `NumericSolver`), so this is `true`. The hook exists so composed components
 # that genuinely cannot be marginalised can return `false` and trigger the
-# `Marginal -> Latent` fallback above.
+# `Marginal -> Latent` fallback.
 _can_marginalise(dist, primary_event, solver) = true
+
+# Resolve the requested mode into the effective concrete mode actually used.
+# `Latent` stays latent. `Marginal` stays marginal when the component can be
+# marginalised and otherwise falls back to `Latent` (real runtime behaviour).
+# Each method returns a single concrete type, so callers stay type-stable per
+# branch (a function barrier on the `Marginal` branch in `primary_censored`).
+_resolve_mode(dist, primary_event, solver, mode::Latent) = mode
+function _resolve_mode(dist, primary_event, solver, mode::Marginal)
+    return _can_marginalise(dist, primary_event, solver) ? mode : Latent()
+end
 
 # Variate form implied by the (effective) formulation mode.
 #
