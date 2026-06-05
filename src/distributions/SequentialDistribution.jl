@@ -1,15 +1,15 @@
-@doc raw"""
+@doc """
 
 Distribution of the observed gaps along a chain of sequential delays with
 mixed observed / unobserved intermediate events.
 
-A chain ``E_0 \to E_1 \to \dots \to E_k`` links events through delays
-``D_1, \dots, D_k`` where ``D_i`` is the delay from ``E_{i-1}`` to
-``E_i``. Each event carries an observation spec: an *unobserved* event
-(`Missing`) is marginalised by convolution over its delay; an *observed*
-event cuts the chain there and is conditioned on. `SequentialDistribution` is
-the multivariate distribution of the gaps between consecutive observed
-events.
+A chain ``E_0 \\to E_1 \\to \\dots \\to E_k`` links events through delays
+``D_1, \\dots, D_k`` where ``D_i`` is the delay from ``E_{i-1}`` to
+``E_i``. Each event carries an observation specification: an *unobserved*
+event (`Missing`) is marginalised by convolution over its delay; an
+*observed* event cuts the chain there and is conditioned on.
+`SequentialDistribution` is the multivariate distribution of the gaps
+between consecutive observed events.
 
 The chain is split at construction into independent **segments**, one per
 consecutive pair of observed events:
@@ -31,7 +31,7 @@ The segments condition only on their two surrounding observed events, so
 they are independent and the joint log-density factorises:
 
 ```math
-\log f(g_1, \dots, g_m) = \sum_{j=1}^m \log f_{S_j}(g_j),
+\\log f(g_1, \\dots, g_m) = \\sum_{j=1}^m \\log f_{S_j}(g_j),
 ```
 
 where ``g_j`` is the observed gap for segment ``S_j`` and ``m`` is the
@@ -59,14 +59,14 @@ struct SequentialDistribution{S <: Tuple} <:
     end
 end
 
-@doc raw"""
+@doc """
 
 Build a [`SequentialDistribution`](@ref) from a chain's delays and per-event
 observations (event-first interface).
 
 `delays[i]` is the *continuous* delay distribution ``D_i`` from event
 ``E_{i-1}`` to ``E_i``, so `delays` has length ``k`` and `observations`
-has length ``k + 1`` (one entry per event ``E_0, \dots, E_k``). An
+has length ``k + 1`` (one entry per event ``E_0, \\dots, E_k``). An
 observation entry is either `Missing` (the event is unobserved and its
 delay marginalised) or a value (the event is observed and conditioned on,
 cutting the chain there).
@@ -83,8 +83,8 @@ after the last observed event) carry no segment and are dropped.
 
 Pass *continuous* delays only: never pre-wrap a component in
 `primary_censored` / `double_interval_censored` here, since censoring is
-driven by the observation spec. To compose pre-built segment distributions
-directly, use the escape-hatch method
+driven by the observation specification. To compose pre-built segment
+distributions directly, use the escape-hatch method
 [`sequential_distribution(segments)`](@ref).
 
 # Arguments
@@ -135,7 +135,7 @@ function sequential_distribution(
     return sequential_distribution(delays, observed; kwargs...)
 end
 
-@doc raw"""
+@doc """
 
 Build a [`SequentialDistribution`](@ref) from a chain's delays and an
 observation *design* (structure-first interface).
@@ -143,7 +143,7 @@ observation *design* (structure-first interface).
 `delays[i]` is the continuous delay ``D_i`` from ``E_{i-1}`` to ``E_i``
 (length ``k``); `observed[i]` is `true` when event ``E_{i-1}`` is observed
 and `false` when it is unobserved-by-design (length ``k + 1``, one per
-event ``E_0, \dots, E_k``).
+event ``E_0, \\dots, E_k``).
 
 This constructor takes the design only, with no observed values, so the
 returned distribution can be sampled (`rand(d)` simulates the observed
@@ -209,7 +209,7 @@ function sequential_distribution(
     return SequentialDistribution(Tuple(segments))
 end
 
-@doc raw"""
+@doc """
 
 Build a [`SequentialDistribution`](@ref) from pre-built segment distributions
 (escape hatch).
@@ -220,7 +220,7 @@ unobserved run or a [`double_interval_censored`](@ref) factor). The
 log-density is the sum of the per-segment log-densities at the observed
 gaps. Use this when composing the segment structure manually; the
 event-first method [`sequential_distribution(delays, observations)`](@ref) is
-preferred when starting from raw delays and an observation spec.
+preferred when starting from raw delays and an observation specification.
 
 # Arguments
 - `segments`: Vector/tuple of the per-segment `UnivariateDistribution`s.
@@ -246,8 +246,9 @@ end
 sequential_distribution(segments::Tuple) = SequentialDistribution(segments)
 
 # Build one segment's gap distribution from its run of delays and the
-# per-event censoring spec, dispatching on whether the run spans observed
-# events (a single delay) or marginalises unobserved ones (a run of >= 2).
+# per-event censoring specification, dispatching on whether the run spans
+# observed events (a single delay) or marginalises unobserved ones (a run
+# of >= 2).
 #
 # - OBSERVED-adjacent single delay: the component is kept as a FACTOR,
 #   retaining whatever censoring it already carries (e.g. a passed
@@ -255,9 +256,9 @@ sequential_distribution(segments::Tuple) = SequentialDistribution(segments)
 #   additional per-segment endpoint censoring is composed on top.
 # - UNOBSERVED run (>= 2 delays): the intermediate events are marginalised,
 #   so the run is convolved over the *continuous* underlying delays
-#   (extracted with `get_dist` so a censored component contributes its
-#   continuous core, never a discrete interval-censored object), then the
-#   endpoint censoring is applied to the convolution as a unit.
+#   (extracted with `get_dist_recursive` so a censored component contributes
+#   its continuous core, never a discrete interval-censored object), then
+#   the endpoint censoring is applied to the convolution as a unit.
 function _build_segment(run, primary_event, upper, interval, force_numeric)
     if length(run) == 1
         return _censor_segment(
