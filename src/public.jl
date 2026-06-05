@@ -10,6 +10,10 @@ public SequentialDistribution
 public EventTree
 public EventEdge
 
+# Competing-outcome (disjunctive) node MixtureModel lowering. `Competing` is
+# exported; `as_mixture` is public but not exported.
+public as_mixture
+
 # Latent-formulation internals (public but not exported)
 public BoundedPrimary
 public LatentIntervalCensored

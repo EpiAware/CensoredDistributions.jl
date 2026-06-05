@@ -343,10 +343,10 @@ function scenarios(; with_reference::Bool = false)
     # `Union{Missing, Float64}`-element vectors per record exercise the
     # constant control-flow / concrete-arithmetic split on every backend.
     par_mix_obs = Vector{Union{Missing, Float64}}[
-    [
-        missing, 1.2, missing], [missing, missing, 3.4],
-    [
-        missing, 3.8, 4.5], [missing, 5.1, missing]]
+        [
+            missing, 1.2, missing], [missing, missing, 3.4],
+        [
+            missing, 3.8, 4.5], [missing, 5.1, missing]]
     _push!("ParallelPrimaryCensored Gamma+LogNormal mixed missingness",
         (θ,
             obs) -> sum(
@@ -663,12 +663,12 @@ function scenarios(; with_reference::Bool = false)
                         :death => (Gamma(1.5, 1.5), 0.3),
                         :disch => (Gamma(2.0, 0.8), 0.7))]),
             Uniform(0.0, 1.0); horizon = 10.0)
-        function _cfr_tree(θ, template)
+        function _cfr_tree(θ, template, oa_shape)
             node = CensoredDistributions.Competing(
                 :death => (Gamma(1.5, 1.5), θ[1]),
                 :disch => (Gamma(2.0, 0.8), 1 - θ[1]))
             edges = (CensoredDistributions.EventEdge(:onset, :admit,
-                Gamma(θ[2], 1.0)),)
+                Gamma(oa_shape, 1.0)),)
             competing = (:admit => node,)
             return CensoredDistributions.EventTree(
                 template.root, edges, competing, template.events,
@@ -682,14 +682,23 @@ function scenarios(; with_reference::Bool = false)
             disch = 4.0)
         cfr_obs_unres = (onset = 0.0, admit = 2.0, death = missing,
             disch = missing)
+        # Observed-branch scenarios differentiate the case-fatality ratio `θ[1]`
+        # and the onset->admit shape `θ[2]` jointly.
         _push!("EventTree Competing CFR observed death",
-            (θ, obs) -> logpdf(_cfr_tree(θ, _cfr_template), obs),
+            (θ, obs) -> logpdf(_cfr_tree(θ, _cfr_template, θ[2]), obs),
             [0.3, 2.0], (Constant(cfr_obs_death),))
         _push!("EventTree Competing CFR observed discharge",
-            (θ, obs) -> logpdf(_cfr_tree(θ, _cfr_template), obs),
+            (θ, obs) -> logpdf(_cfr_tree(θ, _cfr_template, θ[2]), obs),
             [0.3, 2.0], (Constant(cfr_obs_disch),))
+        # The unresolved-case (survival mixture) scenario differentiates the
+        # case-fatality ratio only, with a literal onset->admit shape. A horizon
+        # right-truncates the conjunctive onset->admit Gamma edge, whose `logcdf`
+        # with a Dual shape would hit the pre-existing `gammalogcdf`
+        # shape-derivative gap (a separate AD limitation, not the competing node);
+        # keeping the shape a literal isolates the branch-probability gradient
+        # through the survival mixture.
         _push!("EventTree Competing CFR unresolved horizon",
-            (θ, obs) -> logpdf(_cfr_tree(θ, _cfr_template_h), obs),
+            (θ, obs) -> logpdf(_cfr_tree(θ, _cfr_template_h, 2.0), obs),
             [0.3, 2.0], (Constant(cfr_obs_unres),))
     end
 
