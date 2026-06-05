@@ -67,8 +67,13 @@ function double_interval_censored(
         interval::Union{Real, Nothing} = nothing,
         force_numeric::Bool = false
 )
-    # Start with primary censoring (always applied)
-    result = primary_censored(dist, primary_event; force_numeric = force_numeric)
+    # Start with primary censoring (always applied). The double-interval
+    # pipeline truncates and interval-censors a univariate observed delay, so
+    # it forces the Marginal formulation rather than the multivariate Auto
+    # default.
+    result = primary_censored(
+        dist, primary_event; force_numeric = force_numeric,
+        method = Marginal())
 
     # Apply truncation if specified
     if !isnothing(lower) || !isnothing(upper)

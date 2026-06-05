@@ -16,8 +16,10 @@ public AbstractSolverMethod
 public AnalyticalSolver
 public NumericSolver
 
-# Formulation method types (Marginal/Latent exported; abstract type public)
+# Formulation method types (Marginal/Latent exported; Auto default and the
+# abstract type public but not exported)
 public AbstractPCMethod
+public Auto
 
 # Extension helper for user-defined analytical CDF pairs (public but not exported)
 public primarycensored_uniform_cdf_formula

@@ -1,23 +1,63 @@
-@testitem "Marginal default is univariate and unchanged" begin
+@testitem "Default is Auto (univariate scalar + missingness dispatch)" begin
     using Distributions
 
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0.0, 1.0)
 
     d = primary_censored(delay, pe)
+    # Auto keeps the classic univariate scalar interface (so the common path is
+    # unchanged) and adds vector logpdf for the missingness dispatch.
     @test d isa UnivariateDistribution
-    @test d.method isa Marginal
+    @test d.method isa CensoredDistributions.Auto
 
-    # Reference values for the classic marginal behaviour (must not change).
+    # Scalar observed time takes the marginal path (the classic reference
+    # values, unchanged): cdf, logpdf, quantile, rand all work as today.
     @test cdf(d, 3.0) ≈ 0.2183282452603626
     @test logpdf(d, 3.0) ≈ -1.8626929385055817
+    @test quantile(d, 0.5) isa Real
+    @test length(rand(d, 5)) == 5
+end
 
-    # Explicit Marginal() matches the default.
-    d_explicit = primary_censored(delay, pe; method = Marginal())
-    for x in [1.0, 2.5, 5.0]
-        @test cdf(d_explicit, x) == cdf(d, x)
-        @test logpdf(d_explicit, x) == logpdf(d, x)
+@testitem "Auto missingness dispatch: missing marginalises, value conditions" begin
+    using Distributions
+
+    delay = LogNormal(1.5, 0.75)
+    pe = Uniform(0.0, 1.0)
+    d = primary_censored(delay, pe)
+    dm = primary_censored(delay, pe; method = Marginal())
+
+    for y in [1.0, 2.5, 5.0]
+        # [missing, y] marginalises -> equals the forced Marginal logpdf(y)
+        @test logpdf(d, [missing, y]) ≈ logpdf(dm, y)
+        # scalar y is the same marginal path
+        @test logpdf(d, y) ≈ logpdf(dm, y)
+        @test pdf(d, [missing, y]) ≈ pdf(dm, y)
     end
+
+    # [p, y] conditions on the concrete primary
+    for (p, y) in [(0.3, 2.7), (0.1, 1.0)]
+        @test logpdf(d, [p, y]) ≈ logpdf(pe, p) + logpdf(delay, y - p)
+    end
+end
+
+@testitem "Force overrides: Marginal univariate, Latent condition-only" begin
+    using Distributions
+
+    delay = LogNormal(1.5, 0.75)
+    pe = Uniform(0.0, 1.0)
+
+    # method = Marginal() forces the univariate scalar formulation
+    dm = primary_censored(delay, pe; method = Marginal())
+    @test dm isa UnivariateDistribution
+    @test dm.method isa Marginal
+    @test cdf(dm, 3.0) ≈ 0.2183282452603626
+    @test logpdf(dm, 3.0) ≈ -1.8626929385055817
+
+    # method = Latent() forces conditioning; a missing primary errors
+    dl = primary_censored(delay, pe; method = Latent())
+    @test dl isa Distribution{Multivariate, Continuous}
+    @test logpdf(dl, [0.3, 2.7]) ≈ logpdf(pe, 0.3) + logpdf(delay, 2.7 - 0.3)
+    @test_throws ArgumentError logpdf(dl, [missing, 2.7])
 end
 
 @testitem "Latent is multivariate over [primary, observed]" begin
@@ -179,7 +219,12 @@ end
     @test s[2] == floor(s[2])           # observed snapped to integer interval
     @test s[1] != floor(s[1]) || insupport(pe, s[1])  # primary continuous
 
-    # Plain interval_censored on a Marginal stays univariate (unchanged path)
-    dm = primary_censored(delay, pe)
+    # interval_censored on a forced Marginal stays univariate (unchanged path)
+    dm = primary_censored(delay, pe; method = Marginal())
     @test interval_censored(dm, 1.0) isa UnivariateDistribution
+
+    # interval_censored on the default Auto also uses the univariate marginal
+    # path (Auto keeps the classic scalar interface)
+    da = primary_censored(delay, pe)
+    @test interval_censored(da, 1.0) isa UnivariateDistribution
 end
