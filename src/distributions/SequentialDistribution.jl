@@ -48,11 +48,13 @@ This is verified across every supported backend.
 
 # Censoring
 
-Censoring attaches to events, not to delays. Primary event censoring is
-applied at the origin end of the first segment; interval censoring and
-right-truncation to the observation horizon are applied at the observed end
+Censoring attaches to events, not to delays. The `primary_event`
+distribution censors the origin end of the first segment; the `interval`
+width and right-truncation to the `horizon` are applied at the observed end
 of each segment, via [`double_interval_censored`](@ref) and the
-[`truncated`](@ref) method on this type.
+[`truncated`](@ref) method on this type. `force_numeric` forces numeric
+primary-censoring integration. The struct's fields are therefore `delays`,
+`primary_event`, `interval`, `horizon` and `force_numeric`.
 
 # See also
 - [`sequential_distribution`](@ref): Constructor function
