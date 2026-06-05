@@ -617,9 +617,9 @@ end
     for dist in test_distributions
         # Test through various wrappers
         wrapped_distributions = Any[
-            weight(dist, 2.0),
-            interval_censored(dist, 1.0)
-        ]
+        weight(dist, 2.0),
+        interval_censored(dist, 1.0)
+]
 
         # Only add truncated version if it creates a proper Truncated wrapper
         truncated_version = truncated(
