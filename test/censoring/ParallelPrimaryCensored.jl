@@ -57,8 +57,12 @@ end
             @test cdf(pd, [missing, x]) ≈ cdf(pc, x) atol=1e-9
             @test logcdf(pd, [missing, x]) ≈ logcdf(pc, x) atol=1e-8
             # The marginalised (missing primary) logpdf matches the scalar
-            # marginal logpdf (both finite-difference the same cdf).
-            @test logpdf(pd, [missing, x]) ≈ logpdf(pc, x) atol=1e-5
+            # marginal logpdf. The parallel path integrates the origin
+            # density directly while the scalar `primary_censored` path
+            # finite-differences its cdf with a fixed step h=1e-8, so the two
+            # agree only to the finite-difference truncation error (~1e-4);
+            # the exact-quadrature `cdf` reduction above matches to 1e-9.
+            @test logpdf(pd, [missing, x]) ≈ logpdf(pc, x) rtol=1e-3
         end
     end
 end
