@@ -35,7 +35,7 @@ end
 
     # Missing intermediate event E1 -> first gap marginalises D1+D2 by
     # convolution, second gap is the D3 factor.
-    seg1 = generic_convolve(D1, D2)
+    seg1 = convolve_distributions(D1, D2)
     for (g1, g2) in [(3.0, 2.0), (4.5, 1.2)]
         obs = [0.0, missing, g1, g1 + g2]
         @test logpdf(d, obs) ≈ logpdf(seg1, g1) + logpdf(D3, g2) atol=1e-10
@@ -58,7 +58,7 @@ end
         [D1, D2, D3]; primary_event = Uniform(0, 1), horizon = 15.0,
         interval = 1.0)
     ref = double_interval_censored(
-        generic_convolve(D1, D2, D3);
+        convolve_distributions(D1, D2, D3);
         primary_event = Uniform(0, 1), upper = 15.0, interval = 1.0)
     for g in [3.0, 5.0, 8.0]
         @test logpdf(d, [0.0, missing, missing, g]) ≈ logpdf(ref, g) atol=1e-8
@@ -74,13 +74,13 @@ end
 
     # Interval censoring applied to the marginalised run as a unit.
     di = sequential_distribution([D1, D2]; interval = 1.0)
-    refi = interval_censored(generic_convolve(D1, D2), 1.0)
+    refi = interval_censored(convolve_distributions(D1, D2), 1.0)
     @test logpdf(di, [0.0, missing, 3.0]) ≈ logpdf(refi, 3.0) atol=1e-8
 
     # Primary censoring at the origin only.
     dp = sequential_distribution([D1, D2]; primary_event = primary)
     refp = double_interval_censored(
-        generic_convolve(D1, D2); primary_event = primary)
+        convolve_distributions(D1, D2); primary_event = primary)
     @test logpdf(dp, [0.0, missing, 4.0]) ≈ logpdf(refp, 4.0) atol=1e-8
 
     # Observed intermediate -> two factors; only the first carries primary
@@ -106,7 +106,7 @@ end
 
     # Missing intermediate -> convolved-chain denominator: the whole chain is
     # one right-truncated convolution.
-    refc = truncated(generic_convolve(D1, D2); upper = 8.0)
+    refc = truncated(convolve_distributions(D1, D2); upper = 8.0)
     @test logpdf(dt, [0.0, missing, 4.0]) ≈ logpdf(refc, 4.0) atol=1e-8
 
     # Observed intermediate -> single-delay denominators: each segment is its
@@ -129,7 +129,7 @@ end
     d = sequential_distribution(
         [c1, c2]; primary_event = Uniform(0, 1), interval = 1.0)
     ref = double_interval_censored(
-        generic_convolve(D1, D2); primary_event = Uniform(0, 1),
+        convolve_distributions(D1, D2); primary_event = Uniform(0, 1),
         interval = 1.0)
     for g in [3.0, 5.0, 7.0]
         @test logpdf(d, [0.0, missing, g]) ≈ logpdf(ref, g) atol=1e-8
@@ -176,7 +176,7 @@ end
     # Monte-Carlo estimate from the shared continuous latent path.
     D1 = Gamma(2.0, 1.0)
     D2 = Gamma(1.5, 1.0)
-    seg = generic_convolve(D1, D2)
+    seg = convolve_distributions(D1, D2)
     d = sequential_distribution([D1, D2])
 
     rng = MersenneTwister(2024)

@@ -43,6 +43,23 @@ function _reference(f, θ, contexts)
     DifferentiationInterface.gradient(f, AutoForwardDiff(), θ, contexts...)
 end
 
+# A per-event observation vector that may contain `Missing`, used as the
+# `Constant` context for the `SequentialDistribution` scenario. It is a real
+# `AbstractVector{Union{Missing, Float64}}`, so the differentiated function
+# sees the genuine design-B input (missingness as constant control flow,
+# concrete values entering the arithmetic). The only addition over a plain
+# vector is a total `==`: `DifferentiationInterfaceTest`'s scenario-intact
+# check compares the constant context with `==`, and `missing == missing`
+# returns `missing` for a plain vector, which is not a `Bool`. Defining `==`
+# via `isequal` keeps that check a proper boolean without affecting the
+# gradient.
+struct MissingObs <: AbstractVector{Union{Missing, Float64}}
+    data::Vector{Union{Missing, Float64}}
+end
+Base.size(o::MissingObs) = size(o.data)
+Base.getindex(o::MissingObs, i::Int) = o.data[i]
+Base.:(==)(a::MissingObs, b::MissingObs) = isequal(a.data, b.data)
+
 """
     working_backends()
 
@@ -437,9 +454,11 @@ function scenarios(; with_reference::Bool = false)
     # backend differentiates cleanly. The delays are passed as a tuple (not a
     # vector) so Enzyme forward does not hit the #278 `Vector`-to-`Tuple`
     # mixed-activity limitation. Guarded on `sequential_distribution` for the
-    # AirspeedVelocity baseline (see the `generic_convolve` guard above).
+    # AirspeedVelocity baseline (see the `convolve_distributions` guard
+    # above).
     if isdefined(CensoredDistributions, :sequential_distribution)
-        obs_seq = Vector{Union{Missing, Float64}}([0.0, missing, 3.0, 5.0])
+        obs_seq = MissingObs(
+            Vector{Union{Missing, Float64}}([0.0, missing, 3.0, 5.0]))
         _push!("SequentialDistribution missing intermediate",
             (θ,
                 obs) -> logpdf(
