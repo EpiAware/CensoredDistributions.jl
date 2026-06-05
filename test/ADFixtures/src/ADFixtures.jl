@@ -297,7 +297,7 @@ function scenarios(; with_reference::Bool = false)
             obs) -> sum(
             o -> logpdf(
                 primary_censored(
-                    [Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])],
+                    [Gamma(θ[1], θ[2]) LogNormal(θ[3], θ[4])],
                     Uniform(0.0, 1.0)), o),
             obs),
         [2.0, 1.0, 1.0, 0.5], (Constant(par_marg_obs),))
@@ -311,7 +311,7 @@ function scenarios(; with_reference::Bool = false)
             obs) -> sum(
             o -> logpdf(
                 primary_censored(
-                    [Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])],
+                    [Gamma(θ[1], θ[2]) LogNormal(θ[3], θ[4])],
                     Uniform(0.0, 1.0)), o),
             obs),
         [2.0, 1.0, 1.0, 0.5], (Constant(par_cond_obs),))
@@ -330,7 +330,7 @@ function scenarios(; with_reference::Bool = false)
             obs) -> sum(
             o -> logpdf(
                 primary_censored(
-                    [Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])],
+                    [Gamma(θ[1], θ[2]) LogNormal(θ[3], θ[4])],
                     Uniform(0.0, 1.0)), o),
             obs),
         [2.0, 1.0, 1.0, 0.5], (Constant(par_mix_obs),))

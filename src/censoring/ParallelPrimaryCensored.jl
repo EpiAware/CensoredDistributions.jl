@@ -2,10 +2,11 @@
 # Parallel (shared-origin) primary-censored distribution
 # ============================================================================
 #
-# `primary_censored([delay_1, ..., delay_n], primary_event)` extends
-# `primary_censored` to a vector of delays. The result is a multivariate
-# distribution over the event-time vector `[primary, observed_1, ...,
-# observed_n]`: one shared primary (latent origin) draw `O` plus an independent
+# `primary_censored([delay_1 ... delay_n], primary_event)` with a one-row
+# (`1 x n`) matrix of delays extends `primary_censored` to several branches. The
+# result is a multivariate distribution over the event-time vector `[primary,
+# observed_1, ..., observed_n]`: one shared primary (latent origin) draw `O` plus
+# an independent
 # branch delay per observation, `observed_i = O + delay_i`. Because every branch
 # shares the same origin draw, the observations are dependent through that common
 # additive offset (`Cov(observed_i, observed_j) = Var(O) > 0`).
@@ -147,35 +148,39 @@ struct ParallelPrimaryCensored{
 end
 
 # ----------------------------------------------------------------------------
-# Constructor entry point: vector of delays -> ParallelPrimaryCensored
+# Constructor entry point: one-row matrix of delays -> ParallelPrimaryCensored
 # ----------------------------------------------------------------------------
 
 @doc """
 
 Create a parallel (shared-origin) primary event censored distribution from a
-vector of delays.
+one-row matrix of delays.
 
-Each observation branches from one shared primary event (latent origin); branch
-`i` observes the origin plus an independent `delays[i]`. The result is a
+A `1 × n` matrix of delays selects the parallel construction: the `n` columns
+are independent branches that share one primary event (latent origin). Branch
+`i` observes the origin plus an independent `delays[1, i]`. The result is a
 multivariate distribution over the event-time vector `[primary, observed_1, ...,
-observed_n]`. With `n = 1` and an untruncated delay this reduces to the
-single-delay [`primary_censored`](@ref) numerics. See
-[`ParallelPrimaryCensored`](@ref) for the joint density and the bounded-branch
-treatment.
+observed_n]`. See [`ParallelPrimaryCensored`](@ref) for the joint density and
+the bounded-branch treatment.
+
+The matrix dispatch is part of the `primary_censored` container grammar: a
+single delay gives a univariate distribution, a `Vector` gives a sequential
+chain, and a one-row `Matrix` gives parallel branches off the shared origin.
+Passing a vector here is an error pointing at the sequential overload.
 
 Bound a branch by passing a `truncated(delay, lower, upper)` as that delay: its
 own support bounds the origin window and its density self-normalises, so the
 joint density integrates to one with no separate normalisation constant.
 
 # Arguments
-- `delays`: a vector of branch delay `UnivariateDistribution`s (length
-  `n >= 1`). Each may be a plain delay, a `truncated(delay, ...)`, or any
+- `delays`: a `1 × n` matrix of branch delay `UnivariateDistribution`s
+  (`n >= 1`). Each may be a plain delay, a `truncated(delay, ...)`, or any
   continuous-`pdf`/`cdf` univariate distribution.
 - `primary_event`: the shared primary event `UnivariateDistribution`.
 
 # Keyword Arguments
-- `child_bounds`: deprecated sugar for bounding the branches. A vector of
-  `(lower, upper)` pairs (one per delay) wraps each delay in
+- `child_bounds`: deprecated sugar for bounding the branches. A collection of
+  `(lower, upper)` pairs (one per column) wraps each delay in
   `truncated(delay, lower, upper)`. Prefer passing `truncated` delays directly.
 - `solver`: quadrature solver for the origin marginalisation (default:
   `GaussLegendre(; n = 64)`, AD-friendly).
@@ -184,8 +189,9 @@ joint density integrates to one with no separate normalisation constant.
 ```@example
 using CensoredDistributions, Distributions
 
-# Two observations sharing one daily infection window
-d = primary_censored([Gamma(2.0, 1.0), LogNormal(1.0, 0.5)], Uniform(0.0, 1.0))
+# Two observations sharing one daily infection window (a 1 x 2 matrix of delays)
+d = primary_censored(
+    [Gamma(2.0, 1.0) LogNormal(1.0, 0.5)], Uniform(0.0, 1.0))
 
 # Marginalise the shared primary (missing) over both observed branches
 lp_joint = logpdf(d, [missing, 2.0, 3.0])
@@ -202,7 +208,7 @@ sample = rand(d)
 
 # A bounded branch: pass a truncated delay (here branch 1 is capped at 4 days)
 d_bounded = primary_censored(
-    [truncated(Gamma(2.0, 1.0), 0.0, 4.0), LogNormal(1.0, 0.5)],
+    [truncated(Gamma(2.0, 1.0), 0.0, 4.0) LogNormal(1.0, 0.5)],
     Uniform(0.0, 1.0))
 ```
 
@@ -211,15 +217,21 @@ d_bounded = primary_censored(
 - [`primary_censored`](@ref): the single-delay scalar counterpart
 """
 function primary_censored(
-        delays::AbstractVector,
+        delays::AbstractMatrix,
         primary_event::UnivariateDistribution;
         child_bounds = nothing, solver = GaussLegendre(; n = 64))
-    length(delays) >= 1 ||
+    size(delays, 1) == 1 ||
+        throw(ArgumentError(
+            "parallel primary_censored takes a one-row (1 x n) matrix of " *
+            "delays, one column per shared-origin branch; got a " *
+            "$(size(delays, 1)) x $(size(delays, 2)) matrix"))
+    size(delays, 2) >= 1 ||
         throw(ArgumentError("primary_censored needs at least one delay"))
-    all(d -> d isa UnivariateDistribution, delays) ||
+    row = vec(delays)
+    all(d -> d isa UnivariateDistribution, row) ||
         throw(ArgumentError("all delays must be UnivariateDistributions"))
-    bounded = child_bounds === nothing ? delays :
-              _apply_child_bounds(delays, child_bounds)
+    bounded = child_bounds === nothing ? row :
+              _apply_child_bounds(row, child_bounds)
     delays_t = Tuple(bounded)
     return ParallelPrimaryCensored(primary_event, delays_t, solver)
 end

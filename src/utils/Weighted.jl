@@ -244,7 +244,7 @@ whole multivariate record (e.g. a shared-origin event-time vector) contributes
 ```@example
 using CensoredDistributions, Distributions
 
-d = primary_censored([Gamma(2.0, 1.0), LogNormal(1.0, 0.5)], Uniform(0.0, 1.0))
+d = primary_censored([Gamma(2.0, 1.0) LogNormal(1.0, 0.5)], Uniform(0.0, 1.0))
 wd = weight(d, 10.0)  # this event-time record was observed 10 times
 lp = logpdf(wd, [missing, 2.0, 3.0])  # == 10.0 * logpdf(d, [missing, 2.0, 3.0])
 ```

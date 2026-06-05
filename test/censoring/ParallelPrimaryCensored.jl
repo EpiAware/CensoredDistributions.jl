@@ -1,8 +1,9 @@
 @testitem "ParallelPrimaryCensored constructor and validation" begin
     using Distributions
 
+    # A one-row (1 x n) matrix selects the parallel construction.
     d = primary_censored(
-        [Gamma(2.0, 1.0), LogNormal(1.0, 0.5)], Uniform(0.0, 1.0))
+        [Gamma(2.0, 1.0) LogNormal(1.0, 0.5)], Uniform(0.0, 1.0))
     @test d isa CensoredDistributions.ParallelPrimaryCensored
     # length is 1 (shared primary) + number of branches.
     @test length(d) == 3
@@ -10,23 +11,33 @@
     # Untruncated delays are stored verbatim.
     @test d.delays == (Gamma(2.0, 1.0), LogNormal(1.0, 0.5))
 
-    # Single branch is allowed.
-    d1 = primary_censored([Gamma(2.0, 1.0)], Uniform(0.0, 1.0))
+    # Single branch is allowed (a 1 x 1 matrix).
+    d1 = primary_censored(reshape([Gamma(2.0, 1.0)], 1, 1), Uniform(0.0, 1.0))
     @test length(d1) == 2
+
+    # A bare Vector is NOT parallel: it is reserved for the sequential chain
+    # construction and must not dispatch to the parallel matrix overload.
+    @test_throws MethodError primary_censored(
+        [Gamma(2.0, 1.0), LogNormal(1.0, 0.5)], Uniform(0.0, 1.0))
+
+    # A multi-row matrix (a grid) is rejected by the parallel overload.
+    @test_throws ArgumentError primary_censored(
+        [Gamma(2.0, 1.0) LogNormal(1.0, 0.5);
+         Gamma(1.0, 1.0) LogNormal(0.5, 0.5)], Uniform(0.0, 1.0))
 
     # child_bounds (back-compat) must match the number of delays.
     @test_throws ArgumentError primary_censored(
-        [Gamma(2.0, 1.0), LogNormal(1.0, 0.5)], Uniform(0.0, 1.0);
+        [Gamma(2.0, 1.0) LogNormal(1.0, 0.5)], Uniform(0.0, 1.0);
         child_bounds = [(0.0, 5.0)])
 
     # Each bound must be ordered.
     @test_throws ArgumentError primary_censored(
-        [Gamma(2.0, 1.0)], Uniform(0.0, 1.0);
+        reshape([Gamma(2.0, 1.0)], 1, 1), Uniform(0.0, 1.0);
         child_bounds = [(5.0, 1.0)])
 
-    # An empty delay vector is rejected.
+    # An empty delay matrix is rejected.
     @test_throws ArgumentError primary_censored(
-        UnivariateDistribution[], Uniform(0.0, 1.0))
+        Matrix{UnivariateDistribution}(undef, 1, 0), Uniform(0.0, 1.0))
 end
 
 @testitem "ParallelPrimaryCensored child_bounds == truncated delays" begin
@@ -40,8 +51,8 @@ end
     d2 = LogNormal(1.0, 0.5)
 
     via_bounds = primary_censored(
-        [d1, d2], pe; child_bounds = [(0.0, 4.0), (-Inf, Inf)])
-    via_trunc = primary_censored([truncated(d1, 0.0, 4.0), d2], pe)
+        [d1 d2], pe; child_bounds = [(0.0, 4.0), (-Inf, Inf)])
+    via_trunc = primary_censored([truncated(d1, 0.0, 4.0) d2], pe)
 
     @test via_bounds.delays[1] == truncated(d1, 0.0, 4.0)
     @test via_bounds.delays[2] == d2  # infinite bound leaves the delay as-is
@@ -58,7 +69,7 @@ end
 
     pe = Uniform(0.0, 2.0)
     d = primary_censored(
-        [Gamma(2.0, 1.0), LogNormal(1.0, 0.5)], pe)
+        [Gamma(2.0, 1.0) LogNormal(1.0, 0.5)], pe)
     @test primary_prior(d) === pe
     p = params(d)
     @test p[1] == params(pe)
@@ -74,7 +85,7 @@ end
     # analytical (Gamma/Uniform) and numeric primary-censored paths.
     pe = Uniform(0.0, 1.0)
     for delay in (Gamma(2.0, 1.0), LogNormal(1.0, 0.5), Weibull(2.0, 1.5))
-        pd = primary_censored([delay], pe)
+        pd = primary_censored(reshape([delay], 1, 1), pe)
         pc = primary_censored(delay, pe)
         for x in [0.5, 1.5, 2.5, 4.0, 6.0]
             # The joint cdf over the one branch is the same integral.
@@ -95,7 +106,7 @@ end
     using Distributions
 
     pe = Uniform(0.0, 1.0)
-    pd = primary_censored([Gamma(2.0, 1.0)], pe)
+    pd = primary_censored(reshape([Gamma(2.0, 1.0)], 1, 1), pe)
     xs = range(0.001, 20.0; length = 4000)
     dx = step(xs)
     total = sum(x -> exp(logpdf(pd, [missing, x])), xs) * dx
@@ -112,7 +123,7 @@ end
     pe = Uniform(0.0, 1.0)
     d1 = Gamma(2.0, 1.0)
     d2 = LogNormal(1.0, 0.5)
-    pd = primary_censored([d1, d2], pe)
+    pd = primary_censored([d1 d2], pe)
 
     N = 4_000_000
     o = rand(rng, pe, N)
@@ -134,7 +145,7 @@ end
     pe = Uniform(0.0, 1.0)
     d1 = Gamma(2.0, 1.0)
     d2 = LogNormal(1.0, 0.5)
-    pd = primary_censored([d1, d2], pe)
+    pd = primary_censored([d1 d2], pe)
 
     N = 6_000_000
     o = rand(rng, pe, N)
@@ -155,7 +166,7 @@ end
     rng = MersenneTwister(7)
     pe = Uniform(0.0, 1.0)
     delays = [Gamma(2.0, 1.0), LogNormal(1.0, 0.5), Gamma(1.5, 1.5)]
-    pd = primary_censored(delays, pe)
+    pd = primary_censored(reshape(delays, 1, :), pe)
 
     # cdf vs Monte Carlo for a 3-branch vector.
     N = 4_000_000
@@ -190,7 +201,7 @@ end
     pe = Uniform(0.0, 1.0)
     d1 = truncated(Gamma(2.0, 1.0), 0.0, 4.0)
     d2 = truncated(LogNormal(1.0, 0.5), 0.0, 6.0)
-    pd = primary_censored([d1, d2], pe)
+    pd = primary_censored([d1 d2], pe)
 
     as = range(0.0, 5.2; length = 400)
     bs = range(0.0, 7.2; length = 400)
@@ -216,7 +227,7 @@ end
     pe = Uniform(0.0, 5.0)
     d1 = Gamma(2.0, 1.0)
     d2 = LogNormal(1.0, 0.5)
-    pd = primary_censored([d1, d2], pe)
+    pd = primary_censored([d1 d2], pe)
 
     # Branch marginals are the single-delay primary-censored distributions.
     m1 = primary_censored(d1, pe)
@@ -257,7 +268,7 @@ end
     pe = Uniform(0.0, 1.0)
     d1 = Gamma(2.0, 1.0)
     d2 = LogNormal(1.0, 0.5)
-    pd = primary_censored([d1, d2], pe)
+    pd = primary_censored([d1 d2], pe)
 
     # A concrete primary conditions: log f_O(p) + Σ log f_{D_i}(y_i - p).
     p = 0.3
@@ -290,7 +301,7 @@ end
     pe = Uniform(0.0, 1.0)
     d1 = Gamma(2.0, 1.0)
     d2 = LogNormal(1.0, 0.5)
-    pd = primary_censored([d1, d2], pe)
+    pd = primary_censored([d1 d2], pe)
 
     N = 2_000_000
     samples = [rand(rng, pd) for _ in 1:N]
@@ -305,7 +316,7 @@ end
     @test cov(s1, s2) ≈ var(pe) atol=5e-3
 
     # Bounded branch draws stay within their delay window plus the origin.
-    pdb = primary_censored([truncated(d1, 0.0, 3.0), d2], pe)
+    pdb = primary_censored([truncated(d1, 0.0, 3.0) d2], pe)
     sb = [rand(rng, pdb) for _ in 1:100_000]
     # observed_1 = o + truncated(D1, 0, 3) ⇒ observed_1 ∈ [0, 1+3].
     @test all(0.0 .<= getindex.(sb, 2) .<= 4.0)
@@ -324,7 +335,7 @@ end
     trunc_branch = truncated(Gamma(2.0, 1.0), 0.0, 8.0)
     pc_branch = primary_censored(LogNormal(1.0, 0.5), Uniform(0.0, 1.0))
 
-    pd = primary_censored([trunc_branch, pc_branch], pe)
+    pd = primary_censored([trunc_branch pc_branch], pe)
     @test length(pd) == 3
 
     N = 3_000_000
@@ -347,7 +358,7 @@ end
     pe = Uniform(0.0, 1.0)
     d1 = Gamma(2.0, 1.0)
     d2 = LogNormal(1.0, 0.5)
-    pd = primary_censored([d1, d2], pe)
+    pd = primary_censored([d1 d2], pe)
     horizon = 5.0
     dt = truncated(pd, horizon)
 
@@ -394,7 +405,7 @@ end
     ic_branch = interval_censored(base1, 1.0)  # daily interval censoring
     plain_branch = LogNormal(1.0, 0.5)
 
-    pd = primary_censored([ic_branch, plain_branch], pe)
+    pd = primary_censored([ic_branch plain_branch], pe)
     @test length(pd) == 3
     @test pd.delays[1] === ic_branch
 
@@ -428,7 +439,7 @@ end
         Gamma(2.0, 1.0); upper = 10.0, interval = 1.0)
     plain_branch = LogNormal(1.0, 0.5)
 
-    pd = primary_censored([dic_branch, plain_branch], pe)
+    pd = primary_censored([dic_branch plain_branch], pe)
     @test length(pd) == 3
 
     os = range(0.0, 1.0; length = 20_001)
@@ -449,7 +460,7 @@ end
     # log-probability by the count `w` (aggregated identical records), the
     # multivariate counterpart of the univariate `Weighted` path.
     pe = Uniform(0.0, 1.0)
-    pd = primary_censored([Gamma(2.0, 1.0), LogNormal(1.0, 0.5)], pe)
+    pd = primary_censored([Gamma(2.0, 1.0) LogNormal(1.0, 0.5)], pe)
 
     wd = weight(pd, 10.0)
     @test wd isa CensoredDistributions.WeightedMultivariate
@@ -474,7 +485,7 @@ end
 
     pe = Uniform(0.0, 1.0)
     pd = primary_censored(
-        [Gamma(2.0, 1.0), LogNormal(1.0, 0.5)], pe)
+        [Gamma(2.0, 1.0) LogNormal(1.0, 0.5)], pe)
 
     # NaN propagates.
     @test isnan(cdf(pd, [missing, NaN, 1.0]))
