@@ -73,6 +73,13 @@ export completeness_probability, thin_by_completeness
 # Exported utilities
 export weight, get_dist, get_dist_recursive
 
+# Exported DynamicPPL submodel constructors. These are declared here (no core
+# methods) and given `@model` methods by the `CensoredDistributionsDynamicPPLExt`
+# extension, which loads only when `DynamicPPL`/`Turing` is present. The base
+# package stays Turing-free.
+export primary_censored_model, interval_censored_model,
+       double_interval_censored_model
+
 include("docstrings.jl")
 
 include("utils/gamma_ad.jl")
@@ -100,6 +107,9 @@ include("utils/Weighted.jl")
 include("utils/ascertainment.jl")
 include("utils/get_dist.jl")
 include("utils/quantile_optimization.jl")
+
+# DynamicPPL submodel constructor declarations (methods added by the extension).
+include("turing_models.jl")
 
 # Public API - functions that are part of public interface but not exported
 @static if VERSION >= v"1.11"
