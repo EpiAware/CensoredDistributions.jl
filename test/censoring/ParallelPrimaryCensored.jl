@@ -7,14 +7,14 @@
     # length is 1 (shared primary) + number of branches.
     @test length(d) == 3
     @test d.primary_event == Uniform(0.0, 1.0)
-    @test all(b -> b == (-Inf, Inf), d.child_bounds)
-    @test d.log_norm == 0.0
+    # Untruncated delays are stored verbatim.
+    @test d.delays == (Gamma(2.0, 1.0), LogNormal(1.0, 0.5))
 
     # Single branch is allowed.
     d1 = primary_censored([Gamma(2.0, 1.0)], Uniform(0.0, 1.0))
     @test length(d1) == 2
 
-    # child_bounds must match the number of delays.
+    # child_bounds (back-compat) must match the number of delays.
     @test_throws ArgumentError primary_censored(
         [Gamma(2.0, 1.0), LogNormal(1.0, 0.5)], Uniform(0.0, 1.0);
         child_bounds = [(0.0, 5.0)])
@@ -27,6 +27,30 @@
     # An empty delay vector is rejected.
     @test_throws ArgumentError primary_censored(
         UnivariateDistribution[], Uniform(0.0, 1.0))
+end
+
+@testitem "ParallelPrimaryCensored child_bounds == truncated delays" begin
+    using Distributions
+
+    # The back-compat `child_bounds` kwarg is sugar for wrapping each delay in
+    # `truncated(delay, lower, upper)`. The two constructions must agree on the
+    # stored delays and on logpdf/cdf.
+    pe = Uniform(0.0, 1.0)
+    d1 = Gamma(2.0, 1.0)
+    d2 = LogNormal(1.0, 0.5)
+
+    via_bounds = primary_censored(
+        [d1, d2], pe; child_bounds = [(0.0, 4.0), (-Inf, Inf)])
+    via_trunc = primary_censored([truncated(d1, 0.0, 4.0), d2], pe)
+
+    @test via_bounds.delays[1] == truncated(d1, 0.0, 4.0)
+    @test via_bounds.delays[2] == d2  # infinite bound leaves the delay as-is
+
+    for x in ([missing, 2.0, 3.0], [0.3, 2.0, 3.0])
+        @test logpdf(via_bounds, x) ≈ logpdf(via_trunc, x) atol=1e-10
+    end
+    @test cdf(via_bounds, [missing, 3.0, 4.0]) ≈
+          cdf(via_trunc, [missing, 3.0, 4.0]) atol=1e-10
 end
 
 @testitem "ParallelPrimaryCensored primary_prior and params" begin
@@ -45,8 +69,8 @@ end
 @testitem "ParallelPrimaryCensored n=1 reduces to primary_censored" begin
     using Distributions
 
-    # With one branch and infinite bounds the marginal of the single branch
-    # must match primary_censored(delay, primary_event) numerics for the
+    # With one untruncated branch the marginal of the single branch must
+    # match primary_censored(delay, primary_event) numerics for the
     # analytical (Gamma/Uniform) and numeric primary-censored paths.
     pe = Uniform(0.0, 1.0)
     for delay in (Gamma(2.0, 1.0), LogNormal(1.0, 0.5), Weibull(2.0, 1.5))
@@ -160,18 +184,13 @@ end
 @testitem "ParallelPrimaryCensored bounded children normalisation" begin
     using Distributions
 
-    # With finite child bounds the log-normalisation constant must equal the
-    # closed product Π_i (F_{D_i}(b_i) - F_{D_i}(a_i)) (origin independent),
-    # and the normalised density must integrate to 1 over the children.
+    # Bounded branches are passed as truncated delays. Each truncated density is
+    # already normalised over its own support, so the joint density integrates
+    # to 1 over the children with no separate normalisation constant.
     pe = Uniform(0.0, 1.0)
-    d1 = Gamma(2.0, 1.0)
-    d2 = LogNormal(1.0, 0.5)
-    bounds = [(0.0, 4.0), (0.0, 6.0)]
-    pd = primary_censored([d1, d2], pe; child_bounds = bounds)
-
-    expected = log(cdf(d1, 4.0) - cdf(d1, 0.0)) +
-               log(cdf(d2, 6.0) - cdf(d2, 0.0))
-    @test pd.log_norm ≈ expected atol=1e-10
+    d1 = truncated(Gamma(2.0, 1.0), 0.0, 4.0)
+    d2 = truncated(LogNormal(1.0, 0.5), 0.0, 6.0)
+    pd = primary_censored([d1, d2], pe)
 
     as = range(0.0, 5.2; length = 400)
     bs = range(0.0, 7.2; length = 400)
@@ -180,6 +199,56 @@ end
     total = sum(
         exp(logpdf(pd, [missing, a, b])) * da * db for a in as, b in bs)
     @test total ≈ 1.0 atol=1e-2
+end
+
+@testitem "ParallelPrimaryCensored shared origin couples the branches" begin
+    using Distributions, Random, Statistics
+
+    # The shared origin O makes the branches dependent: Y_i = O + D_i with a
+    # SHARED O gives Cov(Y_i, Y_j) = Var(O) > 0, so the joint density is NOT the
+    # product of the branch marginals. This test proves the construct differs
+    # from the independent-product approximation and matches a Monte-Carlo
+    # estimate of the true shared-origin joint.
+    rng = MersenneTwister(314)
+    # A wide primary makes the shared-origin coupling clearly visible
+    # (Var(O) = 25/12), so the joint density departs markedly from the
+    # independent-product approximation.
+    pe = Uniform(0.0, 5.0)
+    d1 = Gamma(2.0, 1.0)
+    d2 = LogNormal(1.0, 0.5)
+    pd = primary_censored([d1, d2], pe)
+
+    # Branch marginals are the single-delay primary-censored distributions.
+    m1 = primary_censored(d1, pe)
+    m2 = primary_censored(d2, pe)
+
+    # 1. Covariance of the shared-origin draws equals Var(O) > 0. This is the
+    #    rigorous proof of coupling: Y_i = O + D_i with a shared O gives
+    #    Cov(Y_i, Y_j) = Var(O).
+    N = 4_000_000
+    o = rand(rng, pe, N)
+    y1 = o .+ rand(rng, d1, N)
+    y2 = o .+ rand(rng, d2, N)
+    @test cov(y1, y2) ≈ var(pe) atol=1e-2
+    @test var(pe) > 0  # the coupling is non-degenerate
+
+    # 2. The shared-origin joint logpdf differs from the independent product of
+    #    the branch marginals (Σ marginal logpdf): they would be equal only if
+    #    the branches were independent. The relative gap here is 10-25%.
+    for c in ([2.0, 3.0], [1.5, 2.5], [3.0, 4.0])
+        joint = logpdf(pd, [missing, c[1], c[2]])
+        indep = logpdf(m1, c[1]) + logpdf(m2, c[2])
+        @test !isapprox(joint, indep; rtol = 5e-2)
+    end
+
+    # 3. The shared-origin joint density matches a Monte-Carlo estimate of the
+    #    TRUE joint (the independent product would not).
+    h = 0.1
+    for c in ([2.0, 3.0], [1.5, 2.0])
+        in_box = (abs.(y1 .- c[1]) .<= h / 2) .& (abs.(y2 .- c[2]) .<= h / 2)
+        mc_density = mean(in_box) / h^2
+        @test exp(logpdf(pd, [missing, c[1], c[2]])) ≈ mc_density rtol=5e-2
+    end
 end
 
 @testitem "ParallelPrimaryCensored missingness dispatch" begin
@@ -236,8 +305,7 @@ end
     @test cov(s1, s2) ≈ var(pe) atol=5e-3
 
     # Bounded branch draws stay within their delay window plus the origin.
-    pdb = primary_censored([d1, d2], pe;
-        child_bounds = [(0.0, 3.0), (-Inf, Inf)])
+    pdb = primary_censored([truncated(d1, 0.0, 3.0), d2], pe)
     sb = [rand(rng, pdb) for _ in 1:100_000]
     # observed_1 = o + truncated(D1, 0, 3) ⇒ observed_1 ∈ [0, 1+3].
     @test all(0.0 .<= getindex.(sb, 2) .<= 4.0)
@@ -310,6 +378,95 @@ end
     rng = MersenneTwister(5)
     sb = [rand(rng, dt) for _ in 1:50_000]
     @test all(s -> s[2] <= horizon && s[3] <= horizon, sb)
+end
+
+@testitem "ParallelPrimaryCensored composes with interval_censored" begin
+    using Distributions, Random, Statistics
+
+    # A branch whose observed delay is interval-censored: `interval_censored`
+    # returns a UnivariateDistribution with a (discrete-on-a-grid) pdf/cdf, so
+    # it slots in as a branch component. Validate the joint cdf at the grid
+    # boundaries against the shared-origin generative process pushed through the
+    # same interval grid.
+    rng = MersenneTwister(404)
+    pe = Uniform(0.0, 1.0)
+    base1 = Gamma(2.0, 1.0)
+    ic_branch = interval_censored(base1, 1.0)  # daily interval censoring
+    plain_branch = LogNormal(1.0, 0.5)
+
+    pd = primary_censored([ic_branch, plain_branch], pe)
+    @test length(pd) == 3
+    @test pd.delays[1] === ic_branch
+
+    # The cdf integrand consumes each branch cdf. `interval_censored` has
+    # `cdf(ic, t) = cdf(base, floor(t))`, so the interval-censored delay places
+    # the mass of `(k-1, k]` at the interval's upper integer `k`: as a random
+    # variable it is `ceil(base)`. Validate the joint cdf against a Monte-Carlo
+    # estimate driven by that discretisation.
+    N = 4_000_000
+    o = rand(rng, pe, N)
+    y1 = o .+ ceil.(rand(rng, base1, N))  # interval_censored mass at upper int
+    y2 = o .+ rand(rng, plain_branch, N)
+    for x in ([3.0, 3.0], [2.0, 4.0], [4.0, 5.0])
+        mc = mean((y1 .<= x[1]) .& (y2 .<= x[2]))
+        @test cdf(pd, [missing, x[1], x[2]]) ≈ mc atol=5e-3
+    end
+end
+
+@testitem "ParallelPrimaryCensored composes with double_interval_censored" begin
+    using Distributions
+
+    # A `double_interval_censored` delay (primary-censored, truncated and
+    # interval-censored) is a UnivariateDistribution and slots in as a branch
+    # component. Its `cdf` is consumed by the shared-origin integrand. Validate
+    # the joint cdf against a fine Riemann reference of the defining origin
+    # integral ∫ f_O(o) ∏ cdf(D_i, x_i - o) do (the `cdf`/quadrature semantics;
+    # IntervalCensored `rand` floors while `cdf` uses the upper boundary, so a
+    # `rand`-based check would not be self-consistent).
+    pe = Uniform(0.0, 1.0)
+    dic_branch = double_interval_censored(
+        Gamma(2.0, 1.0); upper = 10.0, interval = 1.0)
+    plain_branch = LogNormal(1.0, 0.5)
+
+    pd = primary_censored([dic_branch, plain_branch], pe)
+    @test length(pd) == 3
+
+    os = range(0.0, 1.0; length = 20_001)
+    do_ = step(os)
+    for x in ([4.0, 3.0], [6.0, 4.0])
+        ref = sum(os) do o
+            pdf(pe, o) * cdf(dic_branch, x[1] - o) *
+            cdf(plain_branch, x[2] - o)
+        end * do_
+        @test cdf(pd, [missing, x[1], x[2]]) ≈ ref atol=2e-3
+    end
+end
+
+@testitem "ParallelPrimaryCensored composes with weight" begin
+    using Distributions
+
+    # `weight(d, w)` on a multivariate ParallelPrimaryCensored scales the joint
+    # log-probability by the count `w` (aggregated identical records), the
+    # multivariate counterpart of the univariate `Weighted` path.
+    pe = Uniform(0.0, 1.0)
+    pd = primary_censored([Gamma(2.0, 1.0), LogNormal(1.0, 0.5)], pe)
+
+    wd = weight(pd, 10.0)
+    @test wd isa CensoredDistributions.WeightedMultivariate
+    @test length(wd) == 3
+    @test CensoredDistributions.get_dist(wd) === pd
+
+    for x in ([missing, 2.0, 3.0], [0.3, 2.0, 3.0], [missing, 2.0, missing])
+        @test logpdf(wd, x) ≈ 10.0 * logpdf(pd, x) atol=1e-10
+    end
+
+    # Zero / missing weight returns -Inf (avoids 0 * -Inf NaN), matching the
+    # univariate Weighted convention.
+    @test logpdf(weight(pd, 0.0), [missing, 2.0, 3.0]) == -Inf
+    @test logpdf(weight(pd, missing), [missing, 2.0, 3.0]) == -Inf
+
+    # A negative weight is rejected at construction.
+    @test_throws ArgumentError weight(pd, -1.0)
 end
 
 @testitem "ParallelPrimaryCensored edge cases" begin

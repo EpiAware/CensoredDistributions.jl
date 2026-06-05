@@ -198,6 +198,90 @@ function weight(dists::AbstractVector{<:UnivariateDistribution})
     )
 end
 
+@doc "
+
+A multivariate distribution wrapper that scales the joint log-probability by a
+weight, the multivariate counterpart of [`Weighted`](@ref).
+
+Used to weight a whole multivariate record (for example a shared-origin
+event-time vector from [`ParallelPrimaryCensored`](@ref)) by a count when the
+same record is observed several times. `logpdf(weighted, x)` returns
+`weight * logpdf(dist, x)`; every other method delegates to the underlying
+distribution.
+
+# See also
+- [`weight`](@ref): constructor function
+- [`Weighted`](@ref): the univariate counterpart
+"
+struct WeightedMultivariate{
+    D <: MultivariateDistribution, T <: Union{Real, Missing}} <:
+       MultivariateDistribution{ValueSupport}
+    "The underlying multivariate distribution being weighted."
+    dist::D
+    "The weight applied to the joint log-probability."
+    weight::T
+
+    function WeightedMultivariate(
+            dist::D, weight::T) where {
+            D <: MultivariateDistribution, T <: Union{Real, Missing}}
+        if !ismissing(weight) && weight < 0
+            throw(ArgumentError("Weight must be non-negative"))
+        end
+        new{D, T}(dist, weight)
+    end
+end
+
+@doc "
+
+Create a weighted multivariate distribution whose joint log-probability is
+scaled by `w`.
+
+The multivariate counterpart of `weight(dist::UnivariateDistribution, w)`: a
+whole multivariate record (e.g. a shared-origin event-time vector) contributes
+`w * logpdf(dist, x)`, as for an aggregated count of identical records.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+d = primary_censored([Gamma(2.0, 1.0), LogNormal(1.0, 0.5)], Uniform(0.0, 1.0))
+wd = weight(d, 10.0)  # this event-time record was observed 10 times
+lp = logpdf(wd, [missing, 2.0, 3.0])  # == 10.0 * logpdf(d, [missing, 2.0, 3.0])
+```
+
+# See also
+- [`Weighted`](@ref): the univariate counterpart
+"
+function weight(dist::MultivariateDistribution, w::Union{Real, Missing})
+    return WeightedMultivariate(dist, w)
+end
+
+Base.length(d::WeightedMultivariate) = length(d.dist)
+function Base.eltype(::Type{<:WeightedMultivariate{D}}) where {D}
+    return eltype(D)
+end
+params(d::WeightedMultivariate) = (params(d.dist)..., d.weight)
+
+function Distributions._rand!(
+        rng::AbstractRNG, d::WeightedMultivariate, x::AbstractVector{<:Real})
+    return Distributions._rand!(rng, d.dist, x)
+end
+
+@doc "
+
+Weighted joint log-probability of a multivariate record: `weight *
+logpdf(dist, x)`. A missing or zero weight returns `-Inf`.
+
+See also: [`weight`](@ref)
+"
+function logpdf(d::WeightedMultivariate, x::AbstractVector)
+    return _logpdf(d.dist, x, d.weight)
+end
+
+function pdf(d::WeightedMultivariate, x::AbstractVector)
+    return exp(logpdf(d, x))
+end
+
 # ============================================================================
 # Distributions.jl Interface - Basic Properties
 # ============================================================================

@@ -70,6 +70,17 @@ end
 
 @doc "
 
+Extract the underlying multivariate distribution from a weighted multivariate
+distribution.
+
+Returns the base distribution before weighting was applied.
+"
+function get_dist(d::WeightedMultivariate)
+    return d.dist
+end
+
+@doc "
+
 Extract the component distributions from a convolved distribution.
 
 Returns a vector of the independent component distributions being summed.

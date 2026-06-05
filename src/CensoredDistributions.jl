@@ -15,7 +15,8 @@ import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
 using Distributions: Distributions, Distribution, UnivariateDistribution,
                      Continuous, ValueSupport, VariateForm, Univariate,
-                     Multivariate, Truncated, Product, Censored,
+                     Multivariate, MultivariateDistribution,
+                     Truncated, Product, Censored,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
                      Weibull, Normal, shape, scale, meanlogx, stdlogx,
                      _in_closed_interval

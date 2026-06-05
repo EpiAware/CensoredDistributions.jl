@@ -1,13 +1,14 @@
 # ============================================================================
 # Parallel (shared-origin) primary-censored distribution
+# ============================================================================
 #
 # `primary_censored([delay_1, ..., delay_n], primary_event)` extends
-# `primary_censored` to a VECTOR of delays. The result is a multivariate
+# `primary_censored` to a vector of delays. The result is a multivariate
 # distribution over the event-time vector `[primary, observed_1, ...,
-# observed_n]`: one shared primary (latent origin) draw `O` plus an
-# independent branch delay per observation, `observed_i = O + delay_i`.
-# Because every branch shares the same origin draw, the observations are
-# dependent through that common additive offset.
+# observed_n]`: one shared primary (latent origin) draw `O` plus an independent
+# branch delay per observation, `observed_i = O + delay_i`. Because every branch
+# shares the same origin draw, the observations are dependent through that common
+# additive offset (`Cov(observed_i, observed_j) = Var(O) > 0`).
 #
 # This is the design-B counterpart of the single-delay `primary_censored`:
 # `logpdf` dispatches on the missingness of the event-time vector. The shared
@@ -15,22 +16,28 @@
 # integral) or concrete (conditioned); each branch observation may be missing
 # (marginalised) or present (conditioned). It supersedes the standalone
 # `ParallelDistribution` from #312, reusing the same shared-origin maths: one
-# 1-D origin integral regardless of `n`, and the origin-independent closed-form
-# normaliser `Z = ∏ᵢ (F_{delay_i}(b_i) − F_{delay_i}(a_i))` for static child
-# bounds.
-# ============================================================================
+# 1-D origin integral regardless of `n`.
+#
+# Per-branch bounds come from each delay's own support. A user who wants a
+# bounded branch passes a `truncated(delay, lower, upper)`: its `minimum` and
+# `maximum` give the integration window and its `pdf`/`cdf` already self-
+# normalise, so the joint density integrates to one with no separate
+# normalisation constant.
 
-@doc raw"""
+@doc """
 
 Joint distribution of several delays that branch from one shared primary event.
 
 `ParallelPrimaryCensored` models a single latent origin (primary event) time
-``O \sim \mathrm{primary\_event}`` and ``n`` independent branch delays
+``O \\sim \\mathrm{primary\\_event}`` and ``n`` independent branch delays
 ``D_i``, with the observed times ``Y_i = O + D_i``. The event-time vector
-``[O, Y_1, \dots, Y_n]`` is a multivariate realisation. Because every branch
+``[O, Y_1, \\dots, Y_n]`` is a multivariate realisation. Because every branch
 shares the *same* origin draw, the branches are dependent: the origin is a
-common additive offset. This is the "parallel" (shared-origin) construction,
-distinct from [`primary_censored`](@ref) with a single delay (one branch).
+common additive offset, so ``\\mathrm{Cov}(Y_i, Y_j) = \\mathrm{Var}(O) > 0``
+for ``i \\ne j``. The joint density is therefore not the product of the branch
+marginals (see the coupling note below). This is the "parallel" (shared-origin)
+construction, distinct from [`primary_censored`](@ref) with a single delay (one
+branch).
 
 Like the single-delay [`Auto`](@ref) formulation, `logpdf` dispatches on the
 missingness of the event-time vector:
@@ -45,16 +52,17 @@ missingness of the event-time vector:
 With every branch present and the primary marginalised,
 
 ```math
-f(y_1, \dots, y_n)
-  = \int f_O(o) \prod_{i=1}^{n} f_{D_i}(y_i - o)
-      \prod_{i=1}^{n} \mathbf{1}[a_i \le y_i - o \le b_i]\; \mathrm{d}o,
+f(y_1, \\dots, y_n)
+  = \\int_{-\\infty}^{\\infty} f_O(o) \\prod_{i=1}^{n} f_{D_i}(y_i - o)\\;
+    \\mathrm{d}o,
 ```
 
-where ``(a_i, b_i)`` are the per-branch `child_bounds`. The indicators
-restrict the origin to the single interval
-``[\,\max_i (y_i - b_i),\ \min_i (y_i - a_i)\,]``, intersected with
-``\mathrm{support}(O)``, giving one finite integration window. Missing branches
-contribute no factor and do not narrow the window.
+where each ``f_{D_i}`` is the branch delay density (already normalised over its
+own support, including any truncation). The supports restrict the origin to the
+single interval
+``[\\,\\max_i (y_i - \\max D_i),\\ \\min_i (y_i - \\min D_i)\\,]``, intersected
+with ``\\mathrm{support}(O)``, giving one finite integration window. Missing
+branches contribute no factor and do not narrow the window.
 
 # Conditional density (concrete primary)
 
@@ -62,99 +70,87 @@ With a concrete primary ``p`` the joint factorises into the primary prior plus
 the present-branch delay densities at the implied delays ``y_i - p``,
 
 ```math
-\log f(p, y_1, \dots, y_n)
-  = \log f_O(p) + \sum_{i : y_i \text{ present}} \log f_{D_i}(y_i - p).
+\\log f(p, y_1, \\dots, y_n)
+  = \\log f_O(p) + \\sum_{i : y_i \\text{ present}} \\log f_{D_i}(y_i - p).
 ```
 
-# Bounded-branch normalisation
+# Bounded branches
 
-Substituting ``u = y_i - o`` in the marginal integral shows the per-branch
-window mass ``P(a_i \le D_i \le b_i) = F_{D_i}(b_i) - F_{D_i}(a_i)`` does not
-depend on the origin, so the origin density integrates out and the normalising
-constant is the closed product
+A bounded branch is specified by passing a `truncated(delay, lower, upper)` as
+that delay. Its support ``[\\,\\mathrm{lower}, \\mathrm{upper}\\,]`` bounds the
+origin window and its density already integrates to one over that support, so
 
 ```math
-Z = \prod_{i=1}^{n} \bigl(F_{D_i}(b_i) - F_{D_i}(a_i)\bigr),
+\\int \\cdots \\int f(y_1, \\dots, y_n)\\, \\mathrm{d}y_1 \\cdots \\mathrm{d}y_n
+  = \\int f_O(o) \\prod_{i=1}^{n}
+      \\Bigl(\\int f_{D_i}(y_i - o)\\, \\mathrm{d}y_i\\Bigr) \\mathrm{d}o
+  = \\int f_O(o)\\, \\mathrm{d}o = 1.
 ```
 
-precomputed at construction and subtracted in log space inside `logpdf`. With
-every bound ``(-\infty, +\infty)`` we have ``Z = 1`` and nothing is subtracted.
+No separate normalisation constant is needed: the per-branch mass is one by
+construction. The `child_bounds` keyword is retained for back-compatibility and
+is sugar for wrapping each delay in `truncated(delay, lower, upper)`.
+
+# Coupling: the branches are not independent
+
+The shared origin couples the branches. From ``Y_i = O + D_i`` with independent
+``D_i`` and a shared ``O``,
+
+```math
+\\mathrm{Cov}(Y_i, Y_j) = \\mathrm{Var}(O) > 0 \\quad (i \\ne j),
+```
+
+so the joint density differs from the product of the branch marginals,
+``f(y_1, \\dots, y_n) \\ne \\prod_i f_{Y_i}(y_i)``. Treating the branches as
+independent (summing the marginal `logpdf`s) discards this covariance; the joint
+`logpdf` here integrates over the *single* shared origin and so retains it.
 
 # Relationship to single-delay `primary_censored`
 
-For ``n = 1`` and infinite bounds the branch marginal equals
+For ``n = 1`` and an untruncated delay the branch marginal equals
 `primary_censored(delays[1], primary_event)`: the `[missing, y]` `logpdf` and
 the joint `cdf` of the one-element vector match the scalar primary-censored
 numerics.
 
 # Fields
 
-The `primary_event` field holds the shared latent origin distribution, `delays`
-the tuple of branch delay distributions, `child_bounds` the per-branch
-``(a_i, b_i)`` truncation pairs, `solver` the origin quadrature rule, and
-`log_norm` the precomputed ``\log Z`` normalisation constant.
+The `primary_event` field holds the shared latent origin distribution and
+`delays` the tuple of branch delay distributions (each already carrying any
+truncation), `solver` the origin quadrature rule.
 
 # See also
 - [`primary_censored`](@ref): constructor (vector of delays selects this type)
 - [`primary_prior`](@ref): the prior over the shared primary event time
 """
 struct ParallelPrimaryCensored{
-    P <: UnivariateDistribution, C <: Tuple, B <: Tuple, S, L <: Real} <:
+    P <: UnivariateDistribution, C <: Tuple, S} <:
        Distribution{Multivariate, Continuous}
     "The shared latent origin (primary event) distribution."
     primary_event::P
-    "Tuple of independent branch delay distributions, one per observation."
+    "Tuple of independent branch delay distributions, one per observation.
+    Each carries its own (possibly truncated) support and normalisation."
     delays::C
-    "Per-branch `(lower, upper)` bounds for the branch delay; `(-Inf, Inf)`
-    means the branch is untruncated."
-    child_bounds::B
     "Quadrature solver for the one-dimensional origin marginalisation."
     solver::S
-    "Precomputed log-normalisation constant `log Z`; `0.0` when every branch
-    bound is infinite."
-    log_norm::L
 
     function ParallelPrimaryCensored(
-            primary_event::P, delays::C, child_bounds::B, solver::S,
-            log_norm::L) where {
-            P <: UnivariateDistribution, C <: Tuple, B <: Tuple, S, L <: Real}
+            primary_event::P, delays::C, solver::S) where {
+            P <: UnivariateDistribution, C <: Tuple, S}
         length(delays) >= 1 ||
             throw(ArgumentError(
                 "ParallelPrimaryCensored needs at least one delay"))
         all(d -> d isa UnivariateDistribution, delays) ||
             throw(ArgumentError(
                 "all delays must be UnivariateDistributions"))
-        length(child_bounds) == length(delays) ||
-            throw(ArgumentError(
-                "child_bounds must have one (lower, upper) pair per delay"))
-        all(b -> length(b) == 2 && b[1] <= b[2], child_bounds) ||
-            throw(ArgumentError(
-                "each child bound must be (lower, upper) with lower <= upper"))
-        new{P, C, B, S, L}(
-            primary_event, delays, child_bounds, solver, log_norm)
+        new{P, C, S}(primary_event, delays, solver)
     end
-end
-
-# Normalise a child_bounds specification to a tuple of float pairs.
-function _parallel_normalise_bounds(child_bounds)
-    return Tuple(
-        (float(b[1]), float(b[2])) for b in child_bounds)
-end
-
-# Truncate a branch delay to its bounds when either side is finite, leaving an
-# untruncated branch as-is. Used by sampling so each branch draw respects its
-# static window.
-function _parallel_maybe_truncate(d::UnivariateDistribution, bound)
-    lo, hi = bound
-    (isfinite(lo) || isfinite(hi)) || return d
-    return truncated(d, lo, hi)
 end
 
 # ----------------------------------------------------------------------------
 # Constructor entry point: vector of delays -> ParallelPrimaryCensored
 # ----------------------------------------------------------------------------
 
-@doc "
+@doc """
 
 Create a parallel (shared-origin) primary event censored distribution from a
 vector of delays.
@@ -162,9 +158,14 @@ vector of delays.
 Each observation branches from one shared primary event (latent origin); branch
 `i` observes the origin plus an independent `delays[i]`. The result is a
 multivariate distribution over the event-time vector `[primary, observed_1, ...,
-observed_n]`. With `n = 1` this reduces to the single-delay
-[`primary_censored`](@ref) numerics. See [`ParallelPrimaryCensored`](@ref) for
-the joint density and the bounded-branch normalisation.
+observed_n]`. With `n = 1` and an untruncated delay this reduces to the
+single-delay [`primary_censored`](@ref) numerics. See
+[`ParallelPrimaryCensored`](@ref) for the joint density and the bounded-branch
+treatment.
+
+Bound a branch by passing a `truncated(delay, lower, upper)` as that delay: its
+own support bounds the origin window and its density self-normalises, so the
+joint density integrates to one with no separate normalisation constant.
 
 # Arguments
 - `delays`: a vector of branch delay `UnivariateDistribution`s (length
@@ -173,9 +174,9 @@ the joint density and the bounded-branch normalisation.
 - `primary_event`: the shared primary event `UnivariateDistribution`.
 
 # Keyword Arguments
-- `child_bounds`: per-branch `(lower, upper)` static truncation bounds for the
-  branch delay, as a vector of pairs (one per delay). Defaults to `(-Inf, Inf)`
-  for every branch; any finite bound triggers the closed-form normalisation.
+- `child_bounds`: deprecated sugar for bounding the branches. A vector of
+  `(lower, upper)` pairs (one per delay) wraps each delay in
+  `truncated(delay, lower, upper)`. Prefer passing `truncated` delays directly.
 - `solver`: quadrature solver for the origin marginalisation (default:
   `GaussLegendre(; n = 64)`, AD-friendly).
 
@@ -186,20 +187,29 @@ using CensoredDistributions, Distributions
 # Two observations sharing one daily infection window
 d = primary_censored([Gamma(2.0, 1.0), LogNormal(1.0, 0.5)], Uniform(0.0, 1.0))
 
-# Joint density with the primary marginalised
-lp = logpdf(d, [missing, 2.0, 3.0])
+# Marginalise the shared primary (missing) over both observed branches
+lp_joint = logpdf(d, [missing, 2.0, 3.0])
 
-# Conditioning on a concrete primary; a missing branch is marginalised
-lp_cond = logpdf(d, [0.3, 2.0, missing])
+# Condition on a concrete primary p = 0.3: the joint factorises into the
+# primary prior plus each branch delay density at the implied delay y_i - p
+lp_cond = logpdf(d, [0.3, 2.0, 3.0])
+
+# A missing branch (the second observation) is marginalised out of the joint
+lp_drop = logpdf(d, [0.3, 2.0, missing])
 
 # Draw the event-time vector [primary, observed_1, observed_2]
 sample = rand(d)
+
+# A bounded branch: pass a truncated delay (here branch 1 is capped at 4 days)
+d_bounded = primary_censored(
+    [truncated(Gamma(2.0, 1.0), 0.0, 4.0), LogNormal(1.0, 0.5)],
+    Uniform(0.0, 1.0))
 ```
 
 # See also
 - [`ParallelPrimaryCensored`](@ref): the distribution type
 - [`primary_censored`](@ref): the single-delay scalar counterpart
-"
+"""
 function primary_censored(
         delays::AbstractVector,
         primary_event::UnivariateDistribution;
@@ -208,13 +218,27 @@ function primary_censored(
         throw(ArgumentError("primary_censored needs at least one delay"))
     all(d -> d isa UnivariateDistribution, delays) ||
         throw(ArgumentError("all delays must be UnivariateDistributions"))
-    delays_t = Tuple(delays)
-    bounds_t = child_bounds === nothing ?
-               map(_ -> (-Inf, Inf), delays_t) :
-               _parallel_normalise_bounds(child_bounds)
-    log_norm = _parallel_log_norm(delays_t, bounds_t)
-    return ParallelPrimaryCensored(
-        primary_event, delays_t, bounds_t, solver, log_norm)
+    bounded = child_bounds === nothing ? delays :
+              _apply_child_bounds(delays, child_bounds)
+    delays_t = Tuple(bounded)
+    return ParallelPrimaryCensored(primary_event, delays_t, solver)
+end
+
+# Back-compat: `child_bounds` wraps each delay in a `truncated` with the given
+# (lower, upper). A truncated delay self-normalises, so this is exactly
+# equivalent to the caller passing the truncated delays directly. An infinite
+# pair leaves the branch untruncated.
+function _apply_child_bounds(delays, child_bounds)
+    length(child_bounds) == length(delays) ||
+        throw(ArgumentError(
+            "child_bounds must have one (lower, upper) pair per delay"))
+    return map(delays, child_bounds) do d, b
+        length(b) == 2 && b[1] <= b[2] ||
+            throw(ArgumentError(
+                "each child bound must be (lower, upper) with lower <= upper"))
+        lo, hi = float(b[1]), float(b[2])
+        (isfinite(lo) || isfinite(hi)) ? truncated(d, lo, hi) : d
+    end
 end
 
 # ----------------------------------------------------------------------------
@@ -232,7 +256,10 @@ end
 # Numeric element type carrying any AD tangent in the distribution parameters.
 # `eltype` on a distribution *type* returns the sample type, losing a Dual; the
 # parameter type is recovered from `params`, recursing into nested param tuples.
+# Non-numeric leaves (e.g. a `nothing` bound in a `Truncated`'s params) carry no
+# tangent and contribute `Float64` to the promotion.
 _parallel_leaf_eltype(x::Real) = float(typeof(x))
+_parallel_leaf_eltype(::Any) = Float64
 function _parallel_leaf_eltype(t::Tuple)
     return isempty(t) ? Float64 :
            mapreduce(_parallel_leaf_eltype, promote_type, t)
@@ -295,7 +322,7 @@ end
 
 Draw an event-time vector `[primary, observed_1, ..., observed_n]`: one shared
 primary draw, then each branch observation as that primary plus an independent
-(bound-truncated) branch delay draw.
+branch delay draw. The shared primary couples the branches.
 
 See also: [`logpdf`](@ref)
 "
@@ -305,48 +332,9 @@ function Distributions._rand!(
     o = rand(rng, d.primary_event)
     x[1] = o
     @inbounds for i in eachindex(d.delays)
-        x[i + 1] = o +
-                   rand(rng,
-            _parallel_maybe_truncate(d.delays[i], d.child_bounds[i]))
+        x[i + 1] = o + rand(rng, d.delays[i])
     end
     return x
-end
-
-# ----------------------------------------------------------------------------
-# Normalisation constant (origin-independent closed product)
-# ----------------------------------------------------------------------------
-
-# log Z = log P(all branches fall in their windows). Substituting u = y_i - o
-# in the marginal integral shows the per-branch window mass is
-# P(a_i <= D_i <= b_i) = F_{D_i}(b_i) - F_{D_i}(a_i), independent of the origin,
-# so Z = Π_i (F_{D_i}(b_i) - F_{D_i}(a_i)). No quadrature is needed; returns
-# zero(T) (log 1) when every bound is infinite.
-function _parallel_log_norm(delays, bounds)
-    T = float(mapreduce(_parallel_param_eltype, promote_type, delays))
-
-    any(b -> isfinite(b[1]) || isfinite(b[2]), bounds) || return zero(T)
-
-    logZ = zero(T)
-    for (c, b) in zip(delays, bounds)
-        hi = isfinite(b[2]) ? T(_cdf_ad_safe(c, b[2])) : one(T)
-        lo = isfinite(b[1]) ? T(_cdf_ad_safe(c, b[1])) : zero(T)
-        mass = hi - lo
-        mass <= 0 && return convert(T, -Inf)
-        logZ += log(mass)
-    end
-    return logZ
-end
-
-# Per-branch log window mass log(F(b_i) - F(a_i)); zero when the bound is
-# infinite. Used to subtract only the *present* branches' contributions from
-# the precomputed full `log_norm` when some branches are missing.
-function _parallel_branch_log_mass(c::UnivariateDistribution, b, ::Type{T}) where {T}
-    (isfinite(b[1]) || isfinite(b[2])) || return zero(T)
-    hi = isfinite(b[2]) ? T(_cdf_ad_safe(c, b[2])) : one(T)
-    lo = isfinite(b[1]) ? T(_cdf_ad_safe(c, b[1])) : zero(T)
-    mass = hi - lo
-    mass <= 0 && return convert(T, -Inf)
-    return log(mass)
 end
 
 # ----------------------------------------------------------------------------
@@ -355,33 +343,32 @@ end
 
 # The single origin interval [lo, hi] on which the present-branch product kernel
 # is non-zero: intersection of support(primary_event) with each present branch's
-# [y_i - b_i, y_i - a_i]. Missing branches do not constrain the window.
+# [y_i - max(D_i), y_i - min(D_i)]. Each delay's own support (including any
+# truncation) supplies the bound, so missing branches do not constrain the
+# window.
 function _parallel_origin_window(
         d::ParallelPrimaryCensored, present, yvals)
     lo = float(minimum(d.primary_event))
     hi = float(maximum(d.primary_event))
     @inbounds for k in eachindex(present)
         i = present[k]
-        a = d.child_bounds[i][1]
-        b = d.child_bounds[i][2]
+        a = float(minimum(d.delays[i]))
+        b = float(maximum(d.delays[i]))
         y = yvals[k]
-        # y_i - o ∈ [a, b]  ⇔  o ∈ [y_i - b, y_i - a].
+        # y_i - o ∈ support(D_i) = [a, b]  ⇔  o ∈ [y_i - b, y_i - a].
         lo = max(lo, y - b)
         hi = min(hi, y - a)
     end
     return lo, hi
 end
 
-# Product of present-branch delay densities at (y_i - o), with the bound
-# indicator. pdf is differentiable for the supported branch kinds.
+# Product of present-branch delay densities at (y_i - o). pdf is differentiable
+# for the supported branch kinds and is zero outside each branch's support.
 function _parallel_pdf_product(d, present, yvals, o)
     p = one(promote_type(typeof(o), eltype(yvals)))
     @inbounds for k in eachindex(present)
         i = present[k]
-        u = yvals[k] - o
-        b = d.child_bounds[i]
-        (b[1] <= u <= b[2]) || return zero(p)
-        p *= pdf(d.delays[i], u)
+        p *= pdf(d.delays[i], yvals[k] - o)
     end
     return p
 end
@@ -406,6 +393,23 @@ function _parallel_quadrature(
     return solve(prob, solver)[1]
 end
 
+# Collect the present (non-missing) branch indices and their concrete observed
+# values from the event-time vector `x` (whose first slot is the primary).
+# Shared by the marginal logpdf and the joint cdf. Returns `nothing` for the
+# value vector when any present observation is NaN, so the caller propagates it.
+function _parallel_present(d::ParallelPrimaryCensored, x, ::Type{T}) where {T}
+    present = Int[]
+    vals = T[]
+    @inbounds for i in eachindex(d.delays)
+        xi = x[i + 1]
+        xi === missing && continue
+        isnan(xi) && return present, nothing
+        push!(present, i)
+        push!(vals, convert(T, xi))
+    end
+    return present, vals
+end
+
 # ----------------------------------------------------------------------------
 # logpdf / pdf (missingness dispatch)
 # ----------------------------------------------------------------------------
@@ -419,8 +423,9 @@ A missing primary marginalises the shared origin by a single one-dimensional
 quadrature over the present branches; a concrete primary conditions on it
 (`logpdf(primary_event, p)` plus the present-branch delay densities at
 `observed_i - p`). A missing branch observation is marginalised (it drops from
-the joint). With finite child bounds the present branches' log window mass is
-subtracted so the density integrates to one.
+the joint). Each branch density is already normalised over its (possibly
+truncated) support, so the joint density integrates to one with no separate
+normalisation constant.
 
 Missingness is inspected only through control flow; concrete values alone enter
 the differentiated arithmetic, so the log density differentiates on every
@@ -439,9 +444,9 @@ function logpdf(d::ParallelPrimaryCensored, x::AbstractVector)
     return _parallel_conditional_logpdf(d, x)
 end
 
-# Concrete primary: log f_O(p) + Σ_present log f_{D_i}(y_i - p) - Σ_present logZ_i.
-# Missing branches drop out. Pulls concrete values out before arithmetic so no
-# Union{Missing} reaches the differentiated path.
+# Concrete primary: log f_O(p) + Σ_present log f_{D_i}(y_i - p). Missing branches
+# drop out. Pulls concrete values out before arithmetic so no Union{Missing}
+# reaches the differentiated path.
 function _parallel_conditional_logpdf(d::ParallelPrimaryCensored, x)
     T = promote_type(eltype(x) <: Real ? eltype(x) : Float64,
         _parallel_eltype(d))
@@ -456,10 +461,8 @@ function _parallel_conditional_logpdf(d::ParallelPrimaryCensored, x)
         y === missing && continue
         isnan(y) && return convert(T, NaN)
         u = y - p
-        b = d.child_bounds[i]
-        (b[1] <= u <= b[2]) || return convert(T, -Inf)
+        insupport(d.delays[i], u) || return convert(T, -Inf)
         lp += convert(T, logpdf(d.delays[i], u))
-        lp -= _parallel_branch_log_mass(d.delays[i], b, T)
     end
     return lp
 end
@@ -470,16 +473,8 @@ function _parallel_marginal_logpdf(d::ParallelPrimaryCensored, x)
     T = promote_type(eltype(x) <: Real ? eltype(x) : Float64,
         _parallel_eltype(d))
 
-    # Collect present branch indices and their concrete observed values.
-    present = Int[]
-    yvals = T[]
-    @inbounds for i in eachindex(d.delays)
-        y = x[i + 1]
-        y === missing && continue
-        isnan(y) && return convert(T, NaN)
-        push!(present, i)
-        push!(yvals, convert(T, y))
-    end
+    present, yvals = _parallel_present(d, x, T)
+    yvals === nothing && return convert(T, NaN)
 
     # No present branch: nothing to condition on, the joint over an all-missing
     # observation marginalises to 1 (log 0).
@@ -492,13 +487,7 @@ function _parallel_marginal_logpdf(d::ParallelPrimaryCensored, x)
     val = _parallel_quadrature(
         d.primary_event, kernel, lower, upper, d.solver)
     val <= 0 && return convert(T, -Inf)
-
-    # Subtract only the present branches' window mass.
-    logZ = zero(T)
-    @inbounds for i in present
-        logZ += _parallel_branch_log_mass(d.delays[i], d.child_bounds[i], T)
-    end
-    return convert(T, log(val) - logZ)
+    return convert(T, log(val))
 end
 
 @doc "
@@ -542,8 +531,7 @@ Joint cumulative distribution function over the branch observations,
 
 The observation vector is `[primary, observed_1, ..., observed_n]`; the primary
 slot is ignored (the origin is marginalised) and a missing branch is dropped
-from the joint. Bounded branches are not renormalised here (this is the joint
-sub-distribution mass); use `logpdf` for the normalised density.
+from the joint.
 
 See also: [`logcdf`](@ref)
 "
@@ -554,15 +542,8 @@ function cdf(d::ParallelPrimaryCensored, x::AbstractVector)
     T = promote_type(eltype(x) <: Real ? eltype(x) : Float64,
         _parallel_eltype(d))
 
-    present = Int[]
-    xvals = T[]
-    @inbounds for i in eachindex(d.delays)
-        xi = x[i + 1]
-        xi === missing && continue
-        isnan(xi) && return convert(T, NaN)
-        push!(present, i)
-        push!(xvals, convert(T, xi))
-    end
+    present, xvals = _parallel_present(d, x, T)
+    xvals === nothing && return convert(T, NaN)
     isempty(present) && return one(T)
 
     lower = float(minimum(d.primary_event))
@@ -570,8 +551,7 @@ function cdf(d::ParallelPrimaryCensored, x::AbstractVector)
     # Above x_i - min(D_i) every branch CDF is saturated; clip the window.
     @inbounds for k in eachindex(present)
         i = present[k]
-        cmin = max(minimum(d.delays[i]), d.child_bounds[i][1])
-        upper = min(upper, xvals[k] - cmin)
+        upper = min(upper, xvals[k] - float(minimum(d.delays[i])))
     end
     upper > lower || return zero(T)
 
@@ -596,7 +576,7 @@ end
 # Specialised real-time truncation
 # ----------------------------------------------------------------------------
 
-@doc raw"""
+@doc """
 
 Truncate a [`ParallelPrimaryCensored`](@ref) to a real-time observation
 horizon.
@@ -604,12 +584,14 @@ horizon.
 `truncated(d, horizon)` represents a per-record real-time observation: branches
 whose observed time has been seen by `horizon` are conditioned on, while
 not-yet-seen branches (passed as `missing` in the observation) enter the
-joint-over-origin truncation denominator. This is the multivariate, shared-origin
-analogue of single-delay real-time truncation. The truncated density is
+joint-over-origin truncation denominator. This is the multivariate,
+shared-origin analogue of single-delay real-time truncation. The truncated
+density is
 
 ```math
-f_T([p, y_1, \dots, y_n] \mid \text{horizon})
-  = \frac{f([p, y_1, \dots, y_n])}{P(\text{all branches} \le \text{horizon})},
+f_T([p, y_1, \\dots, y_n] \\mid \\text{horizon})
+  = \\frac{f([p, y_1, \\dots, y_n])}{
+      P(\\text{all branches} \\le \\text{horizon})},
 ```
 
 where the denominator is the joint CDF [`cdf`](@ref) evaluated at `horizon` on
@@ -634,7 +616,8 @@ real-time `horizon`.
 - [`truncated`](@ref): constructor
 - [`ParallelPrimaryCensored`](@ref): the untruncated distribution
 "
-struct TruncatedParallelPrimaryCensored{D <: ParallelPrimaryCensored, T <: Real} <:
+struct TruncatedParallelPrimaryCensored{
+    D <: ParallelPrimaryCensored, T <: Real} <:
        Distribution{Multivariate, Continuous}
     "The untruncated shared-origin distribution."
     untruncated::D
@@ -649,7 +632,9 @@ function Base.eltype(::Type{<:TruncatedParallelPrimaryCensored{D}}) where {D}
     return eltype(D)
 end
 
-primary_prior(d::TruncatedParallelPrimaryCensored) = primary_prior(d.untruncated)
+function primary_prior(d::TruncatedParallelPrimaryCensored)
+    return primary_prior(d.untruncated)
+end
 
 # Log denominator: log P(all branches <= horizon) via the joint CDF, evaluated
 # at `horizon` on every branch (primary slot ignored). Computed once per logpdf.
