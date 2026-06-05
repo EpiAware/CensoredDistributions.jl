@@ -32,6 +32,11 @@ the equivalent marginalised model: `logpdf` of this distribution equals
 `logpdf(Uniform(lower, lower + width), t)` for any admissible `t`. The Jacobian
 is uniform-only, so the constructor accepts only a `Uniform` primary event.
 
+When the primary event is bounded by several secondaries (for example, in the
+bdbv joint fit admission precedes both death and discharge), the binding
+secondary is their minimum and ``\\mathrm{upper} = \\min(L_p + w,
+T_\\mathrm{secondary}^{(1)}, T_\\mathrm{secondary}^{(2)}, \\dots)``.
+
 # See also
 - [`Latent`](@ref): the formulation that consumes this prior
 - [`primary_prior`](@ref): the accessor that returns it
@@ -55,8 +60,10 @@ end
 
 # Build the coupled bounded prior from a primary-event distribution. The
 # log(upper - lower) Jacobian only restores a uniform-over-window prior, so a
-# non-Uniform primary event is rejected.
-function _coupled_primary_prior(primary_event::UnivariateDistribution, secondary::Real)
+# non-Uniform primary event is rejected. A single secondary or several
+# secondaries are accepted; the binding secondary is their minimum, so the
+# window upper becomes min(lower + width, secondaries...).
+function _coupled_primary_prior(primary_event::UnivariateDistribution, secondary)
     throw(ArgumentError(
         "Coupled primary_prior requires a Uniform primary event " *
         "(the bounded-primary Jacobian is uniform-only); got " *
@@ -68,6 +75,14 @@ function _coupled_primary_prior(primary_event::Uniform, secondary::Real)
     width = maximum(primary_event) - lower
     l, w, s = promote(lower, width, secondary)
     return BoundedPrimary(l, w, s)
+end
+
+# Multiple secondaries: the upper is bounded by the earliest (minimum) of them.
+function _coupled_primary_prior(
+        primary_event::Uniform, secondaries::Union{Tuple, AbstractVector})
+    isempty(secondaries) &&
+        throw(ArgumentError("At least one secondary time is required"))
+    return _coupled_primary_prior(primary_event, minimum(secondaries))
 end
 
 # Upper edge of the bounded primary window.

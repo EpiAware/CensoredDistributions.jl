@@ -554,18 +554,21 @@ obs ~ <conditional delay at p>
 
 # Arguments
 - `d`: A primary-censored distribution.
-- `secondary`: (optional) An already-sampled secondary time bounding the primary
-  window from above, for the coupled case.
+- `secondary`: (optional) One already-sampled secondary time, or a tuple/vector
+  of several, bounding the primary window from above, for the coupled case.
 
 # Uncoupled case
 `primary_prior(d)` returns the distribution's own `primary_event`.
 
 # Coupled case
 `primary_prior(d, secondary)` returns a [`BoundedPrimary`](@ref): a bounded
-prior whose window is truncated above by `secondary` (so the implied delay is
-non-negative), with the `log(upper - lower)` Jacobian that restores the implicit
-uniform-over-window prior. This requires a `Uniform` primary event (the Jacobian
-is Uniform-only) and errors otherwise.
+prior whose window upper is `min(lower + width, secondary)` (so the implied
+delay is non-negative), with the `log(upper - lower)` Jacobian that restores the
+implicit uniform-over-window prior. When several secondaries are passed the
+upper is `min(lower + width, secondaries...)` (the earliest binds), which is the
+multi-secondary case in the bdbv joint fit where, for example, admission is
+bounded by both death and discharge. This requires a `Uniform` primary event
+(the Jacobian is Uniform-only) and errors otherwise.
 
 # Examples
 ```@example
@@ -579,6 +582,9 @@ p = rand(prior)
 
 # Coupled prior bounded by a sampled secondary time
 coupled = primary_prior(d, 0.6)     # bounded to [0.0, 0.6]
+
+# Coupled prior bounded by the earliest of several secondaries
+coupled2 = primary_prior(d, (0.8, 0.5, 0.9))  # bounded to [0.0, 0.5]
 ```
 
 # See also
@@ -587,6 +593,8 @@ coupled = primary_prior(d, 0.6)     # bounded to [0.0, 0.6]
 "
 primary_prior(d::PrimaryCensored) = d.primary_event
 
-function primary_prior(d::PrimaryCensored, secondary::Real)
+function primary_prior(
+        d::PrimaryCensored,
+        secondary::Union{Real, Tuple, AbstractVector})
     return _coupled_primary_prior(d.primary_event, secondary)
 end

@@ -169,6 +169,73 @@ end
     @test_throws ArgumentError primary_prior(d_nonunif, 0.5)
 end
 
+@testitem "BoundedPrimary with multiple secondaries (min bound)" begin
+    using Distributions
+
+    # bdbv case: admission's primary window is bounded above by the EARLIEST of
+    # several downstream secondaries (e.g. min(day + 1, T_death, T_disch)).
+    d = primary_censored(LogNormal(0.0, 1.0), Uniform(0.0, 1.0))
+
+    # Two secondaries inside the window: the earliest (0.5) binds.
+    bp = primary_prior(d, (0.8, 0.5))
+    @test maximum(bp) == 0.5
+    # Vector form gives the same bound.
+    @test maximum(primary_prior(d, [0.8, 0.5])) == 0.5
+    # Order does not matter.
+    @test maximum(primary_prior(d, (0.5, 0.8))) == 0.5
+
+    # A single secondary still works and matches the scalar call.
+    @test maximum(primary_prior(d, (0.6,))) == maximum(primary_prior(d, 0.6))
+
+    # When every secondary is beyond the window the full window is kept.
+    @test maximum(primary_prior(d, (5.0, 3.0))) == 1.0
+
+    # Jacobian-equals-uniform property holds with the combined min bound.
+    bp2 = primary_prior(d, (0.8, 0.5, 0.9))   # binds at 0.5
+    implicit = Uniform(0.0, 1.0)
+    for t in range(1e-6, 0.5 - 1e-6; length = 5)
+        @test logpdf(bp2, t) ≈ logpdf(implicit, t)
+    end
+
+    # Empty secondaries is an error; non-Uniform primary still errors.
+    @test_throws ArgumentError primary_prior(d, Float64[])
+    d_nonunif = primary_censored(
+        LogNormal(0.0, 1.0), truncated(Normal(0.5, 0.2), 0, 1))
+    @test_throws ArgumentError primary_prior(d_nonunif, (0.5, 0.6))
+end
+
+@testitem "Multi-secondary reproduces bdbv admit-with-two-secondaries" begin
+    using Distributions
+
+    # Reproduce the bdbv admission step: a daily primary window [day, day+1]
+    # bounded above by both T_death and T_disch. The bounded prior must place
+    # the primary in [day, min(day+1, T_death, T_disch)] and, with the Jacobian,
+    # score as the implicit uniform-over-day-window prior.
+    day = 3.0
+    delay = LogNormal(0.0, 1.0)
+    d = primary_censored(delay, Uniform(day, day + 1.0))
+
+    T_death = day + 0.7
+    T_disch = day + 0.4   # discharge is the earlier of the two -> binds
+    bp = primary_prior(d, (T_death, T_disch))
+
+    @test minimum(bp) == day
+    @test maximum(bp) ≈ min(day + 1.0, T_death, T_disch)
+    @test maximum(bp) ≈ day + 0.4
+
+    # Jacobian-corrected logpdf equals the implicit uniform-over-day prior.
+    implicit = Uniform(day, day + 1.0)
+    for t in range(day + 1e-6, (day + 0.4) - 1e-6; length = 5)
+        @test logpdf(bp, t) ≈ logpdf(implicit, t)
+    end
+
+    # Sampling stays within the combined bound.
+    using Random
+    rng = MersenneTwister(11)
+    samples = rand(rng, bp, 5_000)
+    @test all(day .<= samples .<= day + 0.4)
+end
+
 @testitem "BoundedPrimary MC integration reproduces marginal CDF" begin
     using Distributions, Random
 
