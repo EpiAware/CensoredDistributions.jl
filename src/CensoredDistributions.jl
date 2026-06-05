@@ -36,10 +36,10 @@ using OptimizationOptimJL: NelderMead
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
 
-# Exported latent formulation opt-in and the primary-event accessor. The default
-# (marginal) formulation needs no exported name. `primary_prior` is a deprecated
-# alias of `get_primary_event`, kept exported for backward compatibility.
-export Latent, get_primary_event, primary_prior
+# Exported formulation modes (`Marginal` default with auto-fallback, `Latent`
+# force) and the primary-event accessor. `primary_prior` is a deprecated alias of
+# `get_primary_event`, kept exported for backward compatibility.
+export Marginal, Latent, get_primary_event, primary_prior
 
 # Export underlying methods for user extension
 export primarycensored_cdf, primarycensored_logcdf

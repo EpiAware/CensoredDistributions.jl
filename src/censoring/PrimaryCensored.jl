@@ -9,24 +9,25 @@ the sum of the primary event time and the delay.
 
 # Formulation
 
-There are two formulations, selected by the `method` keyword:
-- **Default** (no `method`): **marginalise** the primary event time, giving the
-  classic univariate distribution over the scalar observed delay with the full
-  scalar interface (`cdf`, `quantile`, `rand`, `mean`, truncation, ...). This is
-  documented to fall back to the latent formulation where marginalisation is not
-  possible (no analytical solution, event times coupled across records, or the
-  internal times are needed).
-- [`Latent`](@ref)`()`: keep the primary event time as a **sampler-owned latent
-  variable**. The result is a **multivariate** distribution over
-  `[primary, observed]`; [`rand`](@ref) *produces* the internal event times, and
-  `logpdf([primary, observed])` scores the full self-contained joint
+The `mode` keyword selects the formulation:
+- [`Marginal`](@ref)`()` (the default): **marginalise** the primary event time,
+  giving the classic univariate distribution over the scalar observed delay with
+  the full scalar interface (`cdf`, `quantile`, `rand`, `mean`, truncation, ...).
+  `Marginal` **auto-falls-back to [`Latent`](@ref)** at construction for any
+  component that genuinely cannot be marginalised (no analytical or quadrature
+  route, event times coupled across records, or the internal times are needed) —
+  this is real runtime behaviour. For a single delay the marginal route always
+  exists, so it stays univariate.
+- [`Latent`](@ref)`()`: force the latent formulation always, keeping the primary
+  event time as a **sampler-owned latent variable**. The result is a
+  **multivariate** distribution over `[primary, observed]`; [`rand`](@ref)
+  *produces* the internal event times, and `logpdf([primary, observed])` scores
+  the full self-contained joint
   (`logpdf(primary_event, primary) + logpdf(delay, observed - primary)`, prior
   included), so it drops into the same weighted likelihood loop as the marginal
   form. The user never passes the primary in as data. Opt into `Latent()`
-  whenever you want this on purpose — for the internal times via `rand`, for
-  coupled models, or when marginalisation is not possible.
-
-`Latent()` is the single explicit opt-in; marginal is simply the default.
+  whenever you want this on purpose — for the internal times via `rand` or for
+  coupled models.
 
 # CDF computation (marginal default)
 
@@ -51,8 +52,8 @@ necessary for certain AD backends or when debugging.
 - `solver`: Quadrature solver (default: `GaussLegendre(; n = 64)`, AD-friendly;
   pass `QuadGKJL()` for adaptive accuracy)
 - `force_numeric`: Force numeric integration even when analytical available (default: `false`)
-- `method`: Formulation. Defaults to marginalising the primary event time; pass
-  [`Latent`](@ref)`()` to keep it as a sampler-owned latent variable.
+- `mode`: Formulation mode, [`Marginal`](@ref)`()` (default; marginalise with
+  auto-fallback to latent) or [`Latent`](@ref)`()` (force latent always).
 
 This is useful for modeling:
 - Infection-to-symptom onset times when infection time is uncertain
@@ -78,26 +79,26 @@ d_numeric = primary_censored(incubation, infection_window; force_numeric=true)
 
 # Latent: rand produces the internal event times [primary, observed]; logpdf
 # scores the joint of the sampler-owned values (the primary is not passed in)
-d_latent = primary_censored(incubation, infection_window; method=Latent())
+d_latent = primary_censored(incubation, infection_window; mode=Latent())
 sample = rand(d_latent)          # [primary, observed], primary produced by rand
 lp = logpdf(d_latent, sample)    # joint density
 ```
 
 # See also
 - [`primarycensored_cdf`](@ref): The underlying CDF computation with method dispatch
-- [`Latent`](@ref): the opt-in latent formulation
+- [`Marginal`](@ref), [`Latent`](@ref): the formulation modes
 - [`get_primary_event`](@ref): the primary event distribution
 "
 function primary_censored(
         dist::UnivariateDistribution, primary_event::UnivariateDistribution;
         solver = GaussLegendre(; n = 64), force_numeric = false,
-        method::AbstractPCMethod = _Marginal())
+        mode::AbstractPCMethod = Marginal())
     solver_method = if force_numeric
         NumericSolver(solver)
     else
         AnalyticalSolver(solver)
     end
-    return PrimaryCensored(dist, primary_event, solver_method, method)
+    return PrimaryCensored(dist, primary_event, solver_method, mode)
 end
 
 @doc "
@@ -123,10 +124,10 @@ function primary_censored(
         dist::UnivariateDistribution;
         primary_event::UnivariateDistribution = Uniform(0, 1),
         solver = GaussLegendre(; n = 64), force_numeric = false,
-        method::AbstractPCMethod = _Marginal())
+        mode::AbstractPCMethod = Marginal())
     return primary_censored(
         dist, primary_event; solver = solver, force_numeric = force_numeric,
-        method = method)
+        mode = mode)
 end
 
 @doc "
@@ -141,13 +142,14 @@ The `solver` field determines the CDF computation strategy:
   LogNormal, Weibull with Uniform primary), falls back to numeric otherwise
 - `NumericSolver`: Always uses quadrature integration
 
-The `method` field (a type parameter) selects the formulation:
-- default (marginal): univariate over the scalar observed delay, integrating the
-  primary event time out.
+The `method` field (a type parameter) holds the effective formulation mode:
+- [`Marginal`](@ref): univariate over the scalar observed delay, integrating the
+  primary event time out (the default; auto-falls-back to `Latent` for a
+  component that cannot be marginalised).
 - [`Latent`](@ref): multivariate over `[primary, observed]`, keeping the primary
   as a sampler-owned latent variable.
 
-The variate form `V` is `Univariate` for the marginal default and `Multivariate`
+The variate form `V` is `Univariate` for [`Marginal`](@ref) and `Multivariate`
 for [`Latent`](@ref), so the right `Distributions.jl` interface is dispatched
 automatically.
 
@@ -165,30 +167,49 @@ struct PrimaryCensored{
     primary_event::D2
     "The solver method for CDF computation."
     solver::S
-    "The formulation method (default marginal, or Latent)."
+    "The formulation mode ([`Marginal`](@ref) default, or [`Latent`](@ref))."
     method::M
 
     function PrimaryCensored(
             dist::D1, primary_event::D2, solver::S,
-            method::M = _Marginal()) where {
-            D1, D2, S <: AbstractSolverMethod, M <: AbstractPCMethod}
-        V = _variate_form(method)
-        new{V, D1, D2, S, M}(dist, primary_event, solver, method)
+            mode::AbstractPCMethod = Marginal()) where {
+            D1, D2, S <: AbstractSolverMethod}
+        # `Marginal` auto-falls-back to `Latent` for any component that cannot be
+        # marginalised; `Latent` is always latent. `eff` is the effective mode.
+        eff = _resolve_mode(dist, primary_event, solver, mode)
+        M = typeof(eff)
+        V = _variate_form(eff)
+        new{V, D1, D2, S, M}(dist, primary_event, solver, eff)
     end
 end
 
-# Variate form implied by the formulation method.
+# Resolve the requested mode into the effective mode actually used. `Latent`
+# stays latent. `Marginal` stays marginal when the component can be marginalised
+# and otherwise falls back to `Latent` (real runtime behaviour, not just docs).
+_resolve_mode(dist, primary_event, solver, mode::Latent) = mode
+function _resolve_mode(dist, primary_event, solver, mode::Marginal)
+    return _can_marginalise(dist, primary_event, solver) ? mode : Latent()
+end
+
+# Whether the primary event can be marginalised out of the delay. For a single
+# delay the marginal CDF always has a quadrature route (see `primarycensored_cdf`
+# / `NumericSolver`), so this is `true`. The hook exists so composed components
+# that genuinely cannot be marginalised can return `false` and trigger the
+# `Marginal -> Latent` fallback above.
+_can_marginalise(dist, primary_event, solver) = true
+
+# Variate form implied by the (effective) formulation mode.
 #
-# The default `_Marginal` is Univariate: it integrates the primary event out and
-# exposes the classic scalar interface (cdf, quantile, rand, mean, truncation,
-# ...), so `primary_censored(dist, pe)` is the familiar univariate distribution.
-# `Latent` is Multivariate: the joint over the sampler-owned event times.
-_variate_form(::_Marginal) = Univariate
+# `Marginal` is Univariate: it integrates the primary event out and exposes the
+# classic scalar interface (cdf, quantile, rand, mean, truncation, ...), so
+# `primary_censored(dist, pe)` is the familiar univariate distribution. `Latent`
+# is Multivariate: the joint over the sampler-owned event times.
+_variate_form(::Marginal) = Univariate
 _variate_form(::Latent) = Multivariate
 
 # Convenience aliases for dispatch on the formulation.
 const MarginalPrimaryCensored{D1, D2, S} = PrimaryCensored{
-    Univariate, D1, D2, S, _Marginal}
+    Univariate, D1, D2, S, Marginal}
 const LatentPrimaryCensored{D1, D2, S} = PrimaryCensored{
     Multivariate, D1, D2, S, Latent}
 

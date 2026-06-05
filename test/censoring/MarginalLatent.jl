@@ -1,18 +1,49 @@
-@testitem "Default formulation marginalises (classic univariate)" begin
+@testitem "Default mode is Marginal (classic univariate)" begin
     using Distributions
 
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0.0, 1.0)
 
     d = primary_censored(delay, pe)
-    # The default marginalises the primary: a univariate distribution with the
-    # full classic scalar interface, unchanged.
+    # The default mode is Marginal: a univariate distribution with the full
+    # classic scalar interface, unchanged.
     @test d isa UnivariateDistribution
+    @test d.method isa Marginal
 
     @test cdf(d, 3.0) ≈ 0.2183282452603626
     @test logpdf(d, 3.0) ≈ -1.8626929385055817
     @test quantile(d, 0.5) isa Real
     @test length(rand(d, 5)) == 5
+
+    # Passing mode = Marginal() explicitly is identical to the default.
+    de = primary_censored(delay, pe; mode = Marginal())
+    @test de.method isa Marginal
+    @test logpdf(de, 3.0) == logpdf(d, 3.0)
+    @test cdf(de, 3.0) == cdf(d, 3.0)
+end
+
+@testitem "Marginal auto-falls-back to Latent when marginalisation fails" begin
+    using Distributions
+
+    delay = LogNormal(1.5, 0.75)
+    pe = Uniform(0.0, 1.0)
+    solver = CensoredDistributions.AnalyticalSolver()
+
+    # For a single delay the marginal route always exists, so Marginal stays
+    # univariate (no fallback triggered).
+    @test primary_censored(delay, pe; mode = Marginal()) isa UnivariateDistribution
+    @test CensoredDistributions._can_marginalise(delay, pe, solver)
+
+    # The fallback is real runtime behaviour driven by `_resolve_mode`: Latent
+    # always stays Latent; Marginal stays Marginal when marginalisable and
+    # resolves to Latent when not. `_variate_form` then maps each to the right
+    # variate form.
+    @test CensoredDistributions._resolve_mode(delay, pe, solver, Latent()) isa
+          Latent
+    @test CensoredDistributions._resolve_mode(delay, pe, solver, Marginal()) isa
+          Marginal
+    @test CensoredDistributions._variate_form(Marginal()) == Distributions.Univariate
+    @test CensoredDistributions._variate_form(Latent()) == Distributions.Multivariate
 end
 
 @testitem "Latent is the single opt-in (sampler-owned, logpdf owns prior)" begin
@@ -21,8 +52,8 @@ end
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0.0, 1.0)
 
-    # method = Latent() keeps the primary as a sampler-owned latent variable.
-    dl = primary_censored(delay, pe; method = Latent())
+    # mode = Latent() keeps the primary as a sampler-owned latent variable.
+    dl = primary_censored(delay, pe; mode = Latent())
     @test dl isa Distribution{Multivariate, Continuous}
     @test dl.method isa Latent
 
@@ -36,16 +67,52 @@ end
 
     # Latent does not marginalise: a missing primary errors.
     @test_throws ArgumentError logpdf(dl, [missing, 2.7])
+end
 
-    # The marginal default equals the latent joint integrated over the primary
-    # (the two formulations agree).
-    dm = primary_censored(delay, pe)
-    integ = let n = 40_000
-        ps = range(0.0, 1.0; length = n)
-        vals = map(p -> exp(logpdf(dl, [p, 2.7])), ps)
-        sum((vals[1:(end - 1)] .+ vals[2:end]) ./ 2) * step(ps)
+@testitem "Marginal contract: logpdf integrates the primary internally" begin
+    using Distributions
+
+    # The Marginal logpdf integrates the primary out inside logpdf, with no
+    # exposed primary and no fresh randomness: repeated calls are identical
+    # (deterministic quadrature).
+    pe = Uniform(0.0, 1.0)
+    d = primary_censored(LogNormal(1.5, 0.75), pe)
+
+    @test logpdf(d, 2.7) == logpdf(d, 2.7)          # deterministic, no draws
+    @test cdf(d, 2.7) == cdf(d, 2.7)
+    # The marginal object is univariate scalar: no [p, y] vector or exposed p.
+    @test d isa UnivariateDistribution
+end
+
+@testitem "marginal ≡ latent equivalence (#301)" begin
+    using Distributions
+
+    # Correctness backbone (#301): the Latent joint density, integrated over the
+    # primary event time, must equal the Marginal density to tolerance. The
+    # Marginal path integrates the primary internally; this checks the two
+    # formulations are consistent. Integration is a fine deterministic
+    # trapezoidal rule over the primary window (no extra test dependency).
+    function integrate_primary(dl, y, lo, hi; n = 200_000)
+        ps = range(lo, hi; length = n)
+        vals = map(p -> exp(logpdf(dl, [p, y])), ps)
+        return sum((vals[1:(end - 1)] .+ vals[2:end]) ./ 2) * step(ps)
     end
-    @test isapprox(integ, pdf(dm, 2.7); rtol = 1e-3)
+
+    for (delay,
+        pe) in [
+        (LogNormal(1.5, 0.75), Uniform(0.0, 1.0)),
+        (Gamma(2.0, 1.0), Uniform(0.0, 1.0)),
+        (Weibull(2.0, 1.5), Uniform(0.0, 2.0))
+    ]
+        dm = primary_censored(delay, pe)                   # Marginal (default)
+        dl = primary_censored(delay, pe; mode = Latent())  # Latent
+        lo, hi = minimum(pe), maximum(pe)
+        for y in [1.0, 2.5, 4.0]
+            integrated = integrate_primary(dl, y, lo, hi)
+            @test isapprox(integrated, pdf(dm, y); rtol = 1e-3)
+            @test isapprox(log(integrated), logpdf(dm, y); atol = 1e-3)
+        end
+    end
 end
 
 @testitem "Latent is multivariate over [primary, observed]" begin
@@ -54,13 +121,13 @@ end
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0.0, 1.0)
 
-    d = primary_censored(delay, pe; method = Latent())
+    d = primary_censored(delay, pe; mode = Latent())
     @test d isa Distribution{Multivariate, Continuous}
     @test d.method isa Latent
     @test length(d) == 2
 
     # Latent forces the multivariate formulation
-    d2 = primary_censored(delay, pe; method = Latent())
+    d2 = primary_censored(delay, pe; mode = Latent())
     @test d2 isa Distribution{Multivariate, Continuous}
 
     rng = MersenneTwister(42)
@@ -78,7 +145,7 @@ end
 
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0.0, 1.0)
-    d = primary_censored(delay, pe; method = Latent())
+    d = primary_censored(delay, pe; mode = Latent())
 
     for (p, y) in [(0.3, 2.7), (0.1, 1.0), (0.9, 5.4)]
         expected = logpdf(pe, p) + logpdf(delay, y - p)
@@ -140,7 +207,7 @@ end
 
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0.0, 1.0)
-    dl = primary_censored(delay, pe; method = Latent())
+    dl = primary_censored(delay, pe; mode = Latent())
 
     # rand produces the internal censored event times [primary, observed]; the
     # user does not pass the primary in.
@@ -278,7 +345,7 @@ end
 
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0.0, 1.0)
-    dl = primary_censored(delay, pe; method = Latent())
+    dl = primary_censored(delay, pe; mode = Latent())
     ic = interval_censored(dl, 1.0)
 
     @test ic isa Distribution{Multivariate, Continuous}

@@ -81,7 +81,7 @@ own proposed values. The user never passes `p` in. In a model the whole vector
 is scored in one statement,
 
 ```julia
-[primary, observed] ~ primary_censored(delay, primary_event; method = Latent())
+[primary, observed] ~ primary_censored(delay, primary_event; mode = Latent())
 ```
 
 Use the default (marginal) formulation when the primary should instead be
