@@ -186,9 +186,9 @@ end
 # Marginal (univariate) interface — unchanged classic behaviour
 # ============================================================================
 
-function Base.eltype(::Type{<:MarginalPrimaryCensored{D}}) where {D}
-    promote_type(
-        eltype(D), eltype(D))
+function Base.eltype(::Type{<:MarginalPrimaryCensored{D, P}}) where {D, P}
+    # Observed delay = delay draw + primary draw, so promote both element types.
+    promote_type(eltype(D), eltype(P))
 end
 minimum(d::MarginalPrimaryCensored) = minimum(get_dist(d))
 maximum(d::MarginalPrimaryCensored) = maximum(get_dist(d))
@@ -344,7 +344,10 @@ sampler(d::MarginalPrimaryCensored) = d
 Length of the latent event-time vector, `[primary, observed]` (always 2).
 "
 Base.length(::LatentPrimaryCensored) = 2
-Base.eltype(::Type{<:LatentPrimaryCensored{D}}) where {D} = eltype(D)
+# rand returns [primary, observed], so promote both component element types.
+function Base.eltype(::Type{<:LatentPrimaryCensored{D, P}}) where {D, P}
+    promote_type(eltype(D), eltype(P))
+end
 
 @doc "
 
