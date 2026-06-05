@@ -70,6 +70,18 @@ end
 
 @doc "
 
+Extract the component distributions from a convolved distribution.
+
+Returns a vector of the independent component distributions being summed.
+Like the `Product` method, this returns a vector rather than a single
+distribution.
+"
+function get_dist(d::Convolved)
+    return collect(d.components)
+end
+
+@doc "
+
 Extract the untruncated distribution from a truncated distribution.
 
 Returns the underlying continuous distribution before truncation bounds
