@@ -7,6 +7,8 @@ public IntervalCensored
 public Weighted
 public Convolved
 public SequentialDistribution
+public EventTree
+public EventEdge
 
 # Latent-formulation internals (public but not exported)
 public BoundedPrimary

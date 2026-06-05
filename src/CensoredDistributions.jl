@@ -57,6 +57,9 @@ export truncate_to_horizon, truncate_chain
 # Exported sequential-distribution constructor
 export sequential_distribution
 
+# Exported event-tree constructor and accessor
+export event_tree, event_names
+
 # Exported utilities
 export weight, get_dist, get_dist_recursive
 
@@ -77,6 +80,8 @@ include("censoring/double_interval_censored.jl")
 include("distributions/ExponentiallyTilted.jl")
 include("distributions/Convolved.jl")
 include("distributions/SequentialDistribution.jl")
+
+include("censoring/EventTree.jl")
 
 include("censoring/truncation.jl")
 
