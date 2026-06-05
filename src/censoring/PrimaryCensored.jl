@@ -7,29 +7,28 @@ followed by a delay. The primary event time is not observed directly but is
 known to fall within the censoring distribution's support. The observed time is
 the sum of the primary event time and the delay.
 
-# Formulation method
+# Formulation
 
-The `method` keyword selects the formulation (a type parameter, so each variant
-is type-stable):
-- [`Auto`](@ref) (default): keeps the **full classic univariate scalar
-  interface** (`cdf`, `quantile`, `rand`, `mean`, truncation, ...), so the
-  common scalar path is unchanged. It additionally accepts a
-  `[primary, observed]` vector whose `logpdf` dispatches on the observation:
-  `logpdf(d, [missing, y])` marginalises the primary, `logpdf(d, [p, y])`
-  conditions on the concrete primary, and `logpdf(d, y)` takes the marginal
-  path.
-- [`Marginal`](@ref): force the integrate-always formulation, a univariate
-  distribution over the scalar observed delay, identical to the classic
-  `PrimaryCensored`.
-- [`Latent`](@ref): force the condition/sample-always formulation, a
-  **multivariate** distribution over `[primary, observed]`; `logpdf([p, y])` is
-  the combined joint density. This is the data-augmentation form a sampler uses
-  directly.
+There are two formulations, selected by the `method` keyword:
+- **Default** (no `method`): **marginalise** the primary event time, giving the
+  classic univariate distribution over the scalar observed delay with the full
+  scalar interface (`cdf`, `quantile`, `rand`, `mean`, truncation, ...). This is
+  documented to fall back to the latent formulation where marginalisation is not
+  possible (no analytical solution, event times coupled across records, or the
+  internal times are needed).
+- [`Latent`](@ref)`()`: keep the primary event time as a **sampler-owned latent
+  variable**. The result is a **multivariate** distribution over
+  `[primary, observed]`; [`rand`](@ref) *produces* the internal event times, and
+  `logpdf([primary, observed])` scores the full self-contained joint
+  (`logpdf(primary_event, primary) + logpdf(delay, observed - primary)`, prior
+  included), so it drops into the same weighted likelihood loop as the marginal
+  form. The user never passes the primary in as data. Opt into `Latent()`
+  whenever you want this on purpose — for the internal times via `rand`, for
+  coupled models, or when marginalisation is not possible.
 
-`Marginal`/`Latent` are the explicit force overrides; the default `Auto` chooses
-between them per observation.
+`Latent()` is the single explicit opt-in; marginal is simply the default.
 
-# CDF computation (Marginal)
+# CDF computation (marginal default)
 
 The CDF computation is handled by `primarycensored_cdf` which automatically
 dispatches between:
@@ -52,8 +51,8 @@ necessary for certain AD backends or when debugging.
 - `solver`: Quadrature solver (default: `GaussLegendre(; n = 64)`, AD-friendly;
   pass `QuadGKJL()` for adaptive accuracy)
 - `force_numeric`: Force numeric integration even when analytical available (default: `false`)
-- `method`: Formulation method, [`Auto`](@ref)`()` (default), [`Marginal`](@ref)`()`
-  or [`Latent`](@ref)`()`
+- `method`: Formulation. Defaults to marginalising the primary event time; pass
+  [`Latent`](@ref)`()` to keep it as a sampler-owned latent variable.
 
 This is useful for modeling:
 - Infection-to-symptom onset times when infection time is uncertain
@@ -69,34 +68,30 @@ incubation = LogNormal(1.5, 0.75)  # Delay distribution
 infection_window = Uniform(0, 1)    # Daily infection window
 d = primary_censored(incubation, infection_window)
 
-# Default Auto: scalar observed time marginalises the primary
-pdf_at_2 = pdf(d, 2.0)            # marginal density at 2 days
-cdf_at_5 = cdf(d, 5.0)           # marginal cumulative probability by 5 days
-lp_marg = logpdf(d, [missing, 2.0])  # missing primary -> marginalise
-lp_cond = logpdf(d, [0.3, 2.0])      # concrete primary -> condition
-
-# Force the univariate marginal (full scalar interface, e.g. quantile)
-d_marginal = primary_censored(incubation, infection_window; method=Marginal())
-q50 = quantile(d_marginal, 0.5)  # median
+# Default: the primary is marginalised (the classic univariate distribution)
+pdf_at_2 = pdf(d, 2.0)    # marginal density at 2 days
+cdf_at_5 = cdf(d, 5.0)    # marginal cumulative probability by 5 days
+q50 = quantile(d, 0.5)    # median
 
 # Force numeric integration for debugging or AD compatibility
 d_numeric = primary_censored(incubation, infection_window; force_numeric=true)
 
-# Force the latent (multivariate) formulation over [primary, observed]
+# Latent: rand produces the internal event times [primary, observed]; logpdf
+# scores the joint of the sampler-owned values (the primary is not passed in)
 d_latent = primary_censored(incubation, infection_window; method=Latent())
-sample = rand(d_latent)          # [primary, observed]
+sample = rand(d_latent)          # [primary, observed], primary produced by rand
 lp = logpdf(d_latent, sample)    # joint density
 ```
 
 # See also
 - [`primarycensored_cdf`](@ref): The underlying CDF computation with method dispatch
-- [`Marginal`](@ref), [`Latent`](@ref): formulation methods
-- [`primary_prior`](@ref): the prior over the latent primary event time
+- [`Latent`](@ref): the opt-in latent formulation
+- [`get_primary_event`](@ref): the primary event distribution
 "
 function primary_censored(
         dist::UnivariateDistribution, primary_event::UnivariateDistribution;
         solver = GaussLegendre(; n = 64), force_numeric = false,
-        method::AbstractPCMethod = Auto())
+        method::AbstractPCMethod = _Marginal())
     solver_method = if force_numeric
         NumericSolver(solver)
     else
@@ -128,7 +123,7 @@ function primary_censored(
         dist::UnivariateDistribution;
         primary_event::UnivariateDistribution = Uniform(0, 1),
         solver = GaussLegendre(; n = 64), force_numeric = false,
-        method::AbstractPCMethod = Auto())
+        method::AbstractPCMethod = _Marginal())
     return primary_censored(
         dist, primary_event; solver = solver, force_numeric = force_numeric,
         method = method)
@@ -147,14 +142,13 @@ The `solver` field determines the CDF computation strategy:
 - `NumericSolver`: Always uses quadrature integration
 
 The `method` field (a type parameter) selects the formulation:
-- [`Auto`](@ref) (default): univariate scalar interface, plus a vector `logpdf`
-  over `[primary, observed]` where a missing primary marginalises and a concrete
-  primary conditions.
-- [`Marginal`](@ref): force univariate over the scalar observed delay.
-- [`Latent`](@ref): force multivariate, conditioning on the primary always.
+- default (marginal): univariate over the scalar observed delay, integrating the
+  primary event time out.
+- [`Latent`](@ref): multivariate over `[primary, observed]`, keeping the primary
+  as a sampler-owned latent variable.
 
-The variate form `V` is `Univariate` for `Auto`/`Marginal` and `Multivariate`
-for `Latent`, so the right `Distributions.jl` interface is dispatched
+The variate form `V` is `Univariate` for the marginal default and `Multivariate`
+for [`Latent`](@ref), so the right `Distributions.jl` interface is dispatched
 automatically.
 
 # See also
@@ -171,12 +165,12 @@ struct PrimaryCensored{
     primary_event::D2
     "The solver method for CDF computation."
     solver::S
-    "The formulation method (Marginal or Latent)."
+    "The formulation method (default marginal, or Latent)."
     method::M
 
     function PrimaryCensored(
             dist::D1, primary_event::D2, solver::S,
-            method::M = Marginal()) where {
+            method::M = _Marginal()) where {
             D1, D2, S <: AbstractSolverMethod, M <: AbstractPCMethod}
         V = _variate_form(method)
         new{V, D1, D2, S, M}(dist, primary_event, solver, method)
@@ -185,26 +179,22 @@ end
 
 # Variate form implied by the formulation method.
 #
-# Auto is Univariate: it keeps the full classic scalar interface (cdf, quantile,
-# rand, mean, truncation, ...) so the common `primary_censored(dist, pe)` path is
-# unchanged, and additionally accepts a `[primary, observed]` vector whose
-# logpdf dispatches on whether the primary is missing (marginalise) or concrete
-# (condition). Latent is Multivariate: it forces the joint over the event times.
-_variate_form(::Auto) = Univariate
-_variate_form(::Marginal) = Univariate
+# The default `_Marginal` is Univariate: it integrates the primary event out and
+# exposes the classic scalar interface (cdf, quantile, rand, mean, truncation,
+# ...), so `primary_censored(dist, pe)` is the familiar univariate distribution.
+# `Latent` is Multivariate: the joint over the sampler-owned event times.
+_variate_form(::_Marginal) = Univariate
 _variate_form(::Latent) = Multivariate
 
 # Convenience aliases for dispatch on the formulation.
 const MarginalPrimaryCensored{D1, D2, S} = PrimaryCensored{
-    Univariate, D1, D2, S, Marginal}
-const AutoPrimaryCensored{D1, D2, S} = PrimaryCensored{
-    Univariate, D1, D2, S, Auto}
+    Univariate, D1, D2, S, _Marginal}
 const LatentPrimaryCensored{D1, D2, S} = PrimaryCensored{
     Multivariate, D1, D2, S, Latent}
 
-# Scalar-interface distributions: Marginal and the Auto default both expose the
-# classic univariate scalar interface (cdf, logcdf, logpdf, pdf, quantile, rand,
-# truncation). Auto adds vector logpdf methods for the missingness dispatch.
+# Scalar-interface alias: the default marginal formulation exposes the classic
+# univariate scalar interface (cdf, logcdf, logpdf, pdf, quantile, rand,
+# truncation). Kept generic on the method parameter for forward compatibility.
 const ScalarPrimaryCensored{D1, D2, S, M} = PrimaryCensored{
     Univariate, D1, D2, S, M}
 
@@ -215,7 +205,9 @@ function params(d::PrimaryCensored)
 end
 
 # ============================================================================
-# Marginal (univariate) interface — unchanged classic behaviour
+# Scalar (univariate) interface — shared by the Marginal force path and the
+# Auto default. The Latent (multivariate, sampler-owned) interface and the Auto
+# vector method live in `primary_censored_latent.jl`.
 # ============================================================================
 
 function Base.eltype(::Type{<:ScalarPrimaryCensored{D, P}}) where {D, P}
@@ -278,44 +270,6 @@ function _marginal_logpdf(d::PrimaryCensored, x::Real)
         return logsubexp(logcdf_upper, logcdf_lower) -
                log(x_upper - x_lower)
     end
-end
-
-# Joint log density of [p, y]: primary prior plus the shifted delay density.
-function _conditional_logpdf(d::PrimaryCensored, p::Real, y::Real)
-    logpdf(d.primary_event, p) + logpdf(get_dist(d), y - p)
-end
-
-@doc "
-
-Conditional log density of the observed time `y` given a concrete primary event
-time `p`, **excluding** the primary prior: `logpdf(delay, y - p)`.
-
-Use this in the decomposed data-augmentation workflow where the primary is its
-own sampled variable, so the prior is scored once by the sampler rather than
-twice. This avoids double-counting the primary prior that the joint
-`logpdf(d::PrimaryCensored, [p, y])` includes.
-
-# Arguments
-- `d`: A primary-censored distribution.
-- `p`: A concrete (sampled) primary event time.
-- `y`: The observed time.
-
-# Examples
-```@example
-using CensoredDistributions, Distributions
-
-d = primary_censored(LogNormal(1.5, 0.75), Uniform(0.0, 1.0))
-
-# Decomposed workflow: the prior is scored once via get_primary_event, the
-# delay alone via conditional_logpdf (no prior term, so no double-counting).
-p = 0.3
-lp_delay = conditional_logpdf(d, p, 2.0)   # logpdf(delay, 2.0 - p)
-```
-
-See also: [`get_primary_event`](@ref), [`logpdf`](@ref)
-"
-function conditional_logpdf(d::PrimaryCensored, p::Real, y::Real)
-    return logpdf(get_dist(d), y - p)
 end
 
 @doc "
@@ -422,198 +376,34 @@ end
 sampler(d::ScalarPrimaryCensored) = d
 
 # ============================================================================
-# Event-time vector support test (shared by Auto and Latent vector methods)
-# ============================================================================
-
-# Test whether `x = [primary, observed]` is in the joint support: the primary in
-# the primary-event support and the implied delay `observed - primary` in the
-# delay support. A missing primary is admissible whenever the observed time is
-# reachable for some primary in the window.
-function _event_insupport(d::PrimaryCensored, x::AbstractVector)
-    length(x) == 2 || return false
-    p = x[1]
-    y = x[2]
-    if p === missing
-        return insupport(get_dist(d), y) ||
-               insupport(get_dist(d), y - maximum(d.primary_event))
-    end
-    return insupport(d.primary_event, p) && insupport(get_dist(d), y - p)
-end
-
-# ----------------------------------------------------------------------------
-# Latent (force condition/sample-always) — multivariate over [primary, observed]
-# ----------------------------------------------------------------------------
-
-@doc "
-
-Length of the latent event-time vector, `[primary, observed]` (always 2).
-"
-Base.length(::LatentPrimaryCensored) = 2
-# rand returns [primary, observed], so promote both component element types.
-function Base.eltype(::Type{<:LatentPrimaryCensored{D, P}}) where {D, P}
-    promote_type(eltype(D), eltype(P))
-end
-
-@doc "
-
-Test whether `x = [primary, observed]` is in the latent joint support.
-
-See also: [`logpdf`](@ref)
-"
-insupport(d::LatentPrimaryCensored, x::AbstractVector) = _event_insupport(d, x)
-
-@doc "
-
-Draw a latent event-time vector `[primary, observed]`: sample a fresh primary
-event time, then the observed time as primary plus an independent delay draw.
-
-See also: [`logpdf`](@ref)
-"
-function Base.rand(rng::AbstractRNG, d::LatentPrimaryCensored)
-    p = rand(rng, d.primary_event)
-    y = p + rand(rng, get_dist(d))
-    return [p, y]
-end
-
-# In-place sampling for the multivariate Latent interface.
-function Distributions._rand!(
-        rng::AbstractRNG, d::LatentPrimaryCensored, x::AbstractVector)
-    p = rand(rng, d.primary_event)
-    x[1] = p
-    x[2] = p + rand(rng, get_dist(d))
-    return x
-end
-
-@doc """
-
-Combined joint log density over the latent event times `x = [primary, observed]`,
-
-```math
-\\log f(p, y) = \\log f_\\mathrm{primary}(p) + \\log f_\\mathrm{delay}(y - p),
-```
-
-i.e. the sum of the primary event prior density and the conditional delay
-density at the implied delay `y - p`. The forced [`Latent`](@ref) formulation
-requires a concrete primary; use [`Auto`](@ref) to allow a missing primary that
-marginalises.
-
-This is the **joint** density: it already includes the primary prior term, so
-in a probabilistic programme the whole pair is scored in one statement,
-
-```julia
-[p, y] ~ primary_censored(delay, primary_event; method = Latent())
-```
-
-Do **not** also sample `p ~ get_primary_event(d)` separately, or the primary
-prior is counted twice. For the decomposed workflow where the primary is its own
-sampled variable, score the prior with `p ~ get_primary_event(d)` and the delay
-alone with the conditional from [`conditional_logpdf`](@ref) (which excludes the
-prior), not this joint.
-
-See also: [`rand`](@ref), [`get_primary_event`](@ref), [`conditional_logpdf`](@ref)
-"""
-function logpdf(d::LatentPrimaryCensored, x::AbstractVector)
-    p = x[1]
-    p === missing && throw(ArgumentError(
-        "Latent() forces conditioning and needs a concrete primary; pass a " *
-        "value, or use the default Auto() method to marginalise a missing " *
-        "primary"))
-    return _conditional_logpdf(d, p, x[2])
-end
-
-@doc "
-
-Joint density over the latent event times `[primary, observed]`.
-
-See also: [`logpdf`](@ref)
-"
-pdf(d::LatentPrimaryCensored, x::AbstractVector) = exp(logpdf(d, x))
-
-# ----------------------------------------------------------------------------
-# Auto (default): scalar interface inherited from ScalarPrimaryCensored above;
-# here add the vector logpdf that dispatches marginal-vs-conditional on the
-# observation. The scalar `logpdf(d, y)` is the marginal common path.
-# ----------------------------------------------------------------------------
-
-@doc "
-
-Test whether `x = [primary, observed]` is in support under [`Auto`](@ref). A
-missing primary is admissible whenever the observed time is reachable.
-
-See also: [`logpdf`](@ref)
-"
-insupport(d::AutoPrimaryCensored, x::AbstractVector) = _event_insupport(d, x)
-
-@doc "
-
-Log density of the event-time vector `x = [primary, observed]` under the default
-[`Auto`](@ref) formulation. A missing primary marginalises it out (the
-quadrature path); a concrete primary gives the joint
-`logpdf(primary_event, p) + logpdf(delay, observed - p)`. A scalar observed time
-also takes the marginal path.
-
-As with [`Latent`](@ref), the concrete-primary value is the **joint** (it
-includes the primary prior), so do not also sample `p ~ get_primary_event(d)`
-separately, or the prior is double-counted; use [`conditional_logpdf`](@ref) for
-the decomposed workflow.
-
-Missingness is inspected only through control flow; concrete values alone enter
-the differentiated arithmetic, so the log density differentiates on every
-supported backend.
-
-See also: [`pdf`](@ref), [`get_primary_event`](@ref), [`conditional_logpdf`](@ref)
-"
-function logpdf(d::AutoPrimaryCensored, x::AbstractVector)
-    p = x[1]
-    y = x[2]
-    if p === missing
-        # Extract the concrete observed value before any arithmetic so that no
-        # Union{Missing} reaches the differentiated path.
-        return _marginal_logpdf(d, y)
-    end
-    return _conditional_logpdf(d, p, y)
-end
-
-@doc "
-
-Joint or marginal density of the event-time vector `[primary, observed]` under
-[`Auto`](@ref).
-
-See also: [`logpdf`](@ref)
-"
-pdf(d::AutoPrimaryCensored, x::AbstractVector) = exp(logpdf(d, x))
-
-# ============================================================================
 # Primary-event prior accessor (both formulations)
 # ============================================================================
 
 @doc "
 
-Return the primary event time distribution (the prior over the primary event).
+Return the primary event time distribution.
 
-Named to match the `get_dist` extraction tooling. The distribution owns the
-primary *specification*; the sampler owns the *draw*. A user samples this to
-drive the decomposed data-augmentation workflow, scoring the delay with the
-prior-excluding [`conditional_logpdf`](@ref) so the prior is not double-counted:
-
-```julia
-p ~ get_primary_event(d)
-y ~ conditional_logpdf(d, p, y)
-```
+Named to match the `get_dist` extraction tooling: where [`get_dist`](@ref)
+returns the delay distribution, `get_primary_event` returns the primary event
+distribution. This is the prior over the latent primary time; under the
+[`Latent`](@ref) formulation the sampler draws the primary from it (the user
+does not pass the primary in).
 
 # Arguments
 - `d`: A primary-censored distribution.
-- `secondary`: (optional) One already-sampled secondary time, or a tuple/vector
-  of several, bounding the primary window from above, for the coupled case.
+- `secondary`: (optional) One secondary time, or a tuple/vector of several,
+  bounding the primary window from above, for the coupled case.
 
 # Uncoupled case
 `get_primary_event(d)` returns the distribution's own `primary_event`.
 
 # Coupled case
 `get_primary_event(d, secondary)` returns a [`BoundedPrimary`](@ref): a bounded
-prior whose window upper is `min(lower + width, secondary)` (so the implied
-delay is non-negative), with the `log(upper - lower)` Jacobian that restores the
-implicit uniform-over-window prior. When several secondaries are passed the
+primary distribution whose window upper is `min(lower + width, secondary)` (so
+the implied delay stays non-negative), with the `log(upper - lower)` Jacobian
+that restores the implicit uniform-over-window prior. This is the coupled
+[`Latent`](@ref) case where the sampler draws the primary within a window bound
+by other sampler-owned event times. When several secondaries are passed the
 upper is `min(lower + width, secondaries...)` (the earliest binds), which is the
 multi-secondary case in the bdbv joint fit where, for example, admission is
 bounded by both death and discharge. This requires a `Uniform` primary event

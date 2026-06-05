@@ -1,63 +1,51 @@
-@testitem "Default is Auto (univariate scalar + missingness dispatch)" begin
+@testitem "Default formulation marginalises (classic univariate)" begin
     using Distributions
 
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0.0, 1.0)
 
     d = primary_censored(delay, pe)
-    # Auto keeps the classic univariate scalar interface (so the common path is
-    # unchanged) and adds vector logpdf for the missingness dispatch.
+    # The default marginalises the primary: a univariate distribution with the
+    # full classic scalar interface, unchanged.
     @test d isa UnivariateDistribution
-    @test d.method isa CensoredDistributions.Auto
 
-    # Scalar observed time takes the marginal path (the classic reference
-    # values, unchanged): cdf, logpdf, quantile, rand all work as today.
     @test cdf(d, 3.0) ≈ 0.2183282452603626
     @test logpdf(d, 3.0) ≈ -1.8626929385055817
     @test quantile(d, 0.5) isa Real
     @test length(rand(d, 5)) == 5
 end
 
-@testitem "Auto missingness dispatch: missing marginalises, value conditions" begin
-    using Distributions
-
-    delay = LogNormal(1.5, 0.75)
-    pe = Uniform(0.0, 1.0)
-    d = primary_censored(delay, pe)
-    dm = primary_censored(delay, pe; method = Marginal())
-
-    for y in [1.0, 2.5, 5.0]
-        # [missing, y] marginalises -> equals the forced Marginal logpdf(y)
-        @test logpdf(d, [missing, y]) ≈ logpdf(dm, y)
-        # scalar y is the same marginal path
-        @test logpdf(d, y) ≈ logpdf(dm, y)
-        @test pdf(d, [missing, y]) ≈ pdf(dm, y)
-    end
-
-    # [p, y] conditions on the concrete primary
-    for (p, y) in [(0.3, 2.7), (0.1, 1.0)]
-        @test logpdf(d, [p, y]) ≈ logpdf(pe, p) + logpdf(delay, y - p)
-    end
-end
-
-@testitem "Force overrides: Marginal univariate, Latent condition-only" begin
-    using Distributions
+@testitem "Latent is the single opt-in (sampler-owned, logpdf owns prior)" begin
+    using Distributions, Random
 
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0.0, 1.0)
 
-    # method = Marginal() forces the univariate scalar formulation
-    dm = primary_censored(delay, pe; method = Marginal())
-    @test dm isa UnivariateDistribution
-    @test dm.method isa Marginal
-    @test cdf(dm, 3.0) ≈ 0.2183282452603626
-    @test logpdf(dm, 3.0) ≈ -1.8626929385055817
-
-    # method = Latent() forces conditioning; a missing primary errors
+    # method = Latent() keeps the primary as a sampler-owned latent variable.
     dl = primary_censored(delay, pe; method = Latent())
     @test dl isa Distribution{Multivariate, Continuous}
+    @test dl.method isa Latent
+
+    # rand produces the internal event times; logpdf owns the primary prior, so
+    # logpdf([p, y]) is the full self-contained joint.
+    rng = MersenneTwister(1)
+    x = rand(rng, dl)
+    @test length(x) == 2
+    @test logpdf(dl, x) ≈ logpdf(pe, x[1]) + logpdf(delay, x[2] - x[1])
     @test logpdf(dl, [0.3, 2.7]) ≈ logpdf(pe, 0.3) + logpdf(delay, 2.7 - 0.3)
+
+    # Latent does not marginalise: a missing primary errors.
     @test_throws ArgumentError logpdf(dl, [missing, 2.7])
+
+    # The marginal default equals the latent joint integrated over the primary
+    # (the two formulations agree).
+    dm = primary_censored(delay, pe)
+    integ = let n = 40_000
+        ps = range(0.0, 1.0; length = n)
+        vals = map(p -> exp(logpdf(dl, [p, 2.7])), ps)
+        sum((vals[1:(end - 1)] .+ vals[2:end]) ./ 2) * step(ps)
+    end
+    @test isapprox(integ, pdf(dm, 2.7); rtol = 1e-3)
 end
 
 @testitem "Latent is multivariate over [primary, observed]" begin
@@ -147,25 +135,24 @@ end
     @test maximum(primary_prior(d, 0.6)) == maximum(get_primary_event(d, 0.6))
 end
 
-@testitem "conditional_logpdf excludes the prior (no double-counting)" begin
-    using Distributions
+@testitem "Latent rand produces the internal times; logpdf scores the joint" begin
+    using Distributions, Random
 
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0.0, 1.0)
-    d = primary_censored(delay, pe)
-
-    p, y = 0.3, 2.7
-    # conditional_logpdf is the delay term only (prior excluded)
-    @test conditional_logpdf(d, p, y) ≈ logpdf(delay, y - p)
-
-    # The joint logpdf (vector form) adds the prior on top of the conditional
     dl = primary_censored(delay, pe; method = Latent())
-    @test logpdf(dl, [p, y]) ≈ logpdf(pe, p) + conditional_logpdf(d, p, y)
 
-    # Decomposed workflow (p ~ prior; y ~ conditional) does not double-count:
-    # scoring prior once + conditional once == the joint exactly.
-    decomposed = logpdf(get_primary_event(d), p) + conditional_logpdf(d, p, y)
-    @test decomposed ≈ logpdf(dl, [p, y])
+    # rand produces the internal censored event times [primary, observed]; the
+    # user does not pass the primary in.
+    rng = MersenneTwister(3)
+    x = rand(rng, dl)
+    @test length(x) == 2
+    p, y = x[1], x[2]
+    @test insupport(pe, p)
+    @test y >= p                      # observed = primary + non-negative delay
+
+    # logpdf scores the joint of the sampler-owned [primary, observed].
+    @test logpdf(dl, x) ≈ logpdf(pe, p) + logpdf(delay, y - p)
 end
 
 @testitem "BoundedPrimary Jacobian property and non-Uniform error" begin
@@ -311,12 +298,7 @@ end
     @test s[2] == floor(s[2])           # observed snapped to integer interval
     @test s[1] != floor(s[1]) || insupport(pe, s[1])  # primary continuous
 
-    # interval_censored on a forced Marginal stays univariate (unchanged path)
-    dm = primary_censored(delay, pe; method = Marginal())
+    # interval_censored on the default (marginal) distribution stays univariate
+    dm = primary_censored(delay, pe)
     @test interval_censored(dm, 1.0) isa UnivariateDistribution
-
-    # interval_censored on the default Auto also uses the univariate marginal
-    # path (Auto keeps the classic scalar interface)
-    da = primary_censored(delay, pe)
-    @test interval_censored(da, 1.0) isa UnivariateDistribution
 end

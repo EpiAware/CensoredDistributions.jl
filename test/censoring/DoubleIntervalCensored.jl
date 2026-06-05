@@ -6,7 +6,7 @@
     primary_event_dist = Uniform(0, 1)
 
     # Manual approach
-    manual_dist = primary_censored(delay_dist, primary_event_dist; method = Marginal())
+    manual_dist = primary_censored(delay_dist, primary_event_dist)
 
     # Convenience function approach
     convenience_dist = double_interval_censored(
@@ -26,7 +26,7 @@ end
     upper_bound = 10.0
 
     # Manual approach
-    manual_dist = primary_censored(delay_dist, primary_event_dist; method = Marginal()) |>
+    manual_dist = primary_censored(delay_dist, primary_event_dist) |>
                   d -> truncated(d; upper = upper_bound)
 
     # Convenience function approach
@@ -50,7 +50,7 @@ end
     interval_width = 1.0
 
     # Manual approach
-    manual_dist = primary_censored(delay_dist, primary_event_dist; method = Marginal()) |>
+    manual_dist = primary_censored(delay_dist, primary_event_dist) |>
                   d -> interval_censored(d, interval_width)
 
     # Convenience function approach
@@ -71,7 +71,7 @@ end
     interval_width = 1.0
 
     # Manual approach (ensuring correct order: primary -> truncation -> interval censoring)
-    manual_dist = primary_censored(delay_dist, primary_event_dist; method = Marginal()) |>
+    manual_dist = primary_censored(delay_dist, primary_event_dist) |>
                   d -> truncated(d; upper = upper_bound) |>
                        d -> interval_censored(d, interval_width)
 
@@ -93,7 +93,7 @@ end
     upper_bound = 8.0
 
     # Manual approach
-    manual_dist = primary_censored(delay_dist, primary_event_dist; method = Marginal()) |>
+    manual_dist = primary_censored(delay_dist, primary_event_dist) |>
                   d -> truncated(d, lower_bound, upper_bound)
 
     # Convenience function approach
@@ -310,7 +310,7 @@ end
     end
 
     # Test consistency with manual construction
-    manual_d = primary_censored(delay_dist, primary_event_dist; method = Marginal()) |>
+    manual_d = primary_censored(delay_dist, primary_event_dist) |>
                d_temp -> truncated(d_temp, lower_bound, upper_bound) |>
                          d_temp2 -> interval_censored(d_temp2, interval_width)
 
@@ -330,7 +330,7 @@ end
     intervals = [0.0, 1.0, 2.5, 5.0, 10.0]
 
     # Manually compose: primary censoring -> interval censoring with arbitrary boundaries
-    primary_censored_dist = primary_censored(delay_dist, primary_event_dist; method = Marginal())
+    primary_censored_dist = primary_censored(delay_dist, primary_event_dist)
     d = interval_censored(primary_censored_dist, intervals)
 
     # Test values outside interval boundaries

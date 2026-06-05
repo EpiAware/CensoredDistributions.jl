@@ -38,10 +38,10 @@ end
 
 @doc """
 
-Apply interval censoring to a forced [`Latent`](@ref) (multivariate)
-primary-censored distribution, censoring the observed coordinate while keeping
-the primary event time continuous. Interval censoring of the default
-[`Auto`](@ref) distribution uses the univariate marginal path instead.
+Apply interval censoring to a [`Latent`](@ref) (multivariate) primary-censored
+distribution, censoring the observed coordinate while keeping the primary event
+time continuous. Interval censoring of the default (marginal) distribution uses
+the univariate marginal path instead.
 
 See also: [`LatentIntervalCensored`](@ref)
 """

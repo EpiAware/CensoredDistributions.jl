@@ -4,74 +4,51 @@ Abstract type for the formulation method of a [`PrimaryCensored`](@ref)
 distribution.
 
 The method is a type parameter of `PrimaryCensored`, so each formulation is
-type-stable. Three concrete methods are provided:
+type-stable. There are two formulations:
 
-- [`Auto`](@ref) (default): a multivariate distribution over the event times
-  `[primary, observed]` that dispatches on the observation. A missing primary
-  marginalises (the quadrature path); a concrete primary conditions on it. A
-  scalar observed time also takes the marginal path.
-- [`Marginal`](@ref): force the marginal (integrate-always) formulation, a
-  univariate distribution over the scalar observed delay.
-- [`Latent`](@ref): force the latent (condition/sample-always) formulation, a
-  multivariate distribution over `[primary, observed]`.
+- the default (no `method` given): **marginalise** the primary event time,
+  giving a univariate distribution over the scalar observed delay. This is the
+  classic behaviour. It is documented to fall back to the latent formulation
+  where marginalisation is not possible (no analytical solution, event times
+  coupled across records, or the internal times are needed).
+- [`Latent`](@ref): keep the primary event time as a sampler-owned latent
+  variable, giving a multivariate distribution over `[primary, observed]`.
 
-`Marginal` and `Latent` are the explicit force overrides; `Auto` is the
-missingness-dispatch default. This mirrors the `force_numeric` override of the
-solver-method selection.
+`Latent` is the single explicit opt-in override; marginal is simply the default.
 
 # See also
-- [`Auto`](@ref), [`Marginal`](@ref), [`Latent`](@ref): the concrete methods
-- [`primary_censored`](@ref): constructor selecting the method
+- [`Latent`](@ref): the opt-in latent formulation
+- [`primary_censored`](@ref): constructor selecting the formulation
 "
 abstract type AbstractPCMethod end
 
-@doc "
-
-Auto formulation method (default).
-
-Gives a [`PrimaryCensored`](@ref) that is multivariate over the event times
-`[primary, observed]` and dispatches on the observation:
-- `logpdf([missing, y])` marginalises the primary (the quadrature path),
-- `logpdf([p, y])` conditions on the concrete primary `p`,
-- `logpdf(d, y)` with a scalar observed time also takes the marginal path.
-
-The missingness is inspected through control flow only; concrete values alone
-enter the differentiated arithmetic, so the log density differentiates on every
-supported automatic-differentiation backend.
-
-# See also
-- [`Marginal`](@ref), [`Latent`](@ref): the explicit force overrides
-"
-struct Auto <: AbstractPCMethod end
+# Internal default method tag: marginalise the primary event time. Not a
+# user-facing override (marginal is simply the default), so it is not exported;
+# `_Marginal()` is the default value of the `method` keyword.
+struct _Marginal <: AbstractPCMethod end
 
 @doc "
 
-Marginal formulation method (force integrate-always).
+Latent formulation method: keep the primary event time as a sampler-owned latent
+variable.
 
-Forces the marginal formulation, so a [`PrimaryCensored`](@ref) built with
-`Marginal` is a univariate distribution over the scalar observed delay. The cdf
-is the convolution of the delay with the primary event distribution, computed by
-[`primarycensored_cdf`](@ref).
+Pass `method = Latent()` to [`primary_censored`](@ref) to opt into the latent
+formulation. The result is a multivariate distribution over the event times
+`[primary, observed]`:
+- [`rand`](@ref) **produces** the internal censored times `[primary, observed]`
+  (a fresh primary draw per sample);
+- `logpdf([primary, observed])` is the **full self-contained joint**
+  `logpdf(primary_event, primary) + logpdf(delay, observed - primary)` — the
+  primary event prior lives inside the distribution's `logpdf`, so the primary
+  is a free latent the sampler explores and the distribution drops into the same
+  weighted likelihood loop as the marginal form.
 
-# See also
-- [`Auto`](@ref): the missingness-dispatch default
-- [`Latent`](@ref): the multivariate, condition-always counterpart
-"
-struct Marginal <: AbstractPCMethod end
-
-@doc "
-
-Latent formulation method (force condition/sample-always).
-
-Forces the latent formulation, so a [`PrimaryCensored`](@ref) built with `Latent`
-is a multivariate distribution over the event times `[primary, observed]`. `rand`
-returns both event times (a fresh primary draw per sample); `logpdf([p, y])` is
-the combined joint density `logpdf(primary_event, p) + logpdf(delay, y - p)`. The
-sampler owns the primary draw, so the density stays deterministic.
+Choose `Latent()` whenever you want the latent formulation on purpose, for
+example to recover the internal event times via `rand` or to plug into a coupled
+model, regardless of whether marginalisation would also have been possible.
 
 # See also
-- [`Auto`](@ref): the missingness-dispatch default
-- [`Marginal`](@ref): the univariate, integrate-always counterpart
-- [`primary_prior`](@ref): the prior over the primary event time
+- [`primary_censored`](@ref): constructor
+- [`get_primary_event`](@ref): the primary event distribution the sampler draws
 "
 struct Latent <: AbstractPCMethod end

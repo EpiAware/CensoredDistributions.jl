@@ -281,28 +281,6 @@ function scenarios(; with_reference::Bool = false)
             eachindex(ys)),
         [0.3, 0.5, 0.2, 0.7], (Constant(latent_y),))
 
-    # Auto (default) missingness dispatch. The per-observation primaries are a
-    # CONSTANT `Union{Missing, Float64}` vector: missing rows marginalise (the
-    # quadrature path) and concrete rows condition. The missingness is constant
-    # control-flow only; concrete values alone enter the differentiated
-    # arithmetic, so gradients flow on every backend. Delay parameters varied.
-    auto_primary = Union{Missing, Float64}[missing, 0.3, missing, 0.5]
-    auto_y = [1.2, 2.6, 3.8, 5.1]
-    _push!("PrimaryCensored LogNormal+Uniform auto missingness",
-        (θ, prim,
-            ys) -> begin
-            d = primary_censored(LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0))
-            sum(i -> logpdf(d, [prim[i], ys[i]]), eachindex(ys))
-        end,
-        [1.0, 0.75], (Constant(auto_primary), Constant(auto_y)))
-    _push!("PrimaryCensored Gamma+Uniform auto missingness",
-        (θ, prim,
-            ys) -> begin
-            d = primary_censored(Gamma(θ[1], θ[2]), Uniform(0.0, 1.0))
-            sum(i -> logpdf(d, [prim[i], ys[i]]), eachindex(ys))
-        end,
-        [2.0, 1.5], (Constant(auto_primary), Constant(auto_y)))
-
     # ExponentiallyTilted primary event — no analytical
     # `primarycensored_cdf(::Delay, ::ExponentiallyTilted, ...)` exists,
     # so the scalar `r` parameter of the prior is included in θ (as θ[3])
