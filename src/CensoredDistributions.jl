@@ -19,7 +19,7 @@ using Distributions: Distributions, Distribution, UnivariateDistribution,
                      Truncated, Product, Censored, MixtureModel,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
                      Weibull, Normal, shape, scale, meanlogx, stdlogx,
-                     probs, components, _in_closed_interval
+                     _in_closed_interval
 
 using PrecompileTools: @setup_workload, @compile_workload
 
