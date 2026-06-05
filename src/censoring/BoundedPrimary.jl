@@ -65,7 +65,7 @@ end
 # window upper becomes min(lower + width, secondaries...).
 function _coupled_primary_prior(primary_event::UnivariateDistribution, secondary)
     throw(ArgumentError(
-        "Coupled primary_prior requires a Uniform primary event " *
+        "Coupled get_primary_event requires a Uniform primary event " *
         "(the bounded-primary Jacobian is uniform-only); got " *
         "$(typeof(primary_event))"))
 end

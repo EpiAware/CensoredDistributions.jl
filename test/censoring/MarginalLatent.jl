@@ -66,12 +66,12 @@ end
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0.0, 1.0)
 
-    d = primary_censored(delay, pe; latent = true)
+    d = primary_censored(delay, pe; method = Latent())
     @test d isa Distribution{Multivariate, Continuous}
     @test d.method isa Latent
     @test length(d) == 2
 
-    # method = Latent() is equivalent to latent = true
+    # method = Latent() is equivalent to method = Latent()
     d2 = primary_censored(delay, pe; method = Latent())
     @test d2 isa Distribution{Multivariate, Continuous}
 
@@ -90,7 +90,7 @@ end
 
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0.0, 1.0)
-    d = primary_censored(delay, pe; latent = true)
+    d = primary_censored(delay, pe; method = Latent())
 
     for (p, y) in [(0.3, 2.7), (0.1, 1.0), (0.9, 5.4)]
         expected = logpdf(pe, p) + logpdf(delay, y - p)
@@ -266,7 +266,7 @@ end
 
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0.0, 1.0)
-    dl = primary_censored(delay, pe; latent = true)
+    dl = primary_censored(delay, pe; method = Latent())
     ic = interval_censored(dl, 1.0)
 
     @test ic isa Distribution{Multivariate, Continuous}

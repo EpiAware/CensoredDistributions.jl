@@ -37,9 +37,10 @@ using OptimizationOptimJL: NelderMead
 export primary_censored, interval_censored, double_interval_censored
 
 # Exported formulation method types (force overrides) and the primary-event
-# prior accessor. `Auto` (the default) stays public-but-not-exported (see
-# public.jl) to avoid exporting such a generic name.
-export Marginal, Latent, primary_prior
+# accessor. `Auto` (the default) stays public-but-not-exported (see public.jl)
+# to avoid exporting such a generic name. `primary_prior` is a deprecated alias
+# of `get_primary_event`, kept exported for backward compatibility.
+export Marginal, Latent, get_primary_event, primary_prior, conditional_logpdf
 
 # Export underlying methods for user extension
 export primarycensored_cdf, primarycensored_logcdf

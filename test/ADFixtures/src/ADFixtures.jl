@@ -254,7 +254,7 @@ function scenarios(; with_reference::Bool = false)
             pys) -> sum(
             py -> logpdf(
                 primary_censored(LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0);
-                    latent = true), py),
+                    method = Latent()), py),
             pys),
         [1.0, 0.75], (Constant(latent_obs),))
     _push!("PrimaryCensored Gamma+Uniform latent",
@@ -262,7 +262,7 @@ function scenarios(; with_reference::Bool = false)
             pys) -> sum(
             py -> logpdf(
                 primary_censored(Gamma(θ[1], θ[2]), Uniform(0.0, 1.0);
-                    latent = true), py),
+                    method = Latent()), py),
             pys),
         [2.0, 1.5], (Constant(latent_obs),))
 
@@ -277,7 +277,7 @@ function scenarios(; with_reference::Bool = false)
             ys) -> sum(
             i -> logpdf(
                 primary_censored(LogNormal(1.0, 0.75), Uniform(0.0, 1.0);
-                    latent = true), [θ[i], ys[i]]),
+                    method = Latent()), [θ[i], ys[i]]),
             eachindex(ys)),
         [0.3, 0.5, 0.2, 0.7], (Constant(latent_y),))
 

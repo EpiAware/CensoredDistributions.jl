@@ -27,8 +27,7 @@ is type-stable):
   directly.
 
 `Marginal`/`Latent` are the explicit force overrides; the default `Auto` chooses
-between them per observation. `latent = true` is a convenience for
-`method = Latent()`.
+between them per observation.
 
 # CDF computation (Marginal)
 
@@ -55,7 +54,6 @@ necessary for certain AD backends or when debugging.
 - `force_numeric`: Force numeric integration even when analytical available (default: `false`)
 - `method`: Formulation method, [`Auto`](@ref)`()` (default), [`Marginal`](@ref)`()`
   or [`Latent`](@ref)`()`
-- `latent`: Convenience flag; `latent=true` is equivalent to `method=Latent()`
 
 This is useful for modeling:
 - Infection-to-symptom onset times when infection time is uncertain
@@ -85,7 +83,7 @@ q50 = quantile(d_marginal, 0.5)  # median
 d_numeric = primary_censored(incubation, infection_window; force_numeric=true)
 
 # Force the latent (multivariate) formulation over [primary, observed]
-d_latent = primary_censored(incubation, infection_window; latent=true)
+d_latent = primary_censored(incubation, infection_window; method=Latent())
 sample = rand(d_latent)          # [primary, observed]
 lp = logpdf(d_latent, sample)    # joint density
 ```
@@ -98,14 +96,13 @@ lp = logpdf(d_latent, sample)    # joint density
 function primary_censored(
         dist::UnivariateDistribution, primary_event::UnivariateDistribution;
         solver = GaussLegendre(; n = 64), force_numeric = false,
-        method::AbstractPCMethod = Auto(), latent::Bool = false)
+        method::AbstractPCMethod = Auto())
     solver_method = if force_numeric
         NumericSolver(solver)
     else
         AnalyticalSolver(solver)
     end
-    pcmethod = latent ? Latent() : method
-    return PrimaryCensored(dist, primary_event, solver_method, pcmethod)
+    return PrimaryCensored(dist, primary_event, solver_method, method)
 end
 
 @doc "
@@ -131,10 +128,10 @@ function primary_censored(
         dist::UnivariateDistribution;
         primary_event::UnivariateDistribution = Uniform(0, 1),
         solver = GaussLegendre(; n = 64), force_numeric = false,
-        method::AbstractPCMethod = Auto(), latent::Bool = false)
+        method::AbstractPCMethod = Auto())
     return primary_censored(
         dist, primary_event; solver = solver, force_numeric = force_numeric,
-        method = method, latent = latent)
+        method = method)
 end
 
 @doc "
@@ -283,10 +280,42 @@ function _marginal_logpdf(d::PrimaryCensored, x::Real)
     end
 end
 
-# Conditional log density of the observed time given a concrete primary p:
-# the shifted delay density at the implied delay y - p.
+# Joint log density of [p, y]: primary prior plus the shifted delay density.
 function _conditional_logpdf(d::PrimaryCensored, p::Real, y::Real)
     logpdf(d.primary_event, p) + logpdf(get_dist(d), y - p)
+end
+
+@doc "
+
+Conditional log density of the observed time `y` given a concrete primary event
+time `p`, **excluding** the primary prior: `logpdf(delay, y - p)`.
+
+Use this in the decomposed data-augmentation workflow where the primary is its
+own sampled variable, so the prior is scored once by the sampler rather than
+twice. This avoids double-counting the primary prior that the joint
+`logpdf(d::PrimaryCensored, [p, y])` includes.
+
+# Arguments
+- `d`: A primary-censored distribution.
+- `p`: A concrete (sampled) primary event time.
+- `y`: The observed time.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+d = primary_censored(LogNormal(1.5, 0.75), Uniform(0.0, 1.0))
+
+# Decomposed workflow: the prior is scored once via get_primary_event, the
+# delay alone via conditional_logpdf (no prior term, so no double-counting).
+p = 0.3
+lp_delay = conditional_logpdf(d, p, 2.0)   # logpdf(delay, 2.0 - p)
+```
+
+See also: [`get_primary_event`](@ref), [`logpdf`](@ref)
+"
+function conditional_logpdf(d::PrimaryCensored, p::Real, y::Real)
+    return logpdf(get_dist(d), y - p)
 end
 
 @doc "
@@ -468,7 +497,20 @@ density at the implied delay `y - p`. The forced [`Latent`](@ref) formulation
 requires a concrete primary; use [`Auto`](@ref) to allow a missing primary that
 marginalises.
 
-See also: [`rand`](@ref), [`primary_prior`](@ref)
+This is the **joint** density: it already includes the primary prior term, so
+in a probabilistic programme the whole pair is scored in one statement,
+
+```julia
+[p, y] ~ primary_censored(delay, primary_event; method = Latent())
+```
+
+Do **not** also sample `p ~ get_primary_event(d)` separately, or the primary
+prior is counted twice. For the decomposed workflow where the primary is its own
+sampled variable, score the prior with `p ~ get_primary_event(d)` and the delay
+alone with the conditional from [`conditional_logpdf`](@ref) (which excludes the
+prior), not this joint.
+
+See also: [`rand`](@ref), [`get_primary_event`](@ref), [`conditional_logpdf`](@ref)
 """
 function logpdf(d::LatentPrimaryCensored, x::AbstractVector)
     p = x[1]
@@ -506,15 +548,20 @@ insupport(d::AutoPrimaryCensored, x::AbstractVector) = _event_insupport(d, x)
 
 Log density of the event-time vector `x = [primary, observed]` under the default
 [`Auto`](@ref) formulation. A missing primary marginalises it out (the
-quadrature path); a concrete primary conditions on it
-(`logpdf(primary_event, p) + logpdf(delay, observed - p)`). A scalar observed
-time also takes the marginal path.
+quadrature path); a concrete primary gives the joint
+`logpdf(primary_event, p) + logpdf(delay, observed - p)`. A scalar observed time
+also takes the marginal path.
+
+As with [`Latent`](@ref), the concrete-primary value is the **joint** (it
+includes the primary prior), so do not also sample `p ~ get_primary_event(d)`
+separately, or the prior is double-counted; use [`conditional_logpdf`](@ref) for
+the decomposed workflow.
 
 Missingness is inspected only through control flow; concrete values alone enter
 the differentiated arithmetic, so the log density differentiates on every
 supported backend.
 
-See also: [`pdf`](@ref), [`primary_prior`](@ref)
+See also: [`pdf`](@ref), [`get_primary_event`](@ref), [`conditional_logpdf`](@ref)
 "
 function logpdf(d::AutoPrimaryCensored, x::AbstractVector)
     p = x[1]
@@ -542,14 +589,16 @@ pdf(d::AutoPrimaryCensored, x::AbstractVector) = exp(logpdf(d, x))
 
 @doc "
 
-Return the prior distribution over the latent primary event time.
+Return the primary event time distribution (the prior over the primary event).
 
-The distribution owns the primary *specification*; the sampler owns the *draw*.
-A user samples this prior to drive the latent / data-augmentation workflow, e.g.
+Named to match the `get_dist` extraction tooling. The distribution owns the
+primary *specification*; the sampler owns the *draw*. A user samples this to
+drive the decomposed data-augmentation workflow, scoring the delay with the
+prior-excluding [`conditional_logpdf`](@ref) so the prior is not double-counted:
 
 ```julia
-p ~ primary_prior(d)
-obs ~ <conditional delay at p>
+p ~ get_primary_event(d)
+y ~ conditional_logpdf(d, p, y)
 ```
 
 # Arguments
@@ -558,10 +607,10 @@ obs ~ <conditional delay at p>
   of several, bounding the primary window from above, for the coupled case.
 
 # Uncoupled case
-`primary_prior(d)` returns the distribution's own `primary_event`.
+`get_primary_event(d)` returns the distribution's own `primary_event`.
 
 # Coupled case
-`primary_prior(d, secondary)` returns a [`BoundedPrimary`](@ref): a bounded
+`get_primary_event(d, secondary)` returns a [`BoundedPrimary`](@ref): a bounded
 prior whose window upper is `min(lower + width, secondary)` (so the implied
 delay is non-negative), with the `log(upper - lower)` Jacobian that restores the
 implicit uniform-over-window prior. When several secondaries are passed the
@@ -577,24 +626,52 @@ using CensoredDistributions, Distributions
 d = primary_censored(LogNormal(1.5, 0.75), Uniform(0.0, 1.0))
 
 # Uncoupled prior over the primary event time
-prior = primary_prior(d)            # === Uniform(0.0, 1.0)
+prior = get_primary_event(d)        # === Uniform(0.0, 1.0)
 p = rand(prior)
 
 # Coupled prior bounded by a sampled secondary time
-coupled = primary_prior(d, 0.6)     # bounded to [0.0, 0.6]
+coupled = get_primary_event(d, 0.6) # bounded to [0.0, 0.6]
 
 # Coupled prior bounded by the earliest of several secondaries
-coupled2 = primary_prior(d, (0.8, 0.5, 0.9))  # bounded to [0.0, 0.5]
+coupled2 = get_primary_event(d, (0.8, 0.5, 0.9))  # bounded to [0.0, 0.5]
 ```
 
 # See also
+- [`get_dist`](@ref): the matching delay-distribution accessor
 - [`Latent`](@ref): the formulation that consumes this prior
 - [`BoundedPrimary`](@ref): the coupled bounded prior
 "
-primary_prior(d::PrimaryCensored) = d.primary_event
+get_primary_event(d::PrimaryCensored) = d.primary_event
 
-function primary_prior(
+function get_primary_event(
         d::PrimaryCensored,
         secondary::Union{Real, Tuple, AbstractVector})
     return _coupled_primary_prior(d.primary_event, secondary)
+end
+
+@doc "
+
+Deprecated alias for [`get_primary_event`](@ref), retained for backward
+compatibility.
+
+# Arguments
+- `d`: A primary-censored distribution.
+- `secondary`: (optional) One secondary time, or a tuple/vector of several,
+  bounding the primary window from above.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+d = primary_censored(LogNormal(1.5, 0.75), Uniform(0.0, 1.0))
+prior = primary_prior(d)   # same as get_primary_event(d)
+```
+
+See also: [`get_primary_event`](@ref)
+"
+primary_prior(d::PrimaryCensored) = get_primary_event(d)
+function primary_prior(
+        d::PrimaryCensored,
+        secondary::Union{Real, Tuple, AbstractVector})
+    return get_primary_event(d, secondary)
 end
