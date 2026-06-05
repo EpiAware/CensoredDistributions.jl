@@ -294,9 +294,10 @@ end
 
     # rand censors the observed coordinate to its interval, primary continuous
     rng = MersenneTwister(7)
-    s = rand(rng, ic)
-    @test s[2] == floor(s[2])           # observed snapped to integer interval
-    @test s[1] != floor(s[1]) || insupport(pe, s[1])  # primary continuous
+    draws = [rand(rng, ic) for _ in 1:100]
+    @test all(s -> s[2] == floor(s[2]), draws)   # observed snapped to interval
+    @test all(s -> insupport(pe, s[1]), draws)   # primary in window
+    @test any(s -> s[1] != floor(s[1]), draws)   # primary genuinely continuous
 
     # interval_censored on the default (marginal) distribution stays univariate
     dm = primary_censored(delay, pe)
