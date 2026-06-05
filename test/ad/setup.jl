@@ -48,11 +48,21 @@
         broken_scens = filter(
             s -> s.name in global_broken || s.name in per_backend,
             all_scenarios)
+        # `scenario_intact = false` skips DIT's post-run `new_scen == scen`
+        # equality check. Some scenarios pass observation vectors that contain
+        # `missing` through a `Constant` context (the marginalised-primary
+        # parallel and shared-latent tree records). Comparing two such
+        # scenarios with `==` reduces to `missing == missing`, which is
+        # `missing`, and DIT uses the result in a boolean context, throwing
+        # `TypeError: non-boolean (Missing) used in boolean context`. The
+        # gradient itself is computed and checked for correctness as usual;
+        # only the redundant scenario-equality assertion is disabled.
         DIT.test_differentiation(
             [backend], ok;
             correctness = true,
             type_stability = :none,
             logging = false,
+            scenario_intact = false,
             rtol = 5e-2,
             atol = 1e-6
         )
