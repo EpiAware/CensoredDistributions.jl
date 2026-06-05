@@ -1,10 +1,3 @@
-# Internal alias for the convolution constructor. The function was renamed
-# from `generic_convolve` to `convolve_distributions`; bind whichever the
-# loaded module exports so this file builds on either base. New code below
-# calls `_convolve` exclusively.
-const _convolve = isdefined(@__MODULE__, :convolve_distributions) ?
-                  convolve_distributions : generic_convolve
-
 @doc """
 
 Data-free distribution of a chain of sequential delays evaluated against a
@@ -55,6 +48,19 @@ of each segment, via [`double_interval_censored`](@ref) and the
 [`truncated`](@ref) method on this type. `force_numeric` forces numeric
 primary-censoring integration. The struct's fields are therefore `delays`,
 `primary_event`, `interval`, `horizon` and `force_numeric`.
+
+A `delays` component may itself be a `primary_censored` or
+`double_interval_censored` distribution (it is still a
+`UnivariateDistribution`). When the intermediate event bounding such a
+component is **unobserved** the component is marginalised: only its
+continuous delay core enters the convolution, recovered with
+[`get_dist_recursive`](@ref), so a marginalised run never convolves discrete
+or censored objects. The chain's own `primary_event`, `interval` and
+`horizon` are then reapplied per segment. Per-component censoring on an
+**observed** intermediate (conditioning each segment with its own primary or
+interval censoring rather than the chain-level parameters) is not yet wired
+through; it is the design-B extension tracked for the unified
+`primary_censored` engine.
 
 # See also
 - [`sequential_distribution`](@ref): Constructor function
@@ -171,6 +177,13 @@ unobserved events it is the CDF of the convolution of those delays. The
 correct denominator is chosen from the observation vector's missingness, so
 a single horizon expresses both forms without a separate mask.
 
+This is the same single-delay-versus-convolved-chain truncation rule used by
+[`truncate_chain`](@ref) and [`truncate_to_horizon`](@ref); the chain drives
+the choice from the per-record missingness pattern instead of an explicit
+observation mask. Per segment the rule is applied by truncating the segment
+distribution built in [`logpdf`](@ref): a bare delay gives the single-delay
+denominator and a [`Convolved`](@ref) run gives the convolution denominator.
+
 # Arguments
 - `d`: the chain to right-truncate.
 - `horizon`: the observation cut-off time.
@@ -187,6 +200,7 @@ logpdf(dt, [0.0, missing, 4.0])
 # See also
 - [`SequentialDistribution`](@ref): The distribution type
 - [`logpdf`](@ref): Applies the per-record truncation denominator
+- [`truncate_chain`](@ref): the shared single-vs-convolved truncation rule
 """
 function truncated(d::SequentialDistribution, horizon::Real)
     return SequentialDistribution(
@@ -267,7 +281,7 @@ end
 function _segment_distribution(d::SequentialDistribution, a, b, is_first)
     run = d.delays[a:(b - 1)]
     base = length(run) == 1 ? run[1] :
-           _convolve(map(_continuous_delay, collect(run)))
+           convolve_distributions(map(_continuous_delay, collect(run)))
     pe = is_first ? d.primary_event : nothing
     return _censor_segment(base, pe, d.interval, d.horizon, d.force_numeric)
 end
