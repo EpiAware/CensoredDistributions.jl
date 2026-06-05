@@ -48,9 +48,10 @@
     @test_throws ArgumentError primary_censored(
         (parent = [:a], child = [:b]), Uniform(0.0, 1.0))
 
-    # A non-table source is rejected.
-    @test_throws ArgumentError primary_censored(
-        [:a => :b => Gamma(2.0, 1.0)], Uniform(0.0, 1.0))
+    # A bare Vector of delays is not an edge list (reserved for the sequential
+    # chain), so it does not dispatch to the edge-list overload.
+    @test_throws MethodError primary_censored(
+        [Gamma(2.0, 1.0), LogNormal(1.0, 0.5)], Uniform(0.0, 1.0))
 
     # A non-distribution delay entry is rejected.
     @test_throws ArgumentError primary_censored(

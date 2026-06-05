@@ -223,11 +223,17 @@ end
 
 Build an [`EventTree`](@ref) from a Tables.jl edge list and a primary event.
 
-`edges` is any Tables.jl source with the columns `parent`, `child`, and
-`delay`, one row per directed edge. Each row declares the `delay` distribution
-of the time from its `parent` event to its `child` event. The root event (the
-single event that is never a child) is inferred from the edge list and takes
-`primary_event` as its censoring window.
+`edges` is a Tables.jl edge list with the columns `parent`, `child`, and
+`delay`, one row per directed edge, given as a `NamedTuple` of column vectors
+(a column table) or a vector of `NamedTuple` rows (a row table). Each row
+declares the `delay` distribution of the time from its `parent` event to its
+`child` event. The root event (the single event that is never a child) is
+inferred from the edge list and takes `primary_event` as its censoring window.
+
+A bare `Vector` of delays is not an edge list; it is reserved for the
+sequential chain construction, so it raises a `MethodError` here. Materialise
+any other Tables.jl source (for example a `DataFrame`) with
+`Tables.columntable` before passing it.
 
 The edge list must form one tree: every event has at most one parent, exactly
 one event has no parent (the root), and every event is reachable from the root
@@ -239,10 +245,9 @@ The distribution is data-free: which events are observed is decided per record
 from the observation passed to [`logpdf`](@ref), not at construction.
 
 # Arguments
-- `edges`: a Tables.jl source with columns `parent` (`Symbol`), `child`
-  (`Symbol`), and `delay` (a continuous `UnivariateDistribution`), one row per
-  edge. A `NamedTuple` of column vectors, a vector of `NamedTuple` rows, or a
-  `DataFrame` all work.
+- `edges`: an edge list with columns `parent` (`Symbol`), `child` (`Symbol`),
+  and `delay` (a continuous `UnivariateDistribution`), one row per edge, as a
+  `NamedTuple` of column vectors or a vector of `NamedTuple` rows.
 - `primary_event`: the root censoring window (primary event distribution)
   applied to the origin event.
 
@@ -275,7 +280,21 @@ logpdf(tree, obs)
 - [`EventTree`](@ref): the distribution type
 - [`logpdf`](@ref): per-record missingness-dispatched evaluation
 """
-function primary_censored(edges, primary_event::UnivariateDistribution;
+# The edge-list constructor is given two concrete dispatch forms so a bare
+# `Vector{<:UnivariateDistribution}` (reserved for the sequential chain, #309)
+# does NOT match it and stays a `MethodError`: a `NamedTuple` of column vectors
+# (a column table) and an `AbstractVector` of `NamedTuple` rows (a row table).
+# Both are Tables.jl sources; `_eventtree_from_table` does the shared build.
+function primary_censored(
+        edges::NamedTuple, primary_event::UnivariateDistribution; kwargs...)
+    return _eventtree_from_table(edges, primary_event; kwargs...)
+end
+function primary_censored(edges::AbstractVector{<:NamedTuple},
+        primary_event::UnivariateDistribution; kwargs...)
+    return _eventtree_from_table(edges, primary_event; kwargs...)
+end
+
+function _eventtree_from_table(edges, primary_event::UnivariateDistribution;
         interval = nothing, horizon = nothing,
         solver = GaussLegendre(; n = 64))
     edge_tuple = _edges_from_table(edges)
@@ -294,21 +313,24 @@ function _edges_from_table(edges)
         throw(ArgumentError(
             "edges must be a Tables.jl source with columns parent, child, " *
             "and delay; got $(typeof(edges))"))
-    rows = Tables.rows(edges)
-    cols = Tables.columnnames(rows)
+    cols = Tables.columns(edges)
+    names = Tables.columnnames(cols)
     for required in (:parent, :child, :delay)
-        required in cols ||
+        required in names ||
             throw(ArgumentError(
                 "the edge list is missing the `$required` column"))
     end
-    return Tuple(_edge_from_row(row) for row in rows)
+    parents = Tables.getcolumn(cols, :parent)
+    children = Tables.getcolumn(cols, :child)
+    delays = Tables.getcolumn(cols, :delay)
+    return Tuple(
+        _edge_from_fields(parents[i], children[i], delays[i])
+    for i in eachindex(parents))
 end
 
-# Coerce one Tables.jl row to an `EventEdge`, checking the field kinds.
-function _edge_from_row(row)
-    parent = Tables.getcolumn(row, :parent)
-    child = Tables.getcolumn(row, :child)
-    delay = Tables.getcolumn(row, :delay)
+# Coerce one edge's `parent`, `child`, and `delay` fields to an `EventEdge`,
+# checking the field kinds.
+function _edge_from_fields(parent, child, delay)
     parent isa Symbol ||
         throw(ArgumentError("the `parent` entry must be a Symbol"))
     child isa Symbol ||
