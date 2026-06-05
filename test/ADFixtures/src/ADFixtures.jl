@@ -281,6 +281,60 @@ function scenarios(; with_reference::Bool = false)
             eachindex(ys)),
         [0.3, 0.5, 0.2, 0.7], (Constant(latent_y),))
 
+    # ParallelPrimaryCensored: vector-of-delays shared-origin joint over
+    # [primary, observed_1, observed_2]. Each scenario differentiates the
+    # delay parameters; the per-record event-time vectors travel as a
+    # `Constant` context. Literal delay constructors keep Enzyme forward
+    # working (#278).
+    #
+    # Marginalised primary (a missing primary), both branches present: the
+    # 1-D origin-integral path. Per-record observations are concrete
+    # `[missing, y1, y2]` vectors.
+    par_marg_obs = [[missing, 1.2, 2.1], [missing, 2.6, 3.4],
+        [missing, 3.8, 4.5], [missing, 5.1, 5.9]]
+    _push!("ParallelPrimaryCensored Gamma+LogNormal marginal",
+        (θ,
+            obs) -> sum(
+            o -> logpdf(
+                primary_censored(
+                    [Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])],
+                    Uniform(0.0, 1.0)), o),
+            obs),
+        [2.0, 1.0, 1.0, 0.5], (Constant(par_marg_obs),))
+
+    # Concrete-primary conditional path: per-record `[p, y1, y2]` vectors
+    # with a concrete primary, so the joint factorises (no quadrature).
+    par_cond_obs = [[0.3, 1.2, 2.1], [0.5, 2.6, 3.4],
+        [0.2, 3.8, 4.5], [0.7, 5.1, 5.9]]
+    _push!("ParallelPrimaryCensored Gamma+LogNormal conditional",
+        (θ,
+            obs) -> sum(
+            o -> logpdf(
+                primary_censored(
+                    [Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])],
+                    Uniform(0.0, 1.0)), o),
+            obs),
+        [2.0, 1.0, 1.0, 0.5], (Constant(par_cond_obs),))
+
+    # Missingness dispatch with a missing primary AND a missing branch: the
+    # marginal path over the single present branch. Mixed
+    # `Union{Missing, Float64}`-element vectors per record exercise the
+    # constant control-flow / concrete-arithmetic split on every backend.
+    par_mix_obs = Vector{Union{Missing, Float64}}[
+    [
+        missing, 1.2, missing], [missing, missing, 3.4],
+    [
+        missing, 3.8, 4.5], [missing, 5.1, missing]]
+    _push!("ParallelPrimaryCensored Gamma+LogNormal mixed missingness",
+        (θ,
+            obs) -> sum(
+            o -> logpdf(
+                primary_censored(
+                    [Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])],
+                    Uniform(0.0, 1.0)), o),
+            obs),
+        [2.0, 1.0, 1.0, 0.5], (Constant(par_mix_obs),))
+
     # ExponentiallyTilted primary event — no analytical
     # `primarycensored_cdf(::Delay, ::ExponentiallyTilted, ...)` exists,
     # so the scalar `r` parameter of the prior is included in θ (as θ[3])
