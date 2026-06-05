@@ -1,15 +1,15 @@
-@doc raw"""
-Partial of the regularised lower incomplete gamma w.r.t. the shape
-parameter — the term `SpecialFunctions.gamma_inc` leaves as
+@doc """
+Partial of the regularised lower incomplete gamma with respect to the
+shape parameter — the term `SpecialFunctions.gamma_inc` leaves as
 `@not_implemented` in its `ChainRule`. Computed by term-by-term
 differentiation of the Tricomi absolutely-convergent series for
 `P(a, z) = z^a e^{-z} Σ_{n ≥ 0} z^n / Γ(a + n + 1)`:
 
 ```math
-\frac{\partial P(a, z)}{\partial a}
-    = \log(z)\, P(a, z) -
-      z^a e^{-z} \sum_{n \geq 0}
-        \frac{\psi(a + n + 1)\, z^n}{\Gamma(a + n + 1)}
+\\frac{\\partial P(a, z)}{\\partial a}
+    = \\log(z)\\, P(a, z) -
+      z^a e^{-z} \\sum_{n \\geq 0}
+        \\frac{\\psi(a + n + 1)\\, z^n}{\\Gamma(a + n + 1)}
 ```
 
 with `ψ(a + n + 1) = ψ(a + n) + 1 / (a + n)` propagated alongside the
@@ -44,7 +44,7 @@ function _grad_p_a_series(a::Real, z::Real; rtol::Real = 1e-14, maxiter::Int = 1
     return log(z) * P - S
 end
 
-@doc raw"""
+@doc """
 AD-safe Gamma CDF, `P(k, x/θ)`.
 
 Primal goes through `SpecialFunctions.gamma_inc` for every `Real`
@@ -73,7 +73,7 @@ function _gamma_cdf(k::Real, θ::Real, x::Real)
     return first(gamma_inc(kp, zp))
 end
 
-@doc raw"""
+@doc """
 Primal value and analytical partials `(Ω, dk, dθ, dx)` for
 [`_gamma_cdf`](@ref). Shared by every per-backend AD extension so the
 formulas live in one place:
@@ -100,7 +100,7 @@ function _gamma_cdf_value_and_partials(k::Real, θ::Real, x::Real)
     return (Ω, dk, dθ, dx)
 end
 
-@doc raw"""
+@doc """
 AD-safe `logcdf(dist, u)` for use inside differentiable integrands.
 
 Generic dispatch falls through to `Distributions.logcdf`. The
@@ -116,7 +116,7 @@ function _logcdf_ad_safe(dist::Gamma, u::Real)
     return log(_gamma_cdf(shape(dist), scale(dist), u))
 end
 
-@doc raw"""
+@doc """
 AD-safe `cdf(dist, u)` companion to [`_logcdf_ad_safe`](@ref). Same
 dispatch idea: route `Gamma` through [`_gamma_cdf`](@ref) so the
 numeric-path optimisations that call `cdf(dist, lower)` for early
