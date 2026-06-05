@@ -15,7 +15,7 @@ import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
 using Distributions: Distributions, Distribution, UnivariateDistribution,
                      Continuous, ValueSupport, VariateForm, Univariate,
-                     Multivariate, Truncated, Product, Censored, truncated,
+                     Multivariate, Truncated, Product, Censored,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
                      Weibull, Normal, shape, scale, meanlogx, stdlogx,
                      _in_closed_interval
@@ -67,6 +67,7 @@ include("censoring/primarycensored_cdf.jl")
 include("censoring/pc_method.jl")
 include("censoring/PrimaryCensored.jl")
 include("censoring/primary_censored_latent.jl")
+include("censoring/ParallelPrimaryCensored.jl")
 include("censoring/BoundedPrimary.jl")
 include("censoring/IntervalCensored.jl")
 include("censoring/LatentIntervalCensored.jl")

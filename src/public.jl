@@ -2,6 +2,7 @@
 
 # Core distribution types (public but not exported)
 public PrimaryCensored
+public ParallelPrimaryCensored
 public IntervalCensored
 public Weighted
 public Convolved
