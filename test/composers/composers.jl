@@ -149,6 +149,9 @@ end
     @test_throws ArgumentError compose(42)
     # A NamedTuple sequential child must hold distributions.
     @test_throws ArgumentError compose((a = [1.0, 2.0],))
+    # Negative chain group ids would collide with auto-generated leaf ids.
+    @test_throws ArgumentError compose((name = [:a, :b],
+        dist = [Gamma(2.0, 1.0), LogNormal(0.5, 0.4)], chain = [-1, -1]))
 end
 
 @testitem "Composers show readably" begin

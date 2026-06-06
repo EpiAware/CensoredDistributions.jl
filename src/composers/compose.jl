@@ -144,6 +144,11 @@ end
 # one Sequential branch (in row order); a zero/`missing` group is a leaf branch.
 # Branches appear in first-seen group order, matching the NamedTuple value order.
 function _compose_table_chained(dists, groups)
+    # Group ids must be non-negative: a zero/`missing` group is a unique leaf,
+    # to which a fresh negative id is assigned, so a negative user group would
+    # collide with those auto-generated leaf ids.
+    all(g -> g === missing || g >= 0, groups) ||
+        throw(ArgumentError("`chain` group ids must be non-negative or missing"))
     order = Int[]              # group ids in first-seen order (0 -> unique leaf)
     members = Dict{Int, Vector{Int}}()
     leaf_counter = 0
