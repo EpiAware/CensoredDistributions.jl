@@ -7,6 +7,13 @@ followed by a delay. The primary event time is not observed directly but is
 known to fall within the censoring distribution's support. The observed time is
 the sum of the primary event time and the delay.
 
+The primary event time is marginalised out inside `logpdf` and `cdf` (the
+convolution of the delay with the primary event distribution), so the result is
+a univariate distribution over the observed delay. Where a tractable marginal
+does not exist (for example coupled records), a latent formulation is reached by
+dispatching on the distribution type, and the primary event is sampled in a
+model via [`get_primary_event`](@ref); that lives in the DynamicPPL extension.
+
 # Method Selection
 
 The CDF computation is handled by `primarycensored_cdf` which automatically

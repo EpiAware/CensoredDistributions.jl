@@ -50,7 +50,7 @@ export convolve_distributions
 export Sequential, Parallel, Competing, compose, as_mixture
 
 # Exported utilities
-export weight, get_dist, get_dist_recursive
+export weight, get_dist, get_dist_recursive, get_primary_event
 
 include("docstrings.jl")
 
