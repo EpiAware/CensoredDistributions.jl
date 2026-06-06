@@ -35,6 +35,8 @@ function _composite_logpdf(components::Tuple, x::AbstractVector)
 end
 
 _child_logpdf(c::UnivariateDistribution, x, offset, ::Int) = logpdf(c, x[offset + 1])
+# A nested child scores its own contiguous slice of the value vector; a `@view`
+# avoids a copy and differentiates on every supported backend.
 function _child_logpdf(c::Union{Sequential, Parallel}, x, offset, n::Int)
     logpdf(c, @view x[(offset + 1):(offset + n)])
 end

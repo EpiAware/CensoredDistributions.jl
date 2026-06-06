@@ -474,6 +474,38 @@ function scenarios(; with_reference::Bool = false)
             eachindex(obs_hd)),
         fill(2.0, n_hd), (Constant(obs_hd),))
 
+    # Generic composers (#331). Differentiate the composer `logpdf` wrt the
+    # leaf-distribution parameters, with the value vector passed as a Constant
+    # context. The composers are plain (no censoring), so gradients flow only
+    # through the leaf delay logpdfs the slice recursion sums. Literal
+    # constructors (not a captured `ctor::Type`) keep Enzyme forward happy, as
+    # above. `seq2` / `par2` are the two-leaf step/branch value vectors.
+    seq2 = [1.5, 2.0]
+    par2 = [2.0, 3.0]
+    _push!("Sequential Gamma+LogNormal logpdf",
+        (θ, x) -> logpdf(
+            Sequential(Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])), x),
+        [2.0, 1.0, 0.5, 0.4], (Constant(seq2),))
+    _push!("Parallel Gamma+LogNormal logpdf",
+        (θ, x) -> logpdf(
+            Parallel(Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])), x),
+        [2.0, 1.0, 1.0, 0.5], (Constant(par2),))
+    # Nested stack: a Parallel of a leaf branch and a Sequential chain (the
+    # stack the front-end builds). Constructed directly so the gradient flows
+    # through the composer `logpdf` slice recursion, the AD-relevant path,
+    # rather than through the `compose` NamedTuple builder. The nested Gamma
+    # shape starts at 2.0, not the α = 1 boundary: at exactly α = 1 a Gamma
+    # collapses to an Exponential and Mooncake's reverse rule drops the
+    # `log(x)` term of the shape gradient (an upstream Distributions×Mooncake
+    # edge case, not a composer issue).
+    nest3 = [1.5, 2.0, 3.0]
+    _push!("Composed nested Parallel-of-Sequential logpdf",
+        (θ,
+            x) -> logpdf(
+            Parallel(Gamma(θ[1], θ[2]),
+                Sequential(LogNormal(θ[3], θ[4]), Gamma(θ[5], θ[6]))), x),
+        [2.0, 1.0, 0.5, 0.4, 2.0, 1.0], (Constant(nest3),))
+
     return out
 end
 
