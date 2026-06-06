@@ -49,6 +49,30 @@ end
 
 @doc "
 
+Extract the primary event time distribution from a primary censored
+distribution.
+
+Returns the distribution of primary event times within the censoring window.
+The conditional delay given a realised primary `p` is then
+`logpdf(get_dist(d), observed - p)`.
+
+# Arguments
+- `d`: A primary censored distribution.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+d = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
+get_primary_event(d)
+```
+"
+function get_primary_event(d::PrimaryCensored)
+    return d.primary_event
+end
+
+@doc "
+
 Extract the underlying continuous distribution from an interval censored
 distribution.
 

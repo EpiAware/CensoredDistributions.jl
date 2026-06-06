@@ -44,7 +44,7 @@ export ExponentiallyTilted
 export convolve_distributions
 
 # Exported utilities
-export weight, get_dist, get_dist_recursive
+export weight, get_dist, get_dist_recursive, get_primary_event
 
 include("docstrings.jl")
 
