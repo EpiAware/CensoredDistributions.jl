@@ -303,6 +303,10 @@ end
             primary_censored_model(d, obs; weight = w), false)
     end
     @test logjoint(fitw(d, obs, 4.0), (;)) ≈ 4.0 * logpdf(d, obs)
+
+    # A zero weight contributes -Inf (matching the univariate `weight`
+    # convention), not a `0 * logpdf` that could become NaN out of support.
+    @test logjoint(fitw(d, obs, 0.0), (;)) == -Inf
 end
 
 @testitem "Parallel submodel matches logpdf and latent switch" tags=[

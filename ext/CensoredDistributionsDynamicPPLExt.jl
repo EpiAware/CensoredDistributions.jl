@@ -177,9 +177,18 @@ end
 # with `@addlogprob!`. This is the documented multivariate counterpart of the
 # univariate `~`/`weight` marginal path. A `nothing` weight adds the plain
 # `logpdf`; a real weight scales it by the multiplicity.
+#
+# A zero weight is handled the same way as the univariate `weight` wrapper
+# (`src/utils/Weighted.jl`): it contributes `-Inf` rather than `0 * logpdf`,
+# which avoids the `0 * -Inf = NaN` an out-of-support observation would
+# otherwise produce, and matches the `Weighted` zero-weight convention.
 @model function _score_multivariate(d, obs; weight = nothing)
-    w = weight === nothing ? 1 : weight
-    @addlogprob! w * logpdf(d, obs)
+    if weight !== nothing && weight == 0
+        @addlogprob! -Inf
+    else
+        w = weight === nothing ? 1 : weight
+        @addlogprob! w * logpdf(d, obs)
+    end
     return obs
 end
 
