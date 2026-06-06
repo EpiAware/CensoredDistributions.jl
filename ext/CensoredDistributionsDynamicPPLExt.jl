@@ -228,10 +228,22 @@ end
     if latent
         p ~ get_primary_event(d)
         branches = d.delays
+        # Only the shared origin `p` is latent; each branch's implied delay
+        # `observed[i] - p` is a DETERMINISTIC observation given `p` and the
+        # data, so the branches are scored as likelihood contributions, not
+        # resampled. A naive `delay ~ branches[i]` loop is wrong twice over:
+        # the reused `delay` collapses every branch onto a single VarName, and
+        # (because the loop LHS is a freshly bound local rather than model data)
+        # DynamicPPL parses each `~` as a fresh latent to SAMPLE, so earlier
+        # branches are overwritten and not scored. Adding each present branch's
+        # conditional log-density with `@addlogprob!` scores every branch
+        # exactly once and keeps `p` the single, cleanly named latent. The joint
+        # log-density is therefore the origin prior plus the sum over present
+        # branches, matching the pure `ParallelPrimaryCensored` conditional
+        # `logpdf([p, observed...])`.
         for i in eachindex(branches)
             observed[i] === missing && continue
-            delay = observed[i] - p
-            delay ~ branches[i]
+            @addlogprob! logpdf(branches[i], observed[i] - p)
         end
         return (; p, observed)
     else

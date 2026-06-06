@@ -333,6 +333,79 @@ end
     @test !isempty(keys(VarInfo(fit_latent(d, observed))))
 end
 
+@testitem "Parallel latent: distinct VarNames and correct multi-branch score" tags=[
+    :turing] begin
+    # Regression test for the collapsed-VarName bug: the parallel-latent loop
+    # must NOT reuse one `delay` VarName for every branch (which both collapsed
+    # the chain and mis-scored the branches as resampled latents). Only the
+    # shared origin `p` is latent; each branch's implied delay is a
+    # deterministic likelihood contribution scored exactly once.
+    using CensoredDistributions
+    using CensoredDistributions: get_primary_event
+    using Distributions
+    using DynamicPPL
+    using DynamicPPL: to_submodel, fix, @varname
+
+    b1 = Gamma(2.0, 1.0)
+    b2 = LogNormal(1.0, 0.5)
+    b3 = Gamma(1.5, 2.0)
+    d = primary_censored([b1 b2 b3], Uniform(0.0, 1.0))
+    observed = [2.0, 3.0, 4.0]
+
+    @model function fit_latent(d, observed)
+        inner ~ to_submodel(
+            primary_censored_model(d, observed; latent = true), false)
+    end
+    m = fit_latent(d, observed)
+
+    # The shared origin `p` is the ONLY latent; the branch delays are
+    # deterministic given `p`, so no per-branch `delay`/`branch_delay` VarName
+    # is created (the collapse bug would have left a single shared one).
+    vns = string.(collect(keys(VarInfo(m))))
+    @test vns == ["p"]
+    @test !any(contains("delay"), vns)
+
+    # Correct multi-branch conditional log-density at a fixed origin: the origin
+    # prior plus the sum over the three present branches, matching the pure
+    # `ParallelPrimaryCensored` conditional `logpdf([p, observed...])`.
+    p = 0.4
+    mfix = fix(m, (@varname(p) => p,))
+    ref = logpdf(get_primary_event(d), p) +
+          logpdf(b1, observed[1] - p) +
+          logpdf(b2, observed[2] - p) +
+          logpdf(b3, observed[3] - p)
+    @test logjoint(mfix, (;)) ≈ ref
+    @test logjoint(mfix, (;)) ≈ logpdf(d, vcat(p, observed))
+end
+
+@testitem "Parallel latent: per-record origins are distinctly named" tags=[
+    :turing] begin
+    # Multi-record latent models namespace each record's shared origin with the
+    # caller's `prefix` (the EpiAware `cases.y_t`-style scheme), giving distinct,
+    # groupable VarNames `o1.p`, `o2.p`, ... rather than a single collapsed name.
+    using CensoredDistributions
+    using Distributions
+    using DynamicPPL
+    using DynamicPPL: to_submodel, prefix
+
+    d = primary_censored(
+        [Gamma(2.0, 1.0) LogNormal(1.0, 0.5)], Uniform(0.0, 1.0))
+    records = [[2.0, 3.0], [2.5, 3.5], [1.5, 4.0]]
+
+    @model function fit(d, records)
+        for i in eachindex(records)
+            r ~ to_submodel(
+                prefix(
+                    primary_censored_model(d, records[i]; latent = true),
+                    Symbol("o", i)), false)
+        end
+    end
+
+    vns = string.(collect(keys(VarInfo(fit(d, records)))))
+    # One distinctly-named latent origin per record.
+    @test Set(vns) == Set(["o1.p", "o2.p", "o3.p"])
+end
+
 @testitem "Event-tree submodel matches logpdf" tags=[:turing] begin
     using CensoredDistributions
     using Distributions
