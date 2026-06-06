@@ -47,6 +47,13 @@ _origin_primary_event(::UnivariateDistribution) = nothing
 _marginal_core(d::UnivariateDistribution) = get_dist_recursive(d)
 _marginal_core(d::Convolved) = d
 
+# Whether a composer's components carry primary censoring (an origin primary
+# event), checked on the component types. `true` selects the censored
+# full-event-path `rand`; `false` keeps the generic per-leaf-value `rand` (PR3a).
+function _is_censored_composer(components::Tuple)
+    any(c -> _origin_primary_event(c) !== nothing, components)
+end
+
 # ---------------------------------------------------------------------------
 # Sequential: per-record missingness dispatch over a censored chain
 # ---------------------------------------------------------------------------
@@ -320,4 +327,56 @@ function _parallel_marginal_logpdf(primary, cores, events, ::Type{T}) where {T}
     end
     val <= 0 && return convert(T, -Inf)
     return convert(T, log(val))
+end
+
+# ---------------------------------------------------------------------------
+# Full-path simulation: `rand` returns every event time / internal time
+# ---------------------------------------------------------------------------
+#
+# For simulate-and-recover (the case studies) `rand` must produce the COMPLETE
+# set of event times, not a summary. The composer-level `rand` delegates to
+# `_composer_rand`, which branches on whether the composer is censored (its
+# components carry an origin primary event). A plain composer keeps the generic
+# per-leaf-value realisation (PR3a); a censored composer simulates the full
+# event-time path including the latent origin draw.
+
+# Sequential: a plain chain returns the per-step value vector; a censored chain
+# returns the full event-time path `[E_0, E_1, ..., E_k]` with `E_0` the latent
+# origin draw and each subsequent time the previous plus a continuous-core delay
+# draw, so every internal event time is in the result.
+function _composer_rand(rng::AbstractRNG, d::Sequential)
+    _is_censored_composer(d.components) || return _composite_rand(
+        rng, d.components, float(eltype(d)))
+    primary = _origin_primary_event(d.components[1])
+    cores = map(_marginal_core, d.components)
+    T = float(promote_type(_param_eltype(primary),
+        map(_param_eltype, cores)...))
+    times = Vector{T}(undef, length(cores) + 1)
+    times[1] = convert(T, rand(rng, primary))
+    @inbounds for i in eachindex(cores)
+        times[i + 1] = times[i] + rand(rng, cores[i])
+    end
+    return times
+end
+
+# Parallel: plain branches return one value per branch; censored branches
+# sharing one latent origin return the full event-time vector
+# `[O, Y_1, ..., Y_n]` with `O` the single shared origin draw and
+# `Y_i = O + D_i`, so the shared origin and every branch observation are in the
+# result.
+function _composer_rand(rng::AbstractRNG, d::Parallel)
+    primary = _is_censored_composer(d.components) ?
+              _shared_primary_event(d.components) : nothing
+    primary === nothing && return _composite_rand(
+        rng, d.components, float(eltype(d)))
+    cores = map(_marginal_core, d.components)
+    T = float(promote_type(_param_eltype(primary),
+        map(_param_eltype, cores)...))
+    out = Vector{T}(undef, length(cores) + 1)
+    o = convert(T, rand(rng, primary))
+    out[1] = o
+    @inbounds for i in eachindex(cores)
+        out[i + 1] = o + rand(rng, cores[i])
+    end
+    return out
 end

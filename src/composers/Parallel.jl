@@ -106,11 +106,14 @@ pdf(d::Parallel, x::AbstractVector) = exp(logpdf(d, x))
 
 @doc "
 
-Sample one value per branch (nested children contributing their sub-vectors).
+Sample a branch realisation. For plain branches this is one value per branch
+(nested children contributing their sub-vectors). For censored branches sharing
+one latent origin it is the full event-time vector `[origin, observed_1, ...]`
+(see the censored-specialisation [`rand`](@ref) method).
 
 See also: [`Parallel`](@ref)
 "
-Base.rand(rng::AbstractRNG, d::Parallel) = _composite_rand(rng, d.components, float(eltype(d)))
+Base.rand(rng::AbstractRNG, d::Parallel) = _composer_rand(rng, d)
 
 Base.rand(d::Parallel) = rand(default_rng(), d)
 sampler(d::Parallel) = d

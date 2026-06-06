@@ -167,6 +167,70 @@ end
           (1 - true_cfr) * pdf(disch_delay, 4.0)
 end
 
+@testitem "Sequential handles varying per-record missingness in a batch" begin
+    using Distributions
+
+    pe = Uniform(0, 1)
+    d1 = LogNormal(1.2, 0.5)
+    d2 = Gamma(2.0, 1.0)
+    chain = Sequential(primary_censored(d1, pe), primary_censored(d2, pe))
+
+    # A batch of records with different observed/missing patterns; per-record
+    # dispatch handles each from its own missingness, not a global mode.
+    records = [
+        Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0]),      # all observed
+        Vector{Union{Missing, Float64}}([0.0, missing, 4.0]),   # E1 unobserved
+        Vector{Union{Missing, Float64}}([1.0, 3.5])             # single edge
+    ]
+    lps = logpdf.(Ref(chain), records)
+    @test all(isfinite, lps)
+    @test lps[1] ≈ logpdf(primary_censored(d1, pe), 2.0) + logpdf(d2, 3.0) rtol=1e-6
+    @test lps[2] ≈
+          logpdf(primary_censored(convolve_distributions(d1, d2), pe), 4.0) rtol=1e-6
+    @test lps[3] ≈ logpdf(primary_censored(d1, pe), 2.5) rtol=1e-6
+end
+
+@testitem "rand simulates the full event-time path of a censored chain" begin
+    using Distributions, Random
+    Random.seed!(11)
+
+    pe = Uniform(0, 1)
+    chain = Sequential(primary_censored(LogNormal(1.2, 0.5), pe),
+        primary_censored(Gamma(2.0, 1.0), pe))
+
+    # Full event-time path [E0, E1, E2]: origin draw plus cumulative delays, so
+    # every internal event time is returned (not a summary).
+    r = rand(chain)
+    @test length(r) == 3
+    @test issorted(r)              # monotone: each step adds a positive delay
+    # The simulated all-observed path scores finitely under the chain.
+    @test isfinite(logpdf(chain, convert(Vector{Union{Missing, Float64}}, r)))
+end
+
+@testitem "rand simulates the shared origin and every branch of a Parallel" begin
+    using Distributions, Random
+    Random.seed!(12)
+
+    pe = Uniform(0, 1)
+    par = Parallel(primary_censored(Gamma(2.0, 1.0), pe),
+        primary_censored(LogNormal(1.0, 0.5), pe))
+
+    # Full event-time vector [O, Y1, Y2]: one shared origin draw then each branch
+    # observation as origin plus an independent branch delay.
+    r = rand(par)
+    @test length(r) == 3
+    @test all(r[2:end] .>= r[1])   # each observation is after the shared origin
+end
+
+@testitem "rand on plain composers keeps the per-leaf realisation" begin
+    using Distributions, Random
+    Random.seed!(13)
+
+    # No primary censoring: the generic per-leaf-value realisation (PR3a) is kept.
+    @test length(rand(Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)))) == 2
+    @test length(rand(Parallel(Gamma(2.0, 1.0), LogNormal(1.0, 0.5)))) == 2
+end
+
 @testitem "double_interval_censored origin surfaces its primary event" begin
     using Distributions
 

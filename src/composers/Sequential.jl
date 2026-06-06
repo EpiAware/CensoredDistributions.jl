@@ -109,12 +109,15 @@ pdf(d::Sequential, x::AbstractVector) = exp(logpdf(d, x))
 
 @doc "
 
-Sample a chain's step-value vector (one value per step, nested children
-contributing their own sub-vectors).
+Sample a chain realisation. For a plain chain this is the step-value vector
+(one value per step, nested children contributing their own sub-vectors). For a
+censored chain (its steps carry primary censoring) it is the full event-time
+path including the latent origin draw (see the censored-specialisation
+[`rand`](@ref) method).
 
 See also: [`Sequential`](@ref)
 "
-Base.rand(rng::AbstractRNG, d::Sequential) = _composite_rand(rng, d.components, float(eltype(d)))
+Base.rand(rng::AbstractRNG, d::Sequential) = _composer_rand(rng, d)
 
 Base.rand(d::Sequential) = rand(default_rng(), d)
 sampler(d::Sequential) = d

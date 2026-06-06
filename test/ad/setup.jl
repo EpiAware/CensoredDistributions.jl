@@ -48,11 +48,20 @@
         broken_scens = filter(
             s -> s.name in global_broken || s.name in per_backend,
             all_scenarios)
+        # `scenario_intact = false`: some scenarios carry a `Missing`-bearing
+        # event vector as a `Constant` context (the censored-composer
+        # marginalisation path, #333). DIT's default post-run equality check
+        # compares the scenario structs with `==`, and comparing a vector that
+        # contains `missing` returns `missing`, which `==` then uses in a
+        # boolean context and errors. The gradients themselves are correct; only
+        # the intactness check trips, so it is disabled. Other scenarios are
+        # unaffected.
         DIT.test_differentiation(
             [backend], ok;
             correctness = true,
             type_stability = :none,
             logging = false,
+            scenario_intact = false,
             rtol = 5e-2,
             atol = 1e-6
         )
