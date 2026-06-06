@@ -1,14 +1,15 @@
 getting_started_pages = Any[
-    "Overview" => "getting-started/index.md",
-    "Installation" => "getting-started/installation.md",
-    "Tutorials" => [
-        "Analytical CDF solutions" => "getting-started/tutorials/analytical-primarycensored-cdfs.md",
-        "Exponentially tilted primary events" => "getting-started/tutorials/exponentially-tilted-primary-events.md",
-        "Automatic differentiation backends" => "getting-started/tutorials/ad-backends.md",
-        "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md"
-    ],
-    "Julia" => "getting-started/julia.md",
-    "FAQ" => "getting-started/faq.md"
+"Overview" => "getting-started/index.md",
+"Installation" => "getting-started/installation.md",
+"Tutorials" => [
+    "Analytical CDF solutions" => "getting-started/tutorials/analytical-primarycensored-cdfs.md",
+    "Exponentially tilted primary events" => "getting-started/tutorials/exponentially-tilted-primary-events.md",
+    "Automatic differentiation backends" => "getting-started/tutorials/ad-backends.md",
+    "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md",
+    "BDBV line-list analysis" => "getting-started/tutorials/bdbv-linelist-analysis.md"
+],
+"Julia" => "getting-started/julia.md",
+"FAQ" => "getting-started/faq.md"
 ]
 
 module_pages = [
