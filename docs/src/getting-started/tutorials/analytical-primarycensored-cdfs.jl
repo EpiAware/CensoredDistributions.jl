@@ -84,8 +84,8 @@ pc_gamma_numerical = primary_censored(
 
 ## Store solver types for display
 solver_types = (
-    analytical = typeof(pc_gamma_analytical.method),
-    numerical = typeof(pc_gamma_numerical.method)
+    analytical = typeof(pc_gamma_analytical.solver),
+    numerical = typeof(pc_gamma_numerical.solver)
 )
 
 md"""
@@ -502,8 +502,8 @@ pc_gamma_custom = primary_censored(
 
 ## Store solver information for display
 solver_info = (
-    default = typeof(pc_default.method.solver),
-    custom = typeof(pc_custom.method.solver)
+    default = typeof(pc_default.solver.solver),
+    custom = typeof(pc_custom.solver.solver)
 )
 
 md"""
