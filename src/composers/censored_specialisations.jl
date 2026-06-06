@@ -39,6 +39,10 @@ _origin_primary_event(d::Truncated) = _origin_primary_event(d.untruncated)
 _origin_primary_event(d::IntervalCensored) = _origin_primary_event(d.dist)
 _origin_primary_event(d::Weighted) = _origin_primary_event(d.dist)
 _origin_primary_event(::UnivariateDistribution) = nothing
+# A nested multivariate composer is not a primary-censored origin leaf, so it
+# surfaces no origin primary event (the censored treatment is resolved within
+# the child). `Competing` is univariate and already hits the fallback above.
+_origin_primary_event(::Union{Sequential, Parallel}) = nothing
 
 # The continuous delay core of a (possibly censored) node, for marginalisation:
 # strip every censoring layer so a marginalised run convolves only continuous

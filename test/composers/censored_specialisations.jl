@@ -175,19 +175,21 @@ end
     d2 = Gamma(2.0, 1.0)
     chain = Sequential(primary_censored(d1, pe), primary_censored(d2, pe))
 
-    # A batch of records with different observed/missing patterns; per-record
-    # dispatch handles each from its own missingness, not a global mode.
+    # A batch of records with different observed/missing patterns over the SAME
+    # 2-step chain; per-record dispatch handles each from its own missingness,
+    # not a global mode. Every record is one entry per event (length 3).
     records = [
-        Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0]),      # all observed
+        Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0]),       # all observed
         Vector{Union{Missing, Float64}}([0.0, missing, 4.0]),   # E1 unobserved
-        Vector{Union{Missing, Float64}}([1.0, 3.5])             # single edge
+        Vector{Union{Missing, Float64}}([1.0, 3.0, 6.0])        # shifted origin
     ]
     lps = logpdf.(Ref(chain), records)
     @test all(isfinite, lps)
     @test lps[1] ≈ logpdf(primary_censored(d1, pe), 2.0) + logpdf(d2, 3.0) rtol=1e-6
     @test lps[2] ≈
           logpdf(primary_censored(convolve_distributions(d1, d2), pe), 4.0) rtol=1e-6
-    @test lps[3] ≈ logpdf(primary_censored(d1, pe), 2.5) rtol=1e-6
+    # Shifted origin: gaps are E1-E0 = 2.0 and E2-E1 = 3.0, same as record 1.
+    @test lps[3] ≈ lps[1] rtol=1e-6
 end
 
 @testitem "rand simulates the full event-time path of a censored chain" begin
