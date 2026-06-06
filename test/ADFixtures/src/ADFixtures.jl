@@ -225,6 +225,41 @@ function scenarios(; with_reference::Bool = false)
             obs),
         [2.0, 1.5], (Constant(obs),))
 
+    # Latent representation. Its logpdf is the primary prior plus the conditional
+    # `logpdf(delay, observed - primary)`, so gradients flow through the delay
+    # distribution's own logpdf. Event-time pairs are concrete [primary,
+    # observed] vectors passed via a Constant context. Delay parameters varied.
+    latent_obs = [[0.3, 1.2], [0.5, 2.6], [0.2, 3.8], [0.7, 5.1]]
+    _push!("Latent PrimaryCensored LogNormal+Uniform",
+        (θ,
+            pys) -> sum(
+            py -> logpdf(
+                latent(primary_censored(LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0))),
+                py),
+            pys),
+        [1.0, 0.75], (Constant(latent_obs),))
+    _push!("Latent PrimaryCensored Gamma+Uniform",
+        (θ,
+            pys) -> sum(
+            py -> logpdf(
+                latent(primary_censored(Gamma(θ[1], θ[2]), Uniform(0.0, 1.0))),
+                py),
+            pys),
+        [2.0, 1.5], (Constant(latent_obs),))
+
+    # Latent gradient with respect to the sampled primary times themselves: the
+    # varied vector IS the per-observation primary, delay parameters fixed. This
+    # is the gradient a sampler takes over the augmented latent primaries.
+    latent_y = [1.2, 2.6, 3.8, 5.1]
+    _push!("Latent PrimaryCensored LogNormal+Uniform wrt primary",
+        (θ,
+            ys) -> sum(
+            i -> logpdf(
+                latent(primary_censored(LogNormal(1.0, 0.75), Uniform(0.0, 1.0))),
+                [θ[i], ys[i]]),
+            eachindex(ys)),
+        [0.3, 0.5, 0.2, 0.7], (Constant(latent_y),))
+
     # ExponentiallyTilted primary event — no analytical
     # `primarycensored_cdf(::Delay, ::ExponentiallyTilted, ...)` exists,
     # so the scalar `r` parameter of the prior is included in θ (as θ[3])

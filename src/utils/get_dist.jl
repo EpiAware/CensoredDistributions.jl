@@ -73,6 +73,24 @@ end
 
 @doc "
 
+Extract the delay distribution from a latent primary-censored node.
+
+Delegates to the wrapped node, so [`get_dist`](@ref) and
+[`get_primary_event`](@ref) behave the same on a [`Latent`](@ref) wrapper as on
+the node it wraps.
+"
+get_dist(d::Latent) = get_dist(d.dist)
+
+@doc "
+
+Extract the primary event time distribution from a latent primary-censored node.
+
+Delegates to the wrapped node.
+"
+get_primary_event(d::Latent) = get_primary_event(d.dist)
+
+@doc "
+
 Extract the underlying continuous distribution from an interval censored
 distribution.
 
