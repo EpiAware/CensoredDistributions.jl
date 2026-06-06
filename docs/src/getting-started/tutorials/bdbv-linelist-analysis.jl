@@ -66,9 +66,21 @@ using DataFramesMeta
 using Random
 using StatsBase
 using FlexiChains
-using FlexiChains: Prefixed
+using FlexiChains: parameters
 using CensoredDistributions
 using ADTypes: AutoForwardDiff
+
+md"""
+The posterior comes back as a FlexiChains `VNChain` keyed by `VarName`s.
+This small helper pulls the draws for a parameter by matching its printed name,
+so we can index the nested submodel parameters (such as `dist_oa.log_mean`)
+without constructing the optic by hand.
+"""
+
+function draws_for(chn, name::AbstractString)
+    vn = only(p for p in parameters(chn) if string(p) == name)
+    return vec(chn[vn])
+end
 
 md"""
 ## A delay family with a shared parametrisation
@@ -298,8 +310,7 @@ The means should be close and the credible intervals should cover the truth.
 function recovery_table(chn, truth)
     rows = NamedTuple[]
     for (name, p) in pairs(truth)
-        vn = Prefixed(Symbol("dist_", name, ".log_mean"))
-        draws = vec(chn[vn])
+        draws = draws_for(chn, "dist_$(name).log_mean")
         push!(rows,
             (
                 component = name,
@@ -320,8 +331,7 @@ The HCW shifts are recovered alongside the baselines:
 DataFrame(
     component = [:oa, :ad, :ac, :on],
     truth = collect(values(hcw_shift)),
-    post_mean = [round(mean(vec(delay_fit[Prefixed(Symbol("β_", c, "_hcw"))]));
-                     digits = 3)
+    post_mean = [round(mean(draws_for(delay_fit, "β_$(c)_hcw")); digits = 3)
                  for c in (:oa, :ad, :ac, :on)]
 )
 
@@ -343,8 +353,8 @@ off the marginal length of stay.
 
 ## Posterior mean Gamma for a component from the delay fit.
 function fitted_gamma(chn, name)
-    log_mean = mean(vec(chn[Prefixed(Symbol("dist_", name, ".log_mean"))]))
-    log_shape = mean(vec(chn[Prefixed(Symbol("dist_", name, ".log_shape"))]))
+    log_mean = mean(draws_for(chn, "dist_$(name).log_mean"))
+    log_shape = mean(draws_for(chn, "dist_$(name).log_shape"))
     return build_delay_dist(log_mean, log_shape)
 end
 
@@ -358,7 +368,7 @@ los_node = Competing(
     :death => (d_ad, p_die),
     :discharge => (d_ac, 1 - p_die))
 
-los_mixture = as_mixture(los_node)
+los_mixture = CensoredDistributions.as_mixture(los_node)
 (los_mean = mean(los_mixture), los_median = median(los_mixture))
 
 md"""
@@ -369,12 +379,22 @@ The natural-history identity onset to death = (onset to admission) followed by
 The package provides `convolve_distributions` for this; for a longer chain of
 events `sequential_distribution` builds the same composition across several
 delays at once.
+
+The convolution supports `rand`, `cdf` and `quantile`, so we summarise it by
+sampling, matching how the original analysis derives the convolved marginals.
 """
 
 d_oa = fitted_gamma(delay_fit, :oa)   # onset to admission
 
+function conv_summary(d; n = 10_000, rng = Random.MersenneTwister(1))
+    s = rand(rng, d, n)
+    return (mean = round(mean(s); digits = 2),
+        median = round(median(s); digits = 2),
+        p95 = round(quantile(s, 0.95); digits = 2))
+end
+
 onset_to_death = convolve_distributions(d_oa, d_ad)
-(onset_to_death_mean = mean(onset_to_death),)
+conv_summary(onset_to_death)
 
 md"""
 The onset to discharge marginal is the same construction with the discharge
@@ -382,7 +402,7 @@ delay:
 """
 
 onset_to_discharge = convolve_distributions(d_oa, d_ac)
-(onset_to_discharge_mean = mean(onset_to_discharge),)
+conv_summary(onset_to_discharge)
 
 md"""
 A longer pathway can be assembled in one call.
@@ -444,7 +464,7 @@ cfr_fit = sample(
 DataFrame(
     coefficient = [:β_0, :β_hcw, :β_def, :β_age],
     truth = collect(values(cfr_truth)),
-    post_mean = [round(mean(vec(cfr_fit[Prefixed(c)])); digits = 3)
+    post_mean = [round(mean(draws_for(cfr_fit, string(c))); digits = 3)
                  for c in (:β_0, :β_hcw, :β_def, :β_age)]
 )
 
@@ -482,8 +502,7 @@ latent_fit = sample(
 
 (
     latent_post_log_mean = round(
-        mean(vec(latent_fit[Prefixed(@varname(dist.log_mean))]));
-        digits = 3),
+        mean(draws_for(latent_fit, "dist.log_mean")); digits = 3),
     truth = round(truth.oa.log_mean; digits = 3))
 
 md"""
