@@ -130,19 +130,18 @@ function _observed_indices_values(events)
 end
 
 # Segment distribution spanning observed events at 1-based event indices `a` and
-# `b`. The steps linking them are `components[a:(b - 1)]`. A single step
-# (adjacent observed events) keeps that step's own censoring and conditions on
-# the gap; a run of two or more (unobserved events between) is marginalised by
-# convolving the continuous cores, dropping their censoring. When a primary
-# event is supplied (the origin segment) it is reapplied via `primary_censored`.
+# `b`. The steps linking them are `components[a:(b - 1)]`. Both endpoints are
+# observed, so the segment conditions on the continuous delay between them: a
+# single step contributes its continuous core, a run of two or more (unobserved
+# events between) is the convolution of the spanned cores, in both cases
+# dropping the steps' own primary censoring (its windowed primary event is no
+# longer latent for an observed-bounded edge). When a primary event is supplied
+# (the origin segment, whose origin E_0 is the latent primary) it is reapplied
+# via `primary_censored`.
 function _sequential_segment(components, a, b, primary)
     run = components[a:(b - 1)]
-    if length(run) == 1
-        base = run[1]
-        primary === nothing && return base
-        return primary_censored(_marginal_core(base), primary)
-    end
-    core = convolve_distributions(map(_marginal_core, collect(run)))
+    core = length(run) == 1 ? _marginal_core(run[1]) :
+           convolve_distributions(map(_marginal_core, collect(run)))
     primary === nothing && return core
     return primary_censored(core, primary)
 end

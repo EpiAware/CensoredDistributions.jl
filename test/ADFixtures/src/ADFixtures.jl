@@ -506,6 +506,52 @@ function scenarios(; with_reference::Bool = false)
                 Sequential(LogNormal(θ[3], θ[4]), Gamma(θ[5], θ[6]))), x),
         [2.0, 1.0, 0.5, 0.4, 2.0, 1.0], (Constant(nest3),))
 
+    # Censored composer specialisations (#333). The event vector (carrying
+    # `Missing`) travels as an inactive Constant context; the gradient flows
+    # through the censored leaf delay parameters along the marginalise/condition
+    # path selected by the missingness. Literal constructors keep Enzyme forward
+    # happy (#278). Guarded on `primary_censored` existing for the AirspeedVelocity
+    # baseline build, as with the other PR-tree scenarios above.
+    if isdefined(CensoredDistributions, :primary_censored) &&
+       isdefined(CensoredDistributions, :Sequential)
+        # Unobserved intermediate: marginalise by convolving the two censored
+        # delays' cores and primary-censoring the origin segment.
+        seq_ev_unobs = Vector{Union{Missing, Float64}}([0.0, missing, 4.0])
+        _push!("Sequential censored unobserved-intermediate logpdf",
+            (θ,
+                ev) -> logpdf(
+                Sequential(
+                    primary_censored(
+                        LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                    primary_censored(Gamma(θ[3], θ[4]), Uniform(0.0, 1.0))),
+                ev),
+            [1.2, 0.5, 2.0, 1.0], (Constant(seq_ev_unobs),))
+        # Observed intermediate: origin segment primary-censored, second edge
+        # conditions on the continuous core.
+        seq_ev_obs = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
+        _push!("Sequential censored observed-intermediate logpdf",
+            (θ,
+                ev) -> logpdf(
+                Sequential(
+                    primary_censored(
+                        LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                    primary_censored(Gamma(θ[3], θ[4]), Uniform(0.0, 1.0))),
+                ev),
+            [1.2, 0.5, 2.0, 1.0], (Constant(seq_ev_obs),))
+        # Parallel shared-origin marginal: one 1-D origin integral over the two
+        # present branches.
+        par_ev = Vector{Union{Missing, Float64}}([missing, 2.3, 3.1])
+        _push!("Parallel censored shared-origin marginal logpdf",
+            (θ,
+                ev) -> logpdf(
+                Parallel(
+                    primary_censored(Gamma(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                    primary_censored(
+                        LogNormal(θ[3], θ[4]), Uniform(0.0, 1.0))),
+                ev),
+            [2.0, 1.0, 1.0, 0.5], (Constant(par_ev),))
+    end
+
     return out
 end
 
