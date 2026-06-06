@@ -70,7 +70,7 @@ end
 
 # Default fallback integrator for AnalyticalSolver()/NumericSolver().
 #
-# The package's own fixed-node `GaussLegendre` solver (no heavy
+# The package's fixed-node `GaussLegendre` solver
 # dependency) is chosen over adaptive schemes (QuadGKJL, HCubatureJL)
 # because its constant control flow is traceable by reverse-mode AD;
 # adaptive schemes change their node count based on integrand values,
