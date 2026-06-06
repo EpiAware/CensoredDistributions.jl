@@ -3,7 +3,7 @@ module CensoredDistributions
 # Non-submodule imports
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS, TYPEDEF, TYPEDFIELDS,
                            TYPEDSIGNATURES
-using Random: AbstractRNG
+using Random: AbstractRNG, default_rng
 
 # Explicit imports approach for issue #121
 # Import functions that we extend (for method extension)
@@ -14,6 +14,7 @@ import Distributions: params, insupport, pdf, logpdf, cdf, logcdf,
 import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
 using Distributions: Distributions, UnivariateDistribution, Continuous,
+                     Distribution, Multivariate, MixtureModel,
                      ValueSupport, Truncated, Product, Censored, truncated,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
                      Weibull, Normal, shape, scale, meanlogx, stdlogx,
@@ -24,6 +25,8 @@ using PrecompileTools: @setup_workload, @compile_workload
 using LogExpFunctions: logsubexp, log1mexp
 
 using SpecialFunctions: gamma, gamma_inc, loggamma, digamma
+
+import Tables
 
 import FastGaussQuadrature  # provides Gauss-Legendre nodes for the default solver
 
@@ -43,6 +46,9 @@ export ExponentiallyTilted
 # Exported convolution constructor
 export convolve_distributions
 
+# Exported generic composers and front-end constructor
+export Sequential, Parallel, Competing, compose, as_mixture
+
 # Exported utilities
 export weight, get_dist, get_dist_recursive
 
@@ -59,6 +65,13 @@ include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")
 include("distributions/Convolved.jl")
+
+include("composers/Sequential.jl")
+include("composers/Parallel.jl")
+include("composers/Competing.jl")
+include("composers/nesting.jl")
+include("composers/equality.jl")
+include("composers/compose.jl")
 
 include("utils/Weighted.jl")
 include("utils/get_dist.jl")
