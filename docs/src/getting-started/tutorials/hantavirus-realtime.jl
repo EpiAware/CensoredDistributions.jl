@@ -54,6 +54,13 @@ clearly-labelled `@addlogprob!` term and flag it as a `TODO`.
 Everything else uses package primitives.
 
 ## Packages used
+
+We sample with `AutoForwardDiff` here, rather than the `AutoMooncakeForward`
+backend used in the Turing fitting tutorial.
+The convolved-chain truncation runs a numeric quadrature per record, and on
+this small problem forward-mode `ForwardDiff` is the most reliable backend
+through that quadrature; see
+[Automatic differentiation backends](@ref ad-backends) for the support matrix.
 """
 
 using Distributions
@@ -302,8 +309,7 @@ Marginal records share their delay distribution, so identical
 `(index, window)` combinations could be collapsed and scored once with a
 multiplicity `weight`.
 Here the cluster is small, so we score one record per iteration for clarity;
-the `weight` keyword is shown in the
-[Turing fitting tutorial](@ref fitting-with-turing).
+the `weight` keyword is shown in the Turing fitting tutorial.
 """
 
 @model function incubation_submodel()
