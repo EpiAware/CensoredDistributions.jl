@@ -77,6 +77,11 @@ include("utils/Weighted.jl")
 include("utils/get_dist.jl")
 include("utils/quantile_optimization.jl")
 
+# Censored specialisations of the generic composers (#329, PR3b): included last
+# as they depend on the composers, the censored types, `get_dist_recursive`
+# (utils/get_dist.jl) and the integration helpers.
+include("composers/censored_specialisations.jl")
+
 # Public API - functions that are part of public interface but not exported
 @static if VERSION >= v"1.11"
     include("public.jl")
