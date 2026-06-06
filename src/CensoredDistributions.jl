@@ -58,6 +58,12 @@ export observed_distribution
 # Exported utilities
 export weight, get_dist, get_dist_recursive, get_primary_event
 
+# Exported DynamicPPL submodel constructors. These have no methods until
+# DynamicPPL (or Turing) is loaded; the methods live in the package extension so
+# the core stays Turing-free.
+export primary_censored_model, interval_censored_model,
+       double_interval_censored_model
+
 include("docstrings.jl")
 
 include("utils/gamma_ad.jl")
@@ -90,6 +96,10 @@ include("utils/quantile_optimization.jl")
 # as they depend on the composers, the censored types, `get_dist_recursive`
 # (utils/get_dist.jl) and the integration helpers.
 include("composers/censored_specialisations.jl")
+
+# Turing-free `primary_censored_model` function stub (#88, PR2). Has no methods
+# until DynamicPPL is loaded; the methods live in the package extension.
+include("turing_models.jl")
 
 # Public API - functions that are part of public interface but not exported
 @static if VERSION >= v"1.11"
