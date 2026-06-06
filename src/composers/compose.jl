@@ -12,8 +12,8 @@
 #   distribution is a leaf;
 # - a Tables.jl table with `name` and `dist` columns: a `Parallel` over the rows
 #   (the column-table equivalent of a flat `NamedTuple`);
-# - a nested `Matrix` of distributions: rows are `Sequential` steps and the
-#   columns within a row are `Parallel` branches (a branching grid).
+# - a nested `Matrix` of distributions: rows are `Parallel` branches and the
+#   columns within a row are `Sequential` steps (a branching grid).
 #
 # The mappings are chosen so the three inputs build identical stacks for the
 # same structure, which the tests assert by `==` on the composed objects.
