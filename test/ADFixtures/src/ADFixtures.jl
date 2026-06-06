@@ -260,6 +260,20 @@ function scenarios(; with_reference::Bool = false)
             eachindex(ys)),
         [0.3, 0.5, 0.2, 0.7], (Constant(latent_y),))
 
+    # PrimaryConditional: the conditional scored via `~` in a model
+    # (`y ~ PrimaryConditional(d, p)`). Differentiate with respect to the
+    # realised primary times (the sampled latents), delay parameters fixed.
+    _push!("PrimaryConditional LogNormal+Uniform wrt primary",
+        (θ,
+            ys) -> sum(
+            i -> logpdf(
+                PrimaryConditional(
+                    primary_censored(LogNormal(1.0, 0.75), Uniform(0.0, 1.0)),
+                    θ[i]),
+                ys[i]),
+            eachindex(ys)),
+        [0.3, 0.5, 0.2, 0.7], (Constant(latent_y),))
+
     # ExponentiallyTilted primary event — no analytical
     # `primarycensored_cdf(::Delay, ::ExponentiallyTilted, ...)` exists,
     # so the scalar `r` parameter of the prior is included in θ (as θ[3])

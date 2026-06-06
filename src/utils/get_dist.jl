@@ -91,6 +91,15 @@ get_primary_event(d::Latent) = get_primary_event(d.dist)
 
 @doc "
 
+Extract the delay distribution from a primary-conditional distribution.
+
+Delegates to the wrapped node, so the conditional reuses the same delay as the
+marginal and latent forms.
+"
+get_dist(d::PrimaryConditional) = get_dist(d.dist)
+
+@doc "
+
 Extract the underlying continuous distribution from an interval censored
 distribution.
 

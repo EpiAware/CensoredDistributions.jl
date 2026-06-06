@@ -36,7 +36,7 @@ using OptimizationOptimJL: NelderMead
 export primary_censored, interval_censored, double_interval_censored
 
 # Exported latent representation
-export latent, primary_conditional_logpdf
+export latent, PrimaryConditional, primary_conditional_logpdf
 
 # Export underlying methods for user extension
 export primarycensored_cdf, primarycensored_logcdf
@@ -58,6 +58,7 @@ include("integration/integration.jl")
 
 include("censoring/primarycensored_cdf.jl")
 include("censoring/PrimaryCensored.jl")
+include("censoring/PrimaryConditional.jl")
 include("censoring/Latent.jl")
 include("censoring/IntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
