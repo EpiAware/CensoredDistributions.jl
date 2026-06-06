@@ -108,7 +108,7 @@ The cumulative probability P(X ≤ x) where X is the observed delay time.
 using CensoredDistributions, Distributions
 
 # Analytical solution for Gamma with Uniform primary event. The default
-# `GaussLegendre` solver (no heavy dependency) is the numeric fallback.
+# `GaussLegendre` solver is the numeric fallback.
 gamma_dist = Gamma(2.0, 1.5)
 primary_uniform = Uniform(0, 2)
 analytical_method = AnalyticalSolver()
