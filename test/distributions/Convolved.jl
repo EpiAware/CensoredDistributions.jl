@@ -319,6 +319,68 @@ end
     @test get_dist(td) === d
 end
 
+@testitem "Convolved quantile inverts cdf" begin
+    using Distributions
+
+    # Numeric path: quantile is the cdf inverse.
+    # The optimiser minimises (cdf - p)^2, so cdf accuracy is ~1e-4.
+    d = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    for p in (0.1, 0.25, 0.5, 0.75, 0.9)
+        q = quantile(d, p)
+        @test cdf(d, q) ≈ p atol=1e-3
+    end
+    @test quantile(d, 0.0) == minimum(d)
+    @test quantile(d, 1.0) == maximum(d)
+
+    # Analytic path agrees with the convolved reference quantile.
+    a = Normal(1.0, 2.0)
+    b = Normal(-0.5, 1.5)
+    da = convolve_distributions(a, b)
+    ref = convolve(a, b)
+    for p in (0.2, 0.5, 0.8)
+        @test quantile(da, p) ≈ quantile(ref, p) atol=1e-2
+    end
+end
+
+@testitem "Convolved truncated quantile/rand correct vs MC and analytic" begin
+    using Distributions, Random, Statistics
+    rng = MersenneTwister(8675309)
+
+    # truncated must fully compose over Convolved: cdf/logcdf/pdf/logpdf,
+    # quantile and rand all correct. Analytic-pair check first.
+    a = Normal(1.0, 2.0)
+    b = Normal(0.5, 1.5)
+    da = convolve_distributions(a, b)
+    refd = truncated(convolve(a, b), -1.0, 6.0)
+    td = truncated(da, -1.0, 6.0)
+    for x in -1.0:0.5:6.0
+        @test cdf(td, x) ≈ cdf(refd, x) atol=1e-8
+        @test pdf(td, x) ≈ pdf(refd, x) atol=1e-8
+        @test logpdf(td, x) ≈ logpdf(refd, x) atol=1e-8
+    end
+    for p in (0.2, 0.5, 0.8)
+        @test quantile(td, p) ≈ quantile(refd, p) atol=1e-2
+    end
+
+    # Numeric path: quantile inverts the truncated cdf (optimiser accuracy
+    # ~1e-3), and rand respects the bounds with a Monte-Carlo-consistent
+    # distribution.
+    dn = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    tn = truncated(dn, 1.0, 8.0)
+    for p in (0.25, 0.5, 0.75)
+        q = quantile(tn, p)
+        @test cdf(tn, q) ≈ p atol=1e-3
+    end
+
+    samples = rand(rng, tn, 200_000)
+    @test all(1.0 .<= samples .<= 8.0)
+    # Empirical CDF matches the analytic truncated CDF.
+    for x in (2.0, 4.0, 6.0)
+        @test mean(samples .<= x) ≈ cdf(tn, x) atol=5e-3
+    end
+    @test median(samples) ≈ quantile(tn, 0.5) atol=0.05
+end
+
 @testitem "Convolved composes with interval_censored" begin
     using Distributions
 

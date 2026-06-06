@@ -43,6 +43,9 @@ export ExponentiallyTilted
 # Exported convolution constructor
 export convolve_distributions
 
+# Exported right-truncation helpers (single-delay vs convolved-chain)
+export truncate_to_horizon, truncate_chain
+
 # Exported utilities
 export weight, get_dist, get_dist_recursive
 
@@ -59,6 +62,8 @@ include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")
 include("distributions/Convolved.jl")
+
+include("censoring/truncation.jl")
 
 include("utils/Weighted.jl")
 include("utils/get_dist.jl")
