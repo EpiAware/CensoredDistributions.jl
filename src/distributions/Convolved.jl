@@ -229,56 +229,12 @@ _convolution_cdf(d::Convolved, x::Real) = _convolved_numeric_cdf(d, x)
 _convolution_pdf(d::UnivariateDistribution, x::Real) = pdf(d, x)
 _convolution_pdf(d::Convolved, x::Real) = _convolved_numeric_pdf(d, x)
 
-# Number of Gauss-Legendre nodes for the convolution quadrature. The
-# batched path integrates every point over one shared window, so a small
-# point whose natural window is much tighter than the shared one is
-# resolved by only the nodes that fall in its sub-range; a peaked
-# component density (e.g. LogNormal) makes this the accuracy-limiting
-# case. n = 192 brings the batched-vs-scalar gap on a typical batch to
-# ~5e-4 (n = 64 left it at ~4e-3) and shrinks it ~15x on a deliberately
-# wide batch. Cost is roughly linear in the node count and still small
-# for these smooth, density-weighted integrands. The scalar path stays
-# the accurate reference; raise this if a batch spans an extreme range.
-const _CONVOLVED_NODES = 192
-
-# Fixed Gauss-Legendre rule carrying its own reference nodes/weights on
-# `[-1, 1]`, built once at load. Holding the nodes/weights directly (and
-# calling the integrand inline in `_gl_reduce`) rather than going through
-# an Integrals.jl `IntegralProblem`/`solve` boundary lets Julia specialise
-# on the integrand's concrete return type, so `Dual`s and AD tangents
-# propagate and the result type is inferred. This is the AD-safe pattern
-# from epiforecasts/BVDOutbreakSize `src/integrate.jl`.
-struct _GL{N, W}
-    nodes::N
-    weights::W
-end
-
-_GL(n::Int) = _GL(FastGaussQuadrature.gausslegendre(n)...)
-
-const _CONVOLVED_GL = _GL(_CONVOLVED_NODES)
-
-# Reduce an integrand `g` over the reference domain `[-1, 1]` against the
-# `alg` rule. Seeding `acc` with `weights[1] * g(nodes[1])` fixes the
-# accumulator's element type from the integrand itself, so a component
-# `Dual` flows into the result rather than being forced to `Float64`.
-@inline function _gl_reduce(g::G, alg::_GL) where {G}
-    n, w = alg.nodes, alg.weights
-    @inbounds acc = w[1] * g(n[1])
-    @inbounds for i in 2:length(n)
-        acc += w[i] * g(n[i])
-    end
-    return acc
-end
-
-# Integrate a scalar function `f` over `[lo, hi]` by Gauss-Legendre
-# quadrature, mapping the reference domain `[-1, 1]` onto `[lo, hi]` inside
-# the integrand. Returns a typed zero when `hi <= lo`.
-function gl_integrate(f::F, lo, hi, alg::_GL = _CONVOLVED_GL) where {F}
-    hi <= lo && return zero(f(lo))
-    h = (hi - lo) / 2
-    m = (lo + hi) / 2
-    return h * _gl_reduce(s -> f(m + h * s), alg)
-end
+# The convolution quadrature uses the shared Gauss-Legendre machinery in
+# `src/integration/integration.jl`: the `_CONVOLVED_GL` rule (192 nodes,
+# see there for the node-count rationale) and `gl_integrate`. Holding the
+# rule directly and reducing inline keeps the path AD-safe (the
+# accumulator type is seeded from the integrand). The batched companion
+# below reuses the same nodes/weights for a one-pass vector solve.
 
 # Scalar convolution quadrature:
 #   ∫ kernel(rest, x - t) · f_C(t) dt   over t ∈ [lower, upper],

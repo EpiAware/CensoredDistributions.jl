@@ -11,7 +11,6 @@ end
 
 @testitem "Default constructor (analytical solver)" begin
     using Distributions
-    using Integrals
 
     dist = Gamma(2.0, 3.0)
     primary = Uniform(0.0, 1.0)
@@ -20,12 +19,13 @@ end
     @test d.dist === dist
     @test d.primary_event === primary
     @test d.method isa CensoredDistributions.AnalyticalSolver
-    @test d.method.solver isa GaussLegendre
+    # The default numeric fallback is the package's own lightweight
+    # `GaussLegendre` solver (no Integrals.jl dependency).
+    @test d.method.solver isa CensoredDistributions.GaussLegendre
 end
 
 @testitem "Constructor with force_numeric" begin
     using Distributions
-    using Integrals
 
     dist = LogNormal(1.5, 0.75)
     primary = Uniform(0.0, 1.0)
@@ -34,13 +34,15 @@ end
     @test d.dist === dist
     @test d.primary_event === primary
     @test d.method isa CensoredDistributions.NumericSolver
-    @test d.method.solver isa GaussLegendre
+    @test d.method.solver isa CensoredDistributions.GaussLegendre
 end
 
-@testitem "Constructor with custom solver" begin
+@testitem "Constructor with custom Integrals.jl solver" begin
     using Distributions
     using Integrals
 
+    # The optional Integrals.jl extension lets any Integrals.jl algorithm
+    # be passed as the solver; it is routed through `IntegralProblem`/`solve`.
     dist = Weibull(2.0, 1.5)
     primary = Uniform(0.0, 1.0)
     custom_solver = HCubatureJL()

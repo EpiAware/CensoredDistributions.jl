@@ -290,10 +290,9 @@ end
 
 @testitem "Convolved batched cdf does a single solve" begin
     using Distributions
-    import Integrals
 
     # Count solve calls by wrapping the GaussLegendre solver via a global
-    # counter on IntegralProblem construction is not trivial; instead
+    # counter on the quadrature is not trivial; instead
     # verify the batched integrand is called once by checking timing-free
     # invariant: batched result for many points equals stacking scalar
     # results, which it does only if the shared-window single-solve path

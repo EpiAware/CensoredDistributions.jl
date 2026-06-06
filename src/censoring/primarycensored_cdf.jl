@@ -68,17 +68,6 @@ struct NumericSolver{S} <: AbstractSolverMethod
     solver::S
 end
 
-# Default fallback integrator for AnalyticalSolver()/NumericSolver().
-#
-# Fixed-node Gauss-Legendre quadrature is chosen over adaptive schemes
-# (QuadGKJL, HCubatureJL) because its constant control flow is traceable
-# by reverse-mode AD; adaptive schemes change their node count based on
-# integrand values, which prevents trace-based AD backends from
-# differentiating through them regardless of how well-behaved the
-# integrand is. n = 64 is accurate to ~1e-13 on the smooth,
-# density-weighted CDF integrands used in this package. Pass an explicit
-# solver (e.g. NumericSolver(QuadGKJL())) when adaptive accuracy is
-# required and AD isn't.
 AnalyticalSolver() = AnalyticalSolver(GaussLegendre(; n = 64))
 NumericSolver() = NumericSolver(GaussLegendre(; n = 64))
 
@@ -104,19 +93,23 @@ The cumulative probability P(X ≤ x) where X is the observed delay time.
 
 # Examples
 ```@example
-using CensoredDistributions, Distributions, Integrals
+using CensoredDistributions, Distributions
 
-# Analytical solution for Gamma with Uniform primary event
+# Analytical solution for Gamma with Uniform primary event. The default
+# `GaussLegendre` solver is the numeric fallback.
 gamma_dist = Gamma(2.0, 1.5)
 primary_uniform = Uniform(0, 2)
-analytical_method = AnalyticalSolver(QuadGKJL())
+analytical_method = AnalyticalSolver()
 
 cdf_val = primarycensored_cdf(gamma_dist, primary_uniform, 3.0, analytical_method)
 
 # Force numerical integration
-numeric_method = NumericSolver(QuadGKJL())
+numeric_method = NumericSolver()
 cdf_numeric = primarycensored_cdf(gamma_dist, primary_uniform, 3.0, numeric_method)
 ```
+
+For improved accuracy, load Integrals.jl and pass an Integrals.jl
+algorithm (e.g. `NumericSolver(QuadGKJL())`).
 
 "
 function primarycensored_cdf(
@@ -177,10 +170,6 @@ function primarycensored_cdf(
         return 1.0
     end
 
-    # Define the integrand
-    # `_logcdf_ad_safe` dispatches on `dist` type so distributions whose
-    # `logcdf` would otherwise call `gamma_inc` (Gamma) route through the
-    # AD-safe `_gamma_cdf` rrule under reverse-mode AD.
     function integrand(u, x)
         return exp(_logcdf_ad_safe(dist, u) +
                    logpdf(primary_event, x - u))
@@ -196,11 +185,7 @@ function primarycensored_cdf(
     end
 
     # When the delay CDF at the lower bound is effectively 1,
-    # integration is unnecessary and may produce NaN. Skip when lower is
-    # at the distribution boundary: cdf(dist, minimum(dist)) = 0 by
-    # construction, so saturation is impossible there, and evaluating
-    # cdf at the support boundary trips degenerate 0·(-Inf) reverse-mode
-    # rules in Distributions.jl (e.g. LogNormal needs log(0)) — see #249.
+    # integration is unnecessary and may produce NaN.
     if lower > minimum(dist)
         cdf_lower = _cdf_ad_safe(dist, lower)
         if cdf_lower > 1 - eps(one(eltype(dist)))
@@ -208,9 +193,7 @@ function primarycensored_cdf(
         end
     end
 
-    # Set up and solve the integral problem
-    prob = IntegralProblem(integrand, (lower, upper), x)
-    result = solve(prob, method.solver)[1]
+    result = integrate(method.solver, u -> integrand(u, x), lower, upper)
 
     # Clamp to valid CDF range for numerical stability
     return clamp(result, zero(result), one(result))
