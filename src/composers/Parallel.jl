@@ -30,6 +30,10 @@ The branches are independent here: this is the plain generic composition. The
 shared-origin coupling (where every branch shares one latent primary event) is a
 censored specialisation layered on top elsewhere, not part of this type.
 
+# Fields
+- `components`: tuple of the branch distributions (each univariate or a nested
+  composer).
+
 # See also
 - [`Sequential`](@ref): a chain of additive steps
 - [`Competing`](@ref): exactly one of several outcomes

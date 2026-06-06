@@ -26,6 +26,9 @@ Build a nested composer stack from a friendly front-end input.
 [`Sequential`](@ref) / [`Parallel`](@ref) stack. It is a constructor over the
 composers, not a new tree type.
 
+# Arguments
+- `input`: the front-end to lower, one of the three forms below.
+
 # Inputs
 
 - `NamedTuple` (named, recursive): a [`Parallel`](@ref) over the named children.

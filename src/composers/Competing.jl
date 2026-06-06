@@ -27,6 +27,11 @@ Being univariate, a `Competing` nests as a child of [`Sequential`](@ref) or
 [`Parallel`](@ref). This is the plain generic composition; per-record outcome
 selection and censoring are not part of this type.
 
+# Fields
+- `names`: tuple of the competing outcome names (`Symbol`s).
+- `delays`: tuple of the competing outcome delay distributions.
+- `branch_probs`: tuple of the branch probabilities, summing to one.
+
 # See also
 - [`as_mixture`](@ref): the `MixtureModel` lowering
 - [`Sequential`](@ref): a chain of additive steps
@@ -125,7 +130,7 @@ as_mixture(node)
 - [`Competing`](@ref): the composer type
 "
 function as_mixture(c::Competing)
-    return Distributions.MixtureModel(
+    return MixtureModel(
         collect(c.delays), collect(float.(c.branch_probs)))
 end
 

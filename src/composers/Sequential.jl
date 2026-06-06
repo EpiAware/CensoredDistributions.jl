@@ -32,6 +32,10 @@ This is the plain generic composition; censoring and per-record marginalisation
 are not part of this type. Cumulative event times, if wanted, are the running
 sum of the step values.
 
+# Fields
+- `components`: tuple of the step distributions (each univariate or a nested
+  composer).
+
 # See also
 - [`Parallel`](@ref): independent branches
 - [`Competing`](@ref): exactly one of several outcomes
