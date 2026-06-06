@@ -189,7 +189,12 @@ function logpdf(d::Parallel, events::AbstractVector{T}) where {T >: Missing}
         "primary event; got plain branches"))
 
     cores = map(_marginal_core, d.components)
-    T2 = promote_type(_event_eltype(events), float(eltype(d)))
+    # Promote over the PARAMETER types of the cores and primary (which carry any
+    # AD Dual from the leaf params; a distribution's `eltype` is its variate type,
+    # not its parameter type, so it would drop the Dual) plus the event vector,
+    # so the marginal/condition arithmetic stays on the differentiated type.
+    T2 = promote_type(_event_eltype(events), _param_eltype(primary),
+        map(_param_eltype, cores)...)
     origin = events[1]
     if origin === missing
         return _parallel_marginal_logpdf(primary, cores, events, T2)
@@ -214,6 +219,22 @@ function _event_eltype(events)
     (eltype(events) === Missing) ? Float64 :
     promote_type(Float64, nonmissingtype(eltype(events)))
 end
+
+# Numeric (parameter) type of a distribution, recovered from its flattened
+# `params`. A distribution's `eltype` is its variate type (`Float64`) and would
+# drop an AD `Dual` carried by the parameters, so the arithmetic type is taken
+# from the parameters instead. `Uniform`'s bounds are plain `Float64`; a censored
+# delay's shape/scale carry the differentiated `Dual`.
+function _param_eltype(d)
+    return mapreduce(typeof, promote_type, _flatten_params(params(d));
+        init = Float64)
+end
+
+# Flatten the (possibly nested) `params` tuple of a distribution to its scalar
+# leaves, so `_param_eltype` promotes over every parameter.
+_flatten_params(t::Tuple) = mapreduce(_flatten_params, (a, b) -> (a..., b...), t;
+    init = ())
+_flatten_params(x) = (x,)
 
 # The single shared primary event of a `Parallel`'s branches, or `nothing` when
 # no branch carries primary censoring. Errors if the branches disagree on the
