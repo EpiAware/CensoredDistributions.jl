@@ -5,11 +5,11 @@ module CensoredDistributionsDynamicPPLExt
 # core Turing-free.
 
 using CensoredDistributions: CensoredDistributions, PrimaryCensored, Latent,
-                             IntervalCensored, get_primary_event,
-                             primary_conditional_logpdf
+                             IntervalCensored, PrimaryConditional,
+                             get_primary_event
 import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model
-using DynamicPPL: @model, @addlogprob!
+using DynamicPPL: @model
 using Distributions: UnivariateDistribution
 
 # `CensoredDistributions.weight(d, w)` is called with the module qualifier
@@ -28,12 +28,13 @@ end
 
 # Latent: the primary event is a sampled latent. Declare it inside the `@model`
 # (`p ~ get_primary_event(d)`) so the user never passes it, then score the
-# conditional of the observed time given that sampled `p`. The latent `p` enters
-# the model's variables; the conditional is added with `@addlogprob!`.
+# observed time against the conditional distribution given that sampled `p`. Both
+# statements are `~`, so the model does inference and generation (`rand`/missing
+# `y` draws `[p, y]`) and the `weight` keyword still applies through the `~`.
 @model function primary_censored_model(
         d::Latent, y; weight = nothing)
     p ~ get_primary_event(d)
-    @addlogprob! primary_conditional_logpdf(d, p, y)
+    y ~ _weight(PrimaryConditional(d, p), weight)
     return y
 end
 

@@ -64,6 +64,47 @@ end
           primary_conditional_logpdf(d, p, y)
 end
 
+@testitem "primary_censored_model: latent model generates [p, y]" begin
+    using CensoredDistributions, Distributions, Random
+    using DynamicPPL: @model, to_submodel
+
+    d = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
+    ld = latent(d)
+
+    # The latent submodel returns the observed `y`. With `y` unobserved both `p`
+    # and `y` are sampled (`~`), so calling the submodel generates `[p, y]`. The
+    # generated observed time exceeds the primary (`y = p + delay`, delay > 0).
+    @model function gen(ld)
+        inner = to_submodel(primary_censored_model(ld, missing), false)
+        y ~ inner
+        return y
+    end
+
+    Random.seed!(4)
+    draws = [gen(ld)() for _ in 1:200]
+    @test all(>(0), draws)
+end
+
+@testitem "primary_censored_model: weight applies on the latent path" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint, condition, @varname
+
+    d = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
+    ld = latent(d)
+    p, y, w = 0.4, 3.0, 3
+
+    @model function demo(ld, y, w)
+        obs ~ to_submodel(primary_censored_model(ld, y; weight = w))
+    end
+
+    # The weight scales the conditional likelihood (the observation), not the
+    # primary prior: prior(p) + w * conditional(y | p).
+    conditioned = condition(demo(ld, y, w), (@varname(obs.p) => p))
+    @test logjoint(conditioned, (;)) ≈
+          logpdf(get_primary_event(d), p) +
+          w * primary_conditional_logpdf(d, p, y)
+end
+
 @testitem "interval_censored_model: marginal == logpdf" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
