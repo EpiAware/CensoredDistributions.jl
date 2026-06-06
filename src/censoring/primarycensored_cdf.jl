@@ -68,18 +68,6 @@ struct NumericSolver{S} <: AbstractSolverMethod
     solver::S
 end
 
-# Default fallback integrator for AnalyticalSolver()/NumericSolver().
-#
-# The package's fixed-node `GaussLegendre` solver
-# dependency) is chosen over adaptive schemes (QuadGKJL, HCubatureJL)
-# because its constant control flow is traceable by reverse-mode AD;
-# adaptive schemes change their node count based on integrand values,
-# which prevents trace-based AD backends from differentiating through them
-# regardless of how well-behaved the integrand is. n = 64 is accurate to
-# ~1e-13 on the smooth, density-weighted CDF integrands used in this
-# package. Load Integrals.jl and pass an Integrals.jl algorithm
-# (e.g. NumericSolver(QuadGKJL())) when adaptive accuracy is required and
-# AD isn't.
 AnalyticalSolver() = AnalyticalSolver(GaussLegendre(; n = 64))
 NumericSolver() = NumericSolver(GaussLegendre(; n = 64))
 
@@ -120,7 +108,7 @@ numeric_method = NumericSolver()
 cdf_numeric = primarycensored_cdf(gamma_dist, primary_uniform, 3.0, numeric_method)
 ```
 
-For adaptive accuracy, load Integrals.jl and pass an Integrals.jl
+For improved accuracy, load Integrals.jl and pass an Integrals.jl
 algorithm (e.g. `NumericSolver(QuadGKJL())`).
 
 "
@@ -182,10 +170,6 @@ function primarycensored_cdf(
         return 1.0
     end
 
-    # Define the integrand
-    # `_logcdf_ad_safe` dispatches on `dist` type so distributions whose
-    # `logcdf` would otherwise call `gamma_inc` (Gamma) route through the
-    # AD-safe `_gamma_cdf` rrule under reverse-mode AD.
     function integrand(u, x)
         return exp(_logcdf_ad_safe(dist, u) +
                    logpdf(primary_event, x - u))
@@ -201,11 +185,7 @@ function primarycensored_cdf(
     end
 
     # When the delay CDF at the lower bound is effectively 1,
-    # integration is unnecessary and may produce NaN. Skip when lower is
-    # at the distribution boundary: cdf(dist, minimum(dist)) = 0 by
-    # construction, so saturation is impossible there, and evaluating
-    # cdf at the support boundary trips degenerate 0·(-Inf) reverse-mode
-    # rules in Distributions.jl (e.g. LogNormal needs log(0)) — see #249.
+    # integration is unnecessary and may produce NaN.
     if lower > minimum(dist)
         cdf_lower = _cdf_ad_safe(dist, lower)
         if cdf_lower > 1 - eps(one(eltype(dist)))
@@ -213,12 +193,6 @@ function primarycensored_cdf(
         end
     end
 
-    # Integrate through the pluggable solver. The default
-    # `GaussLegendre` routes to the AD-safe `gl_integrate` dot product;
-    # loading the Integrals.jl extension lets `method.solver` be an
-    # Integrals.jl algorithm instead. `integrand` takes the evaluation
-    # point `x` as a second argument (the Integrals.jl `IntegralProblem`
-    # parameter), so the closure threads it through.
     result = integrate(method.solver, u -> integrand(u, x), lower, upper)
 
     # Clamp to valid CDF range for numerical stability
