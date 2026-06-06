@@ -82,6 +82,26 @@ end
 
 @doc "
 
+Return the distribution unweighted when the weight is `nothing`.
+
+This lets callers thread an optional weight through `weight(dist, w)` and pass
+`nothing` to mean \"no weight\": the distribution is returned unchanged so a
+`~ weight(dist, nothing)` statement scores the plain `logpdf`.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+d = Normal(2.0, 1.0)
+weight(d, nothing) === d
+```
+"
+function weight(dist::UnivariateDistribution, ::Nothing)
+    return dist
+end
+
+@doc "
+
 Create a product distribution of weighted distributions, each with a different
 weight.
 
