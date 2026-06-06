@@ -68,6 +68,7 @@ through that quadrature; see
 using Distributions
 using Random
 using Turing
+using StatsBase: summarystats
 using DynamicPPL
 using DynamicPPL: to_submodel, prefix, InitFromParams
 using FlexiChains: Prefixed
