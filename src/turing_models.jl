@@ -26,15 +26,15 @@ methods live in the package extension so the core stays free of `DynamicPPL`.
   (the default) marginalises the primary event.
 
 # Examples
-```jldoctest
-julia> using CensoredDistributions, Distributions, DynamicPPL
+```@example
+using CensoredDistributions, Distributions, DynamicPPL
 
-julia> d = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1));
+d = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
 
-julia> @model demo(d, y) = obs ~ to_submodel(primary_censored_model(d, y));
+@model demo(d, y) = obs ~ to_submodel(primary_censored_model(d, y))
 
-julia> only(logjoint(demo(d, 2.0), (;))) ≈ logpdf(d, 2.0)
-true
+# The marginal submodel scores the same log-density as the distribution.
+only(logjoint(demo(d, 2.0), (;))), logpdf(d, 2.0)
 ```
 
 # See also
@@ -64,15 +64,14 @@ methods live in the package extension so the core stays free of `DynamicPPL`.
   default) leaves the contribution unweighted.
 
 # Examples
-```jldoctest
-julia> using CensoredDistributions, Distributions, DynamicPPL
+```@example
+using CensoredDistributions, Distributions, DynamicPPL
 
-julia> d = interval_censored(LogNormal(1.5, 0.75), 1.0);
+d = interval_censored(LogNormal(1.5, 0.75), 1.0)
 
-julia> @model demo(d, y) = obs ~ to_submodel(interval_censored_model(d, y));
+@model demo(d, y) = obs ~ to_submodel(interval_censored_model(d, y))
 
-julia> only(logjoint(demo(d, 2.0), (;))) ≈ logpdf(d, 2.0)
-true
+only(logjoint(demo(d, 2.0), (;))), logpdf(d, 2.0)
 ```
 
 # See also
@@ -102,15 +101,14 @@ methods live in the package extension so the core stays free of `DynamicPPL`.
   default) leaves the contribution unweighted.
 
 # Examples
-```jldoctest
-julia> using CensoredDistributions, Distributions, DynamicPPL
+```@example
+using CensoredDistributions, Distributions, DynamicPPL
 
-julia> d = double_interval_censored(LogNormal(1.5, 0.75); upper = 10, interval = 1);
+d = double_interval_censored(LogNormal(1.5, 0.75); upper = 10, interval = 1)
 
-julia> @model demo(d, y) = obs ~ to_submodel(double_interval_censored_model(d, y));
+@model demo(d, y) = obs ~ to_submodel(double_interval_censored_model(d, y))
 
-julia> only(logjoint(demo(d, 3.0), (;))) ≈ logpdf(d, 3.0)
-true
+only(logjoint(demo(d, 3.0), (;))), logpdf(d, 3.0)
 ```
 
 # See also
