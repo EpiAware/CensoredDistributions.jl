@@ -2,28 +2,33 @@
 
 Build a DynamicPPL submodel for a primary event censored distribution.
 
-The submodel is `to_submodel`-able and scores `y` against the marginal
-distribution `d`, with the primary event time integrated out inside `logpdf`.
-It dispatches on the type of `d`.
+The submodel is `to_submodel`-able and dispatches on the type of `d`:
 
-By default (`origin = nothing`) the primary event is marginalised: the submodel
-contributes `logpdf(d, y)`, optionally scaled by a multiplicity `weight`. Supply
-`origin` to use a caller-owned primary event time instead (the coupled case):
-the submodel then scores the conditional delay `logpdf(get_dist(d), y - origin)`
-and the caller declares the prior over the origin in their own model.
+- a marginal [`primary_censored`](@ref) `d` scores the marginal log-density via
+  `~`, with the primary event time integrated out inside `logpdf` (optionally
+  scaled by a multiplicity `weight`);
+- a [`latent`](@ref)-wrapped `d` (a [`Latent`](@ref) node) declares the primary
+  event time as a latent variable inside the model (`p ~ get_primary_event(d)`)
+  and scores the conditional of the observed time given that sampled `p` with
+  [`primary_conditional_logpdf`](@ref). The user never passes `p` in; it is
+  sampled inside the submodel.
+
+For a coupled latent origin shared across records (for example a source's onset
+feeding an offspring's infection), the caller samples the shared primary in their
+own model and scores each record with `primary_conditional_logpdf(d, p_shared, y)`
+directly, rather than wrapping with `latent`.
 
 This function has no methods until `DynamicPPL` (or `Turing`) is loaded; the
 methods live in the package extension so the core stays free of `DynamicPPL`.
 
 # Arguments
-- `d`: A [`primary_censored`](@ref) distribution.
+- `d`: A [`primary_censored`](@ref) distribution, or a [`latent`](@ref)-wrapped
+  one for the latent flow.
 - `y`: The observed delay.
 
 # Keyword Arguments
-- `weight`: Multiplicity weight applied to `logpdf(d, y)`. `nothing` (the
-  default) leaves the contribution unweighted.
-- `origin`: A caller-supplied primary event time for the coupled case. `nothing`
-  (the default) marginalises the primary event.
+- `weight`: Multiplicity weight applied to the marginal `logpdf(d, y)`. `nothing`
+  (the default) leaves the contribution unweighted.
 
 # Examples
 ```@example
@@ -38,8 +43,8 @@ only(logjoint(demo(d, 2.0), (;))), logpdf(d, 2.0)
 ```
 
 # See also
+- [`latent`](@ref), [`primary_conditional_logpdf`](@ref), [`get_primary_event`](@ref)
 - [`interval_censored_model`](@ref), [`double_interval_censored_model`](@ref)
-- [`get_primary_event`](@ref), [`get_dist`](@ref)
 "
 function primary_censored_model end
 

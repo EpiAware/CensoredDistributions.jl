@@ -36,21 +36,32 @@ end
     @test only(logjoint(demo_nothing(d, y), (;))) ≈ logpdf(d, y)
 end
 
-@testitem "primary_censored_model: origin scores the conditional delay" begin
+@testitem "primary_censored_model: latent samples p inside the model" begin
     using CensoredDistributions, Distributions
-    using DynamicPPL: @model, to_submodel, logjoint
+    using DynamicPPL: @model, to_submodel, logjoint, condition, VarInfo,
+                      @varname
 
     d = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
-    delay = get_dist(d)
+    ld = latent(d)
 
-    # With a caller-supplied origin the submodel scores the conditional delay
-    # logpdf(delay, y - origin) and exposes no latent of its own.
-    @model function demo(d, y, p)
-        obs ~ to_submodel(primary_censored_model(d, y; origin = p))
-    end
+    # The latent submodel declares the primary `p` INSIDE the model; the user
+    # never passes it. It appears in the model's variables (prefixed by the
+    # submodel LHS `obs`).
+    @model demo(ld, y) = obs ~ to_submodel(primary_censored_model(ld, y))
 
-    y, p = 3.0, 0.4
-    @test only(logjoint(demo(d, y, p), (;))) ≈ logpdf(delay, y - p)
+    vi = VarInfo(demo(ld, 3.0))
+    pkeys = collect(keys(vi))
+    @test any(vn -> occursin("p", string(vn)), pkeys)
+    # `p` is sampled inside, not passed: the only model variable is the latent.
+    @test length(pkeys) == 1
+
+    # Conditioning on a value of the latent `p`, the log-density equals the
+    # primary prior plus the conditional of the observed given that `p`.
+    p, y = 0.4, 3.0
+    conditioned = condition(demo(ld, y), (@varname(obs.p) => p))
+    @test logjoint(conditioned, (;)) ≈
+          logpdf(get_primary_event(d), p) +
+          primary_conditional_logpdf(d, p, y)
 end
 
 @testitem "interval_censored_model: marginal == logpdf" begin
@@ -132,6 +143,35 @@ end
     end
 
     chain = sample(rng, fit(sample_val), NUTS(), 100; progress = false)
+    @test size(chain, 1) == 100
+    @test all(isfinite, chain[:mu])
+end
+
+@testitem "primary_censored_model: latent flow samples in a NUTS run" begin
+    using CensoredDistributions, Distributions, Random
+    using Turing: Turing, NUTS, sample, @model, to_submodel
+    using DynamicPPL: prefix
+
+    rng = Random.MersenneTwister(3)
+    truth = LogNormal(1.5, 0.5)
+    n = 20
+    samples = rand(rng, truth, n) .+ rand(rng, Uniform(0, 1), n)
+
+    # Latent flow: each record's primary `p` is sampled inside its submodel, so
+    # the sampler explores `mu`, `sigma`, and one latent `p` per record. Each
+    # submodel is prefixed so the per-record latents get distinct names.
+    @model function fit(samples)
+        mu ~ Normal(1.5, 1.0)
+        sigma ~ truncated(Normal(0.5, 0.5); lower = 0.05)
+        d = latent(primary_censored(LogNormal(mu, sigma), Uniform(0, 1)))
+        for i in eachindex(samples)
+            x ~ to_submodel(
+                prefix(primary_censored_model(d, samples[i]),
+                    Symbol("rec", i)), false)
+        end
+    end
+
+    chain = sample(rng, fit(samples), NUTS(), 100; progress = false)
     @test size(chain, 1) == 100
     @test all(isfinite, chain[:mu])
 end
