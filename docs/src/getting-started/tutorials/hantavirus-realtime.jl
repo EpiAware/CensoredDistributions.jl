@@ -30,6 +30,9 @@ We reproduce three pieces of that model:
 3. **The marginal vs latent switch.** The delay layer scores marginally by
    default; flipping one flag moves to the `Latent()` formulation where the
    primary event is a sampler-owned latent.
+4. **The coupled latent origin.** A sourced case's latent infection time is
+   coupled to its source's onset and fed into the per-record incubation delay
+   through the `origin` keyword, so the user's loop owns the coupling prior.
 
 ### Out of scope (stays user Turing)
 
@@ -42,16 +45,15 @@ in the user's Turing model:
 
 We show where they plug in but do not implement them here.
 
-### A known gap (TODO approximation below)
+### A remaining TODO
 
-The ANDV latent-times model couples a sourced case's latent infection time to
-its *source's* onset time (`T_inf[i]` depends on `T_onset[src]`).
-The censored submodels declare the latent primary event **inside** the
-submodel (`p ~ get_primary_event(d)`), so there is currently no way to pass an
-externally-sampled, per-record coupled origin into `primary_censored_model`.
-Where the real model needs that coupling we fall back to an explicit,
-clearly-labelled `@addlogprob!` term and flag it as a `TODO`.
-Everything else uses package primitives.
+One package limitation remains.
+The single-delay right-truncation lower bound triggers a NaN gradient for a
+`LogNormal` index delay (pending the fix in
+[#310](https://github.com/EpiAware/CensoredDistributions.jl/issues/310)), so
+the index case uses an AD-safe `truncated(inc; upper = window)` workaround.
+Everything else, including the source-to-offspring coupled latent origin, uses
+package primitives.
 
 ## Packages used
 
@@ -425,45 +427,79 @@ marginal-versus-latent equivalence: the marginal default integrates the
 primary out inside `logpdf`, the latent path samples it, and switching needs
 only the `mode` flag.
 
-## TODO — coupled latent origin (current gap)
+## Coupled latent origin
 
 The ANDV latent-times model couples a sourced case's latent **infection time**
-to its source's onset time: `T_inf[i] ~ Uniform(exp_lo, T_onset[src])` and the
-transmission delay is scored as `T_inf[i] - T_onset[src]`.
+to its source's onset time: the offspring is infected after its source's onset
+by the transmission delay `δ`, and shows symptoms after a further incubation
+period.
 That coupling needs a *per-record latent origin sampled in the user's loop* to
-be passed **into** the per-record distribution.
-The censored submodels currently declare the latent primary internally
-(`p ~ get_primary_event(d)`), with no keyword to inject an external coupled
-origin, so this case cannot yet be expressed through
-`primary_censored_model`.
+feed the per-record incubation delay.
 
-Until the package gains a passed/shifted latent origin, the coupled term stays
-an explicit user-Turing `@addlogprob!`, as in the ANDV model:
+The latent `primary_censored_model` takes an `origin` keyword for exactly this.
+When `origin` is supplied the submodel scores **only** the conditional delay
+`logpdf(Inc, T_onset − origin)` and draws no primary-event prior, so the user's
+loop owns the coupled prior over the origin.
+Here each sourced record samples its own latent infection time `T_inf`, scores
+the transmission link `δ = T_inf − source_onset` (the user-owned coupled prior),
+and passes `T_inf` as the incubation `origin`.
+"""
 
-```julia
-## TODO(CensoredDistributions): coupled latent origin not yet supported by
-## the censored submodels. Falls back to an explicit term until a
-## passed/shifted-origin keyword exists on `primary_censored_model`.
-@model function coupled_latent_sourced(d, inc, δ)
-    T_onset = Vector{...}(undef, d.N)
-    T_inf = Vector{...}(undef, d.N)
-    for i in 1:d.N
-        T_onset[i] ~ Uniform(d.onset_lo[i], d.onset_hi[i])
-        src = d.source[i]
-        T_inf[i] ~ Uniform(d.exp_lo[i], min(d.exp_hi[i], T_onset[i]))
-        if src != 0
-            ## delay couples to the SOURCE's onset — needs a passed origin:
-            Turing.@addlogprob! logpdf(inc, T_onset[i] - T_inf[i])
-            Turing.@addlogprob! logpdf(δ, T_inf[i] - T_onset[src])
+@model function coupled_latent_sourced(observed)
+    inc ~ to_submodel(incubation_submodel(), false)
+    δ ~ to_submodel(transmission_submodel(), false)
+
+    T = partype(inc)
+    n = length(observed)
+    T_inf = Vector{T}(undef, n)
+    for i in 1:n
+        onset = observed[i].t_onset
+        ## Latent offspring infection time (before its own onset).
+        T_inf[i] ~ Uniform(onset - 60.0, onset - 1e-3)
+
+        if observed[i].source != 0
+            ## USER owns the coupled prior: transmission link from the source's
+            ## onset to this offspring's infection.
+            link = T_inf[i] - observed[i].source_onset
+            Turing.@addlogprob! logpdf(δ, link)
         end
+
+        ## Incubation as the conditional delay, with the coupled infection time
+        ## injected as `origin`; the submodel draws no primary-event prior.
+        d = primary_censored(inc, Uniform(0, 1); mode = Latent())
+        obs ~ to_submodel(
+            prefix(
+                primary_censored_model(d, onset; origin = T_inf[i]),
+                Symbol("obs", i)),
+            false)
     end
 end
-```
 
-The marginal delay layer above does not need this coupling: it scores the
+coupled_mdl = coupled_latent_sourced(observed)
+
+coupled_fit = sample(
+    coupled_mdl,
+    NUTS(; adtype = AutoForwardDiff()), 400;
+    initial_params = init_params, progress = false)
+
+summarystats(coupled_fit)
+
+md"""
+The coupled fit recovers the incubation parameters while the user loop owns the
+transmission-link prior, so the source-to-offspring coupling is expressed
+without a hand-rolled incubation `@addlogprob!`.
+The marginal delay layer earlier does not need this coupling: it scores the
 *observed chain delay* directly with the convolved-chain truncation, which is
 the marginalised form of the coupled latent.
+"""
 
+let
+    μ = vec(coupled_fit[Prefixed(@varname(inc_μ))])
+    (; inc_μ_post = (mean(μ), quantile(μ, (0.05, 0.95))),
+        inc_μ_true = inc_meanlog)
+end
+
+md"""
 ## Summary
 
 The real-time delay, truncation, and ascertainment layer of the ANDV model is
@@ -478,9 +514,12 @@ reproduced from package primitives in a per-record loop:
 | Offspring thinning `R_eff = R · p` | `thin_by_completeness(R, chain, window)` |
 | δ-bounded pipeline probability | `convolve_distributions(...; bounds = ...)` |
 | Marginal vs latent switch | `mode = Latent()` on `primary_censored` |
+| Coupled latent origin | `primary_censored_model(d, y; origin = ...)` |
 
 Out of scope (user Turing): the R(t) random walk and the negative-binomial
 offspring-count clustering.
-Remaining gap: a coupled/passed latent origin for the per-record latent path,
-flagged as a `TODO` above.
+Remaining TODO: the single-delay right-truncation lower bound triggers a NaN
+gradient (pending the package fix in
+[#310](https://github.com/EpiAware/CensoredDistributions.jl/issues/310)), so
+the index case uses the AD-safe `truncated(inc; upper = window)` workaround.
 """
