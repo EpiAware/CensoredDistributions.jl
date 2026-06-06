@@ -219,7 +219,9 @@ end
 # against that branch's delay distribution. The branches are coupled through the
 # single shared `p`, so they are scored against one sampled origin (not
 # independent per-branch origins). The internal origin time is returned for
-# parent plumbing.
+# parent plumbing. `weight` is ignored on this latent path (as for the single
+# `LatentPrimaryCensored`): each record has its own latent origin, so
+# multiplicities cannot be aggregated; latent models vectorise over records.
 @model function primary_censored_model(
         d::ParallelPrimaryCensored, observed; weight = nothing,
         latent::Bool = false)
