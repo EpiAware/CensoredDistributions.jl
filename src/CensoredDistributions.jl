@@ -49,6 +49,9 @@ export convolve_distributions
 # Exported generic composers and front-end constructor
 export Sequential, Parallel, Competing, compose, as_mixture
 
+# Exported composer-observed lowering used by the external censoring wrappers
+export observed_distribution
+
 # Exported utilities
 export weight, get_dist, get_dist_recursive
 
@@ -72,6 +75,7 @@ include("composers/Competing.jl")
 include("composers/nesting.jl")
 include("composers/equality.jl")
 include("composers/compose.jl")
+include("composers/wrap.jl")
 
 include("utils/Weighted.jl")
 include("utils/get_dist.jl")

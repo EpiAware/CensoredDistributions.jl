@@ -506,6 +506,43 @@ function scenarios(; with_reference::Bool = false)
                 Sequential(LogNormal(θ[3], θ[4]), Gamma(θ[5], θ[6]))), x),
         [2.0, 1.0, 0.5, 0.4, 2.0, 1.0], (Constant(nest3),))
 
+    # External censoring wrappers over composers (#334). Combine first, then
+    # censor: a Sequential collapses to the convolution of its steps (its
+    # observed total) before censoring, so the gradient flows through the
+    # numeric convolution and the interval/primary CDF. A Parallel distributes
+    # the wrapper into each branch. Guarded on the censoring wrappers existing
+    # so the AirspeedVelocity baseline (which lacks the composer overloads)
+    # skips them. Literal constructors keep Enzyme forward happy (#278).
+    if isdefined(CensoredDistributions, :Sequential)
+        _push!("interval_censored(Sequential) over total",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    interval_censored(
+                        Sequential(Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])),
+                        1.0),
+                    x),
+                obs),
+            [2.0, 1.0, 0.5, 0.4], (Constant(obs_int),))
+        _push!("double_interval_censored(Sequential) over total",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    double_interval_censored(
+                        Sequential(Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4]));
+                        primary_event = Uniform(0.0, 1.0), interval = 1.0),
+                    x),
+                obs),
+            [2.0, 1.0, 0.5, 0.4], (Constant(obs_int),))
+        _push!("interval_censored(Parallel) distributed branches",
+            (θ,
+                x) -> logpdf(
+                interval_censored(
+                    Parallel(Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])), 1.0),
+                x),
+            [2.0, 1.0, 1.0, 0.5], (Constant([2.0, 3.0]),))
+    end
+
     return out
 end
 
