@@ -103,6 +103,71 @@ end
     @test !isempty(keys(VarInfo(fit(d_lat, 2.0))))
 end
 
+@testitem "primary_censored_model injected origin (coupled case)" tags=[
+    :turing] begin
+    using CensoredDistributions
+    using CensoredDistributions: get_dist
+    using Distributions
+    using DynamicPPL
+    using DynamicPPL: to_submodel
+
+    delay = LogNormal(1.5, 0.75)
+    d = primary_censored(delay, Uniform(0, 1); mode = Latent())
+
+    # With an injected origin the submodel scores ONLY the conditional delay
+    # `logpdf(delay, y - origin)` and draws no primary-event prior: the caller
+    # owns the prior over the coupled origin.
+    @model function fit(d, y, o)
+        inner ~ to_submodel(
+            primary_censored_model(d, y; origin = o), false)
+    end
+    for (y, o) in ((2.0, 0.4), (3.0, 0.2))
+        @test logjoint(fit(d, y, o), (;)) ≈ logpdf(get_dist(d), y - o)
+        # No latent is drawn inside the submodel for the injected case.
+        @test isempty(keys(VarInfo(fit(d, y, o))))
+    end
+
+    # Omitted origin (the default) is unchanged: the latent primary is drawn.
+    @model function fit_plain(d, y)
+        inner ~ to_submodel(primary_censored_model(d, y), false)
+    end
+    @test !isempty(keys(VarInfo(fit_plain(d, 2.0))))
+end
+
+@testitem "Coupled two-record origin NUTS smoke test" tags=[:turing] begin
+    using CensoredDistributions
+    using Distributions
+    using Turing
+    using DynamicPPL: to_submodel, prefix
+    using Random
+
+    Random.seed!(3)
+    mu_t, sig_t = 1.5, 0.75
+    o1_t = 0.5
+    o2_t = o1_t + rand(LogNormal(mu_t, sig_t))   # transmission link
+    y1 = o1_t + rand(LogNormal(mu_t, sig_t))
+    y2 = o2_t + rand(LogNormal(mu_t, sig_t))
+
+    # Record 2's origin is a function of record 1's latent origin: a coupled
+    # prior the caller owns and injects via `origin`.
+    @model function coupled(y1, y2)
+        mu ~ Normal(1.0, 1.0)
+        sigma ~ truncated(Normal(0.5, 0.5); lower = 0.01)
+        d = primary_censored(
+            LogNormal(mu, sigma), Uniform(0, 1); mode = Latent())
+        r1 ~ to_submodel(prefix(primary_censored_model(d, y1), :r1), false)
+        link ~ LogNormal(mu, sigma)
+        o2 = r1.p + link
+        r2 ~ to_submodel(
+            prefix(primary_censored_model(d, y2; origin = o2), :r2), false)
+    end
+
+    chain = sample(coupled(y1, y2), NUTS(), 60; progress = false)
+    @test all(isfinite, chain[:mu])
+    @test all(chain[:sigma] .> 0)
+    @test all(chain[:link] .> 0)
+end
+
 @testitem "interval_censored_model matches logpdf" tags=[:turing] begin
     using CensoredDistributions
     using Distributions

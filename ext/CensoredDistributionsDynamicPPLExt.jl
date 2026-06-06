@@ -87,12 +87,36 @@ end
 # `_latent_logpdf`). `weight` is ignored on the latent path: each record has its
 # own latent, so multiplicities cannot be aggregated; latent models vectorise
 # over records instead.
+#
+# Coupling escape-hatch (`origin`): when the caller supplies an external origin
+# the submodel does NOT draw the dist's own primary-event prior. Instead it
+# scores the conditional delay `y - origin` against the delay distribution,
+# leaving the prior over `origin` to the caller's model. This is the deliberate
+# coupled case (for example hanta: a source's onset feeds an offspring's
+# infection, sampled in the user's loop): the user owns the coupled prior, the
+# submodel owns only the conditional-delay mechanics. With `origin = nothing`
+# (the default) behaviour is unchanged: the submodel draws `p` and owns the
+# prior. The `origin` form does not double-count the prior, so a caller who has
+# already scored the origin gets exactly one prior contribution.
 @model function primary_censored_model(
-        d::LatentPrimaryCensored, y; weight = nothing)
-    p ~ get_primary_event(d)
-    delay = y - p
-    delay ~ get_dist(d)
-    return (; p, y)
+        d::LatentPrimaryCensored, y; weight = nothing, origin = nothing)
+    if origin === nothing
+        p ~ get_primary_event(d)
+        delay = y - p
+        delay ~ get_dist(d)
+        return (; p, y)
+    else
+        # Injected coupled origin: there is no latent to draw here (the caller
+        # owns the prior over `origin`), only the conditional-delay likelihood
+        # `logpdf(delay, y - origin)`. Score it with `@addlogprob!` rather than a
+        # tilde: the implied delay is a deterministic function of the injected
+        # `origin` (a kwarg, not a model variable), so a `delay ~` statement
+        # would be parsed as a fresh latent to sample. `@addlogprob!` adds the
+        # exact conditional log-density and nothing else, so the prior is never
+        # double-counted.
+        @addlogprob! logpdf(get_dist(d), y - origin)
+        return (; p = origin, y)
+    end
 end
 
 # ============================================================================

@@ -40,6 +40,14 @@ model between the two paths by flipping only the `mode` on `d` when building it.
 - `weight`: Optional multiplicity weight for the marginal path, applied via the
   [`weight`](@ref) distribution wrapper (`weight * logpdf`). The latent path
   ignores it and vectorises over records instead.
+- `origin`: Optional externally-supplied origin (primary event time) for the
+  coupled latent case. When supplied, the latent submodel scores the conditional
+  delay `y - origin` against the delay distribution and does NOT draw the
+  distribution's own primary-event prior: the caller owns the prior over
+  `origin` (for example a source event time that feeds an offspring's infection,
+  sampled in the caller's loop). With `origin = nothing` (the default) the latent
+  submodel draws `p ~ get_primary_event(d)` and owns the prior. Ignored by the
+  marginal path.
 
 # Examples
 ```@example
