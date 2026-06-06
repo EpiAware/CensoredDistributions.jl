@@ -33,18 +33,18 @@ module CensoredDistributionsDynamicPPLExt
 #   and latent by flipping ONLY the `mode` on `d` when building it — no other
 #   code changes, because the right submodel method is selected automatically.
 
-using CensoredDistributions: CensoredDistributions, PrimaryCensored,
+using CensoredDistributions: CensoredDistributions,
                              IntervalCensored, MarginalPrimaryCensored,
                              LatentPrimaryCensored, ParallelPrimaryCensored,
                              SequentialDistribution, EventTree, Competing,
-                             as_mixture, event_names, get_dist,
+                             as_mixture, get_dist,
                              get_primary_event, weight
 # Import the constructor names so the `@model` definitions add methods to the
 # core declarations rather than shadowing them.
 import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model
 using DynamicPPL: DynamicPPL, @model, to_submodel, @addlogprob!
-using Distributions: UnivariateDistribution, MultivariateDistribution, logpdf
+using Distributions: UnivariateDistribution, logpdf
 
 # ============================================================================
 # Marginal weighting helper

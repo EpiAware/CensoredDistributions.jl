@@ -14,6 +14,12 @@ public EventEdge
 # exported; `as_mixture` is public but not exported.
 public as_mixture
 
+# Marginal/Latent primary-censored formulation types (public but not exported).
+# The resolved `mode` selects between these when building a `primary_censored`
+# delay; the DynamicPPL extension dispatches its submodels on them.
+public MarginalPrimaryCensored
+public LatentPrimaryCensored
+
 # Latent-formulation internals (public but not exported)
 public BoundedPrimary
 public LatentIntervalCensored

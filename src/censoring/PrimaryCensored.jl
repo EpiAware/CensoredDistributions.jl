@@ -226,8 +226,23 @@ _variate_form(::Marginal) = Univariate
 _variate_form(::Latent) = Multivariate
 
 # Convenience aliases for dispatch on the formulation.
+@doc "
+Type alias for a [`PrimaryCensored`](@ref) resolved to the `Marginal`
+formulation, where the primary event is integrated out inside `logpdf` and the
+distribution exposes the univariate scalar interface.
+
+See also: [`LatentPrimaryCensored`](@ref), [`primary_censored`](@ref).
+"
 const MarginalPrimaryCensored{D1, D2, S} = PrimaryCensored{
     Univariate, D1, D2, S, Marginal}
+
+@doc "
+Type alias for a [`PrimaryCensored`](@ref) resolved to the `Latent`
+formulation, where the primary event is sampler-owned and the distribution is
+multivariate over the latent primary and observed delay.
+
+See also: [`MarginalPrimaryCensored`](@ref), [`primary_censored`](@ref).
+"
 const LatentPrimaryCensored{D1, D2, S} = PrimaryCensored{
     Multivariate, D1, D2, S, Latent}
 
