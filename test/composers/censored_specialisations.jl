@@ -35,20 +35,30 @@ end
     @test logpdf(chain, ev) ≈ logpdf(ref, 4.0) rtol=1e-6
 end
 
-@testitem "Sequential observed intermediate conditions on each gap" begin
+@testitem "Sequential observed intermediate conditions on the censored value" begin
     using Distributions
 
-    d1 = LogNormal(1.2, 0.5)
-    d2 = Gamma(2.0, 1.0)
     pe = Uniform(0, 1)
-    chain = Sequential(primary_censored(d1, pe), primary_censored(d2, pe))
+    # An observed-bounded edge conditions on its OWN declared censoring (#329
+    # "condition on its (censored) value"): each edge is scored through its own
+    # censored logpdf at the day-observed gap, NOT the bare continuous core.
+    d1 = primary_censored(LogNormal(1.2, 0.5), pe)
+    # A day-resolution edge: double_interval_censored carries primary + interval
+    # censoring, so a day-observed delay is interval-censored, not exact.
+    d2 = double_interval_censored(Gamma(2.0, 1.0); primary_event = pe,
+        interval = 1.0)
+    chain = Sequential(d1, d2)
 
-    # All events observed: origin segment is primary-censored d1 at the first
-    # gap; the second (observed-bounded) edge conditions on the continuous core
-    # d2 at the second gap, dropping its primary censoring.
     ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
-    @test logpdf(chain, ev) ≈
-          logpdf(primary_censored(d1, pe), 2.0) + logpdf(d2, 3.0) rtol=1e-6
+    # Both observed-bounded edges score through their own censored logpdf at the
+    # observed gaps (2.0 and 3.0), keeping the declared censoring.
+    @test logpdf(chain, ev) ≈ logpdf(d1, 2.0) + logpdf(d2, 3.0) rtol=1e-6
+
+    # A genuinely plain continuous edge (no declared censoring) is conditioned
+    # on the continuous value for that edge.
+    plain = Gamma(2.0, 1.0)
+    chain2 = Sequential(d1, plain)
+    @test logpdf(chain2, ev) ≈ logpdf(d1, 2.0) + logpdf(plain, 3.0) rtol=1e-6
 end
 
 @testitem "Sequential plain step path is unchanged (generic)" begin
@@ -185,7 +195,11 @@ end
     ]
     lps = logpdf.(Ref(chain), records)
     @test all(isfinite, lps)
-    @test lps[1] ≈ logpdf(primary_censored(d1, pe), 2.0) + logpdf(d2, 3.0) rtol=1e-6
+    # All observed: each edge scores through its own (censored) logpdf at its gap.
+    @test lps[1] ≈
+          logpdf(primary_censored(d1, pe), 2.0) +
+          logpdf(primary_censored(d2, pe), 3.0) rtol=1e-6
+    # E1 unobserved: marginalise by convolving the cores, origin primary applied.
     @test lps[2] ≈
           logpdf(primary_censored(convolve_distributions(d1, d2), pe), 4.0) rtol=1e-6
     # Shifted origin: gaps are E1-E0 = 2.0 and E2-E1 = 3.0, same as record 1.

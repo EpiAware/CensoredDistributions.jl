@@ -141,18 +141,29 @@ function _observed_indices_values(events)
 end
 
 # Segment distribution spanning observed events at 1-based event indices `a` and
-# `b`. The steps linking them are `components[a:(b - 1)]`. Both endpoints are
-# observed, so the segment conditions on the continuous delay between them: a
-# single step contributes its continuous core, a run of two or more (unobserved
-# events between) is the convolution of the spanned cores, in both cases
-# dropping the steps' own primary censoring (its windowed primary event is no
-# longer latent for an observed-bounded edge). When a primary event is supplied
-# (the origin segment, whose origin E_0 is the latent primary) it is reapplied
-# via `primary_censored`.
+# `b`. The steps linking them are `components[a:(b - 1)]`.
+#
+# A SINGLE observed-bounded edge conditions on its OWN declared censoring: the
+# edge's gap is scored through the edge distribution AS DECLARED (#329 "condition
+# on its (censored) value"). A `primary_censored` / `double_interval_censored` /
+# `interval_censored` edge therefore keeps that censoring (real linelist data is
+# day-resolution, so a day-observed edge delay is interval-censored, not an exact
+# continuous time); a plain continuous edge is conditioned on the continuous
+# value, which is correct for that edge.
+#
+# A RUN of two or more steps (one or more UNOBSERVED intermediate events between
+# the two observed endpoints) is marginalised: the spanned steps' continuous
+# cores are convolved and the intermediates' own censoring is dropped (the latent
+# intermediate is a continuous time, not a windowed observation). When a primary
+# event is supplied (the origin segment, whose origin E_0 is the latent primary)
+# it is reapplied to the convolved core via `primary_censored`.
 function _sequential_segment(components, a, b, primary)
     run = components[a:(b - 1)]
-    core = length(run) == 1 ? _marginal_core(run[1]) :
-           convolve_distributions(map(_marginal_core, collect(run)))
+    # Single observed-bounded edge: respect the edge's declared censoring.
+    length(run) == 1 && return run[1]
+    # Unobserved-intermediate run: convolve the continuous cores; the origin
+    # segment reapplies the (latent) primary event.
+    core = convolve_distributions(map(_marginal_core, collect(run)))
     primary === nothing && return core
     return primary_censored(core, primary)
 end

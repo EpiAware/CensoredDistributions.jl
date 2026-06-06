@@ -573,8 +573,9 @@ function scenarios(; with_reference::Bool = false)
         # hard-crashes the compiled backends (Enzyme/Mooncake) uncatchably, so it
         # is left out of the per-backend AD suite rather than worked around.
         #
-        # Observed intermediate: origin segment primary-censored, second edge
-        # conditions on the continuous core.
+        # Observed intermediate: every event observed, so each observed-bounded
+        # edge conditions on its OWN declared censoring (#329) -- here each edge
+        # is scored through its own `primary_censored` logpdf at the day gap.
         seq_ev_obs = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
         _push!("Sequential censored observed-intermediate logpdf",
             (θ,
