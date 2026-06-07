@@ -1,45 +1,49 @@
 md"""
-# Hantavirus realtime: per-record delay, truncation and ascertainment
+# Andes hantavirus realtime delay estimation
 
 ## Introduction
 
-This walkthrough rebuilds the delay, right-truncation and ascertainment layer
-of the Epuyén Andes virus (ANDV) realtime model on the
-`CensoredDistributions.jl` stack.
-The original analysis lives in `epiforecasts/andv-linelist-analysis`.
-We reproduce the parts that are delay distributions, and we keep the parts that
-are not (the ``R(t)`` random walk and the offspring-count / case-cluster
-machinery) in the user's own Turing model.
+This walkthrough replicates the delay layer of the
+[epiforecasts/andv-linelist-analysis](https://github.com/epiforecasts/andv-linelist-analysis)
+study of the 2018–19 Epuyén Andes virus (ANDV) outbreak
+([Martínez et al. 2020, NEJM](https://doi.org/10.1056/NEJMoa2009040)) on the
+composable CensoredDistributions.jl stack.
 
-### What we cover
+Andes virus is the one hantavirus with documented person-to-person
+transmission, and the Epuyén cluster was a sustained human-to-human outbreak.
+The study fits a line list of cases, each with an interval-censored exposure
+window and symptom-onset date, and a source attribution linking a secondary
+case to the case that infected it.
+From these data it estimates the incubation period, the timing of each onward
+transmission relative to its source's symptom onset, a weekly reproduction
+number, and offspring dispersion.
 
-1. Per-record `NamedTuple` rows whose observed/missing pattern drives the
-   per-record path.
-2. The single-delay right-truncation denominator for index cases.
-3. The convolved-chain right-truncation denominator for sourced cases.
-4. The coupled latent origin for a sourced case, scored through the latent
-   path (`PrimaryConditional` / `primary_conditional_logpdf`).
-5. Completeness/ascertainment thinning ``R_{eff} = R \cdot p``.
-6. The intended UI: each record is **one** composed distribution dispatched as
-   a **submodel** that manages its own likelihood; the model loops over records
-   and the loop only wires the cross-record coupled origin.
-7. A simulate-and-recover exercise that draws event times with full-path
-   `rand` and recovers the delay parameters.
+The realtime question is what an analyst could infer *during* the outbreak,
+before all chains have run their course.
+At a cut-off date some infected people have not yet shown symptoms, so the line
+list seen so far is a right-truncated sample of the eventual one.
+A naive fit to the truncated data underestimates the delays, so the likelihood
+must correct for the cut-off.
+This page reproduces that delay-and-truncation correction; the reproduction
+number and the offspring clustering stay in the user's own Turing model.
+
+### Estimands
+
+- the **incubation period** Inc, the delay from infection to symptom onset
+  (LogNormal);
+- the **transmission timing** ``\delta``, the gap from a source's symptom onset
+  to its secondary's infection, which can be negative when transmission is
+  pre-symptomatic (Normal);
+- the realtime **right-truncation** correction at the observation cut-off,
+  which differs between index and sourced cases;
+- the offspring **completeness** ``p``, the chance a source's secondary has been
+  observed by the cut-off, which thins the realtime reproduction number.
 
 ### Out of scope (stays user Turing)
 
-- The ``R(t)`` weekly random walk.
-- The offspring-count / negative-binomial clustering likelihood.
-
-These are ordinary Turing code in the original model; nothing in this package
-replaces them, and this page does not reimplement them.
-
-## What you should know first
-
-This tutorial builds on
-[Getting Started with CensoredDistributions.jl](@ref getting-started) and on
-[Fitting with Turing.jl](@ref).
-We sample with `ForwardDiff` for a short, self-contained build.
+The weekly ``R(t)`` random walk and the offspring-count / case-cluster
+likelihood are ordinary Turing code in the original model and are not delay
+distributions, so this page does not reproduce them.
 
 ## Packages used
 """
@@ -48,36 +52,81 @@ using CensoredDistributions
 using Distributions
 using Turing
 using DynamicPPL: prefix, to_submodel
+using DataFramesMeta
 using Random
 using Statistics
-using ADTypes: AutoForwardDiff
-
-Random.seed!(2024)
+import ForwardDiff
 
 md"""
-## The realtime delay structure
-
-The ANDV linelist has two record types.
+## Two record types, two truncation denominators
 
 An **index** case has no recorded source.
-We observe a single incubation delay from its (latent) infection time to its
-onset, and that delay is right-truncated: a case is only in the data if its
-onset falls on or before the realtime cut-off.
+We observe its single incubation delay from a latent infection time to onset,
+right-truncated because the case only enters the data if its onset falls on or
+before the cut-off.
+A record's delay distribution is the incubation period.
 
 A **sourced** case is attributed to an earlier case.
 We observe the gap from the *source's* onset to the *secondary's* onset, which
-is the convolution of the signed transmission delay ``\delta`` (infection of
-the secondary relative to the source's onset) and the secondary's incubation
-period.
-The intermediate event (the secondary's infection time) is not recorded, so
-the truncation denominator must use the convolution of the two unobserved
-segments, not either segment alone.
-Mixing these two truncation denominators up is the easy error the original
-`truncation_model` guards against by carrying both forms side by side.
+is the convolution of the signed transmission timing ``\delta`` and the
+secondary's incubation period.
+The secondary's own infection time is not recorded, so only the total chain
+delay is seen, and the truncation denominator must use the convolution of the
+two unobserved segments rather than either one alone.
+Carrying the two denominators side by side without mixing them up is the job the
+original `truncation_model` does by hand.
 
-We encode the true delay parameters as ordinary `Distributions.jl` objects.
-The transmission delay is signed (a secondary can be infected before the
-source shows symptoms), so it is a `Normal` that can go negative.
+A whole record is ONE composed distribution: the right-truncated delay reaching
+the observation.
+[`truncate_to_horizon`](@ref) builds the single-delay form and
+[`truncate_chain`](@ref) the convolved-chain form, dispatching the two
+denominators from the chain and the mask of which intermediate events were
+observed.
+"""
+
+## The composed natural-history delay for each record type, reused in the
+## simulation and the fit.
+index_delay(inc) = inc
+
+sourced_delay(delta, inc) = convolve_distributions(delta, inc)
+
+## The right-truncated record distribution at the remaining observation window
+## `horizon - anchor`. Index records have one observed segment (single-delay
+## denominator); sourced records have an unobserved intermediate event, so
+## `truncate_chain` collapses the two segments to their convolution.
+index_record(inc, window) = truncate_to_horizon(inc, window)
+
+function sourced_record(delta, inc, window)
+    truncate_chain((delta, inc), (false,), window)
+end
+
+md"""
+The right-truncation is upper-only: it caps the upper bound at the remaining
+window and adds no lower bound.
+This matters for a LogNormal incubation period, whose support starts at zero:
+an explicit `lower = 0` would make `truncated` differentiate
+`logcdf(LogNormal, 0) = -Inf` and return a `NaN` gradient.
+The upper-only form keeps the gradient finite, so the index path is safe under
+automatic differentiation.
+"""
+
+let
+    f = x -> logpdf(truncate_to_horizon(LogNormal(x[1], x[2]), 17.48), 5.41)
+    ForwardDiff.gradient(f, [2.06, 0.41])
+end
+
+md"""
+## Simulating a line list
+
+We fix generating delays and simulate a line list to recover them.
+The transmission timing is centred below zero so some secondaries are infected
+before their source's onset, as the study finds.
+
+For each case we draw its natural-history delay with a single `rand` on the
+composed delay distribution, then apply the realtime keep-rule: a case enters
+the data only if it has been observed by the `horizon`.
+That keep-rule is exactly the right-truncation the likelihood corrects for, so
+the simulation and the fit share the same generative process.
 """
 
 inc_true = LogNormal(2.06, 0.41)
@@ -86,285 +135,180 @@ delta_true = Normal(-1.0, 2.0)
 
 horizon = 45.0
 
-md"""
-## Simulate event times with full-path `rand`
-
-We simulate from the generative process directly, drawing each delay with
-`rand`, then keep only the records whose onset falls on or before the
-`horizon`.
-That keep-rule is exactly the right-truncation the likelihood must correct
-for.
-
-Each record is a `NamedTuple` row.
-The fields a record carries *are* its observed/missing pattern: an index row
-carries an observed `delay` and its remaining `window`; a sourced row carries
-the source onset, the secondary onset, and its `window`.
-A loop over rows then dispatches on which fields are present, which is the
-per-record-loop pattern the realtime model is built from.
-"""
-
-index_rows = NamedTuple[]
-for _ in 1:80
-    inc = rand(inc_true)
-    anchor = rand(Uniform(0, 25))           # known infection-window anchor
-    onset = anchor + inc
-    onset <= horizon || continue            # right-truncated at the horizon
-    push!(index_rows, (; delay = inc, window = horizon - anchor))
+function simulate(rng, inc, delta, horizon; n_index = 110, n_sourced = 110)
+    rows = NamedTuple[]
+    for _ in 1:n_index
+        anchor = rand(rng, Uniform(0, 25))
+        y = rand(rng, index_delay(inc))             # single rand
+        anchor + y <= horizon || continue           # realtime keep-rule
+        push!(rows, (; kind = "index", y, window = horizon - anchor))
+    end
+    for _ in 1:n_sourced
+        src_onset = rand(rng, Uniform(0, 18))
+        y = rand(rng, sourced_delay(delta, inc))    # single rand
+        src_onset + y <= horizon || continue
+        push!(rows, (; kind = "sourced", y, window = horizon - src_onset))
+    end
+    return DataFrame(rows)
 end
 
-sourced_rows = NamedTuple[]
-for _ in 1:80
-    src_onset = rand(Uniform(0, 18))
-    gap = rand(delta_true) + rand(inc_true) # convolved chain: delta + inc
-    sec_onset = src_onset + gap
-    sec_onset <= horizon || continue
-    push!(sourced_rows,
-        (; src_onset, sec_onset, window = horizon - src_onset))
-end
+rng = Random.MersenneTwister(2024)
 
-(length(index_rows), length(sourced_rows))
+linelist = simulate(rng, inc_true, delta_true, horizon)
+
+first(linelist, 4)
 
 md"""
-## Right-truncation: single-delay versus convolved-chain
+## Compressing to unique combinations
 
-The package builds the right-truncation denominator for one record and
-dispatches the single-delay case against the convolved-chain case.
-
-For an **index** case the recorded delay is a single segment, so the
-denominator is `cdf(inc, window)`.
-[`truncate_to_horizon`](@ref) returns the right-truncated object whose
-log-normaliser is exactly that ``-\log \text{cdf}`` term, so scoring the
-observed delay through its `logpdf` reproduces the per-record correction with
-no PPL dependency.
-
-The truncation is upper-only: it caps the upper bound at `window` and adds no
-lower bound.
-This matters for AD on a `LogNormal` index delay.
-An earlier version set `lower = minimum(dist) = 0`, and `truncated` then
-differentiated `logcdf(LogNormal, 0) = -Inf`, giving a `NaN` gradient.
-With the upper-only fix the gradient is finite:
+At day-level resolution many cases share an event-time combination, so the
+study weights one likelihood evaluation per unique combination rather than one
+per case.
+We compress the line list with DataFramesMeta, counting cases per unique
+combination of record type, observed delay, and window, and carry the count in
+a reserved `weight` field that the submodel applies to the likelihood.
 """
 
-import ForwardDiff
-
-let
-    f = x -> logpdf(truncate_to_horizon(LogNormal(x[1], x[2]), horizon), 5.41)
-    ForwardDiff.gradient(f, [2.06, 0.41])   # finite, no NaN
+combos = @chain linelist begin
+    @groupby :kind :y :window
+    @combine :weight = length(:y)
 end
 
+index_rows = @rsubset(combos, :kind == "index")
+
+sourced_rows = @rsubset(combos, :kind == "sourced")
+
+(nrow(linelist), nrow(combos))
+
 md"""
-For a **sourced** case the intermediate event is unobserved, so the
-denominator must be `cdf` of the *convolution* of the two segments.
-[`truncate_chain`](@ref) picks the right form from a chain of segments and a
-mask of which internal splitting events were observed.
-With `observed = (false,)` the splitting event between ``\delta`` and the
-incubation period is not recorded, so the chain collapses to the convolution
-and the denominator becomes the convolved-chain CDF.
+## Delay priors as a submodel
+
+The delay-distribution priors live in a small prior-submodel, included via
+`to_submodel`, so they are configurable without editing the fitting model: pass
+different priors as arguments to swap them.
+The submodel returns the realised incubation and transmission-timing
+distributions, which the fit reuses for every record.
 """
 
-let
-    index = truncate_chain((inc_true,), (), horizon)
-    sourced = truncate_chain((delta_true, inc_true), (false,), horizon)
-    (logpdf(index, 5.41), logpdf(sourced, 5.41))
+@model function delay_priors(;
+        mu_inc_prior = Normal(2.0, 0.5),
+        sigma_inc_prior = truncated(Normal(0.0, 0.5); lower = 0),
+        mu_delta_prior = Normal(0.0, 3.0),
+        sigma_delta_prior = truncated(Normal(0.0, 2.0); lower = 0))
+    mu_inc ~ mu_inc_prior
+    sigma_inc ~ sigma_inc_prior
+    mu_delta ~ mu_delta_prior
+    sigma_delta ~ sigma_delta_prior
+    return (; inc = LogNormal(mu_inc, sigma_inc),
+        delta = Normal(mu_delta, sigma_delta))
 end
 
 md"""
-The convolution itself is [`convolve_distributions`](@ref), and its `cdf` is
-the chain-completion probability used below for ascertainment thinning.
-The signed `delta_true` convolves and the result is AD-safe.
+## Fitting through one submodel per record
+
+Each record's whole distribution is scored through ONE submodel call, which
+manages the censoring and truncation likelihood internally; the user model
+never writes a per-component `logpdf` or `@addlogprob!`.
+The reserved `weight` scales the contribution and `prefix` namespaces each
+record's submodel.
+
+For a sourced record the source's onset is the coupled origin: it anchors the
+observed gap before the record's distribution is dispatched.
+That cross-record wiring is the one part that lives in the loop, by design; the
+delay, censoring, and truncation of every record go through its submodel.
 """
 
-chain_delay = convolve_distributions(delta_true, inc_true)
-
-cdf(chain_delay, horizon)
-
-md"""
-## Coupled latent origin (the latent path)
-
-For a sourced case the source's onset is a shared, coupled origin: the
-secondary's infection time is the source onset plus the signed transmission
-delay, and its onset is that plus the incubation period.
-When you want the origin sampler-owned rather than integrated out, use the
-latent flow.
-
-A single [`primary_censored`](@ref) leaf is marginalisable, so by default it is
-the univariate marginal.
-Wrapping it with [`latent`](@ref) selects the multivariate representation over
-`[primary, observed]`: `rand` produces the internal times, and `logpdf` is the
-primary prior plus the conditional of the observed time given the primary.
-"""
-
-let
-    node = primary_censored(inc_true, Uniform(0, 1))
-    ld = latent(node)
-    rand(ld)                                 # [primary, observed]
+@model function hanta_delays(index_rows, sourced_rows; priors = delay_priors())
+    p ~ to_submodel(priors)
+    for r in eachrow(index_rows)
+        d = index_record(p.inc, r.window)
+        idx ~ to_submodel(
+            prefix(double_interval_censored_model(d, r.y; weight = r.weight),
+                Symbol(:idx, rownumber(r))), false)
+    end
+    for r in eachrow(sourced_rows)
+        d = sourced_record(p.delta, p.inc, r.window)
+        src ~ to_submodel(
+            prefix(double_interval_censored_model(d, r.y; weight = r.weight),
+                Symbol(:src, rownumber(r))), false)
+    end
 end
 
-md"""
-The conditional that the latent path scores is
-[`PrimaryConditional`](@ref): given a realised primary ``p`` it shifts the
-delay, so `logpdf(PrimaryConditional(d, p), y) = logpdf(get_dist(d), y - p)`.
-The named entry point is [`primary_conditional_logpdf`](@ref).
-For a coupled origin shared across records (a source's onset feeding an
-offspring's infection), the caller owns the coupled prior: it samples the
-shared origin in its own model and scores each record with
-`primary_conditional_logpdf(d, p_shared, y)` directly.
-This is the escape hatch the design calls out for a shared latent that the
-leaf's own `p ~ get_primary_event(d)` cannot express.
-"""
-
-let
-    d = primary_censored(inc_true, Uniform(0, 1))
-    primary_conditional_logpdf(d, 0.3, 2.7)  # logpdf(inc_true, 2.7 - 0.3)
-end
+chn = sample(hanta_delays(index_rows, sourced_rows), NUTS(0.95), 600)
 
 md"""
-## Ascertainment / completeness thinning
+## Recovering the generating delays
 
-In realtime, an offspring is only counted if its full chain has completed by
-the horizon, so the per-source rate is thinned by the completion probability
-``p`` to give ``R_{eff} = R \cdot p``.
-That ``p`` is the chain-completion CDF, `cdf(convolve_distributions(δ, inc),
-horizon - T_onset)`, exactly the convolved-chain denominator from above.
-
-!!! note "Flagged gap: no thinning helper in the stack"
-    A dedicated `thin_by_completeness` / `completeness_probability` helper is
-    **not** present in this stack, so we compute the thinning explicitly with
-    `R * cdf(convolve_distributions(...), horizon)`.
-    A small follow-up could add the named helper; the explicit form below is
-    the same quantity and is AD-safe.
-
-The completeness probability is differentiable in the delay parameters, so it
-can sit inside a Turing model where ``R`` is sampled:
+We check that the credible intervals cover the generating values.
+The transmission timing ``\delta`` is only seen through the convolved sourced
+chain, where its contribution overlaps the incubation period, so its location
+and the incubation scale are weakly identified at this sample size.
+We therefore check coverage with a wide (99%) credible interval rather than the
+point estimate, which is the honest statement for a weakly identified
+convolution.
 """
 
-function completeness_probability(delta, inc, window)
-    cdf(convolve_distributions(delta, inc), window)
+function covers(sym, truth_value; q = (0.005, 0.995))
+    draws = vec(chn[sym])
+    lo, hi = quantile(draws, q[1]), quantile(draws, q[2])
+    return (truth = truth_value, lo = round(lo; digits = 2),
+        hi = round(hi; digits = 2), covered = lo ≤ truth_value ≤ hi)
 end
 
-R_eff(R, delta, inc, window) = R * completeness_probability(delta, inc, window)
+recovery = (
+    mu_inc = covers(Symbol("p.mu_inc"), 2.06),
+    sigma_inc = covers(Symbol("p.sigma_inc"), 0.41),
+    mu_delta = covers(Symbol("p.mu_delta"), -1.0),
+    sigma_delta = covers(Symbol("p.sigma_delta"), 2.0))
+
+md"""
+## Ascertainment thinning
+
+A source's secondary is only counted if its chain has completed by the cut-off,
+so the realtime reproduction number is thinned by the completion probability
+``p`` to give ``R_{\text{eff}} = R \cdot p``.
+That ``p`` is the chain-completion CDF, `cdf(sourced_delay(δ, inc), window)`,
+reusing the same convolved delay the sourced records are fitted through.
+"""
+
+completeness_probability(delta, inc, window) = cdf(sourced_delay(delta, inc), window)
 
 let
     R = 1.8
-    R_eff(R, delta_true, inc_true, horizon - 5.0)
+    R * completeness_probability(delta_true, inc_true, horizon - 5.0)
 end
 
 md"""
-The thinning is AD-safe in the delay parameters:
-"""
+!!! note "Pending integration: thinning helpers"
+    A dedicated completeness/thinning helper and analytic `Convolved` moments
+    are being added on a separate branch.
+    Until then this page computes the thinning explicitly with `cdf` of the
+    convolved delay; the swap to the named helpers is a follow-up.
 
-let
-    fp = x -> log(completeness_probability(
-        Normal(x[1], 2.0), LogNormal(x[2], 0.41), horizon))
-    ForwardDiff.gradient(fp, [-1.0, 2.06])   # finite, no NaN
-end
+The reproduction number ``R`` this multiplies, and the offspring-count
+likelihood it feeds, are the user's Turing code and stay out of scope here.
 
-md"""
-The ``R`` that this multiplies, and the offspring-count likelihood it feeds,
-are the user's Turing code and stay out of scope here.
-
-## The per-record submodel UI
-
-The intended usage is **not** hand-rolled per-component dispatch.
-Each record is one composed distribution `d`, and the model dispatches to it as
-a *submodel* that manages its own likelihood internally:
-
-```julia
-for i in eachindex(rows)
-    obs[i] ~ to_submodel(
-        prefix(double_interval_censored_model(d_i, rows[i].y), Symbol(:r, i)))
-end
-```
-
-[`double_interval_censored_model`](@ref) is the univariate submodel
-constructor: it takes the *whole* composed distribution as `d` and scores the
-observation against it, optionally weighted by the row's multiplicity.
-Because the per-record right-truncated delay is itself a univariate composed
-distribution (the [`truncate_to_horizon`](@ref) object for an index record, the
-[`truncate_chain`](@ref) object for a sourced record), passing it as `d` lets
-the submodel own the marginal/condition/convolve likelihood.
-We never write the `logpdf` or an `@addlogprob!` by hand.
-
-`prefix(...)` namespaces each record's submodel so the variables stay distinct
-and groupable in the chain.
-
-The one piece that stays in the user loop is the **cross-record coupling**.
-For a sourced record the observed quantity is the gap from the *source's* onset
-to the secondary's onset, so the source onset (the coupled origin) is wired
-into the offspring's record as the gap anchor before the record's distribution
-is dispatched.
-This loop wiring of the coupled origin is exactly the user responsibility the
-design assigns to the caller; everything else is the submodel's job.
-
-## Recover the delay parameters
-
-We put the per-record submodel loop together and recover the delay parameters
-from the simulated rows.
-Index records dispatch their incubation delay to the single-delay
-right-truncation distribution; sourced records dispatch their source-to-
-secondary gap (anchored on the coupled source onset) to the convolved-chain
-right-truncation distribution.
-"""
-
-@model function hanta_delays(index_rows, sourced_rows)
-    mu_inc ~ Normal(2.0, 0.5)
-    sigma_inc ~ truncated(Normal(0.0, 0.5); lower = 0)
-    mu_delta ~ Normal(0.0, 3.0)
-    sigma_delta ~ truncated(Normal(0.0, 2.0); lower = 0)
-    inc = LogNormal(mu_inc, sigma_inc)
-    delta = Normal(mu_delta, sigma_delta)
-
-    ## index records: the single-delay right-truncation distribution, dispatched
-    ## as a submodel that owns its likelihood.
-    for i in eachindex(index_rows)
-        r = index_rows[i]
-        d = truncate_to_horizon(inc, r.window)
-        idx ~ to_submodel(
-            prefix(double_interval_censored_model(d, r.delay),
-                Symbol(:idx, i)), false)
-    end
-
-    ## sourced records: the convolved-chain right-truncation distribution,
-    ## dispatched as a submodel. The loop only wires the coupled source onset:
-    ## the observed gap is anchored on the source's onset (cross-record
-    ## coupling), then the record's distribution owns the likelihood.
-    for i in eachindex(sourced_rows)
-        r = sourced_rows[i]
-        d = truncate_chain((delta, inc), (false,), r.window)
-        gap = r.sec_onset - r.src_onset
-        src ~ to_submodel(
-            prefix(double_interval_censored_model(d, gap),
-                Symbol(:src, i)), false)
-    end
-end
-
-mdl = hanta_delays(index_rows, sourced_rows)
-
-chn = sample(mdl, NUTS(0.95; adtype = AutoForwardDiff()), 600)
-
-md"""
-The posterior means sit near the true values used to simulate the data
-(`inc_true = LogNormal(2.06, 0.41)`, `delta_true = Normal(-1.0, 2.0)`):
-"""
-
-(mu_inc = mean(chn[:mu_inc]),
-    sigma_inc = mean(chn[:sigma_inc]),
-    mu_delta = mean(chn[:mu_delta]),
-    sigma_delta = mean(chn[:sigma_delta]))
-
-md"""
 ## Summary
 
-We rebuilt the realtime ANDV delay layer on the package primitives: per-record
-`NamedTuple` rows, [`truncate_to_horizon`](@ref) for the single-delay
-denominator, [`truncate_chain`](@ref) for the convolved-chain denominator, the
-coupled latent origin through [`PrimaryConditional`](@ref) /
-[`primary_conditional_logpdf`](@ref), and explicit ``R_{eff} = R \cdot p``
-ascertainment thinning via the convolved-chain CDF.
-The model dispatches each record's whole distribution as a
-[`double_interval_censored_model`](@ref) submodel that owns its likelihood, and
-the loop only wires the cross-record coupled origin, never a hand-rolled
-per-component `logpdf` or `@addlogprob!`.
-The ``R(t)`` random walk and the offspring-count clustering stay in the user's
-Turing model and are not part of this package.
+The realtime ANDV delay layer maps onto the rebuilt stack:
+
+- each record is ONE composed right-truncated delay distribution
+  ([`truncate_to_horizon`](@ref) for index cases,
+  [`truncate_chain`](@ref) for sourced cases over a
+  [`convolve_distributions`](@ref) chain);
+- the delay priors are a configurable prior-submodel;
+- each record is fitted through ONE submodel that owns its censoring and
+  truncation likelihood, with the multiplicity in the reserved `weight` field;
+- the coupled source onset is wired in the loop, the one cross-record piece;
+- ascertainment thinning ``R_{\text{eff}} = R \cdot p`` reuses the convolved
+  chain CDF.
+
+The reproduction number random walk and the offspring clustering stay in the
+user's Turing model.
+
+!!! note "Pending integration"
+    The per-record dispatch will move to the generic `composed_distribution_model`
+    entry point and the simulation to a `predict_events` draw once those land;
+    this page uses the current `double_interval_censored_model` submodel and a
+    direct `rand` in the meantime.
 """
