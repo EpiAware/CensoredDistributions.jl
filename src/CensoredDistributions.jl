@@ -64,6 +64,11 @@ export weight, get_dist, get_dist_recursive, get_primary_event
 export primary_censored_model, interval_censored_model,
        double_interval_censored_model
 
+# Exported Turing-side convenience to sample event-based draws (the internal
+# event times) from a marginal-fit posterior. No methods until DynamicPPL (or
+# Turing) is loaded; the method lives in the package extension.
+export predict_events
+
 include("docstrings.jl")
 
 include("utils/gamma_ad.jl")

@@ -9,10 +9,10 @@ using CensoredDistributions: CensoredDistributions, PrimaryCensored, Latent,
                              Parallel, Competing, as_mixture, get_primary_event,
                              get_dist_recursive, convolve_distributions
 import CensoredDistributions: primary_censored_model, interval_censored_model,
-                              double_interval_censored_model
+                              double_interval_censored_model, predict_events
 using DynamicPPL: DynamicPPL, @model
 using Distributions: Distributions, UnivariateDistribution, logpdf
-using Random: AbstractRNG
+using Random: AbstractRNG, default_rng
 
 # `CensoredDistributions.weight(d, w)` is called with the module qualifier
 # because the `weight` keyword argument shadows the function name inside the
@@ -243,5 +243,33 @@ Distributions.insupport(d::_ShiftedDelay, y::Real) = insupport(d.delay, y - d.sh
 Distributions.logpdf(d::_ShiftedDelay, y::Real) = logpdf(d.delay, y - d.shift)
 Distributions.pdf(d::_ShiftedDelay, y::Real) = exp(logpdf(d, y))
 Base.rand(rng::AbstractRNG, d::_ShiftedDelay) = d.shift + rand(rng, d.delay)
+
+# ===========================================================================
+# predict_events (#350): event-based draws from a marginal-fit posterior
+# ===========================================================================
+#
+# `predict_events(chain, model)` runs the LATENT form of a marginal-fit model
+# over the fitted posterior to produce event-based draws (the internal event
+# times). It delegates to `DynamicPPL.predict`: the latent `model` is executed
+# conditioned on each parameter draw in `chain`, sampling the event variables the
+# marginal chain does not carry. This is sound because the marginal and latent
+# forms share the same parameter names and the marginal-equals-latent equivalence
+# (#301) holds, so the marginal posterior drops straight into the latent form.
+#
+# The two flavours are dispatched by the data the latent `model` already carries,
+# not by an argument here:
+#   - new-record posterior predictive: `model` built with `missing` events, so
+#     `predict` samples the complete internal event path per draw;
+#   - observed-record latent recovery: `model` built with the observed events
+#     supplied, so `predict` re-samples only the integrated-out latents (the
+#     primary time and any unobserved intermediate events) given the data.
+#
+# `DynamicPPL.predict` is provided by DynamicPPL's MCMCChains extension, so it is
+# available whenever `chain` is an `MCMCChains.Chains` (it must be, to have been
+# produced by sampling). Keeping the call here on `DynamicPPL.predict` rather than
+# `Turing.predict` keeps the extension Turing-free (DynamicPPL weak-dep only).
+function predict_events(chain, model; rng = default_rng(), include_all = false)
+    return DynamicPPL.predict(rng, model, chain; include_all = include_all)
+end
 
 end
