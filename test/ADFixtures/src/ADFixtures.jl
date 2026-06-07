@@ -464,6 +464,29 @@ function scenarios(; with_reference::Bool = false)
             [2.0, 1.5, -0.5, 0.8], (Constant(obs),))
     end
 
+    # Completeness thinning helpers (#349). `thin_by_completeness(R, delay,
+    # window) = R * cdf(delay, window)`, so the gradient flows through `R` and
+    # the delay-distribution parameters via the CDF. The Convolved-chain form
+    # routes the CDF through the AD-safe numeric convolution quadrature.
+    # Guarded for the AirspeedVelocity baseline build, as above.
+    if isdefined(CensoredDistributions, :thin_by_completeness)
+        _push!("thin_by_completeness LogNormal delay",
+            (θ,
+                _obs) -> CensoredDistributions.thin_by_completeness(
+                θ[1], LogNormal(θ[2], θ[3]), 7.0),
+            [1.5, 1.5, 0.5], (Constant(obs),))
+        if isdefined(CensoredDistributions, :convolve_distributions)
+            _push!("thin_by_completeness Convolved chain",
+                (θ,
+                    _obs) -> CensoredDistributions.thin_by_completeness(
+                    θ[1],
+                    CensoredDistributions.convolve_distributions(
+                        Gamma(θ[2], θ[3]), LogNormal(0.5, 0.4)),
+                    14.0),
+                [1.5, 2.0, 1.0], (Constant(obs),))
+        end
+    end
+
     # Pluggable integration path (#208). The numeric primary-censored CDF
     # routes its quadrature through the package's default `GaussLegendre`
     # solver passed explicitly via the `solver` keyword. This is the cost

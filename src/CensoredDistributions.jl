@@ -58,6 +58,10 @@ export observed_distribution
 # Exported utilities
 export weight, get_dist, get_dist_recursive, get_primary_event
 
+# Exported thinning helpers (#349): completeness / ascertainment thinning,
+# Turing-free and distributions-led.
+export completeness_probability, thin_by_completeness
+
 # Exported DynamicPPL submodel constructors. These have no methods until
 # DynamicPPL (or Turing) is loaded; the methods live in the package extension so
 # the core stays Turing-free.
@@ -91,6 +95,7 @@ include("composers/wrap.jl")
 include("utils/Weighted.jl")
 include("utils/get_dist.jl")
 include("utils/quantile_optimization.jl")
+include("utils/thinning.jl")
 
 # Censored specialisations of the generic composers (#329, PR3b): included last
 # as they depend on the composers, the censored types, `get_dist_recursive`
