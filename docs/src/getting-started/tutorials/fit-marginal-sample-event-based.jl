@@ -29,8 +29,8 @@ therefore drops straight into the latent form.
 ### What might I need to know before starting
 
 This how-to builds on [Fitting CensoredDistributions.jl modified distributions
-with Turing.jl](@ref). It uses the marginal and latent submodels from
-`primary_censored_model` and the [`latent`](@ref) wrapper.
+with Turing.jl](@ref). It uses the generic `composed_distribution_model` entry
+and the [`latent`](@ref) wrapper.
 
 ## Packages used
 
@@ -80,7 +80,7 @@ are no per-record latent dimensions to sample.
     d = primary_censored(LogNormal(mu, sigma), Uniform(0, 1))
     for i in eachindex(y)
         obs ~ to_submodel(
-            prefix(primary_censored_model(d, y[i]), Symbol(:rec, i)), false)
+            prefix(composed_distribution_model(d, y[i]), Symbol(:rec, i)), false)
     end
 end
 
@@ -155,7 +155,7 @@ names as the marginal fit, so the posterior drops straight in.
     d = latent(primary_censored(LogNormal(mu, sigma), Uniform(0, 1)))
     for i in eachindex(y)
         x ~ to_submodel(
-            prefix(primary_censored_model(d, y[i]), Symbol(:rec, i)), false)
+            prefix(composed_distribution_model(d, y[i]), Symbol(:rec, i)), false)
     end
 end
 

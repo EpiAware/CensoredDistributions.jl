@@ -44,8 +44,8 @@ paths = predict_events(ld, 100; rng = MersenneTwister(1))
 
 # See also
 - [`latent`](@ref): the latent representation simulated here.
-- [`predict_events(::Any, ::Any)`](@ref): the fitted-model recovery method (in
-  the `DynamicPPL` extension).
+- [`predict_events`](@ref): the `(chain, model)` method recovers fitted records'
+  latent times (in the `DynamicPPL` extension).
 "
 function predict_events(d::Distribution; rng::AbstractRNG = default_rng())
     return rand(rng, d)
@@ -85,7 +85,8 @@ paths = predict_events(build, draws; rng = MersenneTwister(1))
 ```
 
 # See also
-- [`predict_events(::Distribution)`](@ref): draw from a fixed distribution.
+- [`predict_events`](@ref): the single-distribution and `(chain, model)`
+  methods.
 "
 function predict_events(
         build::Base.Callable, params; rng::AbstractRNG = default_rng())

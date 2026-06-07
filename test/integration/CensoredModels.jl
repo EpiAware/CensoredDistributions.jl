@@ -220,11 +220,42 @@ end
 # ===========================================================================
 # Composer models (#335, PR3d): NamedTuple-row data interface
 # ===========================================================================
-# The composer models take observations as a `NamedTuple` ROW keyed by event
-# name; `missing` fields drive per-record marginalise-vs-condition; a reserved
-# `weight`/`count` field or a `weight =` kwarg scales the likelihood. Marginal
-# vs latent is dispatch on the struct type (bare composer marginal,
+# `composed_distribution_model(d, row)` is the single generic record entry: a
+# leaf/univariate `d` delegates to the matching leaf model, a composed `d`
+# recurses. The composed methods take observations as a `NamedTuple` ROW keyed by
+# event name; `missing` fields drive per-record marginalise-vs-condition; a
+# reserved `weight`/`count` field or a `weight =` kwarg scales the likelihood.
+# Marginal vs latent is dispatch on the struct type (bare composer marginal,
 # `latent`-wrapped composer latent).
+
+@testitem "composed_distribution_model: leaf delegation routes correctly" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint, VarInfo
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # PrimaryCensored leaf -> primary_censored_model: bare value and one-event
+    # row both score the marginal logpdf; a reserved weight scales it.
+    pc = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
+    @test only(logjoint(demo(pc, 2.0), (;))) ≈ logpdf(pc, 2.0)
+    @test only(logjoint(demo(pc, (delay = 2.0,)), (;))) ≈ logpdf(pc, 2.0)
+    @test only(logjoint(demo(pc, (delay = 2.0, weight = 3)), (;))) ≈
+          3 * logpdf(pc, 2.0)
+
+    # IntervalCensored leaf -> interval_censored_model.
+    ic = interval_censored(LogNormal(1.5, 0.75), 1.0)
+    @test only(logjoint(demo(ic, 2.0), (;))) ≈ logpdf(ic, 2.0)
+
+    # double_interval_censored / other univariate -> the marginal univariate
+    # leaf model (fallback).
+    dic = double_interval_censored(
+        LogNormal(1.5, 0.75); upper = 10, interval = 1)
+    @test only(logjoint(demo(dic, 3.0), (;))) ≈ logpdf(dic, 3.0)
+
+    # Latent PrimaryCensored leaf -> the latent leaf path: `p` sampled inside.
+    ld = latent(pc)
+    @test length(keys(VarInfo(demo(ld, 3.0)))) == 1
+end
 
 @testitem "composer model: marginal Sequential submodel == direct logpdf" begin
     using CensoredDistributions, Distributions
@@ -234,7 +265,7 @@ end
         primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
         primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
 
-    @model demo(d, r) = obs ~ to_submodel(primary_censored_model(d, r))
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
 
     # All-observed row: log-density equals the censored composer logpdf on the
     # positional event vector built from the field order.
@@ -260,7 +291,7 @@ end
         primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         primary_censored(LogNormal(1.0, 0.5), Uniform(0, 1)))
 
-    @model demo(d, r) = obs ~ to_submodel(primary_censored_model(d, r))
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
 
     # Shared-origin event row [origin, y1, y2]; present origin conditions.
     row = (origin = 0.3, y1 = 2.5, y2 = 3.1)
@@ -280,7 +311,7 @@ end
     cmp = Competing(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7))
 
-    @model demo(d, r) = obs ~ to_submodel(primary_censored_model(d, r))
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
 
     for y in (1.0, 4.0, 8.0)
         @test only(logjoint(demo(cmp, (resolve = y,)), (;))) ≈ logpdf(cmp, y)
@@ -300,9 +331,9 @@ end
     ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
     base = logpdf(seq, ev)
 
-    @model demo(d, r) = obs ~ to_submodel(primary_censored_model(d, r))
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
     @model function demo_w(d, r, w)
-        obs ~ to_submodel(primary_censored_model(d, r; weight = w))
+        obs ~ to_submodel(composed_distribution_model(d, r; weight = w))
     end
 
     # Reserved `weight` field scales the contribution; excluded from events.
@@ -335,7 +366,7 @@ end
     @model function fit(rows)
         for i in eachindex(rows)
             x ~ to_submodel(
-                prefix(primary_censored_model(seq, rows[i]),
+                prefix(composed_distribution_model(seq, rows[i]),
                     Symbol("rec", i)), false)
         end
     end
@@ -356,7 +387,7 @@ end
         primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
     lseq = latent(seq)
 
-    @model demo(d, r) = obs ~ to_submodel(primary_censored_model(d, r))
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
 
     # A fully-missing row turns every internal event into a sampled latent that
     # lives in the VarInfo (one per event, never passed in).
@@ -391,7 +422,7 @@ end
     # the previous plus a positive delay).
     @model function gen(d)
         inner = to_submodel(
-            primary_censored_model(d, (a = missing, b = missing, c = missing)),
+            composed_distribution_model(d, (a = missing, b = missing, c = missing)),
             false)
         path ~ inner
         return path
@@ -412,7 +443,7 @@ end
         primary_censored(LogNormal(1.0, 0.5), Uniform(0, 1)))
     lpar = latent(par)
 
-    @model demo(d, r) = obs ~ to_submodel(primary_censored_model(d, r))
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
 
     # Origin plus two branches: three latents (shared origin + two branch
     # observations) when all missing.
@@ -452,7 +483,7 @@ end
             primary_censored(Gamma(sh, 1.0), Uniform(0, 1)))
         for i in eachindex(rows)
             x ~ to_submodel(
-                prefix(primary_censored_model(seq, rows[i]),
+                prefix(composed_distribution_model(seq, rows[i]),
                     Symbol("rec", i)), false)
         end
     end
@@ -485,7 +516,7 @@ end
             primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))))
         for i in eachindex(rows)
             x ~ to_submodel(
-                prefix(primary_censored_model(d, rows[i]),
+                prefix(composed_distribution_model(d, rows[i]),
                     Symbol("rec", i)), false)
         end
     end
@@ -513,7 +544,7 @@ end
 
     @model function fit(rows)
         for r in rows
-            x ~ to_submodel(primary_censored_model(seq, r), false)
+            x ~ to_submodel(composed_distribution_model(seq, r), false)
         end
     end
 

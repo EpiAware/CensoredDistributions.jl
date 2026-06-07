@@ -9,7 +9,8 @@ using CensoredDistributions: CensoredDistributions, PrimaryCensored, Latent,
                              Parallel, Competing, as_mixture, get_primary_event,
                              get_dist_recursive, convolve_distributions
 import CensoredDistributions: primary_censored_model, interval_censored_model,
-                              double_interval_censored_model, predict_events
+                              double_interval_censored_model,
+                              composed_distribution_model, predict_events
 using DynamicPPL: DynamicPPL, @model
 using Distributions: Distributions, UnivariateDistribution, logpdf
 using Random: AbstractRNG, default_rng
@@ -60,10 +61,18 @@ end
 end
 
 # ===========================================================================
-# Composer submodels (#335, PR3d)
+# Generic record entry: composed_distribution_model (#335, PR3d; #350)
 # ===========================================================================
 #
-# The composer models take the observations as a `NamedTuple` ROW keyed by EVENT
+# `composed_distribution_model(d, row)` is the SINGLE generic entry for a whole
+# record. It dispatches on `typeof(d)`: a leaf/univariate distribution delegates
+# to the matching LEAF model (`primary_censored_model` / `interval_censored_model`
+# / `double_interval_censored_model`), and a composed distribution recurses
+# through the composer structure. This keeps the leaf models correctly named while
+# never misnaming a composed record (a `Sequential` of double-censored edges is
+# composed, not 'primary censored').
+#
+# The composed methods take the observations as a `NamedTuple` ROW keyed by EVENT
 # NAME (`(onset = 2.0, admit = missing, death = 9.0)`); the field ORDER is the
 # event order `E_0, E_1, ..., E_k` the composer's components span (a Tables.jl
 # linelist row IS such a NamedTuple, so a row passes straight in). `missing`
@@ -85,6 +94,56 @@ end
 #     and unobserved intermediates marginalise by convolving the adjacent cores.
 # Per-record/branch latents are namespaced by `prefix` at the call site (see the
 # composer tests), so chains stay readable and groupable.
+
+# --- Leaf delegation -------------------------------------------------------
+#
+# A leaf/univariate record routes to its correctly named leaf model. The record
+# may arrive as a bare observed value or as a one-event `NamedTuple` row (with an
+# optional reserved weight); `_leaf_value`/`_leaf_weight` normalise both. The
+# `weight =` keyword still applies and overrides a row weight.
+
+# A `PrimaryCensored` (marginal) or its `Latent` wrapper -> the primary-censored
+# leaf model.
+function composed_distribution_model(
+        d::Union{PrimaryCensored, Latent{<:PrimaryCensored}}, row;
+        weight = nothing)
+    return primary_censored_model(
+        d, _leaf_value(row); weight = _leaf_weight(row, weight))
+end
+
+# An `IntervalCensored` -> the interval-censored leaf model.
+function composed_distribution_model(
+        d::IntervalCensored, row; weight = nothing)
+    return interval_censored_model(
+        d, _leaf_value(row); weight = _leaf_weight(row, weight))
+end
+
+# Any other univariate leaf (a `double_interval_censored` pipeline, a
+# `Truncated`, a `convolve_distributions` result, ...) -> the marginal univariate
+# leaf model. A bare `Latent{<:PrimaryCensored}` is handled above; the composer
+# `Latent{<:Sequential}` / `Latent{<:Parallel}` methods below are multivariate
+# and dispatch ahead of this univariate fallback.
+function composed_distribution_model(
+        d::UnivariateDistribution, row; weight = nothing)
+    return double_interval_censored_model(
+        d, _leaf_value(row); weight = _leaf_weight(row, weight))
+end
+
+# The single observed value of a leaf record: a bare value passes through; a
+# one-event `NamedTuple` row yields its single event (dropping any reserved
+# weight/count).
+_leaf_value(row) = row
+function _leaf_value(row::NamedTuple)
+    ev = _event_vector(row)
+    length(ev) == 1 || throw(ArgumentError(
+        "a leaf record takes one event value; got $(length(ev))"))
+    return ev[1]
+end
+
+# The weight of a leaf record: the keyword wins, else a row's reserved
+# weight/count, else `nothing`.
+_leaf_weight(row, kw_weight) = kw_weight
+_leaf_weight(row::NamedTuple, kw_weight) = _row_weight(row, kw_weight)
 
 # --- Reserved-field handling -----------------------------------------------
 
@@ -128,7 +187,7 @@ end
 # condition on their declared censoring. The contribution equals
 # `logpdf(d, event_vector)`, scaled by the row weight, so the submodel
 # log-density equals the direct `logpdf`.
-@model function primary_censored_model(
+@model function composed_distribution_model(
         d::Union{Sequential, Parallel}, row::NamedTuple; weight = nothing)
     events = _event_vector(row)
     w = _row_weight(row, weight)
@@ -141,12 +200,12 @@ end
 # carries one event value (plus any reserved weight); the time conditions on the
 # mixture marginal. No latent origin is declared: the competing outcome and its
 # delay are marginalised inside the mixture (#329).
-@model function primary_censored_model(
+@model function composed_distribution_model(
         d::Competing, row::NamedTuple; weight = nothing)
     events = _event_vector(row)
     length(events) == 1 || throw(ArgumentError(
-        "primary_censored_model(::Competing, row) takes one event value; " *
-        "got $(length(events))"))
+        "composed_distribution_model(::Competing, row) takes one event " *
+        "value; got $(length(events))"))
     w = _row_weight(row, weight)
     DynamicPPL.@addlogprob! _marginal_logprob(as_mixture(d), events[1], w)
     return events[1]
@@ -176,7 +235,7 @@ _marginal_logprob(d, x, w) = w * logpdf(d, x)
 # scores its gap through the edge's declared censoring (#329) and a missing event
 # samples the next event time. Indexed VarNames `e[i]` give each event a distinct
 # name in the VarInfo. The likelihood is scaled by the row weight via the `~`.
-@model function primary_censored_model(
+@model function composed_distribution_model(
         d::Latent{<:Sequential}, row::NamedTuple; weight = nothing)
     chain = d.dist
     obs = _event_vector(row)
@@ -205,7 +264,7 @@ end
 # declared as a shifted `~`, so an observed branch scores `logpdf(core_i,
 # y_i - o)` and a missing branch samples its observation. The shared origin
 # couples the branches (one common latent). Likelihood scaled by the weight.
-@model function primary_censored_model(
+@model function composed_distribution_model(
         d::Latent{<:Parallel}, row::NamedTuple; weight = nothing)
     tree = d.dist
     obs = _event_vector(row)
@@ -267,8 +326,8 @@ the integrated-out latents — the primary event time and any unobserved
 intermediate events — conditioned on the data and the posterior parameters.
 
 For forward-simulating fresh event paths from parameters (no `@model`, no
-conditioning on data), use the Turing-free
-[`predict_events(::Distribution)`](@ref) raw-distribution method instead.
+conditioning on data), use the Turing-free raw-distribution method
+[`predict_events`](@ref)`(d, ...)` instead.
 
 `DynamicPPL.predict` is provided by DynamicPPL's MCMCChains extension, available
 whenever `chain` is an `MCMCChains.Chains`. Calling `DynamicPPL.predict` rather
@@ -287,9 +346,9 @@ than `Turing.predict` keeps the extension Turing-free (DynamicPPL weak-dep only)
   from `chain`.
 
 # See also
-- [`predict_events(::Distribution)`](@ref): the Turing-free forward-simulation
+- [`predict_events`](@ref): the Turing-free `(d, ...)` forward-simulation
   method.
-- [`latent`](@ref), [`primary_censored_model`](@ref).
+- [`latent`](@ref), [`composed_distribution_model`](@ref).
 "
 function predict_events(
         chain, model::DynamicPPL.Model;

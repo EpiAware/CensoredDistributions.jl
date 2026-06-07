@@ -1,6 +1,10 @@
 @doc "
 
-Build a DynamicPPL submodel for a primary event censored distribution.
+Build a DynamicPPL submodel for a primary event censored LEAF distribution.
+
+This is a leaf building block. For a whole record (leaf or composed) call the
+generic [`composed_distribution_model`](@ref) instead, which dispatches to the
+right leaf model or recurses through a composer.
 
 The submodel is `to_submodel`-able and dispatches on the type of `d`:
 
@@ -120,3 +124,69 @@ only(logjoint(demo(d, 3.0), (;))), logpdf(d, 3.0)
 - [`primary_censored_model`](@ref), [`interval_censored_model`](@ref)
 "
 function double_interval_censored_model end
+
+@doc "
+
+Build a DynamicPPL submodel for ANY record distribution, leaf or composed.
+
+This is the single generic entry point: it dispatches on the type of `d` and
+either delegates to the matching leaf model or recurses through a composed
+distribution.
+
+- A leaf/univariate distribution routes to its leaf model:
+  [`primary_censored`](@ref) (marginal or [`latent`](@ref)) to
+  [`primary_censored_model`](@ref), an [`interval_censored`](@ref) to
+  [`interval_censored_model`](@ref), and any other univariate (a
+  [`double_interval_censored`](@ref) pipeline, a `Truncated`, a
+  [`convolve_distributions`](@ref) result) to
+  [`double_interval_censored_model`](@ref).
+- A composed distribution ([`Sequential`](@ref), [`Parallel`](@ref),
+  [`Competing`](@ref), or their [`latent`](@ref) wrappers) recurses through the
+  composer structure, marginalising or conditioning per record per the row's
+  missingness pattern, and turning the origin/shared primary on in the latent
+  case.
+
+Unlike the leaf models, this entry never misnames the distribution: a
+`Sequential` of double-censored edges is composed, not 'primary censored'. The
+leaf models stay available as the correctly named building blocks and may be
+called directly.
+
+The observations come in as a `NamedTuple` `row` keyed by event name; a leaf
+record may also be passed a bare observed value. `missing` fields drive the
+per-record marginalise-vs-condition dispatch, and a reserved `weight`/`count`
+field (or the `weight =` keyword) scales the likelihood.
+
+This function has no methods until `DynamicPPL` (or `Turing`) is loaded; the
+methods live in the package extension so the core stays free of `DynamicPPL`.
+
+# Arguments
+- `d`: Any record distribution: a leaf (univariate) or a composer.
+- `row`: The record observations, a `NamedTuple` keyed by event name (or a bare
+  value for a leaf).
+
+# Keyword Arguments
+- `weight`: Multiplicity weight scaling the record's likelihood. `nothing` (the
+  default) leaves it unweighted; a reserved `weight`/`count` row field also
+  applies.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, DynamicPPL
+
+seq = Sequential(
+    primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+    primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+
+@model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+row = (onset = 0.0, admit = 2.0, death = 5.0)
+ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
+only(logjoint(demo(seq, row), (;))), logpdf(seq, ev)
+```
+
+# See also
+- [`primary_censored_model`](@ref), [`interval_censored_model`](@ref),
+  [`double_interval_censored_model`](@ref): the leaf building blocks.
+- [`latent`](@ref), [`predict_events`](@ref).
+"
+function composed_distribution_model end
