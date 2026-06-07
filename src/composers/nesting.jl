@@ -65,3 +65,62 @@ function _child_rand!(
     end
     return nothing
 end
+
+# ---------------------------------------------------------------------------
+# Recursive indented-tree printing for the composers
+# ---------------------------------------------------------------------------
+#
+# A nested composed distribution prints as ONE indented tree, recursing into
+# every child so the whole structure is visible at once. The three composers
+# share the same `├─ / └─` glyphs and indentation via `_show_tree`: a header
+# line for the node, then each child indented one level, with composer children
+# recursing and leaf distributions printed inline. The compact `show(io, d)`
+# one-liners on each type are kept for inline/array display.
+
+# Header label for a composer node (the node TYPE, plus a count).
+_node_header(d::Sequential) = "Sequential ($(length(d.components)) steps)"
+_node_header(d::Parallel) = "Parallel ($(length(d.components)) branches)"
+_node_header(c::Competing) = "Competing ($(_n_branches(c)) outcomes)"
+
+# Child labels: a composer child has no inline label (it recurses); a leaf is
+# shown by its compact `repr`. `Sequential`/`Parallel` children are unnamed
+# (positional); `Competing` labels each child with its outcome name and prob.
+_is_composer(::Union{Sequential, Parallel, Competing}) = true
+_is_composer(::Any) = false
+
+# Print `node`'s subtree to `io`. `prefix` is the accumulated indentation for
+# this node's children; the root call passes an empty prefix. Each child gets a
+# `├─ ` connector (or `└─ ` for the last), and a composer child recurses with an
+# extended prefix (`│  ` for non-last siblings, spaces for the last).
+function _show_tree(io::IO, node, prefix::String)
+    children, labels = _tree_children(node)
+    n = length(children)
+    for i in 1:n
+        last = i == n
+        connector = last ? "└─ " : "├─ "
+        child = children[i]
+        label = labels[i]
+        if _is_composer(child)
+            head = isempty(label) ? _node_header(child) :
+                   "$(label): $(_node_header(child))"
+            println(io, prefix, connector, head)
+            _show_tree(io, child, prefix * (last ? "   " : "│  "))
+        else
+            line = isempty(label) ? string(child) : "$(label): $(child)"
+            println(io, prefix, connector, line)
+        end
+    end
+    return nothing
+end
+
+# Children and their inline labels for each composer. `Sequential`/`Parallel`
+# children are positional (no label); `Competing` labels each by outcome name
+# and branch probability.
+function _tree_children(d::Union{Sequential, Parallel})
+    return collect(d.components), fill("", length(d.components))
+end
+function _tree_children(c::Competing)
+    labels = ["$(c.names[k]) (p = $(c.branch_probs[k]))"
+              for k in 1:_n_branches(c)]
+    return collect(c.delays), labels
+end

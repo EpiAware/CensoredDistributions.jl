@@ -120,17 +120,14 @@ sampler(d::Parallel) = d
 
 @doc "
 
-Print a [`Parallel`](@ref) composer as its branch distributions.
+Print a [`Parallel`](@ref) composer as a recursive indented tree, descending
+into any nested composer children so the whole structure is shown at once.
 
 See also: [`Parallel`](@ref)
 "
 function Base.show(io::IO, ::MIME"text/plain", d::Parallel)
-    n = length(d.components)
-    println(io, "Parallel composer of $n branches")
-    for i in 1:n
-        branch = i == n ? "└─ " : "├─ "
-        println(io, "  ", branch, d.components[i])
-    end
+    println(io, _node_header(d))
+    _show_tree(io, d, "")
     return nothing
 end
 

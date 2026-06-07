@@ -163,9 +163,64 @@ end
         :disch => (Gamma(2.0, 1.5), 0.7))
 
     @test occursin("Sequential", sprint(show, s))
-    @test occursin("Sequential chain", sprint(show, MIME"text/plain"(), s))
+    @test occursin("Sequential (2 steps)", sprint(show, MIME"text/plain"(), s))
     @test occursin("Parallel", sprint(show, p))
-    @test occursin("Parallel composer", sprint(show, MIME"text/plain"(), p))
+    @test occursin(
+        "Parallel (2 branches)", sprint(show, MIME"text/plain"(), p))
     @test occursin("Competing", sprint(show, c))
     @test occursin("death", sprint(show, MIME"text/plain"(), c))
+end
+
+@testitem "Composers show as a recursive indented tree" begin
+    using Distributions
+
+    # A nested stack must print the WHOLE structure as one indented tree, with
+    # the child node types/names at the right depth (not just the top level).
+    d = Parallel(
+        Gamma(2.0, 1.0),
+        Sequential(LogNormal(0.5, 0.4), Gamma(3.0, 1.0)),
+        Competing(:death => (Gamma(1.5, 1.0), 0.3),
+            :disch => (Gamma(2.0, 1.5), 0.7)))
+    out = sprint(show, MIME"text/plain"(), d)
+    lines = split(out, '\n')
+
+    # Root node header and its three branches.
+    @test occursin("Parallel (3 branches)", lines[1])
+    # The nested Sequential and Competing children are rendered (recursively),
+    # each indented one level under the root with a tree connector.
+    seq_line = findfirst(l -> occursin("Sequential (2 steps)", l), lines)
+    comp_line = findfirst(l -> occursin("Competing (2 outcomes)", l), lines)
+    @test seq_line !== nothing
+    @test comp_line !== nothing
+    @test occursin("├─ ", lines[seq_line])
+    @test occursin("└─ ", lines[comp_line])
+
+    # The Sequential's own leaf steps are indented one further level (the
+    # continuation prefix `│  ` carries the parent connector down).
+    @test any(l -> occursin("│  ", l) && occursin("LogNormal", l), lines)
+    @test any(l -> occursin("│  ", l) && occursin("Gamma", l), lines)
+
+    # The Competing outcomes carry their names and branch probabilities, nested
+    # under the last branch (so a spaces continuation prefix, not `│`).
+    @test any(l -> occursin("death (p = 0.3)", l), lines)
+    @test any(l -> occursin("disch (p = 0.7)", l), lines)
+
+    # A composer nested inside Competing also recurses: a Competing outcome may
+    # itself be a (univariate) Competing, whose subtree then prints nested.
+    # (Competing outcomes are univariate by design, so a Sequential/Parallel
+    # cannot be an outcome; a nested Competing can.)
+    nested_comp = Sequential(
+        Gamma(2.0, 1.0),
+        Competing(
+            :a => (Competing(:a1 => (Normal(0.0, 1.0), 0.5),
+                    :a2 => (Normal(1.0, 1.0), 0.5)),
+                0.4),
+            :b => (Normal(2.0, 1.0), 0.6)))
+    out2 = sprint(show, MIME"text/plain"(), nested_comp)
+    @test occursin("Sequential (2 steps)", out2)
+    # Both the outer and the nested Competing headers appear.
+    @test count("Competing (2 outcomes)", out2) == 2
+    # The outer Competing outcome `a` is itself a Competing, nested under it.
+    @test occursin("a (p = 0.4): Competing (2 outcomes)", out2)
+    @test occursin("a1 (p = 0.5)", out2)
 end

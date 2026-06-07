@@ -124,17 +124,14 @@ sampler(d::Sequential) = d
 
 @doc "
 
-Print a [`Sequential`](@ref) chain as its ordered step distributions.
+Print a [`Sequential`](@ref) chain as a recursive indented tree, descending
+into any nested composer children so the whole structure is shown at once.
 
 See also: [`Sequential`](@ref)
 "
 function Base.show(io::IO, ::MIME"text/plain", d::Sequential)
-    n = length(d.components)
-    println(io, "Sequential chain of $n steps")
-    for i in 1:n
-        branch = i == n ? "└─ " : "├─ "
-        println(io, "  ", branch, d.components[i])
-    end
+    println(io, _node_header(d))
+    _show_tree(io, d, "")
     return nothing
 end
 
