@@ -245,30 +245,55 @@ Distributions.pdf(d::_ShiftedDelay, y::Real) = exp(logpdf(d, y))
 Base.rand(rng::AbstractRNG, d::_ShiftedDelay) = d.shift + rand(rng, d.delay)
 
 # ===========================================================================
-# predict_events (#350): event-based draws from a marginal-fit posterior
+# predict_events (#350): recover observed records' latent event times
 # ===========================================================================
-#
-# `predict_events(chain, model)` runs the LATENT form of a marginal-fit model
-# over the fitted posterior to produce event-based draws (the internal event
-# times). It delegates to `DynamicPPL.predict`: the latent `model` is executed
-# conditioned on each parameter draw in `chain`, sampling the event variables the
-# marginal chain does not carry. This is sound because the marginal and latent
-# forms share the same parameter names and the marginal-equals-latent equivalence
-# (#301) holds, so the marginal posterior drops straight into the latent form.
-#
-# The two flavours are dispatched by the data the latent `model` already carries,
-# not by an argument here:
-#   - new-record posterior predictive: `model` built with `missing` events, so
-#     `predict` samples the complete internal event path per draw;
-#   - observed-record latent recovery: `model` built with the observed events
-#     supplied, so `predict` re-samples only the integrated-out latents (the
-#     primary time and any unobserved intermediate events) given the data.
-#
-# `DynamicPPL.predict` is provided by DynamicPPL's MCMCChains extension, so it is
-# available whenever `chain` is an `MCMCChains.Chains` (it must be, to have been
-# produced by sampling). Keeping the call here on `DynamicPPL.predict` rather than
-# `Turing.predict` keeps the extension Turing-free (DynamicPPL weak-dep only).
-function predict_events(chain, model; rng = default_rng(), include_all = false)
+
+@doc raw"
+
+Recover the observed records' integrated-out latent event times from a
+marginal-fit posterior.
+
+Fit a model in its efficient MARGINAL form (the primary event integrated out, no
+extra latent dimensions), then call `predict_events(chain, model)` to recover the
+internal event times of the records you fit, by running the LATENT form of the
+same model over the fitted posterior. This works because the marginal and latent
+forms are one family sharing the same parameter names together with the
+marginal-equals-latent equivalence (#301), so the marginal-fit posterior drops
+straight into the latent form. It delegates to `DynamicPPL.predict`: the latent
+`model` is executed conditioned on each parameter draw in `chain`, re-sampling the
+event variables the marginal chain does not carry. The observed events are
+supplied in `model` (the censored observations are fixed), so this re-samples only
+the integrated-out latents — the primary event time and any unobserved
+intermediate events — conditioned on the data and the posterior parameters.
+
+For forward-simulating fresh event paths from parameters (no `@model`, no
+conditioning on data), use the Turing-free
+[`predict_events(::Distribution)`](@ref) raw-distribution method instead.
+
+`DynamicPPL.predict` is provided by DynamicPPL's MCMCChains extension, available
+whenever `chain` is an `MCMCChains.Chains`. Calling `DynamicPPL.predict` rather
+than `Turing.predict` keeps the extension Turing-free (DynamicPPL weak-dep only).
+
+# Arguments
+- `chain`: An `MCMCChains.Chains` from fitting the MARGINAL model.
+- `model`: The LATENT form of the same model, carrying the observed event times
+  (built with a [`latent`](@ref)-wrapped node via [`primary_censored_model`](@ref),
+  with the same parameter names as the marginal model that produced `chain`).
+
+# Keyword Arguments
+- `rng`: Random number generator for the predictive sampling.
+- `include_all`: Passed through to `DynamicPPL.predict`. `false` (the default)
+  returns only the recovered event variables; `true` also keeps the parameters
+  from `chain`.
+
+# See also
+- [`predict_events(::Distribution)`](@ref): the Turing-free forward-simulation
+  method.
+- [`latent`](@ref), [`primary_censored_model`](@ref).
+"
+function predict_events(
+        chain, model::DynamicPPL.Model;
+        rng = default_rng(), include_all = false)
     return DynamicPPL.predict(rng, model, chain; include_all = include_all)
 end
 

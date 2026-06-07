@@ -106,6 +106,11 @@ include("composers/censored_specialisations.jl")
 # until DynamicPPL is loaded; the methods live in the package extension.
 include("turing_models.jl")
 
+# Turing-free `predict_events` raw-distribution methods (#350): forward-simulate
+# event paths from a latent/composed distribution. The fitted-model
+# `predict_events(chain, model)` method lives in the DynamicPPL extension.
+include("utils/predict_events.jl")
+
 # Public API - functions that are part of public interface but not exported
 @static if VERSION >= v"1.11"
     include("public.jl")

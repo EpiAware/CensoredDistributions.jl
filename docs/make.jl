@@ -22,7 +22,8 @@ if !skip_notebooks
         "analytical-primarycensored-cdfs.jl",
         "exponentially-tilted-primary-events.jl",
         "ad-backends.jl",
-        "fitting-with-turing.jl"
+        "fitting-with-turing.jl",
+        "fit-marginal-sample-event-based.jl"
     ]
 
     println(
