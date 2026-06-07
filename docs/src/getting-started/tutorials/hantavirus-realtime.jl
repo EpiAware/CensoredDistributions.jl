@@ -47,7 +47,7 @@ We sample with `ForwardDiff` for a short, self-contained build.
 using CensoredDistributions
 using Distributions
 using Turing
-using DynamicPPL: prefix
+using DynamicPPL: prefix, to_submodel
 using Random
 using Statistics
 using ADTypes: AutoForwardDiff
