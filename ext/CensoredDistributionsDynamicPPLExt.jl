@@ -10,7 +10,7 @@ using CensoredDistributions: CensoredDistributions, PrimaryCensored, Latent,
                              get_dist_recursive, convolve_distributions
 import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model
-using DynamicPPL: DynamicPPL, @model, to_submodel, prefix
+using DynamicPPL: DynamicPPL, @model
 using Distributions: Distributions, UnivariateDistribution, logpdf
 using Random: AbstractRNG
 
