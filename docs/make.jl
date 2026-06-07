@@ -23,7 +23,8 @@ if !skip_notebooks
         "exponentially-tilted-primary-events.jl",
         "ad-backends.jl",
         "fitting-with-turing.jl",
-        "fit-marginal-sample-event-based.jl"
+        "fit-marginal-sample-event-based.jl",
+        "hantavirus-realtime.jl"
     ]
 
     println(
