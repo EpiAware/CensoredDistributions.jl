@@ -20,7 +20,10 @@ machinery) in the user's own Turing model.
 4. The coupled latent origin for a sourced case, scored through the latent
    path (`PrimaryConditional` / `primary_conditional_logpdf`).
 5. Completeness/ascertainment thinning ``R_{eff} = R \cdot p``.
-6. A simulate-and-recover exercise that draws event times with full-path
+6. The intended UI: each record is **one** composed distribution dispatched as
+   a **submodel** that manages its own likelihood; the model loops over records
+   and the loop only wires the cross-record coupled origin.
+7. A simulate-and-recover exercise that draws event times with full-path
    `rand` and recovers the delay parameters.
 
 ### Out of scope (stays user Turing)
@@ -44,6 +47,7 @@ We sample with `ForwardDiff` for a short, self-contained build.
 using CensoredDistributions
 using Distributions
 using Turing
+using DynamicPPL: prefix
 using Random
 using Statistics
 using ADTypes: AutoForwardDiff
@@ -259,16 +263,47 @@ md"""
 The ``R`` that this multiplies, and the offspring-count likelihood it feeds,
 are the user's Turing code and stay out of scope here.
 
+## The per-record submodel UI
+
+The intended usage is **not** hand-rolled per-component dispatch.
+Each record is one composed distribution `d`, and the model dispatches to it as
+a *submodel* that manages its own likelihood internally:
+
+```julia
+for i in eachindex(rows)
+    obs[i] ~ to_submodel(
+        prefix(double_interval_censored_model(d_i, rows[i].y), Symbol(:r, i)))
+end
+```
+
+[`double_interval_censored_model`](@ref) is the univariate submodel
+constructor: it takes the *whole* composed distribution as `d` and scores the
+observation against it, optionally weighted by the row's multiplicity.
+Because the per-record right-truncated delay is itself a univariate composed
+distribution (the [`truncate_to_horizon`](@ref) object for an index record, the
+[`truncate_chain`](@ref) object for a sourced record), passing it as `d` lets
+the submodel own the marginal/condition/convolve likelihood.
+We never write the `logpdf` or an `@addlogprob!` by hand.
+
+`prefix(...)` namespaces each record's submodel so the variables stay distinct
+and groupable in the chain.
+
+The one piece that stays in the user loop is the **cross-record coupling**.
+For a sourced record the observed quantity is the gap from the *source's* onset
+to the secondary's onset, so the source onset (the coupled origin) is wired
+into the offspring's record as the gap anchor before the record's distribution
+is dispatched.
+This loop wiring of the coupled origin is exactly the user responsibility the
+design assigns to the caller; everything else is the submodel's job.
+
 ## Recover the delay parameters
 
-We now put the per-record loop together and recover the delay parameters from
-the simulated rows.
-Index rows score their observed incubation delay through the single-delay
-right-truncation denominator; sourced rows score the observed source-to-
-secondary gap through the convolved-chain denominator with the coupled origin.
-The whole record is one distribution and the contribution is its `logpdf`, so
-the loop is the generalisation of the double-censored model to a heterogeneous
-linelist.
+We put the per-record submodel loop together and recover the delay parameters
+from the simulated rows.
+Index records dispatch their incubation delay to the single-delay
+right-truncation distribution; sourced records dispatch their source-to-
+secondary gap (anchored on the coupled source onset) to the convolved-chain
+right-truncation distribution.
 """
 
 @model function hanta_delays(index_rows, sourced_rows)
@@ -279,17 +314,27 @@ linelist.
     inc = LogNormal(mu_inc, sigma_inc)
     delta = Normal(mu_delta, sigma_delta)
 
-    ## index cases: single-delay right-truncation denominator
-    for r in index_rows
-        Turing.@addlogprob! logpdf(
-            truncate_to_horizon(inc, r.window), r.delay)
+    ## index records: the single-delay right-truncation distribution, dispatched
+    ## as a submodel that owns its likelihood.
+    for i in eachindex(index_rows)
+        r = index_rows[i]
+        d = truncate_to_horizon(inc, r.window)
+        idx ~ to_submodel(
+            prefix(double_interval_censored_model(d, r.delay),
+                Symbol(:idx, i)), false)
     end
 
-    ## sourced cases: convolved-chain right-truncation denominator with the
-    ## coupled source onset as the shared origin
-    for r in sourced_rows
-        chain = truncate_chain((delta, inc), (false,), r.window)
-        Turing.@addlogprob! logpdf(chain, r.sec_onset - r.src_onset)
+    ## sourced records: the convolved-chain right-truncation distribution,
+    ## dispatched as a submodel. The loop only wires the coupled source onset:
+    ## the observed gap is anchored on the source's onset (cross-record
+    ## coupling), then the record's distribution owns the likelihood.
+    for i in eachindex(sourced_rows)
+        r = sourced_rows[i]
+        d = truncate_chain((delta, inc), (false,), r.window)
+        gap = r.sec_onset - r.src_onset
+        src ~ to_submodel(
+            prefix(double_interval_censored_model(d, gap),
+                Symbol(:src, i)), false)
     end
 end
 
@@ -316,6 +361,10 @@ denominator, [`truncate_chain`](@ref) for the convolved-chain denominator, the
 coupled latent origin through [`PrimaryConditional`](@ref) /
 [`primary_conditional_logpdf`](@ref), and explicit ``R_{eff} = R \cdot p``
 ascertainment thinning via the convolved-chain CDF.
+The model dispatches each record's whole distribution as a
+[`double_interval_censored_model`](@ref) submodel that owns its likelihood, and
+the loop only wires the cross-record coupled origin, never a hand-rolled
+per-component `logpdf` or `@addlogprob!`.
 The ``R(t)`` random walk and the offspring-count clustering stay in the user's
 Turing model and are not part of this package.
 """
