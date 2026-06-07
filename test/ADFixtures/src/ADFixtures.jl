@@ -25,7 +25,7 @@ __precompile__(false)
 
 using CensoredDistributions
 using Distributions: Distributions, Gamma, LogNormal, Weibull, Uniform, Normal,
-                     truncated, logpdf, logccdf, cdf
+                     truncated, logpdf, logccdf, cdf, mean, var
 using ADTypes: ADTypes, AutoForwardDiff, AutoReverseDiff, AutoMooncake,
                AutoMooncakeForward, AutoEnzyme
 using DifferentiationInterface: DifferentiationInterface, Constant
@@ -449,6 +449,19 @@ function scenarios(; with_reference::Bool = false)
                         Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), x),
                 obs),
             [2.0, 1.0], (Constant(obs),))
+        # Convolved analytic moments (#352): mean/var are the sums of the
+        # component moments, so the gradient flows through each component's
+        # closed-form `mean`/`var` w.r.t. its parameters. The `obs` context is
+        # unused (the moments take no evaluation point) but keeps the scenario
+        # shape uniform. Both `mean` and `var` are summed so the gradient
+        # covers each moment path.
+        _push!("Convolved Gamma+Normal mean+var moments",
+            (θ,
+                _obs) -> let d = CensoredDistributions.convolve_distributions(
+                    Gamma(θ[1], θ[2]), Normal(θ[3], θ[4]))
+                mean(d) + var(d)
+            end,
+            [2.0, 1.5, -0.5, 0.8], (Constant(obs),))
     end
 
     # Pluggable integration path (#208). The numeric primary-censored CDF
