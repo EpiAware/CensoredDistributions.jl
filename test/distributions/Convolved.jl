@@ -495,17 +495,7 @@ end
     end
 end
 
-@testitem "Convolved moments are AD-safe through component params (#352)" begin
-    using Distributions, ForwardDiff
-
-    # mean/var flow through the component parameters under ForwardDiff.
-    f = θ -> begin
-        d = convolve_distributions(Gamma(2.0, θ[1]), Normal(θ[2], 0.8))
-        mean(d) + var(d)
-    end
-    g = ForwardDiff.gradient(f, [1.5, -0.5])
-    @test all(isfinite, g)
-    # d(mean)/dθ1 = 2 (Gamma shape), d(mean)/dθ2 = 1; var independent of θ2.
-    @test g[1] ≈ 2.0 + 2 * 2.0 * 1.5  # mean: 2θ1, var: 2*θ1^2 -> 2*2*θ1
-    @test g[2] ≈ 1.0
-end
+# The AD-safety of the Convolved moments (gradients flowing through the
+# component parameters) is covered by the 6-backend AD suite in
+# `test/ADFixtures` ("Convolved Gamma+Normal mean+var moments"), which has the
+# AD backends as dependencies; the main test env does not.
