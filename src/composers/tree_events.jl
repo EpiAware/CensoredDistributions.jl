@@ -93,9 +93,10 @@ function tree_event_names(d::Union{Sequential, Parallel})
     return Tuple(names)
 end
 
-# A `Competing` node is univariate (one resolution event); its event name is
-# supplied by its PARENT edge, so standalone it has only a positional origin.
-tree_event_names(::Competing) = (:event_1,)
+# A standalone `Competing` node has only a positional origin; its OUTCOME event
+# names anchor at the parent event when nested (see `_walk_edge!` below), so on
+# its own it exposes the origin plus one slot per outcome named by its outcomes.
+tree_event_names(c::Competing) = (:event_1, c.names...)
 
 # The root origin event name E_0: derived from the FIRST edge's name split, else
 # positional. For a `Sequential` the first edge is `components[1]`; for a
@@ -160,6 +161,22 @@ function _walk_edge!(names, edge_name::Symbol,
         child::Union{Sequential, Parallel}, origin::Symbol, counter)
     _walk_targets!(names, child, origin, counter)
     return _nested_terminal_name(child, names, origin)
+end
+
+# A nested `Competing` edge contributes one EVENT name per OUTCOME (#333),
+# anchored at the parent `origin`: the death/discharge columns of a record are
+# each their own event slot, so the observed outcome is identified by which slot
+# is present. The outcome names replace the single opaque resolution event; the
+# edge/parameter names are unaffected (params still belong to the Competing
+# outcomes, see `params_table`). A Competing is a terminal node (the chain does
+# not continue through a single outcome), so its terminal name for a following
+# step is the shared origin it hangs off.
+function _walk_edge!(names, edge_name::Symbol, child::Competing,
+        origin::Symbol, counter)
+    for name in child.names
+        push!(names, name)
+    end
+    return origin
 end
 
 _nested_terminal_name(::Parallel, names, origin::Symbol) = origin

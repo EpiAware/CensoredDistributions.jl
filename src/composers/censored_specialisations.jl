@@ -83,7 +83,11 @@ struct _Nested end
 struct _Flat end
 _nested_trait(components::C) where {C <: Tuple} = _nested_trait(C)
 @generated function _nested_trait(::Type{C}) where {C <: Tuple}
-    has_nested = any(t -> t <: Sequential || t <: Parallel, fieldtypes(C))
+    # A `Competing` component also forces the tree path: its multi-slot outcome
+    # layout (#333) is scored by `_tree_step(::Competing)`, not the flat
+    # segment-grouped scorer.
+    has_nested = any(
+        t -> t <: Sequential || t <: Parallel || t <: Competing, fieldtypes(C))
     return has_nested ? :(_Nested()) : :(_Flat())
 end
 
@@ -173,13 +177,18 @@ _first_origin_node(d::Sequential) = d.components[1]
 # Sequential at its last leaf event; a Parallel at its shared origin, which is the
 # PARENT's event (offset -1 relative to the branch's own first event). Pure Int.
 _terminal_offset(::UnivariateDistribution) = 0
+# A `Competing` is a terminal node (the chain does not continue through a single
+# outcome); like a `Parallel` its terminal for a following step is the shared
+# origin it hangs off, offset -1 from its own first (outcome) event slot.
+_terminal_offset(::Competing) = -1
 _terminal_offset(d::Sequential) = _seq_terminal_offset(d.components)
 _terminal_offset(::Parallel) = -1
 function _seq_terminal_offset(components::Tuple)
-    # The last step's terminal, measured from the chain's own first event.
+    # The last step's terminal, measured from the chain's own first event. Uses
+    # the EVENT-slot count (a `Competing` step spans one slot per outcome, #333).
     off = 0
     @inbounds for i in 1:(length(components) - 1)
-        off += _child_nleaves(components[i])
+        off += _event_child_nleaves(components[i])
     end
     last = components[end]
     return off + _terminal_offset(last)
@@ -208,11 +217,11 @@ function _tree_score(d::Sequential, events, origin_idx::Int, event_start::Int,
     first_step = first(comps)
     acc = _tree_step(first_step, events, origin_idx, event_start, primary, T)
     o_idx = event_start + _terminal_offset(first_step)
-    ev_idx = event_start + _child_nleaves(first_step)
+    ev_idx = event_start + _event_child_nleaves(first_step)
     @inbounds for step in Base.tail(comps)
         acc += _tree_step(step, events, o_idx, ev_idx, nothing, T)
         o_idx = ev_idx + _terminal_offset(step)
-        ev_idx += _child_nleaves(step)
+        ev_idx += _event_child_nleaves(step)
     end
     return acc
 end
@@ -238,7 +247,7 @@ function _tree_score(d::Parallel, events, origin_idx::Int, event_start::Int,
     ev_idx = event_start
     @inbounds for branch in d.components
         acc += _tree_step(branch, events, origin_idx, ev_idx, primary, T)
-        ev_idx += _child_nleaves(branch)
+        ev_idx += _event_child_nleaves(branch)
     end
     return acc
 end
@@ -255,7 +264,9 @@ end
 # `logpdf` -- so an observed origin conditions each child on its declared edge.
 function _tree_step(step::Union{Sequential, Parallel}, events, o_idx::Int,
         ev_idx::Int, primary, ::Type{T}) where {T}
-    sub = _subevent_slice(events, o_idx, ev_idx, length(step))
+    # The sub-view spans the node's EVENT slots (a `Competing` step contributes
+    # one slot per outcome, #333), so use the event-slot count, not `length`.
+    sub = _subevent_slice(events, o_idx, ev_idx, _event_nleaves(step.components))
     return _tree_score(step, sub, 1, 2, primary, T)
 end
 
@@ -289,6 +300,91 @@ function _tree_step(step::UnivariateDistribution, events, o_idx::Int,
     end
     # A missing endpoint contributes no factor.
     return zero(T)
+end
+
+# A nested `Competing` node SELF-DISPATCHES on the row's outcome missingness
+# (#333), mirroring the top-level `Competing` self-dispatch but anchored at the
+# parent event. Its `n_outcomes` event slots begin at `ev_idx`; the anchor (the
+# parent origin) is `events[o_idx]`. The numeric event-vector path uses the
+# node's STORED branch probabilities (the per-record `branch_probs` override is a
+# ROW input, applied by the DynamicPPL extension which re-anchors a nested
+# Competing with row context). Exactly one outcome slot observed -> condition on
+# that branch (`log(p[i]) + logpdf(delay[i], gap)`); no outcome observed ->
+# contributes no factor (the resolved-but-unknown-outcome encoding for a NESTED
+# Competing is deferred, #329). The shared core arithmetic
+# (`_competing_condition_logpdf`) is the SAME one the top-level path uses.
+function _tree_step(step::Competing, events, o_idx::Int, ev_idx::Int,
+        primary, ::Type{T}) where {T}
+    o = events[o_idx]
+    return _competing_tree_logpdf(step, step.branch_probs, o,
+        events, ev_idx, T)
+end
+
+# Score a nested `Competing` against its outcome-slot slice given the anchor
+# value `o` and branch probabilities `probs` (stored or row-overridden). Pure
+# Turing-free arithmetic shared by the numeric path and the DynamicPPL extension.
+function _competing_tree_logpdf(c::Competing, probs, o, events, ev_idx::Int,
+        ::Type{T}) where {T}
+    n = _n_branches(c)
+    obs_i = 0
+    obs_gap = zero(T)
+    @inbounds for k in 1:n
+        y = events[ev_idx + k - 1]
+        y === missing && continue
+        obs_i == 0 || throw(ArgumentError(
+            "a nested Competing record may observe at most one outcome time; " *
+            "got outcomes $(c.names[obs_i]) and $(c.names[k])"))
+        o === missing && throw(ArgumentError(
+            "a nested Competing with an observed outcome needs an observed " *
+            "anchor (its parent event); got a missing anchor"))
+        obs_i = k
+        obs_gap = convert(T, y) - convert(T, o)
+    end
+    obs_i == 0 && return zero(T)
+    return _competing_condition_logpdf(probs, c.delays[obs_i], obs_gap, obs_i)
+end
+
+# --- per-record branch-probability override for a nested Competing (#333) -----
+#
+# A per-record `branch_probs` override is a ROW input (the covariate CFR
+# `logistic(Xβ)` flows in per record), so it cannot ride the numeric event
+# vector. Rather than thread it through the AD-sensitive tree recursion, the
+# DynamicPPL extension REBUILDS the tree with the (single) Competing node's
+# probabilities replaced for the record, then scores the rebuilt tree through the
+# normal numeric path (whose `_tree_step(::Competing)` reads the now-overridden
+# stored probs). The override's element type is preserved, so a `logistic(Xβ)`
+# `Dual` flows through the rebuilt node and differentiates.
+
+# Count the `Competing` nodes anywhere in a composed tree, so a single per-record
+# `branch_probs` field is rejected as ambiguous when more than one node exists.
+_count_competing(c::Competing) = 1
+_count_competing(::UnivariateDistribution) = 0
+function _count_competing(d::Union{Sequential, Parallel})
+    return sum(_count_competing, d.components; init = 0)
+end
+
+# Rebuild a composed tree with the single `Competing` node's branch probabilities
+# replaced by `probs` (already coerced to outcome order and validated). Errors if
+# the tree has no Competing node or more than one (the single `branch_probs` row
+# field is then ambiguous, #333). Pure, Turing-free; the new probs keep their
+# element type.
+function _override_competing_branch_probs(d, probs)
+    n = _count_competing(d)
+    n == 1 || throw(ArgumentError(
+        "a per-record `branch_probs` override needs exactly one Competing node " *
+        "in the tree; found $n"))
+    return _replace_competing(d, probs)
+end
+
+_replace_competing(c::Competing, probs) = Competing(c.names, c.delays, probs)
+_replace_competing(d::UnivariateDistribution, probs) = d
+function _replace_competing(d::Sequential, probs)
+    return Sequential(map(c -> _replace_competing(c, probs), d.components),
+        d.names)
+end
+function _replace_competing(d::Parallel, probs)
+    return Parallel(map(c -> _replace_competing(c, probs), d.components),
+        d.names)
 end
 
 # ---------------------------------------------------------------------------
@@ -326,11 +422,13 @@ differentiate with `events` held constant.
 See also: [`Sequential`](@ref), [`Parallel`](@ref)
 "
 function logpdf(d::Sequential, events::AbstractVector{T}) where {T >: Missing}
-    # The flat event vector carries one entry per LEAF event plus the root
-    # origin, so a tree with nested composers needs `_nleaves(d) + 1` entries,
-    # not `length(d.components) + 1` (which only counts the top-level steps).
-    length(events) == length(d) + 1 || throw(DimensionMismatch(
-        "a Sequential event vector needs $(length(d) + 1) entries " *
+    # The flat event vector carries one entry per EVENT slot plus the root
+    # origin. A nested composer contributes its whole subtree; a `Competing`
+    # contributes one slot per OUTCOME (#333), so the count is
+    # `_event_nleaves(d.components) + 1`, not `length(d) + 1` (the value layout).
+    n = _event_nleaves(d.components) + 1
+    length(events) == n || throw(DimensionMismatch(
+        "a Sequential event vector needs $n entries " *
         "(one per event), got $(length(events))"))
     # Dispatch on the nested/flat trait so the flat and nested scoring are
     # separate compiled methods (see `_nested_trait`): a chain with a nested
@@ -485,10 +583,12 @@ control flow, so this differentiates with the event vector held constant.
 See also: [`Parallel`](@ref), [`Sequential`](@ref)
 "
 function logpdf(d::Parallel, events::AbstractVector{T}) where {T >: Missing}
-    # One entry per LEAF event plus the shared origin; a tree branch contributes
-    # its whole subtree's leaf events, so the length is `_nleaves(d) + 1`.
-    length(events) == length(d) + 1 || throw(DimensionMismatch(
-        "a Parallel event vector needs $(length(d) + 1) entries " *
+    # One entry per EVENT slot plus the shared origin; a tree branch contributes
+    # its whole subtree's events and a `Competing` one slot per OUTCOME (#333),
+    # so the length is `_event_nleaves(d.components) + 1`.
+    n = _event_nleaves(d.components) + 1
+    length(events) == n || throw(DimensionMismatch(
+        "a Parallel event vector needs $n entries " *
         "(shared origin then one per branch), got $(length(events))"))
     # Dispatch on the nested/flat trait so the nested tree recursion and the flat
     # shared-origin (coupled-integral) scoring are separate compiled methods (see

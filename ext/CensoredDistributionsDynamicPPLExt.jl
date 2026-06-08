@@ -187,9 +187,12 @@ _leaf_weight(row::NamedTuple, kw_weight) = _row_weight(row, kw_weight)
 # --- Reserved-field handling -----------------------------------------------
 
 # Reserved row fields that are NOT events: a multiplicity weight may ride in the
-# row as `weight` or `count`, and a per-record observation horizon (the right-
-# truncation observation time D, #329 hanta) as `obs_time`.
-const _RESERVED_ROW_FIELDS = (:weight, :count, :obs_time)
+# row as `weight` or `count`, a per-record observation horizon (the right-
+# truncation observation time D, #329 hanta) as `obs_time`, and a per-record
+# Competing branch-probability override (#333) as `branch_probs`. The override
+# rides composed-tree rows too (a nested Competing node, #333), so it is excluded
+# from the by-name event matching here.
+const _RESERVED_ROW_FIELDS = (:weight, :count, :obs_time, :branch_probs)
 
 # The event values of a row in field order, dropping the reserved weight/count
 # fields, returned as a `Vector{Union{Missing, Float64}}` (one entry per event,
@@ -273,13 +276,58 @@ end
 # condition on their declared censoring. The contribution equals
 # `logpdf(d, event_vector)`, scaled by the row weight, so the submodel
 # log-density equals the direct `logpdf`.
+#
+# A NESTED `Competing` node (#333) is scored by the same path: its outcome
+# columns occupy one event slot each (`tree_event_names`), so the observed
+# outcome is identified positionally and `_tree_step(::Competing)` conditions on
+# that branch. A per-record `branch_probs` field OVERRIDES the (single) nested
+# Competing's stored probabilities by rebuilding the tree for the record, so a
+# covariate CFR `logistic(Xβ)` flows in exactly as for the top-level node.
 @model function composed_distribution_model(
         d::Union{Sequential, Parallel}, row::NamedTuple; weight = nothing)
-    events = _event_vector(d, row)
+    scored = _apply_branch_probs_override(d, row)
+    events = _event_vector(scored, row)
     w = _row_weight(row, weight)
     horizon = _row_horizon(row)
-    DynamicPPL.@addlogprob! _marginal_logprob_h(d, events, w, horizon)
+    DynamicPPL.@addlogprob! _marginal_logprob_h(scored, events, w, horizon)
     return events
+end
+
+# Rebuild a composed tree with the per-record `branch_probs` override applied to
+# its single nested `Competing` node (#333), or return it unchanged when the row
+# carries no override. The override is coerced + validated against that node's
+# outcomes via the SHARED core helper, then the tree is rebuilt with the new
+# probabilities (their element type preserved so a covariate `Dual` flows). The
+# tree must contain exactly one Competing node for a scalar/NamedTuple override.
+function _apply_branch_probs_override(d, row::NamedTuple)
+    haskey(row, :branch_probs) || return d
+    node = _the_competing(d)
+    node === nothing && throw(ArgumentError(
+        "a `branch_probs` row field needs a Competing node in the tree; none " *
+        "found"))
+    probs = CensoredDistributions._coerce_branch_probs(node, row.branch_probs)
+    return CensoredDistributions._override_competing_branch_probs(d, probs)
+end
+
+# The single Competing node of a tree (for coercing a per-record override against
+# its outcome names), or `nothing` when there is none. Errors if more than one.
+function _the_competing(d)
+    found = _find_competing(d)
+    return found
+end
+_find_competing(c::Competing) = c
+_find_competing(::UnivariateDistribution) = nothing
+function _find_competing(d::Union{Sequential, Parallel})
+    found = nothing
+    for c in d.components
+        f = _find_competing(c)
+        f === nothing && continue
+        found === nothing || throw(ArgumentError(
+            "a per-record `branch_probs` override needs exactly one Competing " *
+            "node in the tree; found more than one"))
+        found = f
+    end
+    return found
 end
 
 # A `Competing` node SELF-DISPATCHES on the row's outcome missingness (#329
@@ -320,8 +368,9 @@ end
 end
 
 # Reserved row fields specific to a `Competing` node: the resolution time when the
-# outcome is unknown, and the per-record branch-probability override.
-const _COMPETING_RESERVED = (_RESERVED_ROW_FIELDS..., :resolved, :branch_probs)
+# outcome is unknown (`resolved`); the branch-probability override
+# (`branch_probs`) is already a shared reserved field.
+const _COMPETING_RESERVED = (_RESERVED_ROW_FIELDS..., :resolved)
 
 # The branch probabilities to USE for this record: a reserved `branch_probs` row
 # field overrides the node's stored probabilities (regime b), else the stored ones

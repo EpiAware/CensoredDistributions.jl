@@ -40,6 +40,22 @@ _child_nleaves(c::Union{Sequential, Parallel}) = length(c)
 # Total leaf count over a tuple of children.
 _nleaves(components::Tuple) = sum(_child_nleaves, components)
 
+# Number of EVENT slots a child contributes to the flat EVENT vector (#333).
+# Distinct from `_child_nleaves` (the generic VALUE-vector layout): a `Competing`
+# node contributes ONE value (its marginal time-to-resolution) to the value
+# vector but exposes one EVENT slot PER OUTCOME so a record's death/discharge
+# columns each land in their own slot and the observed outcome is identified
+# positionally (#329 self-dispatch). Every other child contributes the same count
+# as `_child_nleaves`, so the value and event layouts coincide for Competing-free
+# trees and `length`/the generic value path are untouched.
+_event_child_nleaves(c) = _child_nleaves(c)
+_event_child_nleaves(c::Competing) = _n_branches(c)
+_event_child_nleaves(c::Union{Sequential, Parallel}) = _event_nleaves(c.components)
+
+# Total EVENT-slot count over a tuple of children (the flat event vector minus
+# its shared origin).
+_event_nleaves(components::Tuple) = sum(_event_child_nleaves, components)
+
 # Sum the per-child log-densities over the matching flat slices of `x`. A leaf
 # consumes one scalar; a nested composer consumes a `_child_nleaves`-long slice
 # and recurses. The offset walk is pure control flow over the constant index, so
