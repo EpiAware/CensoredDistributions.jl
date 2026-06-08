@@ -15,6 +15,11 @@ public NumericSolver
 # Extension helper for user-defined analytical CDF pairs (public but not exported)
 public primarycensored_uniform_cdf_formula
 
+# The flat EVENT-name layout of a composed distribution (public but not
+# exported): the data-row key space, distinct from the EDGE names of
+# `event_names` (#362).
+public tree_event_names
+
 # Pluggable integration: the default solver, the entry point, and the
 # quadrature helper (public but not exported). `GaussLegendre` stays
 # unexported to avoid clashing with `Integrals.GaussLegendre` when both

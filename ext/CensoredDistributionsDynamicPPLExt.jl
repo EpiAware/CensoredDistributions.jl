@@ -8,7 +8,8 @@ using CensoredDistributions: CensoredDistributions, PrimaryCensored, Latent,
                              IntervalCensored, PrimaryConditional, Sequential,
                              Parallel, Competing, Select, as_mixture,
                              get_primary_event, get_dist_recursive,
-                             convolve_distributions, component_names
+                             convolve_distributions, component_names,
+                             tree_event_names, primary_censored
 import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model,
                               composed_distribution_model,
@@ -157,12 +158,49 @@ const _RESERVED_ROW_FIELDS = (:weight, :count)
 # fields, returned as a `Vector{Union{Missing, Float64}}` (one entry per event,
 # `missing` admitted). The `Missing`-admitting element type keeps the censored
 # composer `logpdf` specialisation (#329) selected even for an all-observed row.
-# The remaining field ORDER is the event order the composer spans.
+# The remaining field ORDER is the event order the composer spans. This is the
+# POSITIONAL fallback, used only when a composer carries no derivable event names
+# (its edges are positional defaults), per #362.
 function _event_vector(row::NamedTuple)
     ks = filter(k -> !(k in _RESERVED_ROW_FIELDS), keys(row))
     out = Vector{Union{Missing, Float64}}(undef, length(ks))
     for (i, k) in enumerate(ks)
         v = row[k]
+        out[i] = v === missing ? missing : Float64(v)
+    end
+    return out
+end
+
+# The event vector for a composer `d` from a `row`, matched to the tree's flat
+# EVENT names BY NAME (#362): `row.onset, row.admit, row.death` land in their slots
+# regardless of field order, `missing` fields drive the marginalise/condition
+# dispatch, and a reserved `weight`/`count` is excluded. A row field that is not a
+# tree event, or a missing required event, raises a clear `ArgumentError`. When
+# the tree's event names are all positional defaults (`:event_i`), the row is
+# matched POSITIONALLY through `_event_vector(row)` (the documented fallback).
+function _event_vector(d::Union{Sequential, Parallel}, row::NamedTuple)
+    enames = tree_event_names(d)
+    CensoredDistributions._all_positional_event_names(enames) &&
+        return _event_vector(row)
+    return _event_vector_by_name(enames, row)
+end
+
+# Build the by-name event vector: validate every non-reserved row field is a known
+# event, then place each event by name (a missing required event errors). Pure,
+# Turing-free.
+function _event_vector_by_name(enames::Tuple, row::NamedTuple)
+    for k in keys(row)
+        k in _RESERVED_ROW_FIELDS && continue
+        k in enames || throw(ArgumentError(
+            "row field $(repr(k)) is not an event of this tree; expected " *
+            "events $(collect(enames)) (reordering is allowed; names are not)"))
+    end
+    out = Vector{Union{Missing, Float64}}(undef, length(enames))
+    for (i, name) in enumerate(enames)
+        haskey(row, name) || throw(ArgumentError(
+            "row is missing required event $(repr(name)); expected events " *
+            "$(collect(enames))"))
+        v = row[name]
         out[i] = v === missing ? missing : Float64(v)
     end
     return out
@@ -191,7 +229,7 @@ end
 # log-density equals the direct `logpdf`.
 @model function composed_distribution_model(
         d::Union{Sequential, Parallel}, row::NamedTuple; weight = nothing)
-    events = _event_vector(row)
+    events = _event_vector(d, row)
     w = _row_weight(row, weight)
     DynamicPPL.@addlogprob! _marginal_logprob(d, events, w)
     return events
@@ -342,7 +380,7 @@ end
 @model function composed_distribution_model(
         d::Latent{<:Sequential}, row::NamedTuple; weight = nothing)
     chain = d.dist
-    obs = _event_vector(row)
+    obs = _event_vector(chain, row)
     w = _row_weight(row, weight)
 
     origin = CensoredDistributions._origin_primary_event(
@@ -374,7 +412,7 @@ end
 @model function composed_distribution_model(
         d::Latent{<:Parallel}, row::NamedTuple; weight = nothing)
     tree = d.dist
-    obs = _event_vector(row)
+    obs = _event_vector(tree, row)
     w = _row_weight(row, weight)
 
     shared = CensoredDistributions._shared_primary_event(tree.components)

@@ -588,6 +588,117 @@ end
     @test logjoint(fit(rows), (;)) ≈ manual
 end
 
+@testitem "by-name row: reordered row scores identically (#362)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    # A NAMED chain: edge names `:onset_admit`, `:admit_death` derive the EVENT
+    # names `(:onset, :admit, :death)` (origin + targets), so a row keys by event.
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+    @test CensoredDistributions.tree_event_names(seq) ==
+          (:onset, :admit, :death)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    in_order = (onset = 0.0, admit = 2.0, death = 5.0)
+    shuffled = (death = 5.0, onset = 0.0, admit = 2.0)
+    ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
+    base = only(logjoint(demo(seq, in_order), (;)))
+    # The reordered row maps each field to its event slot BY NAME, so it scores
+    # identically to the in-order row and to the direct logpdf.
+    @test only(logjoint(demo(seq, shuffled), (;))) ≈ base ≈ logpdf(seq, ev)
+
+    # A reserved weight still rides along regardless of position.
+    w_first = (weight = 3, death = 5.0, onset = 0.0, admit = 2.0)
+    @test only(logjoint(demo(seq, w_first), (;))) ≈ 3 * base
+end
+
+@testitem "by-name row: mixed missingness factorises by name (#362)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.4), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # A missing intermediate marginalises; the by-name mapping places `missing`
+    # in the admit slot regardless of field order.
+    row = (death = 6.0, admit = missing, onset = 0.0)
+    ev = Vector{Union{Missing, Float64}}([0.0, missing, 6.0])
+    @test only(logjoint(demo(seq, row), (;))) ≈ logpdf(seq, ev)
+end
+
+@testitem "by-name row: name mismatch and missing event error (#362)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # A field the tree has no event for is rejected.
+    bad = (onset = 0.0, admit = 2.0, demise = 5.0)
+    @test_throws ArgumentError logjoint(demo(seq, bad), (;))
+
+    # A missing REQUIRED event name (no `death` field at all) is rejected.
+    short = (onset = 0.0, admit = 2.0)
+    @test_throws ArgumentError logjoint(demo(seq, short), (;))
+end
+
+@testitem "by-name row: nested tree keys by name at every depth (#362)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    # onset -> admit, then admit -> {death, discharge} off the SHARED admit event.
+    oa = primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1))
+    ad = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    adisch = primary_censored(LogNormal(0.8, 0.4), Uniform(0, 1))
+    inner = Parallel((ad, adisch), (:admit_death, :admit_discharge))
+    seq = Sequential((oa, inner), (:onset_admit, :admit_resolution))
+
+    # Events: onset (E_0), admit (E_1), death (E_2), discharge (E_3), the inner
+    # parallel sharing the admit event as its origin.
+    @test CensoredDistributions.tree_event_names(seq) ==
+          (:onset, :admit, :death, :discharge)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0, 4.5])
+    in_order = (onset = 0.0, admit = 2.0, death = 5.0, discharge = 4.5)
+    shuffled = (discharge = 4.5, death = 5.0, admit = 2.0, onset = 0.0)
+    base = only(logjoint(demo(seq, in_order), (;)))
+    @test base ≈ logpdf(seq, ev)
+    @test only(logjoint(demo(seq, shuffled), (;))) ≈ base
+end
+
+@testitem "by-name row: positional default names fall back positionally (#362)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    # A positionally-constructed chain has `:step_i` edges -> positional `:event_i`
+    # events, so a row is matched POSITIONALLY (the documented fallback).
+    seq = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    @test CensoredDistributions.tree_event_names(seq) ==
+          (:event_1, :event_2, :event_3)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    row = (onset = 0.0, admit = 2.0, death = 5.0)
+    ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
+    @test only(logjoint(demo(seq, row), (;))) ≈ logpdf(seq, ev)
+end
+
 @testitem "composed_distribution_model: Select routes by the data selector" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
