@@ -190,3 +190,62 @@ only(logjoint(demo(seq, row), (;))), logpdf(seq, ev)
 - [`latent`](@ref), [`predict_events`](@ref).
 "
 function composed_distribution_model end
+
+@doc "
+
+Build a DynamicPPL submodel that samples a composed distribution's parameters
+from user priors and returns the reconstructed distribution (#353).
+
+A `template` composed distribution (from [`compose`](@ref)) defines the parameter
+inventory; [`params_table`](@ref) lists it. The user supplies `priors`, a nested
+`NamedTuple` keyed exactly like [`params`](@ref)`(template)`: leaves keyed by
+their parameter names (e.g. `:shape`/`:scale`, `:mu`/`:sigma`), composer nodes
+keyed by their edge/event names, and a [`Competing`](@ref) node optionally
+carrying a `branch_probs` entry. The returned submodel samples each prior and
+rebuilds the SAME composer structure and names via [`compose`](@ref), so the
+reconstructed distribution drops straight into the matching record submodel (for
+example [`primary_censored_model`](@ref)) for the likelihood.
+
+Sampled parameters are namespaced by their edge path through nested submodel
+prefixing, so a multi-edge chain yields readable, groupable Turing chain names
+like `onset_admit.shape` and `resolution.death.scale`.
+
+This function has no methods until `DynamicPPL` (or `Turing`) is loaded; the
+methods live in the package extension so the core stays free of `DynamicPPL`.
+
+# Arguments
+- `template`: a composed distribution from [`compose`](@ref) (or a bare leaf)
+  that defines the parameter inventory and the structure to rebuild.
+- `priors`: a nested `NamedTuple` of priors keyed like [`params`](@ref)`(template)`
+  (see [`params_table`](@ref)). Every parameter in the inventory must have a prior
+  and no extra keys are allowed; a [`Competing`](@ref) node's `branch_probs` may
+  be omitted (the template's fixed probabilities are kept) or supplied as priors.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, DynamicPPL
+
+template = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+priors = (
+    onset_admit = (shape = truncated(Normal(2, 0.5); lower = 0),
+        scale = truncated(Normal(1, 0.3); lower = 0)),
+    admit_death = (mu = Normal(0.5, 0.2),
+        sigma = truncated(Normal(0.4, 0.1); lower = 0)))
+
+@model function demo(template, priors)
+    d ~ to_submodel(composed_parameters_model(template, priors))
+    return d
+end
+
+reconstructed = demo(template, priors)()
+event_names(reconstructed)
+```
+
+# See also
+- [`primary_censored_model`](@ref): scores a record under the reconstructed
+  distribution.
+- [`params_table`](@ref), [`params`](@ref): the parameter inventory the priors are
+  keyed against.
+"
+function composed_parameters_model end

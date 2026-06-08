@@ -7,12 +7,14 @@ module CensoredDistributionsDynamicPPLExt
 using CensoredDistributions: CensoredDistributions, PrimaryCensored, Latent,
                              IntervalCensored, PrimaryConditional, Sequential,
                              Parallel, Competing, as_mixture, get_primary_event,
-                             get_dist_recursive, convolve_distributions
+                             get_dist_recursive, convolve_distributions,
+                             component_names
 import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model,
-                              composed_distribution_model, predict_events
-using DynamicPPL: DynamicPPL, @model
-using Distributions: Distributions, UnivariateDistribution, logpdf
+                              composed_distribution_model,
+                              composed_parameters_model, predict_events
+using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
+using Distributions: Distributions, UnivariateDistribution, params, logpdf
 using Random: AbstractRNG, default_rng
 
 # `CensoredDistributions.weight(d, w)` is called with the module qualifier
@@ -355,5 +357,196 @@ function predict_events(
         rng = default_rng(), include_all = false)
     return DynamicPPL.predict(rng, model, chain; include_all = include_all)
 end
+
+# ===========================================================================
+# composed_parameters_model: priors -> sampled, reconstructed composed dist
+# ===========================================================================
+#
+# `composed_parameters_model(template, priors)` is a submodel that SAMPLES a
+# composed distribution's free parameters from user priors and RETURNS the
+# reconstructed distribution, ready for the matching record submodel to score
+# (#353). It completes the prior workflow: `compose` -> `params_table` (the
+# inventory, #351) -> the user keys priors against it -> this helper materialises
+# the sampling submodel.
+#
+# `priors` is a nested `NamedTuple` mirroring `params(template)`: a leaf is keyed
+# by its parameter names (`_leaf_param_names`), a `Sequential`/`Parallel` by its
+# edge/event names, a `Competing` by its outcome names plus an optional
+# `branch_probs` entry. The traversal REUSES the composers' `component_names` and
+# the leaf `params`/`_leaf_param_names` introspection (#351) for both structure
+# and names, never re-walking the tree by hand, and rebuilds the SAME structure
+# and names so the result matches the record submodel's by-name expectations
+# (Option A).
+#
+# Names are namespaced by edge path through nested submodel prefixing
+# (`DynamicPPL.prefix(child_model, Val(name))`), so a multi-edge chain produces
+# readable, groupable Turing chain names like `onset_admit.shape` and
+# `resolution.death.scale`.
+
+# --- prior-key validation --------------------------------------------------
+
+# Validate that `priors` (a NamedTuple) covers EXACTLY `expected` (a tuple of
+# names) at the current node, with a clear error on a missing or extra key. The
+# `what` label names the node in the message (e.g. `"edge :onset_admit"`).
+function _check_prior_keys(priors::NamedTuple, expected::Tuple, what::AbstractString)
+    have = keys(priors)
+    missing_keys = filter(k -> !(k in have), expected)
+    extra_keys = filter(k -> !(k in expected), have)
+    isempty(missing_keys) || throw(ArgumentError(
+        "$what is missing priors for $(collect(missing_keys)); " *
+        "expected $(collect(expected))"))
+    isempty(extra_keys) || throw(ArgumentError(
+        "$what has unexpected prior keys $(collect(extra_keys)); " *
+        "expected $(collect(expected))"))
+    return nothing
+end
+
+function _check_prior_keys(priors, ::Tuple, what::AbstractString)
+    throw(ArgumentError(
+        "$what expects a NamedTuple of priors; got $(typeof(priors))"))
+end
+
+# --- leaf reconstruction ---------------------------------------------------
+
+# The base (un-parameterised) constructor of a leaf distribution, so a leaf
+# reconstructs from sampled parameters carrying any (AD) element type rather than
+# the template's concrete one (e.g. `Gamma` from a `Gamma{Float64}` template).
+_base_ctor(leaf) = Base.typename(typeof(leaf)).wrapper
+
+# Reconstruct a leaf of the same family from sampled parameters. Argument checks
+# are skipped (`check_args = false`) so a sampler probing an out-of-support point
+# yields a `-Inf` log-density rather than throwing mid-gradient; families whose
+# constructor lacks the keyword fall back to the plain (checked) constructor.
+function _reconstruct_leaf(leaf, vals::Tuple)
+    ctor = _base_ctor(leaf)
+    return _construct_unchecked(ctor, vals)
+end
+
+function _construct_unchecked(ctor, vals::Tuple)
+    try
+        return ctor(vals...; check_args = false)
+    catch err
+        err isa MethodError || rethrow()
+        return ctor(vals...)
+    end
+end
+
+# --- recursive submodel builder --------------------------------------------
+#
+# `_params_submodel(template, priors)` returns a DynamicPPL submodel sampling the
+# node's parameters and returning the reconstructed node. Each composer level
+# nests a child submodel per named child, prefixed by that child's name, so the
+# sampled parameter names carry the full edge path. Leaf parameters are sampled
+# directly under their parameter names via `tilde_assume!!`, so a leaf's chain
+# names are exactly `<path>.<param>` (no synthetic inner variable).
+
+# A leaf: sample each parameter (in `params` order) from its named prior and
+# rebuild the leaf via its base constructor. `tilde_assume!!` with `VarName{p}()`
+# gives each sampled parameter the bare name `p`; the enclosing submodel prefixes
+# add the edge path, so the chain name is `<edge>.<p>`.
+@model function _leaf_params_model(leaf, priors::NamedTuple)
+    pnames = CensoredDistributions._leaf_param_names(leaf)
+    _check_prior_keys(priors, pnames, "leaf $(nameof(typeof(leaf)))")
+    ctx = __model__.context
+    vals = ntuple(length(pnames)) do i
+        p = pnames[i]
+        v,
+        __varinfo__ = DynamicPPL.tilde_assume!!(
+            ctx, priors[p], VarName{p}(), nothing, __varinfo__)
+        v
+    end
+    return _reconstruct_leaf(leaf, vals)
+end
+
+# A `Sequential` / `Parallel`: sample each named child through a prefixed child
+# submodel, then rebuild the SAME composer type with the SAME names.
+@model function _composer_params_model(
+        d::Union{Sequential, Parallel}, priors::NamedTuple)
+    names = component_names(d)
+    _check_prior_keys(priors, names, "$(nameof(typeof(d)))")
+    parts = Vector{Any}(undef, length(names))
+    for i in 1:length(names)
+        name = names[i]
+        child = d.components[i]
+        sub = DynamicPPL.prefix(
+            _params_submodel(child, priors[name]), Val(name))
+        parts[i] ~ to_submodel(sub, false)
+    end
+    return _rebuild(d, Tuple(parts))
+end
+
+# A `Competing`: sample each outcome delay through a prefixed child submodel; the
+# branch probabilities are kept fixed from the template unless a `branch_probs`
+# entry of priors is supplied (then each is sampled, prefixed under
+# `branch_probs`). Rebuild the `Competing` with the SAME outcome names.
+@model function _competing_params_model(c::Competing, priors::NamedTuple)
+    expected = (c.names..., :branch_probs)
+    have = keys(priors)
+    # `branch_probs` is optional; every other expected key is required.
+    required = c.names
+    _check_competing_keys(priors, required, expected)
+    delays = Vector{Any}(undef, length(c.names))
+    for i in 1:length(c.names)
+        name = c.names[i]
+        sub = DynamicPPL.prefix(
+            _params_submodel(c.delays[i], priors[name]), Val(name))
+        delays[i] ~ to_submodel(sub, false)
+    end
+    if :branch_probs in have
+        bp_priors = priors.branch_probs
+        _check_prior_keys(bp_priors, c.names, "Competing branch_probs")
+        sub = DynamicPPL.prefix(
+            _branch_probs_model(c, bp_priors), Val(:branch_probs))
+        probs ~ to_submodel(sub, false)
+    else
+        probs = c.branch_probs
+    end
+    return Competing(c.names, Tuple(delays), Tuple(probs))
+end
+
+# Sample the competing branch probabilities from their named priors. Returns the
+# tuple in outcome order; `tilde_assume!!` names each by its outcome name so the
+# chain names are `branch_probs.<outcome>`.
+@model function _branch_probs_model(c::Competing, priors::NamedTuple)
+    ctx = __model__.context
+    probs = ntuple(length(c.names)) do i
+        name = c.names[i]
+        v,
+        __varinfo__ = DynamicPPL.tilde_assume!!(
+            ctx, priors[name], VarName{name}(), nothing, __varinfo__)
+        v
+    end
+    return probs
+end
+
+# `branch_probs` is optional, the outcome names are required: validate the
+# required outcome priors are present and no key outside `expected` appears.
+function _check_competing_keys(priors::NamedTuple, required::Tuple, expected::Tuple)
+    have = keys(priors)
+    missing_keys = filter(k -> !(k in have), required)
+    extra_keys = filter(k -> !(k in expected), have)
+    isempty(missing_keys) || throw(ArgumentError(
+        "Competing is missing priors for $(collect(missing_keys)); " *
+        "expected outcomes $(collect(required))"))
+    isempty(extra_keys) || throw(ArgumentError(
+        "Competing has unexpected prior keys $(collect(extra_keys)); " *
+        "expected $(collect(expected))"))
+    return nothing
+end
+
+# Dispatch a node to its parameter submodel: a composer to its composer model, a
+# `Competing` to its competing model, any other (leaf) distribution to the leaf
+# model. Mirrors the `params`/`params_table` traversal dispatch (#351).
+_params_submodel(d::Union{Sequential, Parallel}, priors) = _composer_params_model(d, priors)
+_params_submodel(c::Competing, priors) = _competing_params_model(c, priors)
+_params_submodel(leaf, priors) = _leaf_params_model(leaf, priors)
+
+# Rebuild a composer of the same type with new components, preserving its names.
+_rebuild(d::Sequential, components::Tuple) = Sequential(components, d.names)
+_rebuild(d::Parallel, components::Tuple) = Parallel(components, d.names)
+
+# The public entry: dispatch to the recursive submodel builder. A composed
+# `template` rebuilds its structure; a bare leaf template rebuilds the leaf.
+composed_parameters_model(template, priors) = _params_submodel(template, priors)
 
 end
