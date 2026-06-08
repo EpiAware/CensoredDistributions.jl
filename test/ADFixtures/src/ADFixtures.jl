@@ -599,6 +599,26 @@ function scenarios(; with_reference::Bool = false)
                 Sequential(LogNormal(θ[3], θ[4]), Gamma(θ[5], θ[6]))), x),
         [2.0, 1.0, 0.5, 0.4, 2.0, 1.0], (Constant(nest3),))
 
+    # Select data-selected disjunction (#356). The gradient flows through the
+    # SELECTED alternative's own `logpdf` (the type-stable selection barriers
+    # into the chosen concrete type), with the selection name fixed and the
+    # value passed as a Constant context. Guarded on `select` existing so the
+    # AirspeedVelocity baseline build (which lacks `Select`) skips it. Literal
+    # constructors keep Enzyme forward happy (#278).
+    if isdefined(CensoredDistributions, :select)
+        sel_obs = [0.5, 1.2, 2.5, 3.8]
+        _push!("Select Gamma|LogNormal sourced logpdf",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    CensoredDistributions.select(
+                        :index => Gamma(θ[1], θ[2]),
+                        :sourced => LogNormal(θ[3], θ[4])),
+                    x; kind = :sourced),
+                obs),
+            [2.0, 1.0, 0.5, 0.4], (Constant(sel_obs),))
+    end
+
     # Censored composer specialisations (#333). The event vector (carrying
     # `Missing`) travels as an inactive Constant context; the gradient flows
     # through the censored leaf delay parameters along the marginalise/condition

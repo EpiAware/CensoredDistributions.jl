@@ -62,6 +62,10 @@ export Sequential, Parallel, Competing, compose, as_mixture
 # `Distributions.params`.
 export params_table, event_names, get_event
 
+# Exported data-selected disjunction node (the case selector over independent
+# alternatives). `Select` is the type; `select` the friendly constructor.
+export Select, select
+
 # Exported composer-observed lowering used by the external censoring wrappers
 export observed_distribution
 
@@ -103,6 +107,7 @@ include("distributions/Convolved.jl")
 include("composers/Sequential.jl")
 include("composers/Parallel.jl")
 include("composers/Competing.jl")
+include("composers/Select.jl")
 include("composers/nesting.jl")
 include("composers/equality.jl")
 include("composers/compose.jl")

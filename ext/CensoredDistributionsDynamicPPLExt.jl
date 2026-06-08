@@ -6,9 +6,9 @@ module CensoredDistributionsDynamicPPLExt
 
 using CensoredDistributions: CensoredDistributions, PrimaryCensored, Latent,
                              IntervalCensored, PrimaryConditional, Sequential,
-                             Parallel, Competing, as_mixture, get_primary_event,
-                             get_dist_recursive, convolve_distributions,
-                             component_names
+                             Parallel, Competing, Select, as_mixture,
+                             get_primary_event, get_dist_recursive,
+                             convolve_distributions, component_names
 import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model,
                               composed_distribution_model,
@@ -217,6 +217,39 @@ end
 # optional weight `w`. Shared by the marginal composer and `Competing` models.
 _marginal_logprob(d, x, ::Nothing) = logpdf(d, x)
 _marginal_logprob(d, x, w) = w * logpdf(d, x)
+
+# --- Select (data-selected disjunction) ------------------------------------
+#
+# A `Select` routes a record to ONE of its independent alternatives, chosen by
+# the row's selector field (`row[d.selector]`, default `:kind`). The selector
+# VALUE is the alternative's name (a `Symbol`). `composed_distribution_model`
+# reads that value, picks the alternative through the type-stable
+# `CensoredDistributions._pick`, and delegates to the SELECTED alternative's own
+# `composed_distribution_model` as a submodel. Because the alternative is itself
+# any leaf or composer, the selected branch's full handling (marginal / latent /
+# condition, weight, missingness) is exactly its own; `Select` adds only the
+# data-driven routing. The selector field is stripped from the row before
+# delegating so the alternative sees only its events (plus any reserved weight).
+@model function composed_distribution_model(
+        d::Select, row::NamedTuple; weight = nothing)
+    kind = row[d.selector]
+    kind isa Symbol || throw(ArgumentError(
+        "the Select selector field $(repr(d.selector)) must hold a Symbol " *
+        "naming the alternative; got $(typeof(kind))"))
+    chosen = CensoredDistributions._pick(d, kind)
+    inner_row = _drop_field(row, d.selector)
+    obs ~ DynamicPPL.to_submodel(
+        composed_distribution_model(chosen, inner_row; weight = weight))
+    return obs
+end
+
+# Drop a single named field from a NamedTuple, preserving the order of the rest.
+# Used to remove the `Select` selector field before delegating to the chosen
+# alternative, so the alternative's event dispatch sees only its own fields.
+function _drop_field(row::NamedTuple, field::Symbol)
+    ks = filter(!=(field), keys(row))
+    return NamedTuple{ks}(map(k -> row[k], ks))
+end
 
 # --- Latent composer models ------------------------------------------------
 #

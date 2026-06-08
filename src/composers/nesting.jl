@@ -6,9 +6,11 @@
 # `Parallel`. This layer adds NO censored-internal behaviour (#329).
 
 # A composable child is any univariate distribution (a leaf or a `Competing`) or
-# a nested `Sequential` / `Parallel`. Used to validate composer components.
+# a nested `Sequential` / `Parallel` / `Select`. Used to validate composer
+# components and `Select` alternatives.
 _is_composable(::UnivariateDistribution) = true
 _is_composable(::Union{Sequential, Parallel}) = true
+_is_composable(::Select) = true
 _is_composable(::Any) = false
 
 # Default positional names for a composer node, used when the front-end (or a
