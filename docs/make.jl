@@ -171,6 +171,22 @@ makedocs(; sitename = "CensoredDistributions.jl",
     plugins = [bib]
 )
 
+# Copy every tutorial `data/` directory into the matching build output dir so the
+# bundled data ships with the rendered site (and `@example` blocks that read it
+# resolve at view time). Runs after `makedocs` so `clean = true` does not wipe it;
+# generic over any tutorial that carries a `data/` dir.
+let src_root = joinpath(@__DIR__, "src"), build_root = joinpath(@__DIR__, "build")
+    for (root, dirs, _) in walkdir(src_root)
+        "data" in dirs || continue
+        src_data = joinpath(root, "data")
+        rel = relpath(src_data, src_root)
+        dest_data = joinpath(build_root, rel)
+        mkpath(dirname(dest_data))
+        cp(src_data, dest_data; force = true)
+        println("Copied tutorial data: $rel")
+    end
+end
+
 DocumenterVitepress.deploydocs(
     repo = "github.com/EpiAware/CensoredDistributions.jl",
     target = "build",
