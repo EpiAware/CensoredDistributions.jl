@@ -16,7 +16,7 @@ import CensoredDistributions: primary_censored_model, interval_censored_model,
                               composed_parameters_model, predict_events
 using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
 using Distributions: Distributions, UnivariateDistribution, params, logpdf,
-                     MixtureModel
+                     MixtureModel, product_distribution
 using Random: AbstractRNG, default_rng
 
 # `CensoredDistributions.weight(d, w)` is called with the module qualifier
@@ -274,25 +274,53 @@ function _find_competing(d::Union{Sequential, Parallel})
     return found
 end
 
-# BATCHED entry (#364): score a WHOLE TABLE of records sharing the same composed
-# `d` in one submodel. `rows` is any Tables.jl row source that is NOT a single
+# VECTORISED entry: score a WHOLE TABLE of records sharing the same composed `d`
+# in one `~`. `rows` is any Tables.jl row source that is NOT a single
 # `NamedTuple` row (a `Vector` of rows, a column table); the single-`NamedTuple`
-# method above stays the per-record entry. The contribution is the batched log
-# density `batched_event_logpdf(d, rows)`, which EQUALS the per-record loop
-# `sum(event_logpdf(d, ev_r; horizon = h_r) * w_r)` but builds each shared
-# convolution segment ONCE and reuses it across records with the same observed-
-# pattern (the dedup lives inside `batched_event_logpdf`). The whole table is
-# DATA, so the contribution is added with `@addlogprob!` (no spurious VarInfo
-# variable), and the reserved `weight`/`count`/`obs_time` row fields are honoured
-# identically to the per-record path. Usable as `obs ~ to_submodel(...)`.
-@model function composed_distribution_model(
+# method above stays the per-record entry. Each record becomes its own
+# distribution via `record_distributions` (baking the reserved
+# `weight`/`count`/`obs_time` row fields and the missingness pattern, sharing the
+# convolution construction across records). The table scores AND samples with the
+# standard `obs ~ product_distribution(...)` tilde: the observed event matrix
+# (one column per record) is read from the rows and supplied as the `~` value, so
+# present observations score; a fully-missing table supplies `missing`, so Turing
+# samples the full event paths. This is dual-purpose - the same model fits and
+# generates - with no `@addlogprob!`. Usable as `y ~ to_submodel(...)`.
+function composed_distribution_model(
         d::Union{Sequential, Parallel}, rows::AbstractVector; weight = nothing)
     weight === nothing || throw(ArgumentError(
-        "the batched composed model takes per-row weights via a reserved " *
+        "the vectorised composed model takes per-row weights via a reserved " *
         "`weight`/`count` row field, not the `weight` keyword"))
-    DynamicPPL.@addlogprob! CensoredDistributions.batched_event_logpdf(d, rows)
-    return nothing
+    recs = CensoredDistributions.record_distributions(d, rows)
+    return _vectorised_records_model(recs, _record_obs_matrix(recs))
 end
+
+# The inner vectorised submodel: `obs` is a MODEL ARGUMENT, so a supplied matrix
+# is observed (scores) and `missing` is sampled (generates the full event paths).
+@model function _vectorised_records_model(recs, obs)
+    obs ~ product_distribution(recs)
+    return obs
+end
+
+# The observed event matrix for a vector of records: one column per record, each
+# the record's flat event vector with `missing` slots replaced by a placeholder
+# (ignored by the marginalising `logpdf`). A column whose record is fully missing
+# stays `missing`, so a fully-missing table yields a `missing` matrix that Turing
+# samples instead of scores.
+function _record_obs_matrix(recs)
+    any(_record_has_observed, recs) || return missing
+    n = length(first(recs))
+    M = Matrix{Float64}(undef, n, length(recs))
+    @inbounds for (j, r) in enumerate(recs)
+        for i in 1:n
+            v = r.events[i]
+            M[i, j] = v === missing ? 0.0 : Float64(v)
+        end
+    end
+    return M
+end
+
+_record_has_observed(r) = any(v -> v !== missing, r.events)
 
 # A `Competing` node SELF-DISPATCHES on the row's outcome missingness (#329
 # decision 2), mirroring the observed-intermediate dispatch of a chain:

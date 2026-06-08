@@ -35,6 +35,21 @@ import DifferentiationInterfaceTest as DIT
 export scenarios, backends, working_backends, broken_backends,
        broken_scenario_names, backend_broken_scenarios
 
+# Vectorised-records log density for the AD fixture: assemble the per-record
+# distributions (sharing the segment construction) and sum each record's log
+# density at its observed event vector. Equals the per-record loop and the
+# product log density used by the Turing entry.
+function _vectorised_records_logpdf(d, rows)
+    recs = CensoredDistributions.record_distributions(d, rows)
+    total = logpdf(recs[1],
+        [CensoredDistributions._row_event_vector(d, rows[1])...])
+    for i in 2:length(recs)
+        total += logpdf(recs[i],
+            [CensoredDistributions._row_event_vector(d, rows[i])...])
+    end
+    return total
+end
+
 # `contexts` is a tuple of `Constant`-wrapped data (the observations),
 # passed positionally to DI's `gradient` and to the differentiated
 # function. See `scenarios` for why data travels as a context rather
@@ -129,26 +144,28 @@ function backend_broken_scenarios()
     # Enzyme heterogeneous-edge gap (#319); ForwardDiff / ReverseDiff / Mooncake
     # differentiate it correctly.
     nested_comp = "Nested Competing tree conditioned logpdf"
-    # The batched scorer (#364) runs an AD-FREE pre-pass that collects the table
-    # rows (`Tables.rows` iteration, vector building, validation `throw`s) before
-    # the AD-traced build/evaluate. ForwardDiff and ReverseDiff trace straight
-    # through this data-collection (it touches only the constant rows), but the
-    # COMPILED backends build a rule for every reachable statement -- including
-    # the `_throw_argerror` validation branch and the row-collection loop -- and
-    # crash uncatchably on it (the same reachable-branch class as the Parallel
-    # shared-origin / nested-tree paths, #319). The batched MATH itself is the
-    # all-continuous per-edge conditioning the single-record scenario already
-    # differentiates on every backend; only the data-collection wrapper trips the
-    # compiled backends, so it is registered broken for them rather than worked
-    # around. Its gradient correctness is covered by ForwardDiff and ReverseDiff.
-    batched_seq = "Batched Sequential censored observed logpdf"
+    # The vectorised path runs an AD-FREE pre-pass that collects the table rows
+    # (`Tables.rows` iteration, vector building, validation `throw`s) before the
+    # AD-traced build/evaluate. ForwardDiff and ReverseDiff trace straight through
+    # this data-collection (it touches only the constant rows), but the COMPILED
+    # backends build a rule for every reachable statement -- including the
+    # validation branch and the row-collection loop -- and crash uncatchably on it
+    # (the same reachable-branch class as the Parallel shared-origin / nested-tree
+    # paths). The vectorised MATH itself is the all-continuous per-edge
+    # conditioning the single-record scenario already differentiates on every
+    # backend; only the data-collection wrapper trips the compiled backends, so it
+    # is registered broken for them. Its gradient correctness is covered by
+    # ForwardDiff and ReverseDiff.
+    vectorised_seq = "Vectorised Sequential censored observed logpdf"
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
-        "Mooncake reverse" => Set{String}([batched_seq]),
-        "Mooncake forward" => Set{String}([batched_seq]),
-        "Enzyme reverse" => Set{String}([nested_tree, nested_comp, batched_seq]),
-        "Enzyme forward" => Set{String}([nested_tree, nested_comp, batched_seq])
+        "Mooncake reverse" => Set{String}([vectorised_seq]),
+        "Mooncake forward" => Set{String}([vectorised_seq]),
+        "Enzyme reverse" => Set{String}([nested_tree, nested_comp,
+            vectorised_seq]),
+        "Enzyme forward" => Set{String}([nested_tree, nested_comp,
+            vectorised_seq])
     )
 end
 
@@ -699,19 +716,20 @@ function scenarios(; with_reference::Bool = false)
                     primary_censored(Gamma(θ[3], θ[4]), Uniform(0.0, 1.0))),
                 ev),
             [1.2, 0.5, 2.0, 1.0], (Constant(seq_ev_obs),))
-        # Batched / shared evaluation over MANY records (#364): the batched
-        # scorer dedupes the segment construction across records and sums their
-        # observed-intermediate contributions. With every record fully observed
-        # the path is the same all-continuous-arithmetic per-edge conditioning as
-        # the single-record scenario above (no `Convolved`/quadrature gap), so its
-        # gradient differentiates on every backend and must match the per-record
-        # loop. The rows table is inactive DATA carried as a `Constant`.
+        # Vectorised / shared evaluation over MANY records: the per-record
+        # distributions share the segment construction and the product log
+        # density sums their observed-intermediate contributions. With every
+        # record fully observed the path is the same all-continuous-arithmetic
+        # per-edge conditioning as the single-record scenario above (no
+        # `Convolved`/quadrature gap), so its gradient differentiates on every
+        # backend and must match the per-record loop. The rows table is inactive
+        # DATA carried as a `Constant`.
         batch_rows = [(onset = 0.0, admit = 2.0, death = 5.0),
             (onset = 0.0, admit = 3.0, death = 7.0),
             (onset = 0.0, admit = 1.0, death = 4.0)]
-        _push!("Batched Sequential censored observed logpdf",
+        _push!("Vectorised Sequential censored observed logpdf",
             (θ,
-                rows) -> CensoredDistributions.batched_event_logpdf(
+                rows) -> _vectorised_records_logpdf(
                 Sequential(
                     primary_censored(
                         LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
