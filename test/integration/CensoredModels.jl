@@ -758,6 +758,24 @@ end
     @test only(logjoint(demo_w(seq, row, 6), (;))) ≈ 6 * base
 end
 
+@testitem "Nested Competing: latent-wrapped tree is rejected (#333)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    cmp = Competing(:death => (Gamma(2.0, 3.0), 0.3),
+        :discharge => (Gamma(2.0, 1.0), 0.7))
+    # A latent-wrapped composer with a nested Competing is out of scope: the
+    # latent turn-on would need to sample the outcome, a distinct construction.
+    ld = latent(Sequential(edge(1.4, 0.4), cmp))
+
+    @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
+    row = (event_1 = 0.0, event_2 = 4.0, death = 12.0, discharge = missing)
+    @test_throws ArgumentError logjoint(demo(ld, row), (;))
+end
+
 @testitem "composer model: varying-data batch (mixed missing patterns)" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint, prefix

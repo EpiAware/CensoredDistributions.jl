@@ -550,7 +550,9 @@ function _latent_plan!(plan, d::Sequential, origin_idx::Int, event_start::Int)
     for step in comps
         _latent_plan_step!(plan, step, o_idx, ev_idx)
         o_idx = ev_idx + CensoredDistributions._terminal_offset(step)
-        ev_idx += CensoredDistributions._child_nleaves(step)
+        # Advance by EVENT slots (a Competing step would span one slot per
+        # outcome, #333), matching the marginal scorer's layout.
+        ev_idx += CensoredDistributions._event_child_nleaves(step)
     end
     return plan
 end
@@ -559,9 +561,22 @@ function _latent_plan!(plan, d::Parallel, origin_idx::Int, event_start::Int)
     ev_idx = event_start
     for branch in d.components
         _latent_plan_step!(plan, branch, origin_idx, ev_idx)
-        ev_idx += CensoredDistributions._child_nleaves(branch)
+        ev_idx += CensoredDistributions._event_child_nleaves(branch)
     end
     return plan
+end
+
+# A nested `Competing` in a LATENT-wrapped composer is out of scope (#333): the
+# latent turn-on must SAMPLE which outcome occurs and its time, a distinct
+# multivariate construction not built here. Reject it clearly rather than
+# mis-index the event slots. The MARGINAL composer model handles a nested
+# Competing (conditioning / per-row branch_probs); turn the latent flow on for
+# the rest of the tree, not for a Competing node.
+function _latent_plan_step!(plan, ::Competing, o_idx::Int, ev_idx::Int)
+    throw(ArgumentError(
+        "a latent-wrapped composer with a nested Competing node is not " *
+        "supported (#333); score it through the marginal composed model " *
+        "(condition on the observed outcome / pass per-record branch_probs)"))
 end
 
 # A nested composer step/branch recurses on the same shared event vector: its
