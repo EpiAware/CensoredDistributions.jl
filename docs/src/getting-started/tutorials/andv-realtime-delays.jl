@@ -45,7 +45,8 @@ comparison plot, and CensoredDistributions for the composed delay model.
 using CensoredDistributions
 using Distributions
 using Turing
-using DynamicPPL: prefix, to_submodel
+using DynamicPPL: prefix, to_submodel, @varname
+using FlexiChains: Parameter, VNChain
 using DataFramesMeta
 using DelimitedFiles: readdlm
 using Dates
@@ -227,8 +228,8 @@ same `Select` distribution generates event paths with `rand` and
 n_chains = 4
 
 chn = sample(Xoshiro(20260608), andv_delays(rows),
-    NUTS(0.9; adtype = AutoForwardDiff()),
-    MCMCThreads(), 500, n_chains; progress = false)
+    NUTS(0.95; adtype = AutoForwardDiff()),
+    MCMCThreads(), 500, n_chains; chain_type = VNChain, progress = false)
 
 md"""
 ## A weakly identified parameter
@@ -243,11 +244,17 @@ draws rather than a single-chain point estimate, which is the honest statement
 for a weakly identified delay.
 """
 
-pooled(sym) = vec(chn[sym])
+## The (iter, chain) draws of a top-level parameter as a matrix, and pooled
+## across chains as a flat vector.
+draws(name) = chn[Parameter(name)]
 
-rhat_delta = let
-    per_chain = [mean(chn[:, :mu_delta, c]) for c in 1:n_chains]
-    (between = round(std(per_chain); digits = 3),)
+pooled(name) = vec(draws(name))
+
+## The spread of the per-chain means of the weakly identified mu_delta: a
+## between-chain summary that a single chain would hide.
+between_chain_delta = let
+    per_chain = vec(mean(draws(@varname(mu_delta)); dims = 1))
+    round(std(per_chain); digits = 3)
 end
 
 md"""
@@ -259,9 +266,9 @@ compare the posterior medians and 95% credible intervals against the published
 targets.
 """
 
-mu_inc = pooled(:mu_inc)
+mu_inc = pooled(@varname(mu_inc))
 
-sigma_inc = pooled(:sigma_inc)
+sigma_inc = pooled(@varname(sigma_inc))
 
 inc_mean = exp.(mu_inc .+ sigma_inc .^ 2 ./ 2)
 
@@ -276,11 +283,14 @@ comparison = DataFrame(
     target_lo = [20.21, 31.29, -0.17, 0.46],
     target_hi = [25.43, 44.07, 0.48, 0.83],
     post_lo = [ci(inc_mean)[1], ci(inc_p95)[1],
-        ci(pooled(:mu_delta))[1], ci(pooled(:sigma_delta))[1]],
+        ci(pooled(@varname(mu_delta)))[1],
+        ci(pooled(@varname(sigma_delta)))[1]],
     post_median = [ci(inc_mean)[2], ci(inc_p95)[2],
-        ci(pooled(:mu_delta))[2], ci(pooled(:sigma_delta))[2]],
+        ci(pooled(@varname(mu_delta)))[2],
+        ci(pooled(@varname(sigma_delta)))[2]],
     post_hi = [ci(inc_mean)[3], ci(inc_p95)[3],
-        ci(pooled(:mu_delta))[3], ci(pooled(:sigma_delta))[3]])
+        ci(pooled(@varname(mu_delta)))[3],
+        ci(pooled(@varname(sigma_delta)))[3]])
 
 md"""
 The posterior 95% intervals cover the published medians for the well-identified
@@ -328,8 +338,8 @@ paths, shown here for one posterior draw of the sourced branch with
 """
 
 draw = (mu_inc = mean(mu_inc), sigma_inc = mean(sigma_inc),
-    mu_delta = mean(pooled(:mu_delta)),
-    sigma_delta = mean(pooled(:sigma_delta)))
+    mu_delta = mean(pooled(@varname(mu_delta))),
+    sigma_delta = mean(pooled(@varname(sigma_delta))))
 
 sourced_branch = let
     d = andv_select(draw.mu_inc, draw.sigma_inc, draw.mu_delta,
