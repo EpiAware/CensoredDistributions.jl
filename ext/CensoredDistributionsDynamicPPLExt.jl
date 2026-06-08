@@ -185,84 +185,28 @@ _leaf_weight(row, kw_weight) = kw_weight
 _leaf_weight(row::NamedTuple, kw_weight) = _row_weight(row, kw_weight)
 
 # --- Reserved-field handling -----------------------------------------------
+#
+# The pure row -> event-vector / reserved-field parsing now lives in the CORE
+# (`src/composers/tree_events.jl`, Turing-free) so the per-record and batched
+# (#364) paths share one source of truth. These thin aliases keep the ext's local
+# names while delegating to the core helpers.
 
-# Reserved row fields that are NOT events: a multiplicity weight may ride in the
-# row as `weight` or `count`, a per-record observation horizon (the right-
-# truncation observation time D, #329 hanta) as `obs_time`, and a per-record
-# Competing branch-probability override (#333) as `branch_probs`. The override
-# rides composed-tree rows too (a nested Competing node, #333), so it is excluded
-# from the by-name event matching here.
-const _RESERVED_ROW_FIELDS = (:weight, :count, :obs_time, :branch_probs)
+# Reserved row fields that are NOT events come from the CORE (`tree_events.jl`),
+# shared by the per-record and batched (#364) paths. They include the per-record
+# Competing branch-probability override (#333) `branch_probs`, so it is excluded
+# from by-name event matching for a nested Competing tree too.
+const _RESERVED_ROW_FIELDS = CensoredDistributions._RESERVED_ROW_FIELDS
 
-# The event values of a row in field order, dropping the reserved weight/count
-# fields, returned as a `Vector{Union{Missing, Float64}}` (one entry per event,
-# `missing` admitted). The `Missing`-admitting element type keeps the censored
-# composer `logpdf` specialisation (#329) selected even for an all-observed row.
-# The remaining field ORDER is the event order the composer spans. This is the
-# POSITIONAL fallback, used only when a composer carries no derivable event names
-# (its edges are positional defaults), per #362.
-function _event_vector(row::NamedTuple)
-    ks = filter(k -> !(k in _RESERVED_ROW_FIELDS), keys(row))
-    out = Vector{Union{Missing, Float64}}(undef, length(ks))
-    for (i, k) in enumerate(ks)
-        v = row[k]
-        out[i] = v === missing ? missing : Float64(v)
-    end
-    return out
-end
-
-# The event vector for a composer `d` from a `row`, matched to the tree's flat
-# EVENT names BY NAME (#362): `row.onset, row.admit, row.death` land in their slots
-# regardless of field order, `missing` fields drive the marginalise/condition
-# dispatch, and a reserved `weight`/`count` is excluded. A row field that is not a
-# tree event, or a missing required event, raises a clear `ArgumentError`. When
-# the tree's event names are all positional defaults (`:event_i`), the row is
-# matched POSITIONALLY through `_event_vector(row)` (the documented fallback).
+_event_vector(row::NamedTuple) = CensoredDistributions._row_event_vector(row)
 function _event_vector(d::Union{Sequential, Parallel}, row::NamedTuple)
-    enames = tree_event_names(d)
-    CensoredDistributions._all_positional_event_names(enames) &&
-        return _event_vector(row)
-    return _event_vector_by_name(enames, row)
+    return CensoredDistributions._row_event_vector(d, row)
 end
 
-# Build the by-name event vector: validate every non-reserved row field is a known
-# event, then place each event by name (a missing required event errors). Pure,
-# Turing-free.
-function _event_vector_by_name(enames::Tuple, row::NamedTuple)
-    for k in keys(row)
-        k in _RESERVED_ROW_FIELDS && continue
-        k in enames || throw(ArgumentError(
-            "row field $(repr(k)) is not an event of this tree; expected " *
-            "events $(collect(enames)) (reordering is allowed; names are not)"))
-    end
-    out = Vector{Union{Missing, Float64}}(undef, length(enames))
-    for (i, name) in enumerate(enames)
-        haskey(row, name) || throw(ArgumentError(
-            "row is missing required event $(repr(name)); expected events " *
-            "$(collect(enames))"))
-        v = row[name]
-        out[i] = v === missing ? missing : Float64(v)
-    end
-    return out
-end
-
-# The multiplicity weight carried by a row: an explicit `weight =` keyword wins,
-# otherwise a reserved `weight`/`count` field, otherwise `nothing` (unweighted).
 function _row_weight(row::NamedTuple, kw_weight)
-    kw_weight === nothing || return kw_weight
-    haskey(row, :weight) && return row.weight
-    haskey(row, :count) && return row.count
-    return nothing
+    return CensoredDistributions._row_weight_field(row, kw_weight)
 end
 
-# The per-record observation horizon D carried by a row's reserved `obs_time`
-# field (#329 hanta): when present and non-missing, the record is right-truncated
-# at the horizon; absent or missing, no truncation (back-compat).
-function _row_horizon(row::NamedTuple)
-    haskey(row, :obs_time) || return nothing
-    h = row.obs_time
-    return h === missing ? nothing : h
-end
+_row_horizon(row::NamedTuple) = CensoredDistributions._row_horizon_field(row)
 
 # --- Marginal composer models ----------------------------------------------
 
@@ -328,6 +272,26 @@ function _find_competing(d::Union{Sequential, Parallel})
         found = f
     end
     return found
+end
+
+# BATCHED entry (#364): score a WHOLE TABLE of records sharing the same composed
+# `d` in one submodel. `rows` is any Tables.jl row source that is NOT a single
+# `NamedTuple` row (a `Vector` of rows, a column table); the single-`NamedTuple`
+# method above stays the per-record entry. The contribution is the batched log
+# density `batched_event_logpdf(d, rows)`, which EQUALS the per-record loop
+# `sum(event_logpdf(d, ev_r; horizon = h_r) * w_r)` but builds each shared
+# convolution segment ONCE and reuses it across records with the same observed-
+# pattern (the dedup lives inside `batched_event_logpdf`). The whole table is
+# DATA, so the contribution is added with `@addlogprob!` (no spurious VarInfo
+# variable), and the reserved `weight`/`count`/`obs_time` row fields are honoured
+# identically to the per-record path. Usable as `obs ~ to_submodel(...)`.
+@model function composed_distribution_model(
+        d::Union{Sequential, Parallel}, rows::AbstractVector; weight = nothing)
+    weight === nothing || throw(ArgumentError(
+        "the batched composed model takes per-row weights via a reserved " *
+        "`weight`/`count` row field, not the `weight` keyword"))
+    DynamicPPL.@addlogprob! CensoredDistributions.batched_event_logpdf(d, rows)
+    return nothing
 end
 
 # A `Competing` node SELF-DISPATCHES on the row's outcome missingness (#329

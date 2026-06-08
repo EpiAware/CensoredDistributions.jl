@@ -129,13 +129,26 @@ function backend_broken_scenarios()
     # Enzyme heterogeneous-edge gap (#319); ForwardDiff / ReverseDiff / Mooncake
     # differentiate it correctly.
     nested_comp = "Nested Competing tree conditioned logpdf"
+    # The batched scorer (#364) runs an AD-FREE pre-pass that collects the table
+    # rows (`Tables.rows` iteration, vector building, validation `throw`s) before
+    # the AD-traced build/evaluate. ForwardDiff and ReverseDiff trace straight
+    # through this data-collection (it touches only the constant rows), but the
+    # COMPILED backends build a rule for every reachable statement -- including
+    # the `_throw_argerror` validation branch and the row-collection loop -- and
+    # crash uncatchably on it (the same reachable-branch class as the Parallel
+    # shared-origin / nested-tree paths, #319). The batched MATH itself is the
+    # all-continuous per-edge conditioning the single-record scenario already
+    # differentiates on every backend; only the data-collection wrapper trips the
+    # compiled backends, so it is registered broken for them rather than worked
+    # around. Its gradient correctness is covered by ForwardDiff and ReverseDiff.
+    batched_seq = "Batched Sequential censored observed logpdf"
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
-        "Mooncake reverse" => Set{String}(),
-        "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => Set{String}([nested_tree, nested_comp]),
-        "Enzyme forward" => Set{String}([nested_tree, nested_comp])
+        "Mooncake reverse" => Set{String}([batched_seq]),
+        "Mooncake forward" => Set{String}([batched_seq]),
+        "Enzyme reverse" => Set{String}([nested_tree, nested_comp, batched_seq]),
+        "Enzyme forward" => Set{String}([nested_tree, nested_comp, batched_seq])
     )
 end
 
@@ -686,6 +699,26 @@ function scenarios(; with_reference::Bool = false)
                     primary_censored(Gamma(θ[3], θ[4]), Uniform(0.0, 1.0))),
                 ev),
             [1.2, 0.5, 2.0, 1.0], (Constant(seq_ev_obs),))
+        # Batched / shared evaluation over MANY records (#364): the batched
+        # scorer dedupes the segment construction across records and sums their
+        # observed-intermediate contributions. With every record fully observed
+        # the path is the same all-continuous-arithmetic per-edge conditioning as
+        # the single-record scenario above (no `Convolved`/quadrature gap), so its
+        # gradient differentiates on every backend and must match the per-record
+        # loop. The rows table is inactive DATA carried as a `Constant`.
+        batch_rows = [(onset = 0.0, admit = 2.0, death = 5.0),
+            (onset = 0.0, admit = 3.0, death = 7.0),
+            (onset = 0.0, admit = 1.0, death = 4.0)]
+        _push!("Batched Sequential censored observed logpdf",
+            (θ,
+                rows) -> CensoredDistributions.batched_event_logpdf(
+                Sequential(
+                    primary_censored(
+                        LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                    primary_censored(Gamma(θ[3], θ[4]), Uniform(0.0, 1.0))),
+                rows),
+            [1.2, 0.5, 2.0, 1.0], (Constant(batch_rows),))
+
         # The Parallel shared-origin censored path is not an AD fixture: its
         # marginal routes through the 1-D origin quadrature and its conditional
         # through the parameter-type promotion, both of which the compiled
