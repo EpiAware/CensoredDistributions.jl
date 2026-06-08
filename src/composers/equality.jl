@@ -10,10 +10,18 @@ function Base.:(==)(a::Competing, b::Competing)
     return a.names == b.names && a.delays == b.delays &&
            a.branch_probs == b.branch_probs
 end
+function Base.:(==)(a::Select, b::Select)
+    return a.names == b.names && a.alternatives == b.alternatives &&
+           a.selector == b.selector
+end
 
 Base.hash(d::Sequential, h::UInt) = hash(d.components, hash(:Sequential, h))
 Base.hash(d::Parallel, h::UInt) = hash(d.components, hash(:Parallel, h))
 function Base.hash(c::Competing, h::UInt)
     return hash(c.branch_probs,
         hash(c.delays, hash(c.names, hash(:Competing, h))))
+end
+function Base.hash(d::Select, h::UInt)
+    return hash(d.selector,
+        hash(d.alternatives, hash(d.names, hash(:Select, h))))
 end
