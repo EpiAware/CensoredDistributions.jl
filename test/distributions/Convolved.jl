@@ -449,3 +449,53 @@ end
         @test (@inferred(pdf(d, 3.0)); true)
     end
 end
+
+@testitem "Convolved mean/var/std equal the component sums (#352)" begin
+    using Distributions
+
+    # A Convolved is a sum of independent components, so its mean/var are the
+    # exact sums of the component moments and std the sqrt of the variance.
+    d = convolve_distributions(
+        Gamma(2.0, 1.5), LogNormal(1.0, 0.4), Normal(-0.5, 0.8))
+    @test mean(d) ≈ sum(mean.(d.components))
+    @test var(d) ≈ sum(var.(d.components))
+    @test std(d) ≈ sqrt(sum(var.(d.components)))
+
+    # Bounded components (no sampling/discretisation needed).
+    du = convolve_distributions(Uniform(0.0, 1.0), Uniform(0.0, 2.0))
+    @test mean(du) ≈ 0.5 + 1.0
+    @test var(du) ≈ var(Uniform(0.0, 1.0)) + var(Uniform(0.0, 2.0))
+
+    # Nested Convolved recurses through the component sum.
+    dn = convolve_distributions(d, Exponential(2.0))
+    @test mean(dn) ≈ mean(d) + mean(Exponential(2.0))
+    @test var(dn) ≈ var(d) + var(Exponential(2.0))
+end
+
+@testitem "Convolved moments cross-check against sampling (#352)" begin
+    using Distributions, Random, Statistics
+
+    rng = MersenneTwister(2024)
+    d = convolve_distributions(Gamma(2.0, 1.5), LogNormal(1.0, 0.4))
+    xs = rand(rng, d, 2_000_000)
+    @test isapprox(mean(xs), mean(d); rtol = 0.01)
+    @test isapprox(var(xs), var(d); rtol = 0.02)
+end
+
+@testitem "Convolved PMF-weighting moment fallback matches analytic (#352)" begin
+    using Distributions
+    const CD = CensoredDistributions
+
+    # The deterministic PMF-weighting fallback (used per-component where no
+    # analytic moment exists) recovers the analytic moments to discretisation
+    # tolerance, for both bounded-below and unbounded supports.
+    for c in (Gamma(2.0, 1.5), LogNormal(1.0, 0.4), Normal(1.0, 2.0))
+        @test isapprox(CD._pmf_mean(c), mean(c); rtol = 1e-3)
+        @test isapprox(CD._pmf_var(c), var(c); rtol = 1e-2)
+    end
+end
+
+# The AD-safety of the Convolved moments (gradients flowing through the
+# component parameters) is covered by the 6-backend AD suite in
+# `test/ADFixtures` ("Convolved Gamma+Normal mean+var moments"), which has the
+# AD backends as dependencies; the main test env does not.

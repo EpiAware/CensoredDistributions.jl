@@ -252,10 +252,16 @@ function _param_eltype(d)
         init = Float64)
 end
 
-# Flatten the (possibly nested) `params` tuple of a distribution to its scalar
-# leaves, so `_param_eltype` promotes over every parameter.
+# Flatten the (possibly nested) `params` of a distribution to its scalar leaves,
+# so `_param_eltype` promotes over every parameter. The composed `params` is now
+# a name-keyed `NamedTuple` (#351), so a NamedTuple is flattened over its values
+# just like a tuple; a bare scalar is its own leaf.
 _flatten_params(t::Tuple) = mapreduce(_flatten_params, (a, b) -> (a..., b...), t;
     init = ())
+function _flatten_params(nt::NamedTuple)
+    return mapreduce(_flatten_params, (a, b) -> (a..., b...), values(nt);
+        init = ())
+end
 _flatten_params(x) = (x,)
 
 # The single shared primary event of a `Parallel`'s branches, or `nothing` when

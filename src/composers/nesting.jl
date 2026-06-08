@@ -11,6 +11,25 @@ _is_composable(::UnivariateDistribution) = true
 _is_composable(::Union{Sequential, Parallel}) = true
 _is_composable(::Any) = false
 
+# Default positional names for a composer node, used when the front-end (or a
+# positional constructor) supplies none. `_default_names(:step, 3)` is
+# `(:step_1, :step_2, :step_3)`; the prefix is `:step` for `Sequential` and
+# `:branch` for `Parallel`. Built as a typed tuple so the names field stays
+# concretely typed.
+function _default_names(prefix::Symbol, n::Int)
+    return ntuple(i -> Symbol(prefix, :_, i), n)
+end
+
+# Coerce a user-supplied names collection (a tuple/vector of Symbols, or
+# `nothing` for "use defaults") to a Symbol tuple of the right length. Used by
+# the `compose` front-ends so every input format threads names through.
+_coerce_names(::Nothing, prefix::Symbol, n::Int) = _default_names(prefix, n)
+function _coerce_names(names, ::Symbol, n::Int)
+    length(names) == n || throw(ArgumentError(
+        "supplied $(length(names)) names for $n components"))
+    return Tuple(Symbol(x) for x in names)
+end
+
 # Number of flat leaf values a child contributes: one for a univariate leaf,
 # its own leaf count for a nested composer.
 _child_nleaves(::UnivariateDistribution) = 1
@@ -65,3 +84,7 @@ function _child_rand!(
     end
     return nothing
 end
+
+# The recursive indented-tree printing and the `params`/`params_table` traversal
+# share the AbstractTrees.jl interface defined in `introspection.jl`
+# (`ComposerNode`, `children`, `printnode`, `_node_header`, `_show_composer_tree`).

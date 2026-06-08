@@ -136,6 +136,9 @@ end
 
 params(c::Competing) = (map(params, c.delays), c.branch_probs)
 
+# Outcome names, one per competing delay.
+component_names(c::Competing) = c.names
+
 # The univariate interface delegates to the mixture lowering, so a `Competing`
 # behaves as the marginal time-to-resolution wherever a distribution is needed.
 Base.minimum(c::Competing) = minimum(as_mixture(c))
@@ -179,17 +182,14 @@ Base.rand(c::Competing) = rand(default_rng(), c)
 
 @doc "
 
-Print a [`Competing`](@ref) node as its outcomes with branch probabilities.
+Print a [`Competing`](@ref) node as a recursive indented tree, labelling each
+outcome with its name and branch probability and descending into any nested
+composer outcome so the whole structure is shown at once.
 
 See also: [`Competing`](@ref)
 "
 function Base.show(io::IO, ::MIME"text/plain", c::Competing)
-    println(io, "Competing node of $(_n_branches(c)) outcomes")
-    for k in 1:_n_branches(c)
-        branch = k == _n_branches(c) ? "└─ " : "├─ "
-        println(io, "  ", branch,
-            "$(c.names[k]) (p = $(c.branch_probs[k])): $(c.delays[k])")
-    end
+    _show_composer_tree(io, c)
     return nothing
 end
 

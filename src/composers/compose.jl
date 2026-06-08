@@ -63,8 +63,10 @@ function compose end
 
 # --- NamedTuple front-end --------------------------------------------------
 # A NamedTuple maps to a Parallel over its values, each value lowered by
-# `_compose_child`. The names label branches for the user but do not change the
-# stack, so this matches the table and matrix forms structurally.
+# `_compose_child`. The keys become the branch NAMES, threaded into the
+# `Parallel` so `params`/`params_table`/`show` are name-keyed (#351, Option A).
+# Structurally this still matches the table and matrix forms (`==` ignores
+# names); only the labels differ.
 #
 # A column table is also a NamedTuple, so a NamedTuple carrying `name`/`dist`
 # column vectors is routed to the Tables.jl path instead, letting one
@@ -72,7 +74,8 @@ function compose end
 # NamedTuple.
 function compose(nt::NamedTuple)
     _is_column_table(nt) && return _compose_table(nt)
-    return Parallel(map(_compose_child, Tuple(nt)))
+    children = map(_compose_child, Tuple(nt))
+    return Parallel(children, keys(nt))
 end
 
 # A NamedTuple is treated as a column table when it has `name` and `dist` fields
@@ -82,7 +85,9 @@ function _is_column_table(nt::NamedTuple)
         nt.name isa AbstractVector && nt.dist isa AbstractVector
 end
 
-# Lower a single NamedTuple value to a composer child.
+# Lower a single NamedTuple value to a composer child. A nested NamedTuple
+# recurses (carrying its own keys); a bare vector/tuple of leaves becomes a
+# Sequential with default `:step_i` names (a plain vector has no names to carry).
 _compose_child(d::UnivariateDistribution) = d
 _compose_child(nt::NamedTuple) = compose(nt)
 function _compose_child(v::Union{AbstractVector, Tuple})
@@ -98,15 +103,23 @@ end
 # bare leaf, so a one-column matrix is one chain folded into a single Parallel
 # branch and a one-row matrix is parallel leaf branches, matching the
 # NamedTuple/table forms for the same structure.
-function compose(m::AbstractMatrix{<:UnivariateDistribution})
+#
+# Names thread through optional keyword arguments (#351, Option A): `names`
+# labels the row branches and `step_names` labels the columns within each
+# multi-step row. Both fall back to positional defaults (`:branch_i` /
+# `:step_j`) when omitted, so the matrix form still works name-free.
+function compose(m::AbstractMatrix{<:UnivariateDistribution};
+        names = nothing, step_names = nothing)
     nrows, ncols = size(m)
     (nrows >= 1 && ncols >= 1) ||
         throw(ArgumentError("the matrix needs at least one row and column"))
+    branch_names = _coerce_names(names, :branch, nrows)
+    col_names = ncols == 1 ? nothing : _coerce_names(step_names, :step, ncols)
     branches = ntuple(nrows) do i
         steps = Tuple(m[i, j] for j in 1:ncols)
-        ncols == 1 ? steps[1] : Sequential(steps)
+        ncols == 1 ? steps[1] : Sequential(steps, col_names)
     end
-    return Parallel(branches)
+    return Parallel(branches, branch_names)
 end
 
 # --- Tables.jl table front-end ---------------------------------------------
@@ -131,19 +144,24 @@ function _compose_table(table)
     (:name in names && :dist in names) ||
         throw(ArgumentError("the table needs `name` and `dist` columns"))
     dists = Tables.getcolumn(cols, :dist)
+    row_names = Tables.getcolumn(cols, :name)
     all(d -> d isa UnivariateDistribution, dists) ||
         throw(ArgumentError(
             "every `dist` entry must be a UnivariateDistribution"))
     if :chain in names
-        return _compose_table_chained(dists, Tables.getcolumn(cols, :chain))
+        return _compose_table_chained(
+            dists, row_names, Tables.getcolumn(cols, :chain))
     end
-    return Parallel(Tuple(dists))
+    # Flat table: each row is a branch, the `name` column its branch name.
+    return Parallel(Tuple(dists), _coerce_names(row_names, :branch, length(dists)))
 end
 
 # Group rows by the `chain` column: rows sharing a non-zero group id fold into
 # one Sequential branch (in row order); a zero/`missing` group is a leaf branch.
 # Branches appear in first-seen group order, matching the NamedTuple value order.
-function _compose_table_chained(dists, groups)
+# Each branch is named by the FIRST row of its group; the steps within a chained
+# branch are named by their own rows' `name` entries (#351, Option A).
+function _compose_table_chained(dists, row_names, groups)
     # Group ids must be non-negative: a zero/`missing` group is a unique leaf,
     # to which a fresh negative id is assigned, so a negative user group would
     # collide with those auto-generated leaf ids.
@@ -160,8 +178,14 @@ function _compose_table_chained(dists, groups)
     end
     branches = map(order) do gid
         idx = members[gid]
-        length(idx) == 1 ? dists[idx[1]] :
-        Sequential(Tuple(dists[i] for i in idx))
+        if length(idx) == 1
+            dists[idx[1]]
+        else
+            step_names = Tuple(Symbol(row_names[i]) for i in idx)
+            Sequential(Tuple(dists[i] for i in idx), step_names)
+        end
     end
-    return Parallel(Tuple(branches))
+    # A chained branch takes the name of its first row; a leaf branch its own.
+    branch_names = Tuple(Symbol(row_names[members[gid][1]]) for gid in order)
+    return Parallel(Tuple(branches), branch_names)
 end

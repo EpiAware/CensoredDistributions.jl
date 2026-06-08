@@ -141,6 +141,119 @@ end
 sampler(d::Convolved) = d
 
 # ---------------------------------------------------------------------------
+# Moments: exact analytic sum of independent components
+# ---------------------------------------------------------------------------
+#
+# A `Convolved` is a sum of independent components, so the mean and variance
+# are EXACT and additive: `mean = sum(mean.(components))` and
+# `var = sum(var.(components))` (#352). No sampling, no discretisation. Where a
+# single component lacks an analytic moment, the per-component moment falls back
+# to deterministic PMF-weighting (discretise via `interval_censored`, then
+# `sum(p_i * x_i)`), which is more accurate than Monte-Carlo sampling. The
+# moments flow through the component parameters, so the path is AD-safe.
+
+# Number of interval bins used by the PMF-weighting moment fallback, and the
+# tail mass trimmed from each side when a component support is unbounded.
+const _MOMENT_NBINS = 2000
+const _MOMENT_TAIL = 1e-9
+
+# Per-component mean. Uses the analytic `mean` where the component provides one,
+# otherwise the PMF-weighting fallback (#352). Dispatch (not `try`/`catch`)
+# selects the fallback so the differentiated path stays AD-safe.
+_component_mean(c::UnivariateDistribution) = _moment_dispatch(c, Val(:mean))
+_component_mean(c::Convolved) = mean(c)
+
+# Per-component variance, analytic where available else PMF-weighting (#352).
+_component_var(c::UnivariateDistribution) = _moment_dispatch(c, Val(:var))
+_component_var(c::Convolved) = var(c)
+
+# Default: trust the component's analytic `mean`/`var`. Component families
+# without an analytic moment opt into the PMF-weighting fallback by adding a
+# method to `_use_pmf_moment` returning `true`.
+_use_pmf_moment(::UnivariateDistribution) = false
+
+function _moment_dispatch(c::UnivariateDistribution, ::Val{:mean})
+    return _use_pmf_moment(c) ? _pmf_mean(c) : mean(c)
+end
+function _moment_dispatch(c::UnivariateDistribution, ::Val{:var})
+    return _use_pmf_moment(c) ? _pmf_var(c) : var(c)
+end
+
+# Bin edges spanning the component support, clamped to finite extreme quantiles
+# when a side is unbounded. Shared by the mean and variance fallbacks.
+function _moment_edges(c::UnivariateDistribution)
+    lo = minimum(c)
+    hi = maximum(c)
+    lo = isfinite(lo) ? lo : quantile(c, _MOMENT_TAIL)
+    hi = isfinite(hi) ? hi : quantile(c, 1 - _MOMENT_TAIL)
+    return range(lo, hi; length = _MOMENT_NBINS + 1)
+end
+
+# Deterministic PMF-weighting mean: discretise `c` into bins via
+# `interval_censored` and weight each bin midpoint by its interval mass.
+function _pmf_mean(c::UnivariateDistribution)
+    edges = _moment_edges(c)
+    ic = interval_censored(c, collect(edges))
+    m = zero(_pmf_value_type(c))
+    @inbounds for i in 1:(length(edges) - 1)
+        mid = (edges[i] + edges[i + 1]) / 2
+        m += pdf(ic, mid) * mid
+    end
+    return m
+end
+
+# Deterministic PMF-weighting variance via the same discretisation:
+# E[X^2] - E[X]^2 over the binned midpoints.
+function _pmf_var(c::UnivariateDistribution)
+    edges = _moment_edges(c)
+    ic = interval_censored(c, collect(edges))
+    m1 = zero(_pmf_value_type(c))
+    m2 = zero(_pmf_value_type(c))
+    @inbounds for i in 1:(length(edges) - 1)
+        mid = (edges[i] + edges[i + 1]) / 2
+        p = pdf(ic, mid)
+        m1 += p * mid
+        m2 += p * mid^2
+    end
+    return m2 - m1^2
+end
+
+# Accumulator element type for the PMF-weighting fallback: promote the
+# component's value type to a float so `Dual`s and rationals propagate.
+_pmf_value_type(c::UnivariateDistribution) = float(eltype(c))
+
+@doc "
+
+Mean of the convolution: the exact sum of the component means.
+
+A [`Convolved`](@ref) is a sum of independent components, so the mean is
+``\\sum_i \\mathbb{E}[X_i]``. Components with an analytic `mean` contribute it
+directly; a component without one falls back to deterministic PMF-weighting.
+
+See also: [`var`](@ref), [`std`](@ref)
+"
+mean(d::Convolved) = sum(_component_mean, d.components)
+
+@doc "
+
+Variance of the convolution: the exact sum of the component variances.
+
+Independence makes the variance additive, ``\\sum_i \\mathrm{Var}[X_i]``, with
+the same analytic / PMF-weighting fallback as [`mean`](@ref).
+
+See also: [`mean`](@ref), [`std`](@ref)
+"
+var(d::Convolved) = sum(_component_var, d.components)
+
+@doc "
+
+Standard deviation of the convolution, ``\\sqrt{\\mathrm{Var}[X]}``.
+
+See also: [`var`](@ref), [`mean`](@ref)
+"
+std(d::Convolved) = sqrt(var(d))
+
+# ---------------------------------------------------------------------------
 # Analytical fast path via Distributions.convolve
 # ---------------------------------------------------------------------------
 
