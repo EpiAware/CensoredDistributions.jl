@@ -94,3 +94,46 @@ end
     c = select(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0); selector = :case)
     @test a != c
 end
+
+@testitem "select nests on select and on compose results" begin
+    using CensoredDistributions, Distributions
+    const CD = CensoredDistributions
+
+    # compose-in-select: an alternative is a compose result.
+    tree = compose((a = Gamma(2.0, 1.0), b = LogNormal(0.5, 0.4)))
+    s1 = select(:joint => tree, :leaf => Gamma(3.0, 1.0))
+    @test s1 == CD.Select((:joint, :leaf), (tree, Gamma(3.0, 1.0)), :kind)
+
+    # select-in-select: an alternative is itself a select.
+    inner = select(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0))
+    s2 = select(:nested => inner, :flat => Gamma(1.0, 1.0))
+    @test s2 == CD.Select((:nested, :flat), (inner, Gamma(1.0, 1.0)), :kind)
+
+    # A select nested inside a compose, and scoring routes to the chosen branch.
+    outer = compose((pick = inner, side = Normal(0.0, 1.0)))
+    @test outer == CD.Parallel(inner, Normal(0.0, 1.0))
+    @test logpdf(inner, 3.0; kind = :short) ≈ logpdf(Gamma(2.0, 1.0), 3.0)
+end
+
+@testitem "nested select scores and samples through the model entry" begin
+    using CensoredDistributions, Distributions, Random
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    # A select alternative that is itself a select: the model entry reads the
+    # selector, picks the alternative, and delegates to its own model.
+    inner = select(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0);
+        selector = :sub)
+    d = select(:nested => inner, :flat => Gamma(3.0, 1.0))
+
+    @model gen(dist, row) = obs ~ to_submodel(
+        composed_distribution_model(dist, row))
+
+    # Routes through `:nested` then `:short`; equals the leaf marginal logpdf.
+    row = (kind = :nested, sub = :short, value = 2.5)
+    lp = only(logjoint(gen(d, row), (;)))
+    @test isfinite(lp)
+
+    Random.seed!(11)
+    draw = gen(d, (kind = :flat, value = missing))()
+    @test draw isa Real && isfinite(draw)
+end
