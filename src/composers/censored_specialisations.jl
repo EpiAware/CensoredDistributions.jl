@@ -604,9 +604,9 @@ end
 
 function _par_event_logpdf(::_Flat, d::Parallel, events)
     primary = _shared_primary_event(d.components)
-    primary === nothing && throw(ArgumentError(
-        "Parallel shared-origin scoring needs censored branches with a " *
-        "primary event; got plain branches"))
+    # Plain branches: no shared primary to integrate, so the origin must be
+    # observed; condition each branch on its gap and drop missing branches.
+    primary === nothing && return _par_plain_logpdf(d, events)
 
     cores = map(_marginal_core, d.components)
     # Promote over the PARAMETER types of the cores and primary (which carry any
@@ -620,6 +620,34 @@ function _par_event_logpdf(::_Flat, d::Parallel, events)
         return _parallel_marginal_logpdf(primary, cores, events, T2)
     end
     return _parallel_conditional_logpdf(primary, cores, events, T2)
+end
+
+# Plain-branch Parallel sharing an exactly-observed continuous origin: condition
+# each present branch on its gap `y_i - o` (no primary prior, no integral); drop
+# missing branches. A missing origin cannot be marginalised without a
+# distribution for it, so it is rejected (promote it to a primary or go latent).
+function _par_plain_logpdf(d::Parallel, events)
+    origin = events[1]
+    origin === missing && throw(ArgumentError(
+        "a plain-branch Parallel needs an observed shared origin to condition " *
+        "on; a missing continuous origin cannot be marginalised without a " *
+        "distribution for it (declare a primary event or pass a latent origin)"))
+    T = promote_type(_event_eltype(events),
+        map(_param_eltype, d.components)...)
+    o = events[1]
+    o isa Real || return convert(T, -Inf)
+    isnan(o) && return convert(T, NaN)
+    lp = zero(T)
+    @inbounds for i in 2:length(events)
+        y = events[i]
+        y === missing && continue
+        isnan(y) && return convert(T, NaN)
+        u = y - o
+        branch = d.components[i - 1]
+        insupport(branch, u) || return convert(T, -Inf)
+        lp += convert(T, logpdf(branch, u))
+    end
+    return lp
 end
 
 @doc "

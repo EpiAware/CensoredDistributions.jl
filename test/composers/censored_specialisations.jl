@@ -111,12 +111,80 @@ end
     @test logpdf(par, evd) ≈ logpdf(primary_censored(b1, pe), y1) rtol=1e-6
 end
 
-@testitem "Parallel plain branches reject shared-origin scoring" begin
+@testitem "Parallel plain branches condition on an observed origin" begin
+    using Distributions
+
+    b1 = Gamma(2.0, 1.0)
+    b2 = LogNormal(1.0, 0.5)
+    par = Parallel(b1, b2)
+    o, y1, y2 = 0.4, 2.0, 3.0
+
+    # Observed shared origin: each branch conditions on its gap, no primary
+    # prior and no integral.
+    ev = Vector{Union{Missing, Float64}}([o, y1, y2])
+    @test logpdf(par, ev) ≈ logpdf(b1, y1 - o) + logpdf(b2, y2 - o)
+    @test pdf(par, ev) ≈ exp(logpdf(par, ev))
+
+    # A missing branch drops from the joint.
+    evd = Vector{Union{Missing, Float64}}([o, y1, missing])
+    @test logpdf(par, evd) ≈ logpdf(b1, y1 - o)
+
+    # An out-of-support gap (origin after the observation) is -Inf.
+    evx = Vector{Union{Missing, Float64}}([5.0, y1, y2])
+    @test logpdf(par, evx) == -Inf
+end
+
+@testitem "Parallel plain branches need an observed origin" begin
     using Distributions
 
     par = Parallel(Gamma(2.0, 1.0), LogNormal(1.0, 0.5))
     ev = Vector{Union{Missing, Float64}}([missing, 2.0, 3.0])
     @test_throws ArgumentError logpdf(par, ev)
+end
+
+@testitem "Parallel plain-branch conditioning is type-stable" begin
+    using Distributions
+
+    par = Parallel(Gamma(2.0, 1.0), LogNormal(1.0, 0.5))
+    ev = Vector{Union{Missing, Float64}}([0.4, 2.0, 3.0])
+    @test (@inferred logpdf(par, ev)) isa Float64
+end
+
+@testitem "primary_censored(Parallel) wrapper == per-branch primary form" begin
+    using Distributions, Random
+    Random.seed!(7)
+
+    pe = Uniform(0.0, 1.0)
+    d1 = Gamma(2.0, 1.0)
+    d2 = LogNormal(1.0, 0.5)
+
+    # Notation invariance: declaring one shared primary by WRAPPING the Parallel
+    # must give the SAME log density as the per-branch primary form (one shared
+    # 1-D integral over the common primary, not independent per-branch integrals).
+    perbranch = Parallel(primary_censored(d1, pe), primary_censored(d2, pe))
+    wrapper = primary_censored(Parallel(d1, d2), pe)
+
+    for ev in (Vector{Union{Missing, Float64}}([missing, 2.3, 3.1]),
+        Vector{Union{Missing, Float64}}([0.4, 2.3, 3.1]),
+        Vector{Union{Missing, Float64}}([missing, 2.3, missing]))
+        @test logpdf(wrapper, ev) ≈ logpdf(perbranch, ev) rtol=1e-10
+    end
+end
+
+@testitem "double_interval_censored(Parallel) shares one primary" begin
+    using Distributions
+
+    pe = Uniform(0.0, 1.0)
+    d1 = Gamma(2.0, 1.0)
+    d2 = LogNormal(1.0, 0.5)
+
+    perbranch = Parallel(
+        double_interval_censored(d1; primary_event = pe),
+        double_interval_censored(d2; primary_event = pe))
+    wrapper = double_interval_censored(Parallel(d1, d2); primary_event = pe)
+
+    ev = Vector{Union{Missing, Float64}}([missing, 2.0, 3.0])
+    @test logpdf(wrapper, ev) ≈ logpdf(perbranch, ev) rtol=1e-10
 end
 
 @testitem "Competing recovers a delay-adjusted CFR" begin
