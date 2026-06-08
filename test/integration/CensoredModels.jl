@@ -599,6 +599,37 @@ end
           logpdf(leaf, 4.0)
 end
 
+@testitem "composed_distribution_model: Select branches keep independent anchors" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    # The hanta index-vs-sourced split (#323, #356): two ALTERNATIVE WHOLE
+    # records with INDEPENDENT anchors, NOT shared-origin branches. The index
+    # case is its own primary-censored leaf; the sourced case is a longer,
+    # independently-anchored chain. Unlike a shared-origin Parallel, Select makes
+    # no shared-primary assumption: each selected branch scores as its OWN
+    # complete distribution, and the non-selected branch contributes nothing.
+    index_rec = primary_censored(LogNormal(1.5, 0.5), Uniform(0, 1))
+    sourced_rec = Sequential(
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+        primary_censored(Gamma(3.0, 1.0), Uniform(0, 1)))
+    d = select(:index => index_rec, :sourced => sourced_rec)
+
+    @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
+
+    # Selecting the index branch scores EXACTLY its own standalone leaf logpdf
+    # (no shared-origin path, no contribution from the sourced branch).
+    @test only(logjoint(demo(d, (kind = :index, y = 3.0)), (;))) ≈
+          logpdf(index_rec, 3.0)
+
+    # Selecting the sourced branch scores EXACTLY its own standalone chain
+    # logpdf, routed through the same nested-composer recursion.
+    ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
+    @test only(logjoint(
+        demo(d, (kind = :sourced, onset = 0.0, admit = 2.0, death = 5.0)),
+        (;))) ≈ logpdf(sourced_rec, ev)
+end
+
 @testitem "composed_distribution_model: Select selector field is non-event" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
