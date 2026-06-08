@@ -264,3 +264,123 @@ end
         convolve_distributions(LogNormal(1.0, 0.5), d2), pe)
     @test logpdf(chain, ev) ≈ logpdf(ref, 5.0) rtol=1e-6
 end
+
+# --- Recursive nested-composer (irregular tree) scoring (#329, #333, #345) ---
+
+@testitem "Nested tree: a Parallel step inside a Sequential recurses" begin
+    using Distributions
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa = edge(1.4, 0.4)
+    e_ad = edge(1.8, 0.5)
+    e_ac = edge(2.0, 0.6)
+
+    # onset -> admit -> {death, discharge}: death/discharge share the ADMIT
+    # origin. One composed distribution scored against the 4-event row.
+    d = Sequential(e_oa, Parallel(e_ad, e_ac))
+    @test length(d) == 3            # 3 leaf events; event vector is length 4
+    onset, admit, death, disch = 0.0, 4.0, 12.0, 11.0
+    ev = Vector{Union{Missing, Float64}}([onset, admit, death, disch])
+
+    # Per-pathway-chain reference: each edge's own censored logpdf, origin
+    # reapplied (admit origin for the two branch edges).
+    ref = logpdf(e_oa, admit - onset) +
+          logpdf(e_ad, death - admit) +
+          logpdf(e_ac, disch - admit)
+    @test logpdf(d, ev) ≈ ref rtol=1e-10
+    @test pdf(d, ev) ≈ exp(ref) rtol=1e-10
+end
+
+@testitem "Nested tree: a Sequential branch inside a Parallel recurses" begin
+    using Distributions
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa = edge(1.4, 0.4)
+    e_ad = edge(1.8, 0.5)
+    e_on = edge(1.9, 0.5)
+
+    # Parallel(Sequential(e_oa, e_ad), e_on): a chain branch and a leaf branch
+    # off the same onset origin. Event layout [onset, admit, X, notif].
+    d = Parallel(Sequential(e_oa, e_ad), e_on)
+    @test length(d) == 3
+    onset, admit, x, notif = 0.0, 4.0, 12.0, 9.0
+    ev = Vector{Union{Missing, Float64}}([onset, admit, x, notif])
+    ref = logpdf(e_oa, admit - onset) + logpdf(e_ad, x - admit) +
+          logpdf(e_on, notif - onset)
+    @test logpdf(d, ev) ≈ ref rtol=1e-10
+end
+
+@testitem "bdbv two-level tree == per-pathway-chain reference" begin
+    using Distributions
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa = edge(1.4, 0.4)
+    e_ad = edge(1.8, 0.5)
+    e_ac = edge(2.0, 0.6)
+    e_on = edge(1.9, 0.5)
+
+    # Full bdbv tree: onset -> {admit -> {death, discharge}, notif}.
+    # Parallel(Sequential(e_oa, Parallel(e_ad, e_ac)), e_on).
+    d = Parallel(Sequential(e_oa, Parallel(e_ad, e_ac)), e_on)
+    onset, admit, death, disch, notif = 0.0, 4.0, 12.0, 11.0, 9.0
+    ev = Vector{Union{Missing, Float64}}([onset, admit, death, disch, notif])
+
+    # Each edge's contribution equals its own censored logpdf, the ADMIT origin
+    # reapplied to the death/discharge edges (not the onset origin).
+    ref = logpdf(e_oa, admit - onset) +
+          logpdf(e_ad, death - admit) +
+          logpdf(e_ac, disch - admit) +
+          logpdf(e_on, notif - onset)
+    @test logpdf(d, ev) ≈ ref rtol=1e-10
+end
+
+@testitem "Three-level irregular tree A -> {B->F, C -> {D, E}} scores" begin
+    using Distributions
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_ab = edge(1.0, 0.3)
+    e_bf = edge(0.8, 0.4)
+    e_ac = edge(1.2, 0.5)
+    e_cd = edge(0.9, 0.3)
+    e_ce = edge(1.1, 0.4)
+
+    # Heterogeneous children under A: a chain (B -> F) and a branch (C -> {D, E}).
+    d = Parallel(
+        Sequential(e_ab, e_bf),
+        Sequential(e_ac, Parallel(e_cd, e_ce)))
+    @test length(d) == 5            # 5 leaf events; event vector length 6
+    A, B, F, C, D, E = 0.0, 3.0, 5.5, 3.5, 6.0, 7.0
+    ev = Vector{Union{Missing, Float64}}([A, B, F, C, D, E])
+    ref = logpdf(e_ab, B - A) + logpdf(e_bf, F - B) +
+          logpdf(e_ac, C - A) + logpdf(e_cd, D - C) + logpdf(e_ce, E - C)
+    @test logpdf(d, ev) ≈ ref rtol=1e-10
+end
+
+@testitem "Nested tree logpdf is type-stable" begin
+    using Distributions, Test
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa = edge(1.4, 0.4)
+    e_ad = edge(1.8, 0.5)
+    e_ac = edge(2.0, 0.6)
+    e_on = edge(1.9, 0.5)
+
+    d = Parallel(Sequential(e_oa, Parallel(e_ad, e_ac)), e_on)
+    ev = Vector{Union{Missing, Float64}}([0.0, 4.0, 12.0, 11.0, 9.0])
+    @test (@inferred logpdf(d, ev)) isa Float64
+end
+
+# Per-backend AD gradient correctness for the nested tree (ForwardDiff /
+# ReverseDiff / Mooncake pass; Enzyme is the heterogeneous-edge gap #319) is
+# covered by the dedicated AD fixture suite (`test/ADFixtures`, scenario
+# "Nested tree censored observed logpdf") with the proper AD-backend deps.

@@ -116,13 +116,21 @@ backend `name` from [`working_backends`](@ref).
 
 """
 function backend_broken_scenarios()
+    # The nested-composer (irregular tree) scoring recurses through a
+    # heterogeneous tree of differing censored edge types. Enzyme (both modes)
+    # cannot statically prove the type of the recursively-built tree walk and
+    # either errors (`EnzymeNoTypeError`, reverse) or returns a wrong gradient
+    # (forward): the heterogeneous-edge gap (#319). ForwardDiff, ReverseDiff and
+    # Mooncake (both modes) all differentiate it correctly, so it is registered
+    # broken for Enzyme only rather than worked around.
+    nested_tree = "Nested tree censored observed logpdf"
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => Set{String}(),
         "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => Set{String}(),
-        "Enzyme forward" => Set{String}()
+        "Enzyme reverse" => Set{String}([nested_tree]),
+        "Enzyme forward" => Set{String}([nested_tree])
     )
 end
 
@@ -630,6 +638,35 @@ function scenarios(; with_reference::Bool = false)
         # tests instead. Only the all-continuous-arithmetic Sequential
         # observed-intermediate scenario, which differentiates on every backend,
         # is kept here.
+
+        # Nested-composer (irregular tree) fully-observed scoring (#345): a
+        # two-level tree onset -> {admit -> {death, discharge}, notif}, every
+        # event observed. The recursive walk conditions each edge on its own
+        # declared `primary_censored` censoring at the day gap, so the gradient
+        # is all-continuous-arithmetic over the leaf delay params (the same form
+        # as the single-level observed-intermediate scenario above) and
+        # differentiates on the analytic backends. The marginalising
+        # (missing-event) tree paths route through the `Convolved`/quadrature
+        # gaps the compiled backends crash on, so they stay reference-only as
+        # above. The event vector carries `Missing` as an inactive Constant.
+        tree_ev = Vector{Union{Missing, Float64}}(
+            [0.0, 4.0, 12.0, 11.0, 9.0])
+        _push!("Nested tree censored observed logpdf",
+            (θ,
+                ev) -> logpdf(
+                Parallel(
+                    Sequential(
+                        primary_censored(
+                            LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                        Parallel(
+                            primary_censored(
+                                Gamma(θ[3], θ[4]), Uniform(0.0, 1.0)),
+                            primary_censored(
+                                Gamma(θ[5], θ[6]), Uniform(0.0, 1.0)))),
+                    primary_censored(
+                        LogNormal(θ[7], θ[8]), Uniform(0.0, 1.0))),
+                ev),
+            [1.4, 0.4, 2.0, 1.0, 2.0, 1.2, 1.9, 0.5], (Constant(tree_ev),))
     end
 
     # External censoring wrappers over composers (#334). Combine first, then
