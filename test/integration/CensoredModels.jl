@@ -877,6 +877,186 @@ end
     @test only(logjoint(demo(seq, row), (;))) ≈ logpdf(seq, ev)
 end
 
+@testitem "per-record horizon: whole-compose truncation at D (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    D = 8.0
+    # Endpoint-observed record (intermediate admit unobserved): the whole compose
+    # collapses to the origin->death total, right-truncated at D - origin. The
+    # log-density includes the -logcdf(total, window) correction vs untruncated.
+    ev = Vector{Union{Missing, Float64}}([0.0, missing, 5.0])
+    seg = CensoredDistributions._sequential_segment(
+        seq.components, 1, 3, Uniform(0, 1))
+    expected = logpdf(seg, 5.0) - logcdf(seg, D - 0.0)
+    row = (onset = 0.0, admit = missing, death = 5.0, obs_time = D)
+    @test only(logjoint(demo(seq, row), (;))) ≈ expected
+    # The correction is exactly the right-truncation term.
+    @test only(logjoint(demo(seq, row), (;))) ≈ logpdf(seq, ev) - logcdf(seg, D)
+
+    # A non-zero observed origin shifts the window to D - origin.
+    o = 1.5
+    seg2 = CensoredDistributions._sequential_segment(
+        seq.components, 1, 3, Uniform(0, 1))
+    row2 = (onset = o, admit = missing, death = 5.0, obs_time = D)
+    @test only(logjoint(demo(seq, row2), (;))) ≈
+          logpdf(seg2, 5.0 - o) - logcdf(seg2, D - o)
+
+    # No obs_time field -> no truncation (back-compat).
+    row3 = (onset = 0.0, admit = missing, death = 5.0)
+    @test only(logjoint(demo(seq, row3), (;))) ≈ logpdf(seq, ev)
+end
+
+@testitem "per-record horizon: index single vs sourced convolved (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    # An index case observes a single delay onset->resolution; a sourced case
+    # observes the total over two unobserved-intermediate segments. The whole-
+    # compose denominator is the single delay vs the convolution, selected by the
+    # record's missingness, exactly the andv split.
+    inc = primary_censored(LogNormal(1.5, 0.5), Uniform(0, 1))
+    delta = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    seq = Sequential((inc, delta), (:onset_mid, :mid_obs))
+    D = 6.0
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # Sourced: intermediate `mid` unobserved -> convolved origin->obs denominator.
+    sourced = CensoredDistributions._sequential_segment(
+        seq.components, 1, 3, Uniform(0, 1))
+    row_src = (onset = 0.0, mid = missing, obs = 5.0, obs_time = D)
+    @test only(logjoint(demo(seq, row_src), (;))) ≈
+          logpdf(sourced, 5.0) - logcdf(sourced, D)
+
+    # Index: a single-segment chain (one delay), endpoint observed -> single
+    # delay denominator.
+    seq1 = Sequential((inc,), (:onset_obs,))
+    single = CensoredDistributions._sequential_segment(
+        seq1.components, 1, 2, Uniform(0, 1))
+    row_idx = (onset = 0.0, obs = 4.0, obs_time = D)
+    @test only(logjoint(demo(seq1, row_idx), (;))) ≈
+          logpdf(single, 4.0) - logcdf(single, D)
+end
+
+@testitem "per-record horizon: non-positive window guard (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # Horizon before the observed total -> empty-support truncation -> -Inf, no
+    # error or NaN (the primitive guards the non-positive window).
+    row = (onset = 2.0, admit = missing, death = 5.0, obs_time = 1.0)
+    lj = only(logjoint(demo(seq, row), (;)))
+    @test lj == -Inf
+end
+
+@testitem "per-record horizon: observed-intermediate is rejected (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # With the intermediate admit OBSERVED and a per-record horizon, the
+    # whole-compose-vs-per-segment meaning is undecided (#329): rejected, not
+    # guessed.
+    row = (onset = 0.0, admit = 2.0, death = 5.0, obs_time = 8.0)
+    @test_throws ArgumentError logjoint(demo(seq, row), (;))
+end
+
+@testitem "per-record horizon: leaf record truncates at D (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # A leaf record (observed from the origin) truncates at the horizon itself.
+    pc = primary_censored(LogNormal(1.5, 0.5), Uniform(0, 1))
+    row = (delay = 2.0, obs_time = 6.0)
+    @test only(logjoint(demo(pc, row), (;))) ≈
+          logpdf(pc, 2.0) - logcdf(pc, 6.0)
+    # No obs_time -> untruncated (and keeps the named primary-censored routing).
+    @test only(logjoint(demo(pc, (delay = 2.0,)), (;))) ≈ logpdf(pc, 2.0)
+end
+
+@testitem "per-record horizon: per-record loop with differing D (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint, prefix
+
+    inc = primary_censored(LogNormal(1.5, 0.5), Uniform(0, 1))
+    delta = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    seq = Sequential((inc, delta), (:onset_mid, :mid_obs))
+
+    # Each record carries its OWN observation horizon; the batch log density sums
+    # the per-record whole-compose truncated contributions.
+    rows = [
+        (onset = 0.0, mid = missing, obs = 4.0, obs_time = 6.0),
+        (onset = 0.5, mid = missing, obs = 5.0, obs_time = 9.0, weight = 2)
+    ]
+
+    @model function fit(rows)
+        for i in eachindex(rows)
+            x ~ to_submodel(
+                prefix(composed_distribution_model(seq, rows[i]),
+                    Symbol("rec", i)), false)
+        end
+    end
+
+    seg = CensoredDistributions._sequential_segment(
+        seq.components, 1, 3, Uniform(0, 1))
+    m1 = logpdf(seg, 4.0 - 0.0) - logcdf(seg, 6.0 - 0.0)
+    m2 = logpdf(seg, 5.0 - 0.5) - logcdf(seg, 9.0 - 0.5)
+    @test logjoint(fit(rows), (;)) ≈ m1 + 2 * m2
+end
+
+@testitem "per-record horizon: AD through the truncated path (#329)" begin
+    using CensoredDistributions, Distributions
+    using Turing: Turing, @model, to_submodel, AutoForwardDiff
+    using DynamicPPL: DynamicPPL, LogDensityFunction
+    import DynamicPPL.LogDensityProblems as LDP
+
+    rows = [
+        (onset = 0.0, mid = missing, obs = 4.0, obs_time = 6.0),
+        (onset = 0.5, mid = missing, obs = 5.0, obs_time = 9.0)
+    ]
+
+    @model function fit(rows)
+        mu ~ Normal(1.5, 0.3)
+        sh ~ truncated(Normal(2.0, 0.5); lower = 0.2)
+        seq = Sequential(
+            (primary_censored(LogNormal(mu, 0.5), Uniform(0, 1)),
+                primary_censored(Gamma(sh, 1.0), Uniform(0, 1))),
+            (:onset_mid, :mid_obs))
+        for i in eachindex(rows)
+            x ~ to_submodel(composed_distribution_model(seq, rows[i]), false)
+        end
+    end
+
+    ldf = LogDensityFunction(fit(rows); adtype = AutoForwardDiff())
+    v, g = LDP.logdensity_and_gradient(ldf, [1.5, 2.0])
+    @test length(g) == 2
+    @test all(isfinite, g)
+    @test any(!iszero, g)
+end
+
 @testitem "composed_distribution_model: Select routes by the data selector" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint

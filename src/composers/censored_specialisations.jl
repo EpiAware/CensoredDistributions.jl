@@ -346,6 +346,41 @@ function _seq_event_logpdf(::_Nested, d::Sequential, events)
 end
 
 function _seq_event_logpdf(::_Flat, d::Sequential, events)
+    return _seq_event_logpdf_h(d, events, nothing)
+end
+
+# Flat `Sequential` scoring with an OPTIONAL per-record observation horizon
+# `horizon` (#329 hanta truncation). The WHOLE composed distribution is truncated
+# per record at the horizon (the same combine-then-censor semantics as wrapping a
+# chain in `double_interval_censored`): the record's observed total is the elapsed
+# time from the FIRST observed event (origin) to the LAST observed event
+# (terminal), right-truncated at `window = horizon - origin`. This is unambiguous
+# for the ENDPOINT-OBSERVED case (origin + terminal observed, intermediates
+# unobserved) -- the hanta index/sourced shape -- where the record IS the single
+# collapsed total. With OBSERVED INTERMEDIATES the "whole-compose at D" meaning is
+# a maintainer decision (truncate the collapsed total at D - origin, vs each
+# observed segment at D - its anchor); that case is rejected pending the decision
+# rather than guessed. `horizon === nothing` leaves the scoring untruncated.
+function _seq_event_logpdf_h(d::Sequential, events, horizon)
+    horizon === nothing && return _seq_event_logpdf_untrunc(d, events)
+    obs_idx, obs_val = _observed_indices_values(events)
+    length(obs_idx) >= 2 || throw(ArgumentError(
+        "a Sequential event vector needs at least two observed events"))
+    length(obs_idx) == 2 || throw(ArgumentError(
+        "per-record horizon truncation of a Sequential is defined for the " *
+        "endpoint-observed case (origin + terminal observed, intermediates " *
+        "unobserved); a record with observed intermediates needs the " *
+        "whole-compose-vs-per-segment decision (#329) before it is scored"))
+    # Endpoint-observed: the collapsed origin->terminal total, truncated at the
+    # remaining window from the observed origin.
+    primary = _origin_primary_event(d.components[1])
+    seg = _sequential_segment(d.components, obs_idx[1], obs_idx[2], primary)
+    gap = obs_val[2] - obs_val[1]
+    return logpdf(truncate_to_horizon(seg, horizon - obs_val[1]), gap)
+end
+
+# The untruncated flat-chain scoring (the original per-segment factorisation).
+function _seq_event_logpdf_untrunc(d::Sequential, events)
     # Pre-pass on the constant event vector: collect the observed event indices
     # and their concrete values. The `Union{Missing}` entries are read only
     # here, so the differentiated arithmetic below touches only concrete gaps.
@@ -496,6 +531,129 @@ See also: [`logpdf`](@ref)
 "
 function pdf(d::Parallel, events::AbstractVector{T}) where {T >: Missing}
     return exp(logpdf(d, events))
+end
+
+# ---------------------------------------------------------------------------
+# Per-record observation-horizon right-truncation (#329 hanta)
+# ---------------------------------------------------------------------------
+#
+# `event_logpdf(d, events; horizon)` is the horizon-aware event-vector log
+# density. With `horizon === nothing` it is exactly the censored composer
+# `logpdf(d, events)` (back-compat). With a per-record `horizon` the WHOLE
+# composed distribution is right-truncated at that observation time for the
+# record, the same combine-then-censor direction as wrapping the compose in
+# `double_interval_censored` (`wrap.jl`) but with the upper bound supplied PER
+# RECORD rather than baked in. For a `Sequential` the record's observed total
+# (origin -> terminal) is truncated at `horizon - origin` (the endpoint-observed
+# hanta index/sourced shape); for a `Parallel` each branch endpoint is truncated
+# at `horizon - origin` off the shared origin. `truncate_to_horizon` /
+# `_truncate_window` are the implementation primitive (upper-only, AD-safe, with
+# the non-positive-window empty-support guard); they are NOT a user-facing
+# per-segment interface here.
+
+@doc raw"
+
+Horizon-aware event-vector log density of a censored composer (#329).
+
+`event_logpdf(d, events; horizon)` scores `events` exactly as
+`logpdf(d, events)` when `horizon === nothing`. With a per-record `horizon` the
+WHOLE composed distribution is right-truncated at that observation time for the
+record, the same combine-then-censor direction as wrapping the compose in
+[`double_interval_censored`](@ref) but with the upper bound supplied per record.
+
+For a [`Sequential`](@ref) the record's observed total (origin to terminal) is
+truncated at ``\text{horizon} - \text{origin}`` (the endpoint-observed
+index/sourced shape); for a [`Parallel`](@ref) each branch endpoint is truncated
+at ``\text{horizon} - \text{origin}`` off the shared origin. The truncation
+contributes the ``-\log F(\text{window})`` correction, upper-only and AD-safe.
+
+A `Sequential` record with OBSERVED INTERMEDIATES is rejected with a per-record
+horizon: whether whole-compose truncation means the collapsed total or each
+observed segment is a maintainer decision left open rather than guessed.
+
+# Arguments
+- `d`: a censored [`Sequential`](@ref) or [`Parallel`](@ref) composer.
+- `events`: the flat event vector `[E_0, ..., E_k]` (value or `missing` each).
+
+# Keyword Arguments
+- `horizon`: the per-record observation horizon, or `nothing` for no truncation.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+seq = Sequential(
+    primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+    primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+# Endpoint-observed record (intermediate unobserved): the total is truncated.
+ev = Vector{Union{Missing, Float64}}([0.0, missing, 5.0])
+CensoredDistributions.event_logpdf(seq, ev; horizon = 8.0)
+```
+
+# See also
+- [`double_interval_censored`](@ref): the whole-compose wrap with a baked-in
+  bound
+- [`truncate_to_horizon`](@ref): the truncation primitive
+"
+function event_logpdf(
+        d::Sequential, events::AbstractVector{T}; horizon = nothing
+) where {T >: Missing}
+    horizon === nothing && return logpdf(d, events)
+    # A nested chain has no single observed origin/terminal total; whole-compose
+    # truncation is defined on the flat chain (the andv shape).
+    _nested_trait(d.components) isa _Flat || throw(ArgumentError(
+        "per-record horizon truncation is defined for a flat Sequential " *
+        "chain; a nested tree has no single observed total to truncate"))
+    return _seq_event_logpdf_h(d, events, horizon)
+end
+
+function event_logpdf(
+        d::Parallel, events::AbstractVector{T}; horizon = nothing
+) where {T >: Missing}
+    horizon === nothing && return logpdf(d, events)
+    _nested_trait(d.components) isa _Flat || throw(ArgumentError(
+        "per-record horizon truncation is defined for a flat Parallel set; " *
+        "a nested tree has no single observed total to truncate"))
+    return _par_event_logpdf_h(d, events, horizon)
+end
+
+# A univariate leaf record's horizon truncation: the leaf is observed from the
+# (zero) origin, so the window is the horizon itself.
+function event_logpdf(d::UnivariateDistribution, x::Real; horizon = nothing)
+    horizon === nothing && return logpdf(d, x)
+    return logpdf(truncate_to_horizon(d, horizon), x)
+end
+
+# Flat `Parallel` with a horizon: every branch endpoint shares the observed
+# origin, so each is right-truncated at `horizon - origin` (each branch is its own
+# endpoint, no intermediate, so the whole-compose meaning is unambiguous). A
+# missing (marginalised) origin has no observed anchor, so truncation would
+# require integrating the denominator over the origin; that is out of scope and
+# rejected with a clear error.
+function _par_event_logpdf_h(d::Parallel, events, horizon)
+    origin = events[1]
+    origin === missing && throw(ArgumentError(
+        "per-record horizon truncation needs an observed shared origin; a " *
+        "missing (marginalised) origin has no anchor to truncate from"))
+    primary = _shared_primary_event(d.components)
+    primary === nothing && throw(ArgumentError(
+        "Parallel shared-origin scoring needs censored branches with a " *
+        "primary event; got plain branches"))
+    o = Float64(origin)
+    cores = map(_marginal_core, d.components)
+    T2 = promote_type(_event_eltype(events), _param_eltype(primary),
+        map(_param_eltype, cores)...)
+    insupport(primary, o) || return convert(T2, -Inf)
+    lp = convert(T2, logpdf(primary, o))
+    window = horizon - o
+    @inbounds for i in eachindex(cores)
+        y = events[i + 1]
+        y === missing && continue
+        seg = truncate_to_horizon(cores[i], window)
+        u = Float64(y) - o
+        lp += convert(T2, logpdf(seg, u))
+    end
+    return lp
 end
 
 # Element type of an event vector, treating the `missing`-only / mixed slots as
