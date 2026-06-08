@@ -4,8 +4,21 @@
 # the wrapper into every branch; Convolved/Competing are already univariate and
 # flow through the existing wrapper methods unchanged.
 
-@testitem "observed_distribution lowers each composer to its scalar" begin
+@testitem "observed_distribution: combine-then-censor scalar lowering" begin
     using Distributions
+
+    # This is the COMBINE-THEN-CENSOR layer (#334): you observe the chain TOTAL,
+    # the single elapsed time origin -> terminal event, with every intermediate
+    # event MARGINALISED. That total is the convolution of the chain steps, so a
+    # `Sequential` lowers to a univariate `Convolved` and the `Convolved`
+    # assertion below is correct for THIS layer.
+    #
+    # This is DISTINCT from the general per-record lowering
+    # (`composed_distribution_model` / `logpdf(::Sequential, events)`, #329/#333),
+    # where OBSERVED intermediates do NOT marginalise but FACTORISE into one
+    # independent per-edge term each and only fully-missing intermediates
+    # marginalise. The contrast test in
+    # `test/composers/observed_intermediate_contrast.jl` pins that difference.
 
     # Sequential -> convolution of its steps.
     seq = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))

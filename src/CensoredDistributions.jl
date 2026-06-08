@@ -50,7 +50,7 @@ export ExponentiallyTilted
 export convolve_distributions
 
 # Exported generic composers and front-end constructor
-export Sequential, Parallel, Competing, compose, as_mixture
+export Sequential, Parallel, Competing, competing, compose, as_mixture
 
 # Exported composer-observed lowering used by the external censoring wrappers
 export observed_distribution
