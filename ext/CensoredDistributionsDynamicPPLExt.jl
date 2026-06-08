@@ -774,15 +774,21 @@ end
 # The base (un-parameterised) constructor of a leaf distribution, so a leaf
 # reconstructs from sampled parameters carrying any (AD) element type rather than
 # the template's concrete one (e.g. `Gamma` from a `Gamma{Float64}` template).
-_base_ctor(leaf) = Base.typename(typeof(leaf)).wrapper
+# Resolves the INNER free delay of a (possibly censored) leaf so a censored leaf
+# rebuilds its delay family, not the censoring wrapper.
+_base_ctor(leaf) = Base.typename(typeof(CensoredDistributions.free_leaf(leaf))).wrapper
 
-# Reconstruct a leaf of the same family from sampled parameters. Argument checks
-# are skipped (`check_args = false`) so a sampler probing an out-of-support point
-# yields a `-Inf` log-density rather than throwing mid-gradient; families whose
-# constructor lacks the keyword fall back to the plain (checked) constructor.
+# Reconstruct a leaf from sampled parameters. For a censored leaf the inner free
+# delay is rebuilt from the params and the FIXED censoring is re-applied via
+# `rewrap_leaf`, so a `double_interval_censored(Gamma)` round-trips to the same
+# censored distribution. Argument checks are skipped (`check_args = false`) so a
+# sampler probing an out-of-support point yields `-Inf` rather than throwing
+# mid-gradient; families whose constructor lacks the keyword fall back to the
+# plain (checked) constructor.
 function _reconstruct_leaf(leaf, vals::Tuple)
     ctor = _base_ctor(leaf)
-    return _construct_unchecked(ctor, vals)
+    inner = _construct_unchecked(ctor, vals)
+    return CensoredDistributions.rewrap_leaf(leaf, inner)
 end
 
 function _construct_unchecked(ctor, vals::Tuple)
@@ -904,9 +910,9 @@ _params_submodel(d::Union{Sequential, Parallel}, priors) = _composer_params_mode
 _params_submodel(c::Competing, priors) = _competing_params_model(c, priors)
 _params_submodel(leaf, priors) = _leaf_params_model(leaf, priors)
 
-# Rebuild a composer of the same type with new components, preserving its names.
-_rebuild(d::Sequential, components::Tuple) = Sequential(components, d.names)
-_rebuild(d::Parallel, components::Tuple) = Parallel(components, d.names)
+# `_rebuild` (preserve composer type + names) is shared with the core `update`
+# helper; reuse it rather than redefining.
+const _rebuild = CensoredDistributions._rebuild
 
 # The public entry: dispatch to the recursive submodel builder. A composed
 # `template` rebuilds its structure; a bare leaf template rebuilds the leaf.

@@ -122,6 +122,40 @@ function _competing_params(c::Competing)
     return merge(outcomes, (; branch_probs = c.branch_probs))
 end
 
+# --- censoring-transparent leaves ------------------------------------------
+#
+# A composed leaf may itself be a censored delay (e.g. a
+# `double_interval_censored(Gamma(...))`, i.e. an
+# `IntervalCensored{Truncated{PrimaryCensored{Gamma}}}`). The censoring bounds
+# (primary event, truncation, interval) are FIXED structure, not free
+# parameters; only the inner delay's parameters (the `Gamma` shape/scale) are
+# free. `_free_leaf` peels the fixed censoring off to the inner free delay, and
+# `_rewrap_leaf` rebuilds the same censoring around a new inner delay. The
+# introspection (`params_table`, names) and reconstruction layers go through
+# these, so a censored leaf is transparent: its rows show only the inner free
+# params and it round-trips by re-censoring the rebuilt delay. A plain leaf is
+# the identity for both. The public `Distributions.params` is unchanged.
+
+# Innermost free delay of a (possibly censored) leaf.
+free_leaf(leaf) = leaf
+free_leaf(d::PrimaryCensored) = free_leaf(d.dist)
+free_leaf(d::IntervalCensored) = free_leaf(d.dist)
+free_leaf(d::Truncated) = free_leaf(d.untruncated)
+
+# Rebuild the SAME censoring around a new inner delay `inner`. Mirrors
+# `free_leaf`: each wrapper recurses inwards then re-applies its fixed spec.
+rewrap_leaf(leaf, inner) = inner
+function rewrap_leaf(d::PrimaryCensored, inner)
+    return PrimaryCensored(rewrap_leaf(d.dist, inner), d.primary_event, d.method)
+end
+function rewrap_leaf(d::IntervalCensored, inner)
+    return IntervalCensored(rewrap_leaf(d.dist, inner), d.boundaries)
+end
+function rewrap_leaf(d::Truncated, inner)
+    return truncated(rewrap_leaf(d.untruncated, inner); lower = d.lower,
+        upper = d.upper)
+end
+
 # --- parameter-name introspection for leaves -------------------------------
 
 # Best-effort scalar parameter NAMES for a leaf distribution, matched
@@ -136,12 +170,14 @@ _param_names(::Distributions.Exponential) = (:scale,)
 _param_names(::Distributions.Uniform) = (:lower, :upper)
 _param_names(::Any) = ()
 
-# Names for the full `params(leaf)` tuple, padding with positional fallbacks so
-# every value has a label even when the family is unmapped or `params` carries
-# extra (wrapper) fields.
+# Names for the inner free delay's `params` tuple, padding with positional
+# fallbacks so every value has a label even when the family is unmapped. A
+# censored leaf delegates to its free delay (`free_leaf`), so the censoring
+# bounds never appear.
 function _leaf_param_names(leaf)
-    vals = params(leaf)
-    base = _param_names(leaf)
+    inner = free_leaf(leaf)
+    vals = params(inner)
+    base = _param_names(inner)
     n = length(vals)
     return ntuple(n) do i
         i <= length(base) ? base[i] : Symbol(:param_, i)
@@ -222,12 +258,14 @@ function _walk_rows!(edges, params_col, values, supports, c::Competing, path)
     return nothing
 end
 
-# Leaf distribution: one row per scalar parameter, all sharing the leaf's
-# variate support.
+# Leaf distribution: one row per scalar FREE parameter. A censored leaf shows
+# only its inner free delay's params and that delay's support (the censoring
+# bounds are fixed structure, see `free_leaf`).
 function _walk_rows!(edges, params_col, values, supports, leaf, path)
+    inner = free_leaf(leaf)
     pnames = _leaf_param_names(leaf)
-    vals = params(leaf)
-    sup = (minimum(leaf), maximum(leaf))
+    vals = params(inner)
+    sup = (minimum(inner), maximum(inner))
     edge = _join_path(path)
     for (pname, v) in zip(pnames, vals)
         push!(edges, edge)
@@ -241,6 +279,207 @@ end
 # Join a name path to a single dotted `Symbol` (e.g. `(:a, :b)` -> `:a.b`); a
 # single-element path keeps its bare name.
 _join_path(path::Tuple) = Symbol(join(string.(path), "."))
+
+# --- update: nested NamedTuple -> reconstructed distribution ----------------
+
+# Reconstruct a (possibly censored) leaf from a new inner free delay built out
+# of `vals`, re-applying the fixed censoring. Mirrors the extension's
+# `_reconstruct_leaf` but is Turing-free; argument checks are kept on (this is
+# building a concrete distribution, not a gradient hot path).
+function _update_leaf(leaf, vals::Tuple)
+    inner = free_leaf(leaf)
+    ctor = Base.typename(typeof(inner)).wrapper
+    return rewrap_leaf(leaf, ctor(vals...))
+end
+
+@doc "
+
+Update a composed distribution's free parameters from a nested `NamedTuple`.
+
+`update(d, params)` returns a new distribution of the SAME structure as `d` with
+its free parameters replaced by the values in `params`. The `params` NamedTuple
+mirrors the tree: a [`Sequential`](@ref)/[`Parallel`](@ref) is keyed by its edge
+names, a leaf by its parameter names (as in [`params_table`](@ref)'s `param`
+column), and a [`Competing`](@ref) by its outcome names plus an optional
+`branch_probs` entry. A censored leaf is transparent: supply only the inner
+delay's parameters and the censoring is carried through.
+
+Pair with [`chain_to_params`](@ref) to read posterior means or a single draw
+from a Turing chain into the right NamedTuple, so `update(template, means)`
+returns a ready-to-`rand`/inspect distribution.
+
+# Arguments
+- `d`: the composed distribution (or bare leaf) to update.
+- `params`: a nested NamedTuple of new parameter values keyed like `d`.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+tree = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+tree2 = update(tree, (onset_admit = (shape = 3.0, scale = 1.5),
+    admit_death = (mu = 0.7, sigma = 0.5)))
+get_event(tree2, :onset_admit)
+```
+
+# See also
+- [`params_table`](@ref): the flat inventory whose `param` names key the leaves
+- [`chain_to_params`](@ref): build the NamedTuple from a fitted chain
+"
+function update(d::Union{Sequential, Parallel}, params::NamedTuple)
+    names = component_names(d)
+    _check_update_keys(params, names, nameof(typeof(d)))
+    parts = ntuple(length(names)) do i
+        update(d.components[i], params[names[i]])
+    end
+    return _rebuild(d, parts)
+end
+
+function update(c::Competing, params::NamedTuple)
+    _check_update_keys(params, c.names, :Competing; optional = (:branch_probs,))
+    delays = ntuple(length(c.names)) do i
+        update(c.delays[i], params[c.names[i]])
+    end
+    probs = if haskey(params, :branch_probs)
+        bp = params.branch_probs
+        _check_update_keys(bp, c.names, Symbol("Competing branch_probs"))
+        ntuple(i -> bp[c.names[i]], length(c.names))
+    else
+        c.branch_probs
+    end
+    return Competing(c.names, delays, probs)
+end
+
+# Leaf: take the new parameter values in `_leaf_param_names` order and rebuild.
+function update(leaf, params::NamedTuple)
+    pnames = _leaf_param_names(leaf)
+    _check_update_keys(params, pnames, nameof(typeof(leaf)))
+    vals = ntuple(i -> params[pnames[i]], length(pnames))
+    return _update_leaf(leaf, vals)
+end
+
+# Validate `params` covers exactly `expected` (plus any `optional` keys) at the
+# current node, with a clear error naming the node.
+function _check_update_keys(params::NamedTuple, expected::Tuple, what;
+        optional::Tuple = ())
+    have = keys(params)
+    missing_keys = filter(k -> !(k in have), expected)
+    extra_keys = filter(k -> !(k in expected) && !(k in optional), have)
+    isempty(missing_keys) || throw(ArgumentError(
+        "update($what, ...) is missing $(collect(missing_keys)); " *
+        "expected $(collect(expected))"))
+    isempty(extra_keys) || throw(ArgumentError(
+        "update($what, ...) has unexpected keys $(collect(extra_keys)); " *
+        "expected $(collect(expected))"))
+    return nothing
+end
+
+function _check_update_keys(params, ::Tuple, what; optional::Tuple = ())
+    throw(ArgumentError(
+        "update($what, ...) expects a NamedTuple; got $(typeof(params))"))
+end
+
+# `_rebuild` for the composers (mirrors the extension's helper, kept core-side so
+# `update` is Turing-free).
+_rebuild(d::Sequential, components::Tuple) = Sequential(components, d.names)
+_rebuild(d::Parallel, components::Tuple) = Parallel(components, d.names)
+
+# --- build_priors: params_table + flat priors -> nested NamedTuple ----------
+
+# Split a dotted edge `Symbol` (`:a.b`) back into its name path (`(:a, :b)`).
+function _split_edge(edge::Symbol)
+    parts = split(string(edge), '.')
+    return Tuple(Symbol.(parts))
+end
+
+# Insert `value` at the `(path..., leaf)` location of a nested `Dict` tree,
+# creating intermediate `Dict`s as needed. Used to assemble the nested prior
+# structure from flat table rows before freezing to NamedTuples.
+function _nest_insert!(tree::Dict, path::Tuple, leaf::Symbol, value)
+    node = tree
+    for k in path
+        node = get!(node, k, Dict{Symbol, Any}())::Dict{Symbol, Any}
+    end
+    node[leaf] = value
+    return nothing
+end
+
+# Freeze a nested `Dict{Symbol}` tree into nested `NamedTuple`s (leaves, the
+# prior objects, are left untouched).
+_freeze_tree(x) = x
+function _freeze_tree(d::Dict{Symbol})
+    ks = Tuple(keys(d))
+    return NamedTuple{ks}(map(k -> _freeze_tree(d[k]), ks))
+end
+
+@doc "
+
+Assemble the nested prior `NamedTuple` from a [`params_table`](@ref) inventory.
+
+`build_priors(table; priors, default)` turns the flat parameter table into the
+nested `NamedTuple` that [`composed_parameters_model`](@ref) (and [`update`](@ref))
+expect, so users define priors against the flat table rows rather than by hand-
+matching the tree.
+
+For each row the prior is chosen in order:
+1. `priors[(edge, param)]` if that `(edge, param)` pair is present, else
+2. `default(row)` if a `default` function is given, else an error.
+
+`row` is a `NamedTuple` `(; edge, param, value, support)` (the table's columns
+for that row), so a `default` can pick a prior from the parameter's `support`.
+
+# Arguments
+- `table`: a [`params_table`](@ref) inventory (any Tables.jl column table with
+  `edge`, `param`, `value`, `support` columns).
+
+# Keyword Arguments
+- `priors`: a mapping (e.g. `Dict`) from `(edge::Symbol, param::Symbol)` to a
+  prior distribution (default: empty).
+- `default`: a function `row -> prior` for rows not covered by `priors`
+  (default: `nothing`, meaning every row must be in `priors`).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+tree = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+tbl = params_table(tree)
+nested = build_priors(tbl;
+    default = row -> truncated(Normal(row.value, 1); lower = 0))
+nested.onset_admit.shape
+```
+
+# See also
+- [`params_table`](@ref): the flat inventory keyed against.
+- [`composed_parameters_model`](@ref), [`update`](@ref): consume the result.
+"
+function build_priors(table; priors = Dict{Tuple{Symbol, Symbol}, Any}(),
+        default = nothing)
+    edges = Tables.getcolumn(table, :edge)
+    params_col = Tables.getcolumn(table, :param)
+    values = Tables.getcolumn(table, :value)
+    supports = Tables.getcolumn(table, :support)
+    tree = Dict{Symbol, Any}()
+    for i in eachindex(edges)
+        edge = edges[i]
+        param = params_col[i]
+        key = (edge, param)
+        prior = if haskey(priors, key)
+            priors[key]
+        elseif default !== nothing
+            row = (; edge = edge, param = param,
+                value = values[i], support = supports[i])
+            default(row)
+        else
+            throw(ArgumentError(
+                "no prior for ($edge, $param) and no default supplied"))
+        end
+        _nest_insert!(tree, _split_edge(edge), param, prior)
+    end
+    return _freeze_tree(tree)
+end
 
 # --- name introspection ----------------------------------------------------
 

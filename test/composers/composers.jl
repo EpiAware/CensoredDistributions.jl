@@ -350,3 +350,101 @@ end
     @test event_names(c) == (:death, :disch)
     @test get_event(c, :death) == Gamma(1.5, 1.0)
 end
+
+@testitem "params_table is transparent to a censored leaf" begin
+    using Distributions
+
+    delay = Gamma(2.0, 1.5)
+    cens = double_interval_censored(delay; primary_event = Uniform(0, 1),
+        upper = 10.0, interval = 1.0)
+    tree = compose((obs = cens,))
+    tbl = params_table(tree)
+
+    # Only the inner delay's free params appear; the censoring bounds
+    # (interval, truncation, primary event) never leak as parameters.
+    @test tbl.param == [:shape, :scale]
+    @test tbl.value == [2.0, 1.5]
+    @test all(s -> s == (minimum(delay), maximum(delay)), tbl.support)
+
+    # The public `params` of the censored leaf is unchanged (still leaks the
+    # bounds); only the introspection layer is transparent.
+    @test length(params(cens)) > 2
+end
+
+@testitem "update rebuilds a composed distribution from a nested NamedTuple" begin
+    using Distributions
+
+    tpl = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    upd = update(tpl, (onset_admit = (shape = 3.0, scale = 1.5),
+        admit_death = (mu = 0.7, sigma = 0.5)))
+
+    @test event_names(upd) == event_names(tpl)
+    @test get_event(upd, :onset_admit) == Gamma(3.0, 1.5)
+    @test get_event(upd, :admit_death) == LogNormal(0.7, 0.5)
+
+    # Equivalent to a hand-rebuilt distribution.
+    hand = compose((onset_admit = Gamma(3.0, 1.5),
+        admit_death = LogNormal(0.7, 0.5)))
+    @test logpdf(upd, [1.5, 2.5]) == logpdf(hand, [1.5, 2.5])
+
+    # A censored leaf round-trips: only the inner free params are supplied and
+    # the fixed censoring is carried through.
+    cens = double_interval_censored(Gamma(2.0, 1.5); upper = 10.0, interval = 1.0)
+    ct = compose((obs = cens,))
+    cu = update(ct, (obs = (shape = 2.0, scale = 1.5),))
+    @test typeof(get_event(cu, :obs)) == typeof(cens)
+    @test logpdf(get_event(cu, :obs), 3.0) == logpdf(cens, 3.0)
+
+    # Missing / extra keys error.
+    @test_throws ArgumentError update(tpl,
+        (onset_admit = (shape = 1.0,),
+            admit_death = (mu = 0.1, sigma = 0.2)))
+    @test_throws ArgumentError update(tpl,
+        (onset_admit = (shape = 1.0, scale = 1.0, bogus = 0.0),
+            admit_death = (mu = 0.1, sigma = 0.2)))
+end
+
+@testitem "update handles Competing branch_probs" begin
+    using Distributions
+
+    tree = compose((res = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+        :disch => (Gamma(2.0, 1.5), 0.7)),))
+
+    # branch_probs omitted: the template's fixed probabilities are kept.
+    keep = update(tree, (res = (death = (shape = 1.0, scale = 1.0),
+        disch = (shape = 2.0, scale = 2.0)),))
+    @test get_event(keep, :res).branch_probs == (0.3, 0.7)
+
+    # branch_probs supplied: each outcome's probability is replaced.
+    set = update(tree,
+        (res = (death = (shape = 1.0, scale = 1.0),
+            disch = (shape = 2.0, scale = 2.0),
+            branch_probs = (death = 0.4, disch = 0.6)),))
+    @test get_event(set, :res).branch_probs == (0.4, 0.6)
+end
+
+@testitem "build_priors assembles nested priors from the params table" begin
+    using Distributions
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    tbl = params_table(tree)
+
+    # Default-prior function over the table rows.
+    nested = build_priors(tbl;
+        default = row -> truncated(Normal(row.value, 1); lower = -10))
+    @test Set(keys(nested)) == Set((:onset_admit, :admit_death))
+    @test Set(keys(nested.onset_admit)) == Set((:shape, :scale))
+    @test Set(keys(nested.admit_death)) == Set((:mu, :sigma))
+    @test nested.onset_admit.shape isa Distribution
+
+    # Explicit per-(edge, param) priors take precedence over the default.
+    mixed = build_priors(tbl;
+        priors = Dict((:onset_admit, :shape) => Normal(2, 0.5)),
+        default = row -> truncated(Normal(row.value, 1); lower = -10))
+    @test mixed.onset_admit.shape == Normal(2, 0.5)
+
+    # A row with no prior and no default errors.
+    @test_throws ArgumentError build_priors(tbl)
+end

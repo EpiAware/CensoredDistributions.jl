@@ -60,7 +60,12 @@ export Sequential, Parallel, Competing, competing, compose, as_mixture
 # Exported composed-distribution introspection (#351): the flat prior table and
 # name introspection. Nested name-keyed values come from the extended
 # `Distributions.params`.
-export params_table, event_names, get_event
+export params_table, event_names, get_event, update, build_priors
+
+# Exported chain reader (#353 follow-up): read a fitted Turing chain into the
+# nested NamedTuple `update` consumes. No method until DynamicPPL (or Turing) is
+# loaded; the method lives in the package extension.
+export chain_to_params
 
 # Exported data-selected disjunction node (the case selector over independent
 # alternatives). `Select` is the type; `select` the friendly constructor.

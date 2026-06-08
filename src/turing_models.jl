@@ -254,3 +254,64 @@ event_names(reconstructed)
   keyed against.
 "
 function composed_parameters_model end
+
+@doc "
+
+Read a fitted Turing chain into the nested NamedTuple that [`update`](@ref)
+consumes.
+
+`chain_to_params(template, chain)` walks the `template` composed distribution and
+pulls each free parameter's value out of `chain` (sampled through
+[`composed_parameters_model`](@ref)), returning a nested `NamedTuple` keyed like
+[`params`](@ref)`(template)`. By default it returns posterior means; pass
+`draw=i` for a single draw. The `prefix` keyword names the submodel variable the
+parameters were sampled under (the `~`-bound name, default `:d`), matching the
+edge-path-prefixed chain names like `d.onset_admit.shape`.
+
+`update(template, chain_to_params(template, chain))` returns a ready-to-`rand`/
+inspect distribution, replacing manual `chain[Prefixed(@varname(...))]`
+reconstruction.
+
+This function has no methods until `DynamicPPL` (or `Turing`) is loaded; the
+method lives in the package extension so the core stays free of `DynamicPPL`.
+
+# Arguments
+- `template`: the composed distribution (from [`compose`](@ref)) that was the
+  `composed_parameters_model` template.
+- `chain`: the fitted chain to read parameter values from.
+
+# Keyword Arguments
+- `prefix`: the submodel variable name the parameters were sampled under
+  (default `:d`).
+- `draw`: a single iteration index to read, or `nothing` for posterior means
+  (default `nothing`).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+using FlexiChains: VNChain
+
+template = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+priors = build_priors(params_table(template);
+    default = row -> truncated(Normal(row.value, 1); lower = 0))
+
+@model function fit(t, p, ys)
+    d ~ to_submodel(composed_parameters_model(t, p))
+    for y in ys
+        DynamicPPL.@addlogprob! logpdf(d, y)
+    end
+end
+
+Random.seed!(1)
+chain = sample(fit(template, priors, [[0.5, 2.0], [1.0, 3.0]]), NUTS(), 20;
+    chain_type = VNChain, progress = false)
+ready = update(template, chain_to_params(template, chain))
+get_event(ready, :onset_admit)
+```
+
+# See also
+- [`update`](@ref): rebuild the distribution from the NamedTuple.
+- [`composed_parameters_model`](@ref): the submodel that produced the chain.
+"
+function chain_to_params end
