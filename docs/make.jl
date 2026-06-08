@@ -23,7 +23,8 @@ if !skip_notebooks
         "exponentially-tilted-primary-events.jl",
         "ad-backends.jl",
         "fitting-with-turing.jl",
-        "fit-marginal-sample-event-based.jl"
+        "fit-marginal-sample-event-based.jl",
+        "andv-realtime-delays.jl"
     ]
 
     println(
@@ -60,7 +61,8 @@ else
         "exponentially-tilted-primary-events.md" => "# Exponentially tilted primary events",
         "ad-backends.md" => "# [Automatic differentiation backends](@id ad-backends)",
         "fitting-with-turing.md" => "# Fitting with Turing.jl",
-        "fit-marginal-sample-event-based.md" => "# Fit marginal, sample event based"
+        "fit-marginal-sample-event-based.md" => "# Fit marginal, sample event based",
+        "andv-realtime-delays.md" => "# Real-time ANDV delay estimation"
     ]
     for (file, heading) in tutorial_stubs
         open(joinpath(tutorials_dir, file), "w") do io

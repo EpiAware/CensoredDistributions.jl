@@ -6,7 +6,8 @@ getting_started_pages = Any[
         "Exponentially tilted primary events" => "getting-started/tutorials/exponentially-tilted-primary-events.md",
         "Automatic differentiation backends" => "getting-started/tutorials/ad-backends.md",
         "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md",
-        "Fit marginal, sample event based" => "getting-started/tutorials/fit-marginal-sample-event-based.md"
+        "Fit marginal, sample event based" => "getting-started/tutorials/fit-marginal-sample-event-based.md",
+        "Real-time ANDV delay estimation" => "getting-started/tutorials/andv-realtime-delays.md"
     ],
     "Julia" => "getting-started/julia.md",
     "FAQ" => "getting-started/faq.md"
