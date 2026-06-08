@@ -24,6 +24,32 @@
 # missing slots marginalise on `logpdf` and are sampled on `rand`. The per-record
 # `weight` and `horizon` are baked in, so `logpdf` equals
 # `event_logpdf(d, events; horizon) * weight`.
+@doc "
+
+One record's composed distribution over the flat event vector `[E_0, ..., E_k]`.
+
+Built by [`record_distributions`](@ref) from a table row. The observed event
+slots score against the prebuilt shared segments (`segs`) and the missing slots
+marginalise on `logpdf`; `rand` samples the full event path. The record's
+reserved metadata (the observation horizon, the weight) is baked in at assembly,
+so `logpdf` equals [`event_logpdf`](@ref)`(dist, events; horizon)` scaled by the
+weight.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+seq = Sequential(
+    primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+    primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+recs = CensoredDistributions.record_distributions(
+    seq, [(onset = 0.0, admit = 2.0, death = 5.0)])
+logpdf(recs[1], [0.0, 2.0, 5.0])
+```
+
+# See also
+- [`record_distributions`](@ref): the assembly entry that builds these.
+"
 struct EventRecord{D, E, S, W, H} <: Distribution{Multivariate, Continuous}
     "The shared composed distribution."
     dist::D
