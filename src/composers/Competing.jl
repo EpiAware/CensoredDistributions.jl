@@ -141,6 +141,74 @@ end
 
 _n_branches(c::Competing) = length(c.names)
 
+# ---------------------------------------------------------------------------
+# Shared self-dispatch scoring (#329, #333)
+# ---------------------------------------------------------------------------
+#
+# The Turing-free arithmetic of the `Competing` self-dispatch (#329 decision 2),
+# factored here so BOTH the top-level `composed_distribution_model(d::Competing,
+# row)` (the DynamicPPL extension) and the NESTED tree scorer (#333) use ONE
+# implementation rather than two parallel copies. Each helper consumes already-
+# resolved inputs (the observed-outcome index or `nothing`, the gap from the
+# node's anchor, and the per-record branch probabilities) and returns a plain
+# log density, so the extension supplies the row plumbing and these supply the
+# scoring. The probabilities keep their (possibly AD `Dual`) element type so a
+# covariate CFR `logistic(Xβ)` differentiates through the node.
+
+# Per-record branch probabilities must each lie in `[0, 1]` and sum to one. The
+# bounds carry a small tolerance so a saturating covariate prob (`logistic(Xβ)`
+# evaluating to a hair past 0 or 1 under AD/sampling) is accepted rather than
+# spuriously rejected mid-gradient; a genuinely out-of-range value still errors.
+# Comparisons are value-based, so an AD `Dual` is compared on its value.
+function _validate_record_probs(probs)
+    tol = 1e-6
+    all(p -> p >= -tol && p <= 1 + tol, probs) || throw(ArgumentError(
+        "each per-record branch probability must lie in [0, 1]; got " *
+        "$(collect(probs))"))
+    isapprox(sum(probs), 1; atol = 1e-6) || throw(ArgumentError(
+        "per-record branch probabilities sum to $(sum(probs)), not one"))
+    return nothing
+end
+
+# Coerce a per-record branch-probability override to the node's outcome order. A
+# `NamedTuple` must name exactly the outcomes; a scalar is the FIRST outcome's
+# probability of a two-outcome node (`(p, 1 - p)`). The element type is preserved
+# so a `logistic(Xβ)` `Dual` flows through.
+function _coerce_branch_probs(c::Competing, bp::NamedTuple)
+    Set(keys(bp)) == Set(c.names) || throw(ArgumentError(
+        "per-record branch_probs must name exactly the outcomes " *
+        "$(collect(c.names)); got $(collect(keys(bp)))"))
+    probs = map(n -> bp[n], c.names)
+    _validate_record_probs(probs)
+    return probs
+end
+
+function _coerce_branch_probs(c::Competing, p::Real)
+    length(c.names) == 2 || throw(ArgumentError(
+        "a scalar per-record branch_probs is only defined for a two-outcome " *
+        "Competing (the first outcome's probability); node has " *
+        "$(length(c.names)) outcomes, pass a NamedTuple instead"))
+    probs = (p, one(p) - p)
+    _validate_record_probs(probs)
+    return probs
+end
+
+# Condition on the observed outcome `i`: `log(p[i]) + logpdf(delay[i], gap)`,
+# the observed branch's own (censored) logpdf at its gap from the node's anchor.
+# `delay` is optionally pre-censored/truncated by the caller (the same delay the
+# top-level path scores), so this is purely the conditioned-branch arithmetic.
+function _competing_condition_logpdf(probs, delay, gap, i::Int)
+    return log(probs[i]) + logpdf(delay, gap)
+end
+
+# Marginalise an unknown outcome at the resolution time `t`: the branch-prob-
+# weighted mixture `logpdf`. `delays` may be pre-censored/truncated by the caller
+# (matching the conditioned path's per-record horizon), else the node's delays.
+function _competing_marginal_logpdf(probs, delays, t)
+    mix = MixtureModel(collect(delays), collect(float.(probs)))
+    return logpdf(mix, t)
+end
+
 @doc raw"
 
 Lower a [`Competing`](@ref) node to a `Distributions.MixtureModel`.

@@ -325,48 +325,12 @@ const _COMPETING_RESERVED = (_RESERVED_ROW_FIELDS..., :resolved, :branch_probs)
 
 # The branch probabilities to USE for this record: a reserved `branch_probs` row
 # field overrides the node's stored probabilities (regime b), else the stored ones
-# (regime a). A NamedTuple override is reordered to outcome order and validated; a
-# scalar override is taken as the FIRST outcome's probability of a two-outcome
-# node (`(p, 1 - p)`).
+# (regime a). The coercion + validation is the SHARED core helper
+# (`_coerce_branch_probs`), so the top-level and nested (#333) paths agree on the
+# NamedTuple/scalar override semantics.
 function _competing_branch_probs(d::Competing, row::NamedTuple)
     haskey(row, :branch_probs) || return d.branch_probs
-    return _coerce_branch_probs(d, row.branch_probs)
-end
-
-# The probabilities keep their (possibly AD `Dual`) element type so a covariate
-# CFR `logistic(Xβ)` carrying a `Dual` differentiates through the node.
-function _coerce_branch_probs(d::Competing, bp::NamedTuple)
-    Set(keys(bp)) == Set(d.names) || throw(ArgumentError(
-        "per-record branch_probs must name exactly the outcomes " *
-        "$(collect(d.names)); got $(collect(keys(bp)))"))
-    probs = map(n -> bp[n], d.names)
-    _validate_record_probs(probs)
-    return probs
-end
-
-function _coerce_branch_probs(d::Competing, p::Real)
-    length(d.names) == 2 || throw(ArgumentError(
-        "a scalar per-record branch_probs is only defined for a two-outcome " *
-        "Competing (the first outcome's probability); node has " *
-        "$(length(d.names)) outcomes, pass a NamedTuple instead"))
-    probs = (p, one(p) - p)
-    _validate_record_probs(probs)
-    return probs
-end
-
-# Per-record branch probabilities must each lie in `[0, 1]` and sum to one. The
-# bounds carry a small tolerance so a saturating covariate prob (`logistic(Xβ)`
-# evaluating to a hair past 0 or 1 under AD/sampling) is accepted rather than
-# spuriously rejected mid-gradient; a genuinely out-of-range value still errors.
-# Comparisons are value-based, so an AD `Dual` is compared on its value.
-function _validate_record_probs(probs)
-    tol = 1e-6
-    all(p -> p >= -tol && p <= 1 + tol, probs) || throw(ArgumentError(
-        "each per-record branch probability must lie in [0, 1]; got " *
-        "$(collect(probs))"))
-    isapprox(sum(probs), 1; atol = 1e-6) || throw(ArgumentError(
-        "per-record branch probabilities sum to $(sum(probs)), not one"))
-    return nothing
+    return CensoredDistributions._coerce_branch_probs(d, row.branch_probs)
 end
 
 # The competing log-density for one record under branch probabilities `probs`,
@@ -378,10 +342,12 @@ end
 function _competing_logprob(d::Competing, row::NamedTuple, probs, w, horizon)
     obs = _observed_outcomes(d, row)
     if length(obs) == 1
-        # Observed outcome: condition on that branch.
+        # Observed outcome: condition on that branch through the SHARED core
+        # arithmetic (the per-record horizon right-truncates the branch delay).
         i, gap = obs[1]
         branch = _maybe_truncate(d.delays[i], horizon)
-        lp = log(probs[i]) + logpdf(branch, gap)
+        lp = CensoredDistributions._competing_condition_logpdf(
+            probs, branch, gap, i)
         return _scale(lp, w)
     end
     isempty(obs) || throw(ArgumentError(
@@ -391,9 +357,9 @@ function _competing_logprob(d::Competing, row::NamedTuple, probs, w, horizon)
     # record is fully missing and contributes nothing.
     t = _competing_resolution_time(d, row)
     t === nothing && return _scale(zero(eltype(probs)), w)
-    mix = _maybe_truncate(
-        MixtureModel(collect(d.delays), collect(float.(probs))), horizon)
-    return _scale(logpdf(mix, t), w)
+    delays = map(g -> _maybe_truncate(g, horizon), d.delays)
+    lp = CensoredDistributions._competing_marginal_logpdf(probs, delays, t)
+    return _scale(lp, w)
 end
 
 # Right-truncate `dist` at the per-record horizon when one is supplied (the
