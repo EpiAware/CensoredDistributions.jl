@@ -131,6 +131,11 @@ include("utils/thinning.jl")
 # (utils/get_dist.jl) and the integration helpers.
 include("composers/censored_specialisations.jl")
 
+# Automatic batched / shared evaluation over many records (#364): depends on the
+# censored specialisations (`event_logpdf`, `_sequential_segment`, the
+# nested/flat trait) and the row-parsing helpers in `tree_events.jl`.
+include("composers/batched_eval.jl")
+
 # Turing-free `primary_censored_model` function stub (#88, PR2). Has no methods
 # until DynamicPPL is loaded; the methods live in the package extension.
 include("turing_models.jl")

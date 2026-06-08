@@ -681,6 +681,26 @@ function scenarios(; with_reference::Bool = false)
                     primary_censored(Gamma(θ[3], θ[4]), Uniform(0.0, 1.0))),
                 ev),
             [1.2, 0.5, 2.0, 1.0], (Constant(seq_ev_obs),))
+        # Batched / shared evaluation over MANY records (#364): the batched
+        # scorer dedupes the segment construction across records and sums their
+        # observed-intermediate contributions. With every record fully observed
+        # the path is the same all-continuous-arithmetic per-edge conditioning as
+        # the single-record scenario above (no `Convolved`/quadrature gap), so its
+        # gradient differentiates on every backend and must match the per-record
+        # loop. The rows table is inactive DATA carried as a `Constant`.
+        batch_rows = [(onset = 0.0, admit = 2.0, death = 5.0),
+            (onset = 0.0, admit = 3.0, death = 7.0),
+            (onset = 0.0, admit = 1.0, death = 4.0)]
+        _push!("Batched Sequential censored observed logpdf",
+            (θ,
+                rows) -> CensoredDistributions.batched_event_logpdf(
+                Sequential(
+                    primary_censored(
+                        LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                    primary_censored(Gamma(θ[3], θ[4]), Uniform(0.0, 1.0))),
+                rows),
+            [1.2, 0.5, 2.0, 1.0], (Constant(batch_rows),))
+
         # The Parallel shared-origin censored path is not an AD fixture: its
         # marginal routes through the 1-D origin quadrature and its conditional
         # through the parameter-type promotion, both of which the compiled

@@ -176,3 +176,81 @@ end
 function _all_positional_event_names(enames::Tuple)
     return all(n -> occursin(r"^event_\d+$", string(n)), enames)
 end
+
+# --- pure row -> event-vector / reserved-field parsing ----------------------
+#
+# These map a `NamedTuple` table row to the flat event vector and read the
+# reserved (non-event) fields. They are PURE and Turing-free (data only), so they
+# live in the core and are shared by BOTH the per-record `composed_distribution_
+# model` (the DynamicPPL extension) and the batched `batched_event_logpdf`,
+# keeping a single source of truth for the by-name row matching (#362, #364).
+
+# Reserved row fields that are NOT events: a multiplicity weight (`weight` /
+# `count`) and a per-record observation horizon (`obs_time`, the #329 hanta
+# right-truncation observation time D).
+const _RESERVED_ROW_FIELDS = (:weight, :count, :obs_time)
+
+# The event values of a row in field order, dropping the reserved weight/count
+# fields, as a `Vector{Union{Missing, Float64}}` (one entry per event, `missing`
+# admitted). The `Missing`-admitting element type keeps the censored composer
+# `logpdf` specialisation (#329) selected even for an all-observed row. This is
+# the POSITIONAL fallback, used only when a composer carries no derivable event
+# names (its edges are positional defaults), per #362.
+function _row_event_vector(row::NamedTuple)
+    ks = filter(k -> !(k in _RESERVED_ROW_FIELDS), keys(row))
+    out = Vector{Union{Missing, Float64}}(undef, length(ks))
+    for (i, k) in enumerate(ks)
+        v = row[k]
+        out[i] = v === missing ? missing : Float64(v)
+    end
+    return out
+end
+
+# The event vector for a composer `d` from a `row`, matched to the tree's flat
+# EVENT names BY NAME (#362): `row.onset, row.admit, row.death` land in their
+# slots regardless of field order, `missing` fields drive the dispatch, and a
+# reserved field is excluded. When the tree's event names are all positional
+# defaults (`:event_i`), the row is matched POSITIONALLY (the fallback).
+function _row_event_vector(d::Union{Sequential, Parallel}, row::NamedTuple)
+    enames = tree_event_names(d)
+    _all_positional_event_names(enames) && return _row_event_vector(row)
+    return _row_event_vector_by_name(enames, row)
+end
+
+# Build the by-name event vector: validate every non-reserved row field is a
+# known event, then place each event by name (a missing required event errors).
+function _row_event_vector_by_name(enames::Tuple, row::NamedTuple)
+    for k in keys(row)
+        k in _RESERVED_ROW_FIELDS && continue
+        k in enames || throw(ArgumentError(
+            "row field $(repr(k)) is not an event of this tree; expected " *
+            "events $(collect(enames)) (reordering is allowed; names are not)"))
+    end
+    out = Vector{Union{Missing, Float64}}(undef, length(enames))
+    for (i, name) in enumerate(enames)
+        haskey(row, name) || throw(ArgumentError(
+            "row is missing required event $(repr(name)); expected events " *
+            "$(collect(enames))"))
+        v = row[name]
+        out[i] = v === missing ? missing : Float64(v)
+    end
+    return out
+end
+
+# The multiplicity weight carried by a row: an explicit `kw_weight` wins,
+# otherwise a reserved `weight`/`count` field, otherwise `nothing` (unweighted).
+function _row_weight_field(row::NamedTuple, kw_weight)
+    kw_weight === nothing || return kw_weight
+    haskey(row, :weight) && return row.weight
+    haskey(row, :count) && return row.count
+    return nothing
+end
+
+# The per-record observation horizon D carried by a row's reserved `obs_time`
+# field (#329 hanta): present and non-missing right-truncates the record at the
+# horizon; absent or missing means no truncation (back-compat).
+function _row_horizon_field(row::NamedTuple)
+    haskey(row, :obs_time) || return nothing
+    h = row.obs_time
+    return h === missing ? nothing : h
+end
