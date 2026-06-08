@@ -199,8 +199,8 @@ end
 # These map a `NamedTuple` table row to the flat event vector and read the
 # reserved (non-event) fields. They are PURE and Turing-free (data only), so they
 # live in the core and are shared by BOTH the per-record `composed_distribution_
-# model` (the DynamicPPL extension) and the batched `batched_event_logpdf`,
-# keeping a single source of truth for the by-name row matching (#362, #364).
+# model` (the DynamicPPL extension) and the vectorised `record_distributions`,
+# keeping a single source of truth for the by-name row matching.
 
 # Reserved row fields that are NOT events: a multiplicity weight (`weight` /
 # `count`), a per-record observation horizon (`obs_time`, the #329 hanta

@@ -295,15 +295,15 @@ function _build_seq_bundle(d::Sequential, parsed)
 end
 
 # The distinct segment runs `(a, b)` across all records (the run-id is the
-# position). Pure integer/data: reads only the observed indices.
+# position). Pure integer/data: reads only the observed indices. A record with
+# fewer than two observed events contributes no run (a fully-missing record is
+# scored as zero and SAMPLED through `rand`, the generative path).
 function _distinct_runs(parsed)
     seen = Set{Tuple{Int, Int}}()
     runs = Tuple{Int, Int}[]
     for p in parsed
         obs = _observed_event_indices(p.events)
-        length(obs) >= 2 || throw(ArgumentError(
-            "a Sequential record needs at least two observed events; got " *
-            "$(length(obs))"))
+        length(obs) >= 2 || continue
         for j in 1:(length(obs) - 1)
             run = (obs[j], obs[j + 1])
             run in seen && continue
