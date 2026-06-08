@@ -51,11 +51,155 @@ _origin_primary_event(::Union{Sequential, Parallel}) = nothing
 _marginal_core(d::UnivariateDistribution) = get_dist_recursive(d)
 _marginal_core(d::Convolved) = d
 
+# Whether a component is itself a nested composer (a branch/step that recurses)
+# rather than a leaf edge. Dispatch on the type, so the recursion is selected at
+# compile time with no runtime type lookup. A `Competing` is univariate (a single
+# marginal time-to-resolution leaf), so it is NOT a nested composer here.
+_is_nested_composer(::Union{Sequential, Parallel}) = true
+_is_nested_composer(::UnivariateDistribution) = false
+
+# Whether any of a composer's components is itself a nested composer. Selects the
+# recursive tree walk over the flat one-level scoring. Resolved on the component
+# TYPES (the `Tuple` element types), so it is a compile-time constant and the
+# branch on it is eliminated, keeping the scoring type-stable.
+_any_nested_composer(components::Tuple) = any(_is_nested_composer, components)
+
 # Whether a composer's components carry primary censoring (an origin primary
 # event), checked on the component types. `true` selects the censored
 # full-event-path `rand`; `false` keeps the generic per-leaf-value `rand` (PR3a).
 function _is_censored_composer(components::Tuple)
     any(c -> _origin_primary_event(c) !== nothing, components)
+end
+
+# ---------------------------------------------------------------------------
+# Recursive nested-composer scoring (#329, #333, #345)
+# ---------------------------------------------------------------------------
+#
+# A composer whose branch/step is ITSELF a `Sequential` / `Parallel` is an
+# arbitrary, irregular event tree (e.g. bdbv `onset -> {admit -> {death,
+# discharge}, notif}`). The flat one-level scoring above only handles leaf
+# steps/branches; the recursion here scores the tree at every depth, each node
+# consuming its contiguous slice of the flat event vector.
+#
+# The flat event vector lays out one entry per LEAF event in depth-first order,
+# preceded by the root origin `E_0`. A nested composer's ORIGIN is the parent's
+# event at its position (the origin is shared between parent and child, so a
+# nested composer does NOT re-introduce its own origin slot); it then consumes
+# one slot per leaf event in its subtree (`_nleaves`). `_subtree_logpdf` walks
+# the tree returning `(logprob, next_idx)`: the subtree log density and the index
+# one past the last event it consumed. Dispatch on the node type drives the
+# recursion (no runtime type lookup), and the components are processed by
+# head/tail tuple recursion so the compiler specialises each child type, keeping
+# the walk type-stable and AD-safe.
+
+# The accumulator type for a tree walk: seeded from the leaf PARAMETERS (which
+# carry any AD `Dual`; a distribution's `eltype` is its variate type and would
+# drop the `Dual`) and the event vector, so `Dual`s propagate through the sum.
+function _tree_acc_type(d, events)
+    return promote_type(_event_eltype(events), _tree_param_eltype(d))
+end
+
+# Promote over every leaf parameter in a (possibly nested) composer so the
+# accumulator carries the differentiated type from any depth. Recurses on the
+# component types (a compile-time walk), never a runtime container.
+_tree_param_eltype(d::Union{Sequential, Parallel}) = _tree_param_eltype_tuple(d.components)
+_tree_param_eltype(d) = _param_eltype(d)
+_tree_param_eltype_tuple(::Tuple{}) = Float64
+function _tree_param_eltype_tuple(t::Tuple)
+    promote_type(_tree_param_eltype(first(t)),
+        _tree_param_eltype_tuple(Base.tail(t)))
+end
+
+# The node whose origin primary event seeds the root of a `Sequential` tree: the
+# first step (its origin E_0 is the latent primary). Kept as a tiny helper so the
+# dispatch site reads clearly.
+_first_origin_node(d::Sequential) = d.components[1]
+
+# --- Tree-walk indexing contract -------------------------------------------
+#
+# The flat event vector is laid out depth-first: entry 1 is the root origin
+# `E_0`, then one entry per LEAF event in traversal order. A node's ORIGIN is the
+# parent's event (a SHARED slot, possibly far from the node's own events), while
+# the node's own leaf events occupy a CONTIGUOUS slice. The two indices are
+# therefore tracked separately:
+#   - `origin_idx`:  index of this node's origin event value;
+#   - `event_start`: index where this node's own leaf-event slice begins.
+# They coincide only at the very root (origin at 1, first event at 2).
+#
+# `_subtree_logpdf(node, events, origin_idx, event_start, primary, T)` returns
+# `(logprob, next_event_idx, terminal_idx)`: the subtree log density, the index
+# one past the last event it consumed, and the index of its TERMINAL event (the
+# endpoint a following chain step would hang off). Dispatch on the node type
+# drives the recursion (a compile-time choice, no runtime type lookup); the
+# components are walked head/tail so each child type is specialised.
+
+# Entry seams: the top-level dispatch calls a 4-argument form (origin at 1, first
+# event at 2) and keeps only the log density.
+function _subtree_logpdf(d::Union{Sequential, Parallel}, events,
+        origin_idx::Int, primary, ::Type{T}) where {T}
+    lp, _, _ = _subtree_core(d, events, origin_idx, origin_idx + 1, primary, T)
+    return lp, length(events) + 1
+end
+
+# --- Sequential recursion --------------------------------------------------
+#
+# A `Sequential` is scored step by step. The first step hangs off `origin_idx`
+# (the shared/root origin) with its child at `event_start`; each subsequent step
+# hangs off the previous step's terminal event, its own events continuing
+# contiguously. `primary` is the latent primary reapplied only when the first
+# step's origin is unobserved.
+function _subtree_core(d::Sequential, events, origin_idx::Int, event_start::Int,
+        primary, ::Type{T}) where {T}
+    return _seq_walk(d.components, events, origin_idx, event_start, primary,
+        zero(T), true, T)
+end
+
+# Head/tail walk over the step tuple. `o_idx` is the current step's origin event
+# index; `ev_idx` is where the remaining events start; `is_first` marks the root
+# segment whose origin may be the latent primary.
+function _seq_walk(::Tuple{}, events, o_idx::Int, ev_idx::Int, primary, acc::T,
+        is_first::Bool, ::Type{T}) where {T}
+    return acc, ev_idx, o_idx
+end
+function _seq_walk(components::Tuple, events, o_idx::Int, ev_idx::Int, primary,
+        acc::T, is_first::Bool, ::Type{T}) where {T}
+    step = first(components)
+    rest = Base.tail(components)
+    lp, next_ev,
+    term = _seq_step_logpdf(step, events, o_idx, ev_idx,
+        is_first ? primary : nothing, T)
+    # The next step hangs off this step's terminal event; its events continue at
+    # `next_ev`.
+    return _seq_walk(rest, events, term, next_ev, primary, acc + lp, false, T)
+end
+
+# A nested-composer step recurses: its origin is the running chain event, its own
+# events start at `ev_idx`.
+function _seq_step_logpdf(step::Union{Sequential, Parallel}, events,
+        o_idx::Int, ev_idx::Int, primary, ::Type{T}) where {T}
+    return _subtree_core(step, events, o_idx, ev_idx, primary, T)
+end
+
+# A leaf step is a single edge `origin -> child` (child at `ev_idx`). Both
+# observed conditions on the edge's declared censoring; a missing root origin
+# marginalises the latent primary against the edge core; a missing endpoint
+# drops. The terminal event is the child.
+function _seq_step_logpdf(step::UnivariateDistribution, events, o_idx::Int,
+        ev_idx::Int, primary, ::Type{T}) where {T}
+    o = events[o_idx]
+    y = events[ev_idx]
+    if o !== missing && y !== missing
+        lp = convert(T, logpdf(step, convert(T, y) - convert(T, o)))
+        return lp, ev_idx + 1, ev_idx
+    end
+    if o === missing && y !== missing && primary !== nothing
+        # Root origin latent: marginalise E_0 against this edge's core.
+        d2 = primary_censored(_marginal_core(step), primary)
+        return convert(T, logpdf(d2, convert(T, y))), ev_idx + 1, ev_idx
+    end
+    # A missing terminal/leaf child (or an unobserved gap we cannot localise)
+    # contributes no factor and does not constrain the remaining tree.
+    return zero(T), ev_idx + 1, ev_idx
 end
 
 # ---------------------------------------------------------------------------
@@ -93,9 +237,24 @@ differentiate with `events` held constant.
 See also: [`Sequential`](@ref), [`Parallel`](@ref)
 "
 function logpdf(d::Sequential, events::AbstractVector{T}) where {T >: Missing}
-    length(events) == length(d.components) + 1 || throw(DimensionMismatch(
-        "a Sequential event vector needs $(length(d.components) + 1) entries " *
+    # The flat event vector carries one entry per LEAF event plus the root
+    # origin, so a tree with nested composers needs `_nleaves(d) + 1` entries,
+    # not `length(d.components) + 1` (which only counts the top-level steps).
+    length(events) == length(d) + 1 || throw(DimensionMismatch(
+        "a Sequential event vector needs $(length(d) + 1) entries " *
         "(one per event), got $(length(events))"))
+
+    # A chain whose every step is a leaf edge keeps the flat one-level scoring
+    # (segment-grouped marginalisation of unobserved intermediates). A chain with
+    # a nested composer step recurses through the tree. The branch is on the
+    # component TYPES, so it is a compile-time constant and is eliminated.
+    if _any_nested_composer(d.components)
+        T2 = _tree_acc_type(d, events)
+        lp,
+        _ = _subtree_logpdf(d, events, 1, _origin_primary_event(
+                _first_origin_node(d)), T2)
+        return lp
+    end
 
     # Pre-pass on the constant event vector: collect the observed event indices
     # and their concrete values. The `Union{Missing}` entries are read only
@@ -168,6 +327,91 @@ function _sequential_segment(components, a, b, primary)
     return primary_censored(core, primary)
 end
 
+# --- Parallel recursion ----------------------------------------------------
+#
+# A `Parallel` node's branches all hang off the SAME origin event at
+# `origin_idx` (the shared origin is the parent's event, not a fresh slot when
+# nested). Each branch is a subtree consuming its own contiguous slice; a leaf
+# branch is a single edge from the shared origin to its endpoint, a nested
+# composer branch recurses with its origin being the shared origin.
+#
+# With the shared origin OBSERVED (a real intermediate event), each branch
+# conditions on the declared edge at the gap (`logpdf(edge, y - o)`, matching the
+# observed-edge reference). With the shared origin MISSING (the latent primary at
+# the root, or an unobserved branch point), the branches are coupled through the
+# origin and are marginalised by the proven one-dimensional shared-origin
+# integral over the LEAF branches; a nested composer branch off a missing origin
+# is not coupled-marginalised here (it recurses and drops its missing-origin
+# factor), so the supported missing-origin tree is a leaf-branch Parallel.
+function _subtree_core(d::Parallel, events, origin_idx::Int, event_start::Int,
+        primary, ::Type{T}) where {T}
+    o = events[origin_idx]
+    last_idx = event_start + length(d) - 1
+    if o === missing && primary !== nothing && !_any_nested_composer(d.components)
+        # Latent shared origin over leaf branches: reuse the coupled 1-D integral
+        # over `[E_0(missing), Y_1, ..., Y_n]`. The slice is the origin slot
+        # followed by the branch endpoints (contiguous for a leaf Parallel).
+        slice = _parallel_origin_slice(events, origin_idx, event_start, length(d))
+        cores = map(_marginal_core, d.components)
+        lp = _parallel_marginal_logpdf(primary, cores, slice, T)
+        return convert(T, lp), last_idx + 1, origin_idx
+    end
+    # Observed (or nested) shared origin: each branch conditions independently on
+    # the shared origin event. Head/tail walk so each branch type specialises.
+    lp, next_ev = _par_walk(d.components, events, origin_idx, event_start,
+        zero(T), T)
+    return lp, next_ev, origin_idx
+end
+
+# The `[origin, Y_1, ..., Y_n]` view for the coupled leaf-Parallel integral. When
+# the origin slot directly precedes the endpoint slice (the root case) this is one
+# contiguous view; otherwise the origin is gathered with the endpoints.
+function _parallel_origin_slice(events, origin_idx::Int, event_start::Int,
+        n::Int)
+    if origin_idx + 1 == event_start
+        return @view events[origin_idx:(event_start + n - 1)]
+    end
+    out = Vector{eltype(events)}(undef, n + 1)
+    out[1] = events[origin_idx]
+    @inbounds for k in 1:n
+        out[k + 1] = events[event_start + k - 1]
+    end
+    return out
+end
+
+function _par_walk(::Tuple{}, events, origin_idx::Int, ev_idx::Int, acc::T,
+        ::Type{T}) where {T}
+    return acc, ev_idx
+end
+function _par_walk(components::Tuple, events, origin_idx::Int, ev_idx::Int,
+        acc::T, ::Type{T}) where {T}
+    branch = first(components)
+    rest = Base.tail(components)
+    lp, next_ev = _par_branch_logpdf(branch, events, origin_idx, ev_idx, T)
+    return _par_walk(rest, events, origin_idx, next_ev, acc + lp, T)
+end
+
+# A nested-composer branch recurses with the SHARED origin as its origin; its own
+# events start at the running branch cursor `ev_idx`.
+function _par_branch_logpdf(branch::Union{Sequential, Parallel}, events,
+        origin_idx::Int, ev_idx::Int, ::Type{T}) where {T}
+    lp, next_ev, _ = _subtree_core(branch, events, origin_idx, ev_idx, nothing, T)
+    return lp, next_ev
+end
+
+# A leaf branch is a single edge from the shared origin to its endpoint at
+# `ev_idx`. Observed conditions on the declared edge; a missing endpoint drops.
+function _par_branch_logpdf(branch::UnivariateDistribution, events,
+        origin_idx::Int, ev_idx::Int, ::Type{T}) where {T}
+    o = events[origin_idx]
+    y = events[ev_idx]
+    if o !== missing && y !== missing
+        lp = convert(T, logpdf(branch, convert(T, y) - convert(T, o)))
+        return lp, ev_idx + 1
+    end
+    return zero(T), ev_idx + 1
+end
+
 # ---------------------------------------------------------------------------
 # Parallel: shared-origin marginalisation over censored branches
 # ---------------------------------------------------------------------------
@@ -201,9 +445,21 @@ control flow, so this differentiates with the event vector held constant.
 See also: [`Parallel`](@ref), [`Sequential`](@ref)
 "
 function logpdf(d::Parallel, events::AbstractVector{T}) where {T >: Missing}
-    length(events) == length(d.components) + 1 || throw(DimensionMismatch(
-        "a Parallel event vector needs $(length(d.components) + 1) entries " *
+    # One entry per LEAF event plus the shared origin; a tree branch contributes
+    # its whole subtree's leaf events, so the length is `_nleaves(d) + 1`.
+    length(events) == length(d) + 1 || throw(DimensionMismatch(
+        "a Parallel event vector needs $(length(d) + 1) entries " *
         "(shared origin then one per branch), got $(length(events))"))
+
+    # A branch that is itself a composer (a sub-chain or sub-tree off the shared
+    # origin) recurses through the tree. The branch is on the component TYPES, so
+    # it is a compile-time constant and is eliminated for a flat Parallel.
+    if _any_nested_composer(d.components)
+        T2 = _tree_acc_type(d, events)
+        lp, _ = _subtree_logpdf(d, events, 1, _shared_primary_event(d.components),
+            T2)
+        return lp
+    end
 
     primary = _shared_primary_event(d.components)
     primary === nothing && throw(ArgumentError(
