@@ -202,6 +202,106 @@ end
     @test any(!iszero, grad)
 end
 
+@testitem "composed_parameters_model: censored leaf round-trips" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Random
+
+    # A template carrying a censored leaf directly: the params layer shows only
+    # the inner delay's free params and the model rebuilds the SAME censored
+    # leaf (no doc-side re-censoring needed).
+    cens = double_interval_censored(Gamma(2.0, 1.5);
+        primary_event = Uniform(0, 1), upper = 10.0, interval = 1.0)
+    template = compose((obs = cens,))
+    priors = (obs = (shape = truncated(Normal(2, 0.5); lower = 0),
+        scale = truncated(Normal(1.5, 0.3); lower = 0)),)
+
+    @model function pm(t, p)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        return d
+    end
+
+    Random.seed!(110)
+    d = pm(template, priors)()
+    leaf = get_event(d, :obs)
+    # The rebuilt leaf is the censored type, not the bare delay.
+    @test typeof(leaf) == typeof(cens)
+
+    # At the template's parameters the rebuilt leaf scores exactly the original
+    # censored leaf logpdf (the fixed censoring carried through).
+    exact = update(template, (obs = (shape = 2.0, scale = 1.5),))
+    exact_leaf = get_event(exact, :obs)
+    for x in (1.0, 2.0, 3.0, 5.0)
+        @test isapprox(logpdf(exact_leaf, x), logpdf(cens, x); atol = 1e-10)
+    end
+end
+
+@testitem "build_priors drives composed_parameters_model" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Random
+
+    template = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    # Build the nested prior NamedTuple from the flat table.
+    priors = build_priors(params_table(template);
+        default = row -> truncated(Normal(row.value, 1); lower = 0))
+
+    @model function pm(t, p)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        return d
+    end
+
+    Random.seed!(111)
+    d = pm(template, priors)()
+    @test event_names(d) == event_names(template)
+    @test keys(params(d)) == keys(params(template))
+end
+
+@testitem "chain_to_params + update reconstruct from a chain" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: Prefixed, VNChain
+    import Statistics
+
+    template = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    priors = (
+        onset_admit = (shape = truncated(Normal(2, 0.5); lower = 0),
+            scale = truncated(Normal(1, 0.3); lower = 0)),
+        admit_death = (mu = Normal(0.5, 0.2),
+            sigma = truncated(Normal(0.4, 0.1); lower = 0)))
+
+    @model function fit(t, p, ys)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        for y in ys
+            DynamicPPL.@addlogprob! logpdf(d, y)
+        end
+        return d
+    end
+
+    Random.seed!(112)
+    ys = [[0.5, 2.0], [1.0, 3.0], [0.8, 2.5]]
+    chain = sample(fit(template, priors, ys), NUTS(), 60;
+        chain_type = VNChain, progress = false)
+
+    # Posterior means read into the nested NamedTuple `update` consumes.
+    means = chain_to_params(template, chain)
+    @test Set(keys(means)) == Set(keys(params(template)))
+    @test Set(keys(means.onset_admit)) == Set((:shape, :scale))
+
+    ready = update(template, means)
+    @test ready isa CensoredDistributions.Parallel
+    # Matches a hand-rebuild from the same chain means.
+    sh = Statistics.mean(chain[Prefixed(@varname(onset_admit.shape))])
+    sc = Statistics.mean(chain[Prefixed(@varname(onset_admit.scale))])
+    @test get_event(ready, :onset_admit) == Gamma(sh, sc)
+
+    # A single draw reads that iteration's value.
+    one = chain_to_params(template, chain; draw = 5)
+    @test isapprox(one.onset_admit.shape,
+        chain[Prefixed(@varname(onset_admit.shape))][5]; atol = 1e-12)
+
+    # The reconstructed distribution is ready to sample.
+    Random.seed!(113)
+    @test length(rand(ready)) == 2
+end
+
 @testitem "composed_parameters_model: NUTS samples the full loop" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
     using FlexiChains: Prefixed, niters
