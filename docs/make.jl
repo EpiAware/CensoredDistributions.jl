@@ -23,7 +23,8 @@ if !skip_notebooks
         "exponentially-tilted-primary-events.jl",
         "ad-backends.jl",
         "fitting-with-turing.jl",
-        "fit-marginal-sample-event-based.jl"
+        "fit-marginal-sample-event-based.jl",
+        "bdbv-linelist-analysis.jl"
     ]
 
     println(
@@ -60,7 +61,8 @@ else
         "exponentially-tilted-primary-events.md" => "# Exponentially tilted primary events",
         "ad-backends.md" => "# [Automatic differentiation backends](@id ad-backends)",
         "fitting-with-turing.md" => "# Fitting with Turing.jl",
-        "fit-marginal-sample-event-based.md" => "# Fit marginal, sample event based"
+        "fit-marginal-sample-event-based.md" => "# Fit marginal, sample event based",
+        "bdbv-linelist-analysis.md" => "# Bundibugyo Ebola delays from the 2012 Isiro line list"
     ]
     for (file, heading) in tutorial_stubs
         open(joinpath(tutorials_dir, file), "w") do io
@@ -168,6 +170,22 @@ makedocs(; sitename = "CensoredDistributions.jl",
     ),
     plugins = [bib]
 )
+
+# Copy every tutorial `data/` directory into the matching build output dir so the
+# bundled data ships with the rendered site (and `@example` blocks that read it
+# resolve at view time). Runs after `makedocs` so `clean = true` does not wipe it;
+# generic over any tutorial that carries a `data/` dir.
+let src_root = joinpath(@__DIR__, "src"), build_root = joinpath(@__DIR__, "build")
+    for (root, dirs, _) in walkdir(src_root)
+        "data" in dirs || continue
+        src_data = joinpath(root, "data")
+        rel = relpath(src_data, src_root)
+        dest_data = joinpath(build_root, rel)
+        mkpath(dirname(dest_data))
+        cp(src_data, dest_data; force = true)
+        println("Copied tutorial data: $rel")
+    end
+end
 
 DocumenterVitepress.deploydocs(
     repo = "github.com/EpiAware/CensoredDistributions.jl",

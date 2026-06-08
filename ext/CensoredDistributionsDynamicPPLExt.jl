@@ -6,17 +6,16 @@ module CensoredDistributionsDynamicPPLExt
 
 using CensoredDistributions: CensoredDistributions, PrimaryCensored, Latent,
                              IntervalCensored, PrimaryConditional, Sequential,
-                             Parallel, Competing, Select, as_mixture,
+                             Parallel, Competing, Select,
                              get_primary_event, get_dist_recursive,
-                             convolve_distributions, component_names,
-                             tree_event_names, primary_censored
+                             component_names
 import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model,
                               composed_distribution_model,
                               composed_parameters_model, predict_events
 using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
 using Distributions: Distributions, UnivariateDistribution, params, logpdf,
-                     MixtureModel, product_distribution
+                     product_distribution
 using Random: AbstractRNG, default_rng
 
 # `CensoredDistributions.weight(d, w)` is called with the module qualifier

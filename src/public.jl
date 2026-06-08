@@ -20,6 +20,10 @@ public primarycensored_uniform_cdf_formula
 # `event_names` (#362).
 public tree_event_names
 
+# Composer step/branch/outcome names (public but not exported): used by the
+# DynamicPPL extension to key parameter priors by child name.
+public component_names
+
 # Horizon-aware event-vector log density (public but not exported): the per-record
 # right-truncation entry point used by the composed record model (#329).
 public event_logpdf

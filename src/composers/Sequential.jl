@@ -103,7 +103,29 @@ function Base.eltype(::Type{<:Sequential{C}}) where {C <: Tuple}
     return mapreduce(eltype, promote_type, fieldtypes(C))
 end
 
-# Step names, one per component.
+@doc "
+
+The child names of a composed distribution.
+
+Returns the tuple of names for a composer's direct children: the step names of a
+[`Sequential`](@ref) chain, the branch names of a [`Parallel`](@ref) set, or the
+outcome names of a [`Competing`](@ref) node. These EDGE names key the parameter
+inventory, distinct from the flat EVENT names of [`tree_event_names`](@ref).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+oa = primary_censored(LogNormal(1.5, 0.4), Uniform(0, 1))
+ad = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+tree = compose((onset_admit = [oa, ad],))
+CensoredDistributions.component_names(tree)
+```
+
+# See also
+- [`event_names`](@ref): the public EDGE-name accessor
+- [`tree_event_names`](@ref): the flat EVENT names
+"
 component_names(d::Sequential) = d.names
 
 @doc "
