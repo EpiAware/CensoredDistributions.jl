@@ -451,6 +451,41 @@ end
     @test abs(mean(chain[:b1]) - beta1) < 0.6
 end
 
+@testitem "Competing self-dispatch: AD flows through the MARGINALISED path (#372)" begin
+    using CensoredDistributions, Distributions
+    using Turing: Turing, @model, to_submodel, AutoForwardDiff
+    using DynamicPPL: DynamicPPL, LogDensityFunction
+    import DynamicPPL.LogDensityProblems as LDP
+
+    _logistic(z) = 1 / (1 + exp(-z))
+    death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
+    # UNKNOWN-outcome (marginalised) records: a resolved resolution time but no
+    # per-outcome column, so the mixture is evaluated. The per-record CFR is
+    # logistic(beta * x), passed into the node, so the gradient w.r.t. beta MUST
+    # flow through the branch probabilities on the MARGINALISE path (#372: the old
+    # `float.(probs)` stripped the Dual and zeroed this gradient).
+    specs = [(t = 4.0, x = 0.6), (t = 2.5, x = -0.9), (t = 6.0, x = 1.3)]
+
+    @model function fit(specs)
+        beta ~ Normal(0.0, 1.0)
+        cmp = Competing(:death => (death_d, 0.5), :disch => (disch_d, 0.5))
+        for i in eachindex(specs)
+            p = _logistic(beta * specs[i].x)
+            row = (resolved = specs[i].t, death = missing, disch = missing,
+                branch_probs = p)
+            y ~ to_submodel(composed_distribution_model(cmp, row), false)
+        end
+    end
+
+    ldf = LogDensityFunction(fit(specs); adtype = AutoForwardDiff())
+    v, g = LDP.logdensity_and_gradient(ldf, [0.4])
+    @test length(g) == 1
+    @test all(isfinite, g)
+    # The beta gradient is non-zero ONLY if the Dual reaches the marginalised
+    # mixture weights, which is exactly the #372 fix.
+    @test any(!iszero, g)
+end
+
 @testitem "Competing self-dispatch: AD through conditioned + per-row prob" begin
     using CensoredDistributions, Distributions
     using Turing: Turing, @model, to_submodel, AutoForwardDiff

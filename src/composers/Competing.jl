@@ -202,11 +202,34 @@ function _competing_condition_logpdf(probs, delay, gap, i::Int)
 end
 
 # Marginalise an unknown outcome at the resolution time `t`: the branch-prob-
-# weighted mixture `logpdf`. `delays` may be pre-censored/truncated by the caller
-# (matching the conditioned path's per-record horizon), else the node's delays.
+# weighted mixture log-density `log Σ_i p_i f_i(t)`. `delays` may be pre-
+# censored/truncated by the caller (matching the conditioned path's per-record
+# horizon), else the node's delays.
+#
+# Computed as `logsumexp_i (log p_i + logpdf(delay_i, t))` directly, NOT via
+# `MixtureModel(delays, float.(probs))`: `float.(probs)` strips an AD `Dual`/
+# tracked type from the probabilities (#372), breaking the gradient through a
+# sampled / `logistic(Xβ)` branch probability on the MARGINALISED path. The
+# explicit reduction keeps the probabilities' element type, so a `Dual`
+# propagates exactly as it does on the conditioned path.
 function _competing_marginal_logpdf(probs, delays, t)
-    mix = MixtureModel(collect(delays), collect(float.(probs)))
-    return logpdf(mix, t)
+    return _competing_logmix(probs, delays, t)
+end
+
+# `log Σ_i p_i f_i(t)` via the log-sum-exp of `log p_i + logpdf(delay_i, t)`,
+# preserving the probabilities' (possibly `Dual`) element type. A zero
+# probability contributes no term (its `log` is `-Inf`); an all-zero set returns
+# `-Inf`.
+function _competing_logmix(probs, delays, t)
+    n = length(probs)
+    terms = ntuple(i -> log(probs[i]) + logpdf(delays[i], t), n)
+    m = maximum(terms)
+    isfinite(m) || return m
+    s = zero(m)
+    @inbounds for term in terms
+        s += exp(term - m)
+    end
+    return m + log(s)
 end
 
 @doc raw"
