@@ -321,6 +321,184 @@ end
           5 * logpdf(cmp, 4.0)
 end
 
+@testitem "Competing self-dispatch: observed outcome conditions (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    cmp = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+        :disch => (Gamma(2.0, 1.5), 0.7))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # Exactly one outcome time observed -> condition on that branch:
+    # log(p[obs]) + logpdf(delay[obs], gap). Death observed at 4.0.
+    lj = only(logjoint(demo(cmp, (death = 4.0, disch = missing)), (;)))
+    @test lj ≈ log(0.3) + logpdf(Gamma(1.5, 1.0), 4.0)
+
+    # Discharge observed instead.
+    lj2 = only(logjoint(demo(cmp, (death = missing, disch = 2.5)), (;)))
+    @test lj2 ≈ log(0.7) + logpdf(Gamma(2.0, 1.5), 2.5)
+
+    # A reserved weight scales the conditioned contribution.
+    lj3 = only(logjoint(demo(cmp, (death = 4.0, disch = missing, weight = 3)),
+        (;)))
+    @test lj3 ≈ 3 * (log(0.3) + logpdf(Gamma(1.5, 1.0), 4.0))
+
+    # Two observed outcomes is an error (at most one resolves).
+    @test_throws ArgumentError logjoint(
+        demo(cmp, (death = 4.0, disch = 2.5)), (;))
+end
+
+@testitem "Competing self-dispatch: unknown outcome marginalises (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    cmp = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+        :disch => (Gamma(2.0, 1.5), 0.7))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # Resolved at a known time but the outcome unknown (`resolved` field, all
+    # outcome columns missing) -> the mixture marginal.
+    for y in (1.0, 4.0, 8.0)
+        lj = only(logjoint(
+            demo(cmp, (resolved = y, death = missing, disch = missing)), (;)))
+        @test lj ≈ logpdf(cmp, y)
+    end
+
+    # All outcome columns missing and no resolution time -> fully missing,
+    # contributes nothing.
+    lj0 = only(logjoint(demo(cmp, (death = missing, disch = missing)), (;)))
+    @test lj0 ≈ 0.0
+end
+
+@testitem "Competing self-dispatch: per-row branch-prob override (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    cmp = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+        :disch => (Gamma(2.0, 1.5), 0.7))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # A per-record `branch_probs` field OVERRIDES the stored probabilities
+    # (covariate CFR flows in here). NamedTuple form.
+    row = (death = 4.0, disch = missing, branch_probs = (death = 0.6, disch = 0.4))
+    lj = only(logjoint(demo(cmp, row), (;)))
+    @test lj ≈ log(0.6) + logpdf(Gamma(1.5, 1.0), 4.0)
+    @test lj != log(0.3) + logpdf(Gamma(1.5, 1.0), 4.0)
+
+    # Scalar form for a two-outcome node is the FIRST outcome's probability.
+    row_s = (death = 4.0, disch = missing, branch_probs = 0.6)
+    @test only(logjoint(demo(cmp, row_s), (;))) ≈ lj
+
+    # The override also reweights the marginalise (unknown-outcome) path.
+    lj_marg = only(logjoint(
+        demo(cmp, (resolved = 4.0, branch_probs = (death = 0.6, disch = 0.4))),
+        (;)))
+    @test lj_marg ≈ logpdf(
+        MixtureModel([Gamma(1.5, 1.0), Gamma(2.0, 1.5)], [0.6, 0.4]), 4.0)
+
+    # Out-of-range / non-summing overrides error.
+    @test_throws ArgumentError logjoint(
+        demo(cmp, (death = 4.0, branch_probs = (death = 1.2, disch = -0.2))), (;))
+    @test_throws ArgumentError logjoint(
+        demo(cmp, (death = 4.0, branch_probs = (death = 0.6, disch = 0.6))), (;))
+end
+
+@testitem "Competing self-dispatch: covariate CFR recovers beta (#329)" begin
+    using CensoredDistributions, Distributions, Random
+    using Turing: Turing, NUTS, sample, @model, to_submodel
+    using DynamicPPL: prefix
+
+    _logistic(z) = 1 / (1 + exp(-z))
+
+    rng = Random.MersenneTwister(202)
+    death_delay = Gamma(2.0, 1.5)
+    disch_delay = Gamma(2.0, 1.0)
+    # True logistic CFR: p_death(x) = logistic(beta0 + beta1 * x).
+    beta0, beta1 = -0.4, 1.1
+    n = 400
+    xs = randn(rng, n)
+    rows = map(1:n) do i
+        p = _logistic(beta0 + beta1 * xs[i])
+        if rand(rng) < p
+            (death = rand(rng, death_delay), disch = missing)
+        else
+            (death = missing, disch = rand(rng, disch_delay))
+        end
+    end
+
+    # The regression is PLAIN TURING; the per-record probability is PASSED IN to
+    # the node via the reserved `branch_probs` field (the node only consumes it).
+    @model function fit(rows, xs)
+        b0 ~ Normal(0, 1)
+        b1 ~ Normal(0, 1)
+        cmp = Competing(:death => (death_delay, 0.5),
+            :disch => (disch_delay, 0.5))
+        for i in eachindex(rows)
+            p = _logistic(b0 + b1 * xs[i])
+            row = merge(rows[i], (branch_probs = p,))
+            x ~ to_submodel(
+                prefix(composed_distribution_model(cmp, row),
+                    Symbol("rec", i)), false)
+        end
+    end
+
+    chain = sample(rng, fit(rows, xs), NUTS(), 300; progress = false)
+    @test mean(chain[:b1]) > 0.5
+    @test abs(mean(chain[:b0]) - beta0) < 0.5
+    @test abs(mean(chain[:b1]) - beta1) < 0.6
+end
+
+@testitem "Competing self-dispatch: AD through conditioned + per-row prob" begin
+    using CensoredDistributions, Distributions
+    using Turing: Turing, @model, to_submodel, AutoForwardDiff
+    using DynamicPPL: DynamicPPL, LogDensityFunction
+    import DynamicPPL.LogDensityProblems as LDP
+
+    _logistic(z) = 1 / (1 + exp(-z))
+    disch_delay = Gamma(2.0, 1.0)
+    # One conditioned-death record, one conditioned-discharge record, and one
+    # unknown-outcome (marginalised) record. The per-record prob is
+    # logistic(beta * x), passed into the node.
+    specs = [
+        (kind = :death, t = 3.0, x = 0.4),
+        (kind = :disch, t = 2.0, x = -0.7),
+        (kind = :resolved, t = 4.5, x = 1.2)
+    ]
+
+    function _row(spec, beta)
+        p = _logistic(beta * spec.x)
+        bp = (branch_probs = p,)
+        spec.kind === :death &&
+            return merge((death = spec.t, disch = missing), bp)
+        spec.kind === :disch &&
+            return merge((death = missing, disch = spec.t), bp)
+        return merge((resolved = spec.t,), bp)
+    end
+
+    # `sh` parameterises a conditioned death branch; `beta` drives the passed-in
+    # per-record prob. The log-density flows through both the conditioned and the
+    # per-row-prob paths, so a ForwardDiff gradient over (sh, beta) exercises both.
+    @model function fit(specs)
+        sh ~ truncated(Normal(2.0, 0.5); lower = 0.2)
+        beta ~ Normal(0.0, 1.0)
+        cmp = Competing(:death => (Gamma(sh, 1.5), 0.5),
+            :disch => (disch_delay, 0.5))
+        for i in eachindex(specs)
+            y ~ to_submodel(
+                composed_distribution_model(cmp, _row(specs[i], beta)), false)
+        end
+    end
+
+    ldf = LogDensityFunction(fit(specs); adtype = AutoForwardDiff())
+    v, g = LDP.logdensity_and_gradient(ldf, [2.0, 0.8])
+    @test length(g) == 2
+    @test all(isfinite, g)
+    @test any(!iszero, g)
+end
+
 @testitem "composer model: weight via reserved field and kwarg" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
@@ -586,6 +764,297 @@ end
     ev(r) = Vector{Union{Missing, Float64}}([r.onset, r.admit, r.death])
     manual = 2 * logpdf(seq, ev(rows[1])) + 3 * logpdf(seq, ev(rows[2]))
     @test logjoint(fit(rows), (;)) ≈ manual
+end
+
+@testitem "by-name row: reordered row scores identically (#362)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    # A NAMED chain: edge names `:onset_admit`, `:admit_death` derive the EVENT
+    # names `(:onset, :admit, :death)` (origin + targets), so a row keys by event.
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+    @test CensoredDistributions.tree_event_names(seq) ==
+          (:onset, :admit, :death)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    in_order = (onset = 0.0, admit = 2.0, death = 5.0)
+    shuffled = (death = 5.0, onset = 0.0, admit = 2.0)
+    ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
+    base = only(logjoint(demo(seq, in_order), (;)))
+    # The reordered row maps each field to its event slot BY NAME, so it scores
+    # identically to the in-order row and to the direct logpdf.
+    @test only(logjoint(demo(seq, shuffled), (;))) ≈ base ≈ logpdf(seq, ev)
+
+    # A reserved weight still rides along regardless of position.
+    w_first = (weight = 3, death = 5.0, onset = 0.0, admit = 2.0)
+    @test only(logjoint(demo(seq, w_first), (;))) ≈ 3 * base
+end
+
+@testitem "by-name row: mixed missingness factorises by name (#362)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.4), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # A missing intermediate marginalises; the by-name mapping places `missing`
+    # in the admit slot regardless of field order.
+    row = (death = 6.0, admit = missing, onset = 0.0)
+    ev = Vector{Union{Missing, Float64}}([0.0, missing, 6.0])
+    @test only(logjoint(demo(seq, row), (;))) ≈ logpdf(seq, ev)
+end
+
+@testitem "by-name row: name mismatch and missing event error (#362)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # A field the tree has no event for is rejected.
+    bad = (onset = 0.0, admit = 2.0, demise = 5.0)
+    @test_throws ArgumentError logjoint(demo(seq, bad), (;))
+
+    # A missing REQUIRED event name (no `death` field at all) is rejected.
+    short = (onset = 0.0, admit = 2.0)
+    @test_throws ArgumentError logjoint(demo(seq, short), (;))
+end
+
+@testitem "by-name row: nested tree keys by name at every depth (#362)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    # onset -> admit, then admit -> {death, discharge} off the SHARED admit event.
+    oa = primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1))
+    ad = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    adisch = primary_censored(LogNormal(0.8, 0.4), Uniform(0, 1))
+    inner = Parallel((ad, adisch), (:admit_death, :admit_discharge))
+    seq = Sequential((oa, inner), (:onset_admit, :admit_resolution))
+
+    # Events: onset (E_0), admit (E_1), death (E_2), discharge (E_3), the inner
+    # parallel sharing the admit event as its origin.
+    @test CensoredDistributions.tree_event_names(seq) ==
+          (:onset, :admit, :death, :discharge)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0, 4.5])
+    in_order = (onset = 0.0, admit = 2.0, death = 5.0, discharge = 4.5)
+    shuffled = (discharge = 4.5, death = 5.0, admit = 2.0, onset = 0.0)
+    base = only(logjoint(demo(seq, in_order), (;)))
+    @test base ≈ logpdf(seq, ev)
+    @test only(logjoint(demo(seq, shuffled), (;))) ≈ base
+end
+
+@testitem "by-name row: positional default names fall back positionally (#362)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    # A positionally-constructed chain has `:step_i` edges -> positional `:event_i`
+    # events, so a row is matched POSITIONALLY (the documented fallback).
+    seq = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    @test CensoredDistributions.tree_event_names(seq) ==
+          (:event_1, :event_2, :event_3)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    row = (onset = 0.0, admit = 2.0, death = 5.0)
+    ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
+    @test only(logjoint(demo(seq, row), (;))) ≈ logpdf(seq, ev)
+end
+
+@testitem "per-record horizon: whole-compose truncation at D (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    D = 8.0
+    # Endpoint-observed record (intermediate admit unobserved): the whole compose
+    # collapses to the origin->death total, right-truncated at D - origin. The
+    # log-density includes the -logcdf(total, window) correction vs untruncated.
+    ev = Vector{Union{Missing, Float64}}([0.0, missing, 5.0])
+    seg = CensoredDistributions._sequential_segment(
+        seq.components, 1, 3, Uniform(0, 1))
+    expected = logpdf(seg, 5.0) - logcdf(seg, D - 0.0)
+    row = (onset = 0.0, admit = missing, death = 5.0, obs_time = D)
+    @test only(logjoint(demo(seq, row), (;))) ≈ expected
+    # The correction is exactly the right-truncation term.
+    @test only(logjoint(demo(seq, row), (;))) ≈ logpdf(seq, ev) - logcdf(seg, D)
+
+    # A non-zero observed origin shifts the window to D - origin.
+    o = 1.5
+    seg2 = CensoredDistributions._sequential_segment(
+        seq.components, 1, 3, Uniform(0, 1))
+    row2 = (onset = o, admit = missing, death = 5.0, obs_time = D)
+    @test only(logjoint(demo(seq, row2), (;))) ≈
+          logpdf(seg2, 5.0 - o) - logcdf(seg2, D - o)
+
+    # No obs_time field -> no truncation (back-compat).
+    row3 = (onset = 0.0, admit = missing, death = 5.0)
+    @test only(logjoint(demo(seq, row3), (;))) ≈ logpdf(seq, ev)
+end
+
+@testitem "per-record horizon: index single vs sourced convolved (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    # An index case observes a single delay onset->resolution; a sourced case
+    # observes the total over two unobserved-intermediate segments. The whole-
+    # compose denominator is the single delay vs the convolution, selected by the
+    # record's missingness, exactly the andv split.
+    inc = primary_censored(LogNormal(1.5, 0.5), Uniform(0, 1))
+    delta = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    seq = Sequential((inc, delta), (:onset_mid, :mid_obs))
+    D = 6.0
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # Sourced: intermediate `mid` unobserved -> convolved origin->obs denominator.
+    sourced = CensoredDistributions._sequential_segment(
+        seq.components, 1, 3, Uniform(0, 1))
+    row_src = (onset = 0.0, mid = missing, obs = 5.0, obs_time = D)
+    @test only(logjoint(demo(seq, row_src), (;))) ≈
+          logpdf(sourced, 5.0) - logcdf(sourced, D)
+
+    # Index: a single-segment chain (one delay), endpoint observed -> single
+    # delay denominator.
+    seq1 = Sequential((inc,), (:onset_obs,))
+    single = CensoredDistributions._sequential_segment(
+        seq1.components, 1, 2, Uniform(0, 1))
+    row_idx = (onset = 0.0, obs = 4.0, obs_time = D)
+    @test only(logjoint(demo(seq1, row_idx), (;))) ≈
+          logpdf(single, 4.0) - logcdf(single, D)
+end
+
+@testitem "per-record horizon: non-positive window guard (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # Horizon before the observed total -> empty-support truncation -> -Inf, no
+    # error or NaN (the primitive guards the non-positive window).
+    row = (onset = 2.0, admit = missing, death = 5.0, obs_time = 1.0)
+    lj = only(logjoint(demo(seq, row), (;)))
+    @test lj == -Inf
+end
+
+@testitem "per-record horizon: observed-intermediate is rejected (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # With the intermediate admit OBSERVED and a per-record horizon, the
+    # whole-compose-vs-per-segment meaning is undecided (#329): rejected, not
+    # guessed.
+    row = (onset = 0.0, admit = 2.0, death = 5.0, obs_time = 8.0)
+    @test_throws ArgumentError logjoint(demo(seq, row), (;))
+end
+
+@testitem "per-record horizon: leaf record truncates at D (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # A leaf record (observed from the origin) truncates at the horizon itself.
+    pc = primary_censored(LogNormal(1.5, 0.5), Uniform(0, 1))
+    row = (delay = 2.0, obs_time = 6.0)
+    @test only(logjoint(demo(pc, row), (;))) ≈
+          logpdf(pc, 2.0) - logcdf(pc, 6.0)
+    # No obs_time -> untruncated (and keeps the named primary-censored routing).
+    @test only(logjoint(demo(pc, (delay = 2.0,)), (;))) ≈ logpdf(pc, 2.0)
+end
+
+@testitem "per-record horizon: per-record loop with differing D (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint, prefix
+
+    inc = primary_censored(LogNormal(1.5, 0.5), Uniform(0, 1))
+    delta = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    seq = Sequential((inc, delta), (:onset_mid, :mid_obs))
+
+    # Each record carries its OWN observation horizon; the batch log density sums
+    # the per-record whole-compose truncated contributions.
+    rows = [
+        (onset = 0.0, mid = missing, obs = 4.0, obs_time = 6.0),
+        (onset = 0.5, mid = missing, obs = 5.0, obs_time = 9.0, weight = 2)
+    ]
+
+    @model function fit(rows)
+        for i in eachindex(rows)
+            x ~ to_submodel(
+                prefix(composed_distribution_model(seq, rows[i]),
+                    Symbol("rec", i)), false)
+        end
+    end
+
+    seg = CensoredDistributions._sequential_segment(
+        seq.components, 1, 3, Uniform(0, 1))
+    m1 = logpdf(seg, 4.0 - 0.0) - logcdf(seg, 6.0 - 0.0)
+    m2 = logpdf(seg, 5.0 - 0.5) - logcdf(seg, 9.0 - 0.5)
+    @test logjoint(fit(rows), (;)) ≈ m1 + 2 * m2
+end
+
+@testitem "per-record horizon: AD through the truncated path (#329)" begin
+    using CensoredDistributions, Distributions
+    using Turing: Turing, @model, to_submodel, AutoForwardDiff
+    using DynamicPPL: DynamicPPL, LogDensityFunction
+    import DynamicPPL.LogDensityProblems as LDP
+
+    rows = [
+        (onset = 0.0, mid = missing, obs = 4.0, obs_time = 6.0),
+        (onset = 0.5, mid = missing, obs = 5.0, obs_time = 9.0)
+    ]
+
+    @model function fit(rows)
+        mu ~ Normal(1.5, 0.3)
+        sh ~ truncated(Normal(2.0, 0.5); lower = 0.2)
+        seq = Sequential(
+            (primary_censored(LogNormal(mu, 0.5), Uniform(0, 1)),
+                primary_censored(Gamma(sh, 1.0), Uniform(0, 1))),
+            (:onset_mid, :mid_obs))
+        for i in eachindex(rows)
+            x ~ to_submodel(composed_distribution_model(seq, rows[i]), false)
+        end
+    end
+
+    ldf = LogDensityFunction(fit(rows); adtype = AutoForwardDiff())
+    v, g = LDP.logdensity_and_gradient(ldf, [1.5, 2.0])
+    @test length(g) == 2
+    @test all(isfinite, g)
+    @test any(!iszero, g)
 end
 
 @testitem "composed_distribution_model: Select routes by the data selector" begin

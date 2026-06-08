@@ -8,13 +8,15 @@ using CensoredDistributions: CensoredDistributions, PrimaryCensored, Latent,
                              IntervalCensored, PrimaryConditional, Sequential,
                              Parallel, Competing, Select, as_mixture,
                              get_primary_event, get_dist_recursive,
-                             convolve_distributions, component_names
+                             convolve_distributions, component_names,
+                             tree_event_names, primary_censored
 import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model,
                               composed_distribution_model,
                               composed_parameters_model, predict_events
 using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
-using Distributions: Distributions, UnivariateDistribution, params, logpdf
+using Distributions: Distributions, UnivariateDistribution, params, logpdf,
+                     MixtureModel
 using Random: AbstractRNG, default_rng
 
 # `CensoredDistributions.weight(d, w)` is called with the module qualifier
@@ -104,32 +106,67 @@ end
 # optional reserved weight); `_leaf_value`/`_leaf_weight` normalise both. The
 # `weight =` keyword still applies and overrides a row weight.
 
-# A `PrimaryCensored` (marginal) or its `Latent` wrapper -> the primary-censored
-# leaf model.
+# A `PrimaryCensored` (marginal) -> the primary-censored leaf model. A reserved
+# `obs_time` row field right-truncates the marginal leaf at that horizon (#329);
+# the leaf is observed from the origin, so its window is the horizon itself. The
+# truncated leaf is a plain univariate, so it routes through the univariate
+# marginal model; without a horizon the correctly named primary-censored model is
+# kept.
 function composed_distribution_model(
-        d::Union{PrimaryCensored, Latent{<:PrimaryCensored}}, row;
-        weight = nothing)
+        d::PrimaryCensored, row; weight = nothing)
+    _row_horizon_of(row) === nothing && return primary_censored_model(
+        d, _leaf_value(row); weight = _leaf_weight(row, weight))
+    return double_interval_censored_model(
+        _leaf_horizon(d, row), _leaf_value(row);
+        weight = _leaf_weight(row, weight))
+end
+
+# A `Latent{<:PrimaryCensored}` -> the latent primary-censored leaf model. The
+# latent path samples the origin internally, so a per-record horizon is not
+# applied here (truncating a latent twin is out of scope).
+function composed_distribution_model(
+        d::Latent{<:PrimaryCensored}, row; weight = nothing)
     return primary_censored_model(
         d, _leaf_value(row); weight = _leaf_weight(row, weight))
 end
 
-# An `IntervalCensored` -> the interval-censored leaf model.
+# An `IntervalCensored` -> the interval-censored leaf model. An `obs_time` row
+# field right-truncates the marginal leaf (routed through the univariate marginal
+# model since `truncated(::IntervalCensored)` is a plain univariate).
 function composed_distribution_model(
         d::IntervalCensored, row; weight = nothing)
-    return interval_censored_model(
+    h = _row_horizon_of(row)
+    h === nothing && return interval_censored_model(
         d, _leaf_value(row); weight = _leaf_weight(row, weight))
+    return double_interval_censored_model(
+        _leaf_horizon(d, row), _leaf_value(row);
+        weight = _leaf_weight(row, weight))
 end
 
 # Any other univariate leaf (a `double_interval_censored` pipeline, a
 # `Truncated`, a `convolve_distributions` result, ...) -> the marginal univariate
 # leaf model. A bare `Latent{<:PrimaryCensored}` is handled above; the composer
 # `Latent{<:Sequential}` / `Latent{<:Parallel}` methods below are multivariate
-# and dispatch ahead of this univariate fallback.
+# and dispatch ahead of this univariate fallback. A reserved `obs_time` row field
+# right-truncates the leaf at that horizon (#329).
 function composed_distribution_model(
         d::UnivariateDistribution, row; weight = nothing)
     return double_interval_censored_model(
-        d, _leaf_value(row); weight = _leaf_weight(row, weight))
+        _leaf_horizon(d, row), _leaf_value(row);
+        weight = _leaf_weight(row, weight))
 end
+
+# Apply a per-record `obs_time` horizon to a leaf distribution by right-truncating
+# it (the leaf is observed from the origin, so the window is the horizon itself);
+# no `obs_time` field returns the leaf unchanged.
+function _leaf_horizon(d, row)
+    h = _row_horizon_of(row)
+    return h === nothing ? d : CensoredDistributions.truncate_to_horizon(d, h)
+end
+
+# The horizon of a leaf record: a bare value carries none; a row reads `obs_time`.
+_row_horizon_of(row) = nothing
+_row_horizon_of(row::NamedTuple) = _row_horizon(row)
 
 # The single observed value of a leaf record: a bare value passes through; a
 # one-event `NamedTuple` row yields its single event (dropping any reserved
@@ -150,19 +187,57 @@ _leaf_weight(row::NamedTuple, kw_weight) = _row_weight(row, kw_weight)
 # --- Reserved-field handling -----------------------------------------------
 
 # Reserved row fields that are NOT events: a multiplicity weight may ride in the
-# row as `weight` or `count`.
-const _RESERVED_ROW_FIELDS = (:weight, :count)
+# row as `weight` or `count`, and a per-record observation horizon (the right-
+# truncation observation time D, #329 hanta) as `obs_time`.
+const _RESERVED_ROW_FIELDS = (:weight, :count, :obs_time)
 
 # The event values of a row in field order, dropping the reserved weight/count
 # fields, returned as a `Vector{Union{Missing, Float64}}` (one entry per event,
 # `missing` admitted). The `Missing`-admitting element type keeps the censored
 # composer `logpdf` specialisation (#329) selected even for an all-observed row.
-# The remaining field ORDER is the event order the composer spans.
+# The remaining field ORDER is the event order the composer spans. This is the
+# POSITIONAL fallback, used only when a composer carries no derivable event names
+# (its edges are positional defaults), per #362.
 function _event_vector(row::NamedTuple)
     ks = filter(k -> !(k in _RESERVED_ROW_FIELDS), keys(row))
     out = Vector{Union{Missing, Float64}}(undef, length(ks))
     for (i, k) in enumerate(ks)
         v = row[k]
+        out[i] = v === missing ? missing : Float64(v)
+    end
+    return out
+end
+
+# The event vector for a composer `d` from a `row`, matched to the tree's flat
+# EVENT names BY NAME (#362): `row.onset, row.admit, row.death` land in their slots
+# regardless of field order, `missing` fields drive the marginalise/condition
+# dispatch, and a reserved `weight`/`count` is excluded. A row field that is not a
+# tree event, or a missing required event, raises a clear `ArgumentError`. When
+# the tree's event names are all positional defaults (`:event_i`), the row is
+# matched POSITIONALLY through `_event_vector(row)` (the documented fallback).
+function _event_vector(d::Union{Sequential, Parallel}, row::NamedTuple)
+    enames = tree_event_names(d)
+    CensoredDistributions._all_positional_event_names(enames) &&
+        return _event_vector(row)
+    return _event_vector_by_name(enames, row)
+end
+
+# Build the by-name event vector: validate every non-reserved row field is a known
+# event, then place each event by name (a missing required event errors). Pure,
+# Turing-free.
+function _event_vector_by_name(enames::Tuple, row::NamedTuple)
+    for k in keys(row)
+        k in _RESERVED_ROW_FIELDS && continue
+        k in enames || throw(ArgumentError(
+            "row field $(repr(k)) is not an event of this tree; expected " *
+            "events $(collect(enames)) (reordering is allowed; names are not)"))
+    end
+    out = Vector{Union{Missing, Float64}}(undef, length(enames))
+    for (i, name) in enumerate(enames)
+        haskey(row, name) || throw(ArgumentError(
+            "row is missing required event $(repr(name)); expected events " *
+            "$(collect(enames))"))
+        v = row[name]
         out[i] = v === missing ? missing : Float64(v)
     end
     return out
@@ -175,6 +250,15 @@ function _row_weight(row::NamedTuple, kw_weight)
     haskey(row, :weight) && return row.weight
     haskey(row, :count) && return row.count
     return nothing
+end
+
+# The per-record observation horizon D carried by a row's reserved `obs_time`
+# field (#329 hanta): when present and non-missing, the record is right-truncated
+# at the horizon; absent or missing, no truncation (back-compat).
+function _row_horizon(row::NamedTuple)
+    haskey(row, :obs_time) || return nothing
+    h = row.obs_time
+    return h === missing ? nothing : h
 end
 
 # --- Marginal composer models ----------------------------------------------
@@ -191,32 +275,184 @@ end
 # log-density equals the direct `logpdf`.
 @model function composed_distribution_model(
         d::Union{Sequential, Parallel}, row::NamedTuple; weight = nothing)
-    events = _event_vector(row)
+    events = _event_vector(d, row)
     w = _row_weight(row, weight)
-    DynamicPPL.@addlogprob! _marginal_logprob(d, events, w)
+    horizon = _row_horizon(row)
+    DynamicPPL.@addlogprob! _marginal_logprob_h(d, events, w, horizon)
     return events
 end
 
-# A `Competing` node is univariate (the marginal time-to-resolution), so it
-# scores a single observed time through its `MixtureModel` lowering. The row
-# carries one event value (plus any reserved weight); the time conditions on the
-# mixture marginal. No latent origin is declared: the competing outcome and its
-# delay are marginalised inside the mixture (#329).
+# A `Competing` node SELF-DISPATCHES on the row's outcome missingness (#329
+# decision 2), mirroring the observed-intermediate dispatch of a chain:
+#
+#   - EXACTLY ONE outcome's event time observed in the row -> CONDITION on that
+#     branch: `log(p[obs]) + logpdf(delay[obs], gap)`, the observed branch's own
+#     (censored) logpdf at its gap (its observed time, the delay from the origin);
+#   - the outcome unknown (a `resolved` resolution time but no per-outcome time,
+#     OR a single bare non-outcome event field) -> MARGINALISE: the mixture
+#     `logpdf` at the resolution time;
+#   - ALL outcome columns missing and no resolution time -> the record is fully
+#     missing and contributes no factor (zero).
+#
+# BRANCH PROBABILITIES (three regimes via the SAME node):
+#   (a) fixed/sampled scalar  -> the node's stored `branch_probs`;
+#   (b) COVARIATE-DRIVEN      -> a reserved `branch_probs` ROW field (a NamedTuple
+#       of outcome -> prob, or a scalar for a two-outcome node giving the FIRST
+#       outcome's probability) OVERRIDES the stored probabilities per record. This
+#       is how a covariate CFR `logistic(Xβ)` (computed in PLAIN TURING, #329
+#       decision 2) flows in per record; the regression stays OUT of the node, the
+#       node only CONSUMES the probability. Validated to lie in `[0, 1]` and (for
+#       a NamedTuple) to sum to one across outcomes.
+#   (c) unknown outcome       -> the probabilities enter only as the mixture
+#       weights of the marginalise path.
+#
+# The observed OUTCOME (which outcome column is non-missing, Feature 1's by-name
+# missingness) and the per-record PROBABILITY (the reserved `branch_probs` field)
+# are DISTINCT row inputs (#362 interaction). The whole record is DATA, so the
+# contribution is added with `@addlogprob!` (no spurious VarInfo variable).
 @model function composed_distribution_model(
         d::Competing, row::NamedTuple; weight = nothing)
-    events = _event_vector(row)
-    length(events) == 1 || throw(ArgumentError(
-        "composed_distribution_model(::Competing, row) takes one event " *
-        "value; got $(length(events))"))
     w = _row_weight(row, weight)
-    DynamicPPL.@addlogprob! _marginal_logprob(as_mixture(d), events[1], w)
-    return events[1]
+    probs = _competing_branch_probs(d, row)
+    horizon = _row_horizon(row)
+    DynamicPPL.@addlogprob! _competing_logprob(d, row, probs, w, horizon)
+    return nothing
 end
+
+# Reserved row fields specific to a `Competing` node: the resolution time when the
+# outcome is unknown, and the per-record branch-probability override.
+const _COMPETING_RESERVED = (_RESERVED_ROW_FIELDS..., :resolved, :branch_probs)
+
+# The branch probabilities to USE for this record: a reserved `branch_probs` row
+# field overrides the node's stored probabilities (regime b), else the stored ones
+# (regime a). A NamedTuple override is reordered to outcome order and validated; a
+# scalar override is taken as the FIRST outcome's probability of a two-outcome
+# node (`(p, 1 - p)`).
+function _competing_branch_probs(d::Competing, row::NamedTuple)
+    haskey(row, :branch_probs) || return d.branch_probs
+    return _coerce_branch_probs(d, row.branch_probs)
+end
+
+# The probabilities keep their (possibly AD `Dual`) element type so a covariate
+# CFR `logistic(Xβ)` carrying a `Dual` differentiates through the node.
+function _coerce_branch_probs(d::Competing, bp::NamedTuple)
+    Set(keys(bp)) == Set(d.names) || throw(ArgumentError(
+        "per-record branch_probs must name exactly the outcomes " *
+        "$(collect(d.names)); got $(collect(keys(bp)))"))
+    probs = map(n -> bp[n], d.names)
+    _validate_record_probs(probs)
+    return probs
+end
+
+function _coerce_branch_probs(d::Competing, p::Real)
+    length(d.names) == 2 || throw(ArgumentError(
+        "a scalar per-record branch_probs is only defined for a two-outcome " *
+        "Competing (the first outcome's probability); node has " *
+        "$(length(d.names)) outcomes, pass a NamedTuple instead"))
+    probs = (p, one(p) - p)
+    _validate_record_probs(probs)
+    return probs
+end
+
+# Per-record branch probabilities must each lie in `[0, 1]` and sum to one. The
+# bounds carry a small tolerance so a saturating covariate prob (`logistic(Xβ)`
+# evaluating to a hair past 0 or 1 under AD/sampling) is accepted rather than
+# spuriously rejected mid-gradient; a genuinely out-of-range value still errors.
+# Comparisons are value-based, so an AD `Dual` is compared on its value.
+function _validate_record_probs(probs)
+    tol = 1e-6
+    all(p -> p >= -tol && p <= 1 + tol, probs) || throw(ArgumentError(
+        "each per-record branch probability must lie in [0, 1]; got " *
+        "$(collect(probs))"))
+    isapprox(sum(probs), 1; atol = 1e-6) || throw(ArgumentError(
+        "per-record branch probabilities sum to $(sum(probs)), not one"))
+    return nothing
+end
+
+# The competing log-density for one record under branch probabilities `probs`,
+# scaled by the weight `w`, optionally right-truncated at the per-record horizon
+# (#329 hanta). Selects condition / marginalise / fully-missing from the row's
+# outcome missingness. A `horizon` right-truncates the conditioned branch delay
+# (resp. the mixture) at the horizon (the competing time is measured from the
+# origin, so the window is the horizon itself).
+function _competing_logprob(d::Competing, row::NamedTuple, probs, w, horizon)
+    obs = _observed_outcomes(d, row)
+    if length(obs) == 1
+        # Observed outcome: condition on that branch.
+        i, gap = obs[1]
+        branch = _maybe_truncate(d.delays[i], horizon)
+        lp = log(probs[i]) + logpdf(branch, gap)
+        return _scale(lp, w)
+    end
+    isempty(obs) || throw(ArgumentError(
+        "a Competing record may observe at most one outcome time; got " *
+        "$(length(obs)) ($(collect(first.(obs))))"))
+    # No outcome observed: marginalise at the resolution time if known, else the
+    # record is fully missing and contributes nothing.
+    t = _competing_resolution_time(d, row)
+    t === nothing && return _scale(zero(eltype(probs)), w)
+    mix = _maybe_truncate(
+        MixtureModel(collect(d.delays), collect(float.(probs))), horizon)
+    return _scale(logpdf(mix, t), w)
+end
+
+# Right-truncate `dist` at the per-record horizon when one is supplied (the
+# competing time is measured from the origin), else return it unchanged.
+_maybe_truncate(dist, ::Nothing) = dist
+function _maybe_truncate(dist, horizon)
+    return CensoredDistributions.truncate_to_horizon(dist, horizon)
+end
+
+# The observed outcomes of a row as `(outcome_index, gap)` pairs: a per-outcome
+# field (keyed by the outcome name) holding a non-missing time. The gap is the
+# observed delay from the origin (the value carried in the column).
+function _observed_outcomes(d::Competing, row::NamedTuple)
+    out = Tuple{Int, Float64}[]
+    for (i, name) in enumerate(d.names)
+        haskey(row, name) || continue
+        v = row[name]
+        v === missing && continue
+        push!(out, (i, Float64(v)))
+    end
+    return out
+end
+
+# The resolution time for the marginalise path: a reserved `resolved` field if
+# present and non-missing, else a single bare event field (a non-reserved,
+# non-outcome field) for backward compatibility with a plain `(resolve = y,)`
+# row; `nothing` when no resolution time is supplied (fully missing).
+function _competing_resolution_time(d::Competing, row::NamedTuple)
+    if haskey(row, :resolved) && row.resolved !== missing
+        return Float64(row.resolved)
+    end
+    bare = filter(
+        k -> !(k in _COMPETING_RESERVED) && !(k in d.names), keys(row))
+    isempty(bare) && return nothing
+    length(bare) == 1 || throw(ArgumentError(
+        "a Competing record with an unknown outcome takes one resolution time " *
+        "(a `resolved` field or a single event value); got fields " *
+        "$(collect(bare))"))
+    v = row[only(bare)]
+    return v === missing ? nothing : Float64(v)
+end
+
+_scale(lp, ::Nothing) = lp
+_scale(lp, w) = w * lp
 
 # Marginal log-density of a constant observation `x` under `d`, scaled by an
 # optional weight `w`. Shared by the marginal composer and `Competing` models.
 _marginal_logprob(d, x, ::Nothing) = logpdf(d, x)
 _marginal_logprob(d, x, w) = w * logpdf(d, x)
+
+# Marginal event-vector log-density of a censored composer, optionally right-
+# truncated at the per-record observation horizon (#329 hanta), scaled by the
+# weight `w`. With `horizon === nothing` this is the untruncated composer logpdf
+# (back-compat); a horizon routes through `event_logpdf`, which wraps each
+# already-factorised observed segment in `truncate_to_horizon`.
+function _marginal_logprob_h(d, events, w, horizon)
+    lp = CensoredDistributions.event_logpdf(d, events; horizon = horizon)
+    return w === nothing ? lp : w * lp
+end
 
 # --- Select (data-selected disjunction) ------------------------------------
 #
@@ -342,7 +578,7 @@ end
 @model function composed_distribution_model(
         d::Latent{<:Sequential}, row::NamedTuple; weight = nothing)
     chain = d.dist
-    obs = _event_vector(row)
+    obs = _event_vector(chain, row)
     w = _row_weight(row, weight)
 
     origin = CensoredDistributions._origin_primary_event(
@@ -374,7 +610,7 @@ end
 @model function composed_distribution_model(
         d::Latent{<:Parallel}, row::NamedTuple; weight = nothing)
     tree = d.dist
-    obs = _event_vector(row)
+    obs = _event_vector(tree, row)
     w = _row_weight(row, weight)
 
     shared = CensoredDistributions._shared_primary_event(tree.components)

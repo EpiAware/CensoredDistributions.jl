@@ -1,0 +1,178 @@
+# ============================================================================
+# Tree EVENT names and by-name row -> event-vector mapping (#362)
+# ============================================================================
+#
+# A composed distribution carries two distinct name spaces (#362):
+#
+#   - EDGE names (`k` of them for a `k`-edge composer): the `names` field used by
+#     `params_table` / `composed_parameters_model`. PARAMETERS belong to edges
+#     (an edge IS a delay distribution with parameters), so edge names key the
+#     parameter inventory.
+#   - EVENT names (`k + 1` of them): the origin event plus one target event per
+#     edge, in the SAME flat depth-first order as the scored event vector
+#     `[E_0, E_1, ..., E_k]`. OBSERVATIONS are events (a linelist column is an
+#     event time: onset, admit, death, ...), so event names key a data ROW.
+#
+# Both name spaces are retained; they describe different things. This file
+# derives the EVENT-name layout from the existing EDGE names and maps a
+# NamedTuple row to the flat event vector BY NAME, so a reordered row scores
+# identically to an in-order one and a name the tree does not have errors
+# clearly. Positional fallback (`:event_i`) applies only when an edge name is a
+# positional default (`:step_i` / `:branch_i`), i.e. when the front-end was given
+# no real names to derive events from.
+#
+# Turing-free and distributions-led: this reads structure + names only.
+
+# --- edge-name -> (origin, target) event names ------------------------------
+
+# Whether an edge name is a positional default (`:step_i` / `:branch_i`),
+# carrying no real event names to derive an origin/target split from.
+function _is_positional_edge_name(name::Symbol)
+    s = string(name)
+    return occursin(r"^step_\d+$", s) || occursin(r"^branch_\d+$", s)
+end
+
+# Split an underscore-joined edge name `:onset_admit` into its `(:onset, :admit)`
+# origin/target event names. A name with no single internal split (or a
+# positional default) has no derivable split and returns `nothing`, so the caller
+# falls back to positional event names.
+function _split_edge_name(name::Symbol)
+    _is_positional_edge_name(name) && return nothing
+    s = string(name)
+    parts = split(s, '_')
+    length(parts) == 2 || return nothing
+    (isempty(parts[1]) || isempty(parts[2])) && return nothing
+    return (Symbol(parts[1]), Symbol(parts[2]))
+end
+
+# --- flat EVENT-name layout for a tree --------------------------------------
+#
+# `tree_event_names(d)` returns the tuple of event names matching the flat event
+# vector `[E_0, E_1, ..., E_k]`: entry 1 is the root origin, then one name per
+# LEAF event in depth-first order, exactly the layout `_tree_score` /
+# `_event_vector` consume. Built by appending into a `Symbol[]` and freezing to a
+# tuple, mirroring the `params_table` pre-order walk. Edge names are read from the
+# PARENT composer's `names` field (a leaf edge does not store its own name), so
+# each child is visited paired with its edge name.
+
+@doc "
+
+The flat EVENT names of a composed distribution (#362).
+
+Returns the tuple of event names matching the scored event vector
+`[E_0, E_1, ..., E_k]`: the root origin event followed by one target event per
+edge in depth-first order. Event names are DERIVED from the composer's edge
+names (an edge `:onset_admit` gives origin `:onset` and target `:admit`); an
+edge with a positional default name (`:step_i` / `:branch_i`) contributes the
+positional event name `:event_i` instead.
+
+These EVENT names key a data ROW (a linelist column is an event time), distinct
+from the EDGE names returned by [`event_names`](@ref) that key the parameter
+inventory. A row passed to `composed_distribution_model` is matched to the event
+vector BY these names, so field order does not matter.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+oa = primary_censored(LogNormal(1.5, 0.4), Uniform(0, 1))
+ad = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+tree = compose((onset_admit = [oa, ad],))
+CensoredDistributions.tree_event_names(tree)
+```
+
+# See also
+- [`event_names`](@ref): the EDGE names (parameter inventory)
+"
+function tree_event_names(d::Union{Sequential, Parallel})
+    names = Symbol[]
+    counter = Ref(0)
+    origin = _root_origin_name(d, counter)
+    push!(names, origin)
+    _walk_targets!(names, d, origin, counter)
+    return Tuple(names)
+end
+
+# A `Competing` node is univariate (one resolution event); its event name is
+# supplied by its PARENT edge, so standalone it has only a positional origin.
+tree_event_names(::Competing) = (:event_1,)
+
+# The root origin event name E_0: derived from the FIRST edge's name split, else
+# positional. For a `Sequential` the first edge is `components[1]`; for a
+# `Parallel` it is the first branch. A nested first child recurses to its own
+# first edge.
+function _root_origin_name(d::Union{Sequential, Parallel}, counter)
+    name1 = component_names(d)[1]
+    pair = _edge_origin_pair(name1, d.components[1])
+    pair === nothing && return _next_event_name(counter)
+    return pair
+end
+
+# The ORIGIN event name implied by an edge: the first half of a split edge name,
+# recursing into a nested child's first edge. `nothing` when no name splits.
+function _edge_origin_pair(edge_name::Symbol, child::UnivariateDistribution)
+    split = _split_edge_name(edge_name)
+    return split === nothing ? nothing : split[1]
+end
+function _edge_origin_pair(
+        edge_name::Symbol, child::Union{Sequential, Parallel})
+    return _root_origin_name_or_nothing(child)
+end
+function _root_origin_name_or_nothing(d::Union{Sequential, Parallel})
+    name1 = component_names(d)[1]
+    return _edge_origin_pair(name1, d.components[1])
+end
+
+# Append the TARGET event(s) of each edge of composer `d` hanging off `origin`.
+# A `Sequential` threads the terminal event forward step to step; a `Parallel`
+# hangs every branch off the shared origin.
+function _walk_targets!(names, d::Sequential, origin::Symbol, counter)
+    prev = origin
+    enames = component_names(d)
+    for i in eachindex(d.components)
+        prev = _walk_edge!(names, enames[i], d.components[i], prev, counter)
+    end
+    return nothing
+end
+
+function _walk_targets!(names, d::Parallel, origin::Symbol, counter)
+    enames = component_names(d)
+    for i in eachindex(d.components)
+        _walk_edge!(names, enames[i], d.components[i], origin, counter)
+    end
+    return nothing
+end
+
+# Append one edge's target event(s) and return the edge's TERMINAL event name
+# (what a following chain step hangs off). A leaf edge pushes its single target
+# (the second half of its split name, else positional); a nested composer
+# recurses and returns its terminal (its last leaf for a chain, the shared origin
+# for a parallel, mirroring `_terminal_offset`).
+function _walk_edge!(names, edge_name::Symbol, child::UnivariateDistribution,
+        origin::Symbol, counter)
+    split = _split_edge_name(edge_name)
+    target = split === nothing ? _next_event_name(counter) : split[2]
+    push!(names, target)
+    return target
+end
+
+function _walk_edge!(names, edge_name::Symbol,
+        child::Union{Sequential, Parallel}, origin::Symbol, counter)
+    _walk_targets!(names, child, origin, counter)
+    return _nested_terminal_name(child, names, origin)
+end
+
+_nested_terminal_name(::Parallel, names, origin::Symbol) = origin
+_nested_terminal_name(::Sequential, names, origin::Symbol) = names[end]
+
+# Allocate the next positional event name `:event_i`.
+function _next_event_name(counter)
+    counter[] += 1
+    return Symbol(:event_, counter[])
+end
+
+# Whether a tuple of event names is the all-positional default layout (so a row
+# is matched positionally, the documented fallback rather than by name).
+function _all_positional_event_names(enames::Tuple)
+    return all(n -> occursin(r"^event_\d+$", string(n)), enames)
+end

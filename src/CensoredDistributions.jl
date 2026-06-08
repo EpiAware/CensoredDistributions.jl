@@ -118,6 +118,7 @@ include("composers/nesting.jl")
 include("composers/equality.jl")
 include("composers/compose.jl")
 include("composers/introspection.jl")
+include("composers/tree_events.jl")
 include("composers/wrap.jl")
 
 include("utils/Weighted.jl")
