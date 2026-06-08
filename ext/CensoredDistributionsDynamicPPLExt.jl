@@ -15,7 +15,8 @@ import CensoredDistributions: primary_censored_model, interval_censored_model,
                               composed_distribution_model,
                               composed_parameters_model, predict_events
 using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
-using Distributions: Distributions, UnivariateDistribution, params, logpdf
+using Distributions: Distributions, UnivariateDistribution, params, logpdf,
+                     MixtureModel
 using Random: AbstractRNG, default_rng
 
 # `CensoredDistributions.weight(d, w)` is called with the module qualifier
@@ -235,21 +236,144 @@ end
     return events
 end
 
-# A `Competing` node is univariate (the marginal time-to-resolution), so it
-# scores a single observed time through its `MixtureModel` lowering. The row
-# carries one event value (plus any reserved weight); the time conditions on the
-# mixture marginal. No latent origin is declared: the competing outcome and its
-# delay are marginalised inside the mixture (#329).
+# A `Competing` node SELF-DISPATCHES on the row's outcome missingness (#329
+# decision 2), mirroring the observed-intermediate dispatch of a chain:
+#
+#   - EXACTLY ONE outcome's event time observed in the row -> CONDITION on that
+#     branch: `log(p[obs]) + logpdf(delay[obs], gap)`, the observed branch's own
+#     (censored) logpdf at its gap (its observed time, the delay from the origin);
+#   - the outcome unknown (a `resolved` resolution time but no per-outcome time,
+#     OR a single bare non-outcome event field) -> MARGINALISE: the mixture
+#     `logpdf` at the resolution time;
+#   - ALL outcome columns missing and no resolution time -> the record is fully
+#     missing and contributes no factor (zero).
+#
+# BRANCH PROBABILITIES (three regimes via the SAME node):
+#   (a) fixed/sampled scalar  -> the node's stored `branch_probs`;
+#   (b) COVARIATE-DRIVEN      -> a reserved `branch_probs` ROW field (a NamedTuple
+#       of outcome -> prob, or a scalar for a two-outcome node giving the FIRST
+#       outcome's probability) OVERRIDES the stored probabilities per record. This
+#       is how a covariate CFR `logistic(Xβ)` (computed in PLAIN TURING, #329
+#       decision 2) flows in per record; the regression stays OUT of the node, the
+#       node only CONSUMES the probability. Validated to lie in `[0, 1]` and (for
+#       a NamedTuple) to sum to one across outcomes.
+#   (c) unknown outcome       -> the probabilities enter only as the mixture
+#       weights of the marginalise path.
+#
+# The observed OUTCOME (which outcome column is non-missing, Feature 1's by-name
+# missingness) and the per-record PROBABILITY (the reserved `branch_probs` field)
+# are DISTINCT row inputs (#362 interaction). The whole record is DATA, so the
+# contribution is added with `@addlogprob!` (no spurious VarInfo variable).
 @model function composed_distribution_model(
         d::Competing, row::NamedTuple; weight = nothing)
-    events = _event_vector(row)
-    length(events) == 1 || throw(ArgumentError(
-        "composed_distribution_model(::Competing, row) takes one event " *
-        "value; got $(length(events))"))
     w = _row_weight(row, weight)
-    DynamicPPL.@addlogprob! _marginal_logprob(as_mixture(d), events[1], w)
-    return events[1]
+    probs = _competing_branch_probs(d, row)
+    DynamicPPL.@addlogprob! _competing_logprob(d, row, probs, w)
+    return nothing
 end
+
+# Reserved row fields specific to a `Competing` node: the resolution time when the
+# outcome is unknown, and the per-record branch-probability override.
+const _COMPETING_RESERVED = (_RESERVED_ROW_FIELDS..., :resolved, :branch_probs)
+
+# The branch probabilities to USE for this record: a reserved `branch_probs` row
+# field overrides the node's stored probabilities (regime b), else the stored ones
+# (regime a). A NamedTuple override is reordered to outcome order and validated; a
+# scalar override is taken as the FIRST outcome's probability of a two-outcome
+# node (`(p, 1 - p)`).
+function _competing_branch_probs(d::Competing, row::NamedTuple)
+    haskey(row, :branch_probs) || return d.branch_probs
+    return _coerce_branch_probs(d, row.branch_probs)
+end
+
+# The probabilities keep their (possibly AD `Dual`) element type so a covariate
+# CFR `logistic(Xβ)` carrying a `Dual` differentiates through the node.
+function _coerce_branch_probs(d::Competing, bp::NamedTuple)
+    Set(keys(bp)) == Set(d.names) || throw(ArgumentError(
+        "per-record branch_probs must name exactly the outcomes " *
+        "$(collect(d.names)); got $(collect(keys(bp)))"))
+    probs = map(n -> bp[n], d.names)
+    _validate_record_probs(probs)
+    return probs
+end
+
+function _coerce_branch_probs(d::Competing, p::Real)
+    length(d.names) == 2 || throw(ArgumentError(
+        "a scalar per-record branch_probs is only defined for a two-outcome " *
+        "Competing (the first outcome's probability); node has " *
+        "$(length(d.names)) outcomes, pass a NamedTuple instead"))
+    probs = (p, one(p) - p)
+    _validate_record_probs(probs)
+    return probs
+end
+
+# Per-record branch probabilities must each lie in `[0, 1]` and sum to one.
+function _validate_record_probs(probs)
+    all(p -> p >= 0 && p <= 1, probs) || throw(ArgumentError(
+        "each per-record branch probability must lie in [0, 1]; got " *
+        "$(collect(probs))"))
+    isapprox(sum(probs), 1; atol = 1e-8) || throw(ArgumentError(
+        "per-record branch probabilities sum to $(sum(probs)), not one"))
+    return nothing
+end
+
+# The competing log-density for one record under branch probabilities `probs`,
+# scaled by the weight `w`. Selects condition / marginalise / fully-missing from
+# the row's outcome missingness.
+function _competing_logprob(d::Competing, row::NamedTuple, probs, w)
+    obs = _observed_outcomes(d, row)
+    if length(obs) == 1
+        # Observed outcome: condition on that branch.
+        i, gap = obs[1]
+        lp = log(probs[i]) + logpdf(d.delays[i], gap)
+        return _scale(lp, w)
+    end
+    isempty(obs) || throw(ArgumentError(
+        "a Competing record may observe at most one outcome time; got " *
+        "$(length(obs)) ($(collect(first.(obs))))"))
+    # No outcome observed: marginalise at the resolution time if known, else the
+    # record is fully missing and contributes nothing.
+    t = _competing_resolution_time(d, row)
+    t === nothing && return _scale(zero(eltype(probs)), w)
+    mix = MixtureModel(collect(d.delays), collect(float.(probs)))
+    return _scale(logpdf(mix, t), w)
+end
+
+# The observed outcomes of a row as `(outcome_index, gap)` pairs: a per-outcome
+# field (keyed by the outcome name) holding a non-missing time. The gap is the
+# observed delay from the origin (the value carried in the column).
+function _observed_outcomes(d::Competing, row::NamedTuple)
+    out = Tuple{Int, Float64}[]
+    for (i, name) in enumerate(d.names)
+        haskey(row, name) || continue
+        v = row[name]
+        v === missing && continue
+        push!(out, (i, Float64(v)))
+    end
+    return out
+end
+
+# The resolution time for the marginalise path: a reserved `resolved` field if
+# present and non-missing, else a single bare event field (a non-reserved,
+# non-outcome field) for backward compatibility with a plain `(resolve = y,)`
+# row; `nothing` when no resolution time is supplied (fully missing).
+function _competing_resolution_time(d::Competing, row::NamedTuple)
+    if haskey(row, :resolved) && row.resolved !== missing
+        return Float64(row.resolved)
+    end
+    bare = filter(
+        k -> !(k in _COMPETING_RESERVED) && !(k in d.names), keys(row))
+    isempty(bare) && return nothing
+    length(bare) == 1 || throw(ArgumentError(
+        "a Competing record with an unknown outcome takes one resolution time " *
+        "(a `resolved` field or a single event value); got fields " *
+        "$(collect(bare))"))
+    v = row[only(bare)]
+    return v === missing ? nothing : Float64(v)
+end
+
+_scale(lp, ::Nothing) = lp
+_scale(lp, w) = w * lp
 
 # Marginal log-density of a constant observation `x` under `d`, scaled by an
 # optional weight `w`. Shared by the marginal composer and `Competing` models.

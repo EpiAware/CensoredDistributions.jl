@@ -321,6 +321,184 @@ end
           5 * logpdf(cmp, 4.0)
 end
 
+@testitem "Competing self-dispatch: observed outcome conditions (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    cmp = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+        :disch => (Gamma(2.0, 1.5), 0.7))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # Exactly one outcome time observed -> condition on that branch:
+    # log(p[obs]) + logpdf(delay[obs], gap). Death observed at 4.0.
+    lj = only(logjoint(demo(cmp, (death = 4.0, disch = missing)), (;)))
+    @test lj ≈ log(0.3) + logpdf(Gamma(1.5, 1.0), 4.0)
+
+    # Discharge observed instead.
+    lj2 = only(logjoint(demo(cmp, (death = missing, disch = 2.5)), (;)))
+    @test lj2 ≈ log(0.7) + logpdf(Gamma(2.0, 1.5), 2.5)
+
+    # A reserved weight scales the conditioned contribution.
+    lj3 = only(logjoint(demo(cmp, (death = 4.0, disch = missing, weight = 3)),
+        (;)))
+    @test lj3 ≈ 3 * (log(0.3) + logpdf(Gamma(1.5, 1.0), 4.0))
+
+    # Two observed outcomes is an error (at most one resolves).
+    @test_throws ArgumentError logjoint(
+        demo(cmp, (death = 4.0, disch = 2.5)), (;))
+end
+
+@testitem "Competing self-dispatch: unknown outcome marginalises (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    cmp = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+        :disch => (Gamma(2.0, 1.5), 0.7))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # Resolved at a known time but the outcome unknown (`resolved` field, all
+    # outcome columns missing) -> the mixture marginal.
+    for y in (1.0, 4.0, 8.0)
+        lj = only(logjoint(
+            demo(cmp, (resolved = y, death = missing, disch = missing)), (;)))
+        @test lj ≈ logpdf(cmp, y)
+    end
+
+    # All outcome columns missing and no resolution time -> fully missing,
+    # contributes nothing.
+    lj0 = only(logjoint(demo(cmp, (death = missing, disch = missing)), (;)))
+    @test lj0 ≈ 0.0
+end
+
+@testitem "Competing self-dispatch: per-row branch-prob override (#329)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    cmp = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+        :disch => (Gamma(2.0, 1.5), 0.7))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # A per-record `branch_probs` field OVERRIDES the stored probabilities
+    # (covariate CFR flows in here). NamedTuple form.
+    row = (death = 4.0, disch = missing, branch_probs = (death = 0.6, disch = 0.4))
+    lj = only(logjoint(demo(cmp, row), (;)))
+    @test lj ≈ log(0.6) + logpdf(Gamma(1.5, 1.0), 4.0)
+    @test lj != log(0.3) + logpdf(Gamma(1.5, 1.0), 4.0)
+
+    # Scalar form for a two-outcome node is the FIRST outcome's probability.
+    row_s = (death = 4.0, disch = missing, branch_probs = 0.6)
+    @test only(logjoint(demo(cmp, row_s), (;))) ≈ lj
+
+    # The override also reweights the marginalise (unknown-outcome) path.
+    lj_marg = only(logjoint(
+        demo(cmp, (resolved = 4.0, branch_probs = (death = 0.6, disch = 0.4))),
+        (;)))
+    @test lj_marg ≈ logpdf(
+        MixtureModel([Gamma(1.5, 1.0), Gamma(2.0, 1.5)], [0.6, 0.4]), 4.0)
+
+    # Out-of-range / non-summing overrides error.
+    @test_throws ArgumentError logjoint(
+        demo(cmp, (death = 4.0, branch_probs = (death = 1.2, disch = -0.2))), (;))
+    @test_throws ArgumentError logjoint(
+        demo(cmp, (death = 4.0, branch_probs = (death = 0.6, disch = 0.6))), (;))
+end
+
+@testitem "Competing self-dispatch: covariate CFR recovers beta (#329)" begin
+    using CensoredDistributions, Distributions, Random
+    using Turing: Turing, NUTS, sample, @model, to_submodel
+    using DynamicPPL: prefix
+
+    _logistic(z) = 1 / (1 + exp(-z))
+
+    rng = Random.MersenneTwister(202)
+    death_delay = Gamma(2.0, 1.5)
+    disch_delay = Gamma(2.0, 1.0)
+    # True logistic CFR: p_death(x) = logistic(beta0 + beta1 * x).
+    beta0, beta1 = -0.4, 1.1
+    n = 400
+    xs = randn(rng, n)
+    rows = map(1:n) do i
+        p = _logistic(beta0 + beta1 * xs[i])
+        if rand(rng) < p
+            (death = rand(rng, death_delay), disch = missing)
+        else
+            (death = missing, disch = rand(rng, disch_delay))
+        end
+    end
+
+    # The regression is PLAIN TURING; the per-record probability is PASSED IN to
+    # the node via the reserved `branch_probs` field (the node only consumes it).
+    @model function fit(rows, xs)
+        b0 ~ Normal(0, 1)
+        b1 ~ Normal(0, 1)
+        cmp = Competing(:death => (death_delay, 0.5),
+            :disch => (disch_delay, 0.5))
+        for i in eachindex(rows)
+            p = _logistic(b0 + b1 * xs[i])
+            row = merge(rows[i], (branch_probs = p,))
+            x ~ to_submodel(
+                prefix(composed_distribution_model(cmp, row),
+                    Symbol("rec", i)), false)
+        end
+    end
+
+    chain = sample(rng, fit(rows, xs), NUTS(), 300; progress = false)
+    @test mean(chain[:b1]) > 0.5
+    @test abs(mean(chain[:b0]) - beta0) < 0.5
+    @test abs(mean(chain[:b1]) - beta1) < 0.6
+end
+
+@testitem "Competing self-dispatch: AD through conditioned + per-row prob" begin
+    using CensoredDistributions, Distributions
+    using Turing: Turing, @model, to_submodel, AutoForwardDiff
+    using DynamicPPL: DynamicPPL, LogDensityFunction
+    import DynamicPPL.LogDensityProblems as LDP
+
+    _logistic(z) = 1 / (1 + exp(-z))
+    disch_delay = Gamma(2.0, 1.0)
+    # One conditioned-death record, one conditioned-discharge record, and one
+    # unknown-outcome (marginalised) record. The per-record prob is
+    # logistic(beta * x), passed into the node.
+    specs = [
+        (kind = :death, t = 3.0, x = 0.4),
+        (kind = :disch, t = 2.0, x = -0.7),
+        (kind = :resolved, t = 4.5, x = 1.2)
+    ]
+
+    function _row(spec, beta)
+        p = _logistic(beta * spec.x)
+        bp = (branch_probs = p,)
+        spec.kind === :death &&
+            return merge((death = spec.t, disch = missing), bp)
+        spec.kind === :disch &&
+            return merge((death = missing, disch = spec.t), bp)
+        return merge((resolved = spec.t,), bp)
+    end
+
+    # `sh` parameterises a conditioned death branch; `beta` drives the passed-in
+    # per-record prob. The log-density flows through both the conditioned and the
+    # per-row-prob paths, so a ForwardDiff gradient over (sh, beta) exercises both.
+    @model function fit(specs)
+        sh ~ truncated(Normal(2.0, 0.5); lower = 0.2)
+        beta ~ Normal(0.0, 1.0)
+        cmp = Competing(:death => (Gamma(sh, 1.5), 0.5),
+            :disch => (disch_delay, 0.5))
+        for i in eachindex(specs)
+            y ~ to_submodel(
+                composed_distribution_model(cmp, _row(specs[i], beta)), false)
+        end
+    end
+
+    ldf = LogDensityFunction(fit(specs); adtype = AutoForwardDiff())
+    v, g = LDP.logdensity_and_gradient(ldf, [2.0, 0.8])
+    @test length(g) == 2
+    @test all(isfinite, g)
+    @test any(!iszero, g)
+end
+
 @testitem "composer model: weight via reserved field and kwarg" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
