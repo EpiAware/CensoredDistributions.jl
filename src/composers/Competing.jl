@@ -313,6 +313,10 @@ probabilities and the time from that outcome's own delay, so the chosen outcome
 is retained. Used by the full-path tree simulation, where a `Competing` node
 resolves to a single named outcome.
 
+# Arguments
+- `rng`: random number generator (the no-`rng` method uses the global default).
+- `c`: the [`Competing`](@ref) node to sample an outcome from.
+
 # Examples
 ```@example
 using CensoredDistributions, Distributions, Random
