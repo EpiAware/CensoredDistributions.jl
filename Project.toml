@@ -32,6 +32,7 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 [extensions]
 CensoredDistributionsChainRulesCoreExt = "ChainRulesCore"
 CensoredDistributionsDynamicPPLExt = "DynamicPPL"
+CensoredDistributionsFlexiChainsExt = ["DynamicPPL", "FlexiChains"]
 CensoredDistributionsEnzymeExt = "Enzyme"
 CensoredDistributionsForwardDiffExt = "ForwardDiff"
 CensoredDistributionsIntegralsExt = "Integrals"

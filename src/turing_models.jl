@@ -254,3 +254,40 @@ event_names(reconstructed)
   keyed against.
 "
 function composed_parameters_model end
+
+@doc "
+
+Read a fitted Turing chain into the nested NamedTuple that [`update`](@ref)
+consumes.
+
+`chain_to_params(template, chain)` walks the `template` composed distribution and
+pulls each free parameter's value out of `chain` (sampled through
+[`composed_parameters_model`](@ref)), returning a nested `NamedTuple` keyed like
+[`params`](@ref)`(template)`. By default it returns posterior means; pass
+`draw=i` for a single draw. The `prefix` keyword names the submodel variable the
+parameters were sampled under (the `~`-bound name, default `:d`), matching the
+edge-path-prefixed chain names like `d.onset_admit.shape`.
+
+`update(template, chain_to_params(template, chain))` returns a ready-to-`rand`/
+inspect distribution, replacing manual `chain[Prefixed(@varname(...))]`
+reconstruction.
+
+This function has no methods until `DynamicPPL` (or `Turing`) is loaded; the
+method lives in the package extension so the core stays free of `DynamicPPL`.
+
+# Arguments
+- `template`: the composed distribution (from [`compose`](@ref)) that was the
+  `composed_parameters_model` template.
+- `chain`: the fitted chain to read parameter values from.
+
+# Keyword Arguments
+- `prefix`: the submodel variable name the parameters were sampled under
+  (default `:d`).
+- `draw`: a single iteration index to read, or `nothing` for posterior means
+  (default `nothing`).
+
+# See also
+- [`update`](@ref): rebuild the distribution from the NamedTuple.
+- [`composed_parameters_model`](@ref): the submodel that produced the chain.
+"
+function chain_to_params end
