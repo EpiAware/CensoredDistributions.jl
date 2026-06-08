@@ -121,14 +121,18 @@ end
 # flow into the UNANNOTATED accumulator, so an AD `Dual`/tracked value from the
 # leaf params propagates through the sum without being narrowed.
 #
-# Extracted by DISPATCH on the element type, NOT via `nonmissingtype`: Mooncake's
-# reverse-mode codegen crashes (uncatchable `signal 4`) on `nonmissingtype`
-# applied to the tracked event vector, while a plain dispatch on the type folds
-# to a constant it tolerates.
+# Extracted by a `@generated` function that strips `Missing` at COMPILE time and
+# splices the bare type in as a constant. A plain runtime `nonmissingtype(eltype(
+# events))` crashes Mooncake's reverse-mode codegen (uncatchable `signal 4`) when
+# applied to the tracked event vector; folding it into a generated constant keeps
+# `nonmissingtype` off the runtime (and so differentiated) path entirely. The
+# `@generated` body has bound parameters, so it is also Aqua-clean.
 _tree_acc_type(d, events) = _data_value_type(eltype(events))
-_data_value_type(::Type{Union{Missing, S}}) where {S} = S
-_data_value_type(::Type{Missing}) = Float64
-_data_value_type(::Type{T}) where {T} = T
+@generated function _data_value_type(::Type{E}) where {E}
+    S = nonmissingtype(E)
+    bare = (S === Union{} || S === Missing) ? Float64 : S
+    return :($bare)
+end
 
 # The node whose origin primary event seeds the root of a `Sequential` tree: the
 # first step (its origin E_0 is the latent primary). Kept as a tiny helper so the
