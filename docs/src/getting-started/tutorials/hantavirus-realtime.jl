@@ -174,9 +174,13 @@ combos = @chain linelist begin
     @combine :weight = length(:y)
 end
 
-index_rows = @rsubset(combos, :kind == "index")
+index_rows = @chain combos begin
+    @rsubset :kind == "index"
+end
 
-sourced_rows = @rsubset(combos, :kind == "sourced")
+sourced_rows = @chain combos begin
+    @rsubset :kind == "sourced"
+end
 
 (nrow(linelist), nrow(combos))
 
@@ -206,11 +210,12 @@ end
 md"""
 ## Fitting through one submodel per record
 
-Each record's whole distribution is scored through ONE submodel call, which
-manages the censoring and truncation likelihood internally; the user model
-never writes a per-component `logpdf` or `@addlogprob!`.
-The reserved `weight` scales the contribution and `prefix` namespaces each
-record's submodel.
+Each record's whole distribution is scored through ONE generic
+[`composed_distribution_model`](@ref) call, which dispatches on the
+distribution and manages the censoring and truncation likelihood internally; the
+user model never writes a per-component `logpdf` or `@addlogprob!`.
+The reserved `weight` in the row scales the contribution and `prefix` namespaces
+each record's submodel.
 
 For a sourced record the source's onset is the coupled origin: it anchors the
 observed gap before the record's distribution is dispatched.
@@ -222,14 +227,16 @@ delay, censoring, and truncation of every record go through its submodel.
     p ~ to_submodel(priors)
     for r in eachrow(index_rows)
         d = index_record(p.inc, r.window)
+        row = (; y = r.y, weight = r.weight)
         idx ~ to_submodel(
-            prefix(double_interval_censored_model(d, r.y; weight = r.weight),
+            prefix(composed_distribution_model(d, row),
                 Symbol(:idx, rownumber(r))), false)
     end
     for r in eachrow(sourced_rows)
         d = sourced_record(p.delta, p.inc, r.window)
+        row = (; y = r.y, weight = r.weight)
         src ~ to_submodel(
-            prefix(double_interval_censored_model(d, r.y; weight = r.weight),
+            prefix(composed_distribution_model(d, row),
                 Symbol(:src, rownumber(r))), false)
     end
 end
