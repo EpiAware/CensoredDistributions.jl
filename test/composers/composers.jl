@@ -158,6 +158,48 @@ end
         dist = [Gamma(2.0, 1.0), LogNormal(0.5, 0.4)], chain = [-1, -1]))
 end
 
+@testitem "compose accepts pre-built composer children" begin
+    using CensoredDistributions, Distributions
+    const CD = CensoredDistributions
+
+    # A compose result drops into a parent compose as a child and builds the same
+    # structure as the equivalent direct constructor calls.
+    inner = compose((a = Gamma(2.0, 1.0), b = LogNormal(0.5, 0.4)))
+    outer = compose((x = inner, y = Normal(0.0, 1.0)))
+    @test outer == CD.Parallel(
+        CD.Parallel(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)), Normal(0.0, 1.0))
+
+    # A select result nests as a compose child.
+    sel = select(:s1 => Gamma(2.0, 1.0), :s2 => Gamma(5.0, 1.0))
+    withsel = compose((k = sel, m = Normal(0.0, 1.0)))
+    @test withsel == CD.Parallel(sel, Normal(0.0, 1.0))
+
+    # A composer is allowed inside a Vector chain step (no longer leaf-only).
+    chained = compose((leg = [Gamma(2.0, 1.0),
+        CD.Parallel(Gamma(1.0, 1.0), Gamma(2.0, 1.0))],))
+    @test chained == CD.Parallel(CD.Sequential(
+        Gamma(2.0, 1.0), CD.Parallel(Gamma(1.0, 1.0), Gamma(2.0, 1.0))))
+    @test length(chained) == 3   # leaf step plus two-branch parallel step
+
+    # The whole stack scores and samples like any composer.
+    @test length(rand(outer)) == 3
+    @test isfinite(logpdf(outer, rand(outer)))
+end
+
+@testitem "compose keeps user step names on a named chain" begin
+    using CensoredDistributions, Distributions
+    const CD = CensoredDistributions
+
+    # A Sequential value carrying names nests as a chain child WITHOUT the
+    # (name, dist, chain) table form, keeping readable step names.
+    named = CD.Sequential((LogNormal(1.5, 0.4), Gamma(2.0, 1.0)),
+        (:onset_admit, :admit_death))
+    tree = compose((path = named, other = Normal(0.0, 1.0)))
+    chain = tree.components[1]
+    @test CD.component_names(chain) == (:onset_admit, :admit_death)
+    @test CD.component_names(tree) == (:path, :other)
+end
+
 @testitem "Composers show readably" begin
     using Distributions
 

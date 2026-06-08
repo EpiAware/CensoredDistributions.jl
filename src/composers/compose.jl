@@ -85,16 +85,22 @@ function _is_column_table(nt::NamedTuple)
         nt.name isa AbstractVector && nt.dist isa AbstractVector
 end
 
-# Lower a single NamedTuple value to a composer child. A nested NamedTuple
-# recurses (carrying its own keys); a bare vector/tuple of leaves becomes a
+# Lower a single front-end value to a composer child. A nested NamedTuple
+# recurses (carrying its own keys); a bare vector/tuple of composables becomes a
 # Sequential with default `:step_i` names (a plain vector has no names to carry).
+# A pre-built composer value (Sequential/Parallel/Select) drops in unchanged, so
+# a `compose(...)`/`select(...)` result nests as a child and a
+# `Sequential((...), names)` value keeps readable step names. A `Competing` is a
+# UnivariateDistribution leaf and is covered by the first method.
 _compose_child(d::UnivariateDistribution) = d
+_compose_child(c::Union{Sequential, Parallel, Select}) = c
 _compose_child(nt::NamedTuple) = compose(nt)
 function _compose_child(v::Union{AbstractVector, Tuple})
-    all(x -> x isa UnivariateDistribution, v) ||
+    all(_is_composable, v) ||
         throw(ArgumentError(
-            "a sequential child must hold UnivariateDistributions"))
-    return Sequential(Tuple(v))
+            "a sequential child must hold UnivariateDistributions or " *
+            "composers"))
+    return Sequential(map(_compose_child, Tuple(v)))
 end
 
 # --- nested Matrix front-end -----------------------------------------------
