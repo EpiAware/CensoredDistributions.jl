@@ -37,4 +37,4 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [sources]
 ADFixtures = {path = "../test/ADFixtures"}
-CensoredDistributions = {path = "/Users/lshsa2/code/EpiAware/CensoredDistributions.jl/.claude/worktrees/agent-ae1b5dbc164d916a4"}
+CensoredDistributions = {path = ".."}
