@@ -55,6 +55,9 @@ export Sequential, Parallel, Competing, compose, as_mixture
 # Exported composer-observed lowering used by the external censoring wrappers
 export observed_distribution
 
+# Exported right-truncation helpers (single-delay vs convolved-chain)
+export truncate_to_horizon, truncate_chain
+
 # Exported utilities
 export weight, get_dist, get_dist_recursive, get_primary_event
 
@@ -92,6 +95,8 @@ include("composers/nesting.jl")
 include("composers/equality.jl")
 include("composers/compose.jl")
 include("composers/wrap.jl")
+
+include("censoring/truncation.jl")
 
 include("utils/Weighted.jl")
 include("utils/get_dist.jl")
