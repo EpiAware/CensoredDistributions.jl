@@ -152,12 +152,14 @@ See also: [`primary_censored`](@ref)
 "
 function primary_censored(d::Parallel, primary_event::UnivariateDistribution;
         kwargs...)
-    return Parallel(map(
-        b -> primary_censored(b, primary_event; kwargs...), d.components))
+    return Parallel(
+        map(b -> primary_censored(b, primary_event; kwargs...), d.components),
+        d.names)
 end
 
 function primary_censored(d::Parallel; kwargs...)
-    return Parallel(map(b -> primary_censored(b; kwargs...), d.components))
+    return Parallel(
+        map(b -> primary_censored(b; kwargs...), d.components), d.names)
 end
 
 @doc "
@@ -170,7 +172,8 @@ interval-censored branches.
 See also: [`interval_censored`](@ref)
 "
 function interval_censored(d::Parallel, interval)
-    return Parallel(map(b -> interval_censored(b, interval), d.components))
+    return Parallel(
+        map(b -> interval_censored(b, interval), d.components), d.names)
 end
 
 @doc "
@@ -184,6 +187,6 @@ branches.
 See also: [`double_interval_censored`](@ref)
 "
 function double_interval_censored(d::Parallel; kwargs...)
-    return Parallel(map(
-        b -> double_interval_censored(b; kwargs...), d.components))
+    return Parallel(
+        map(b -> double_interval_censored(b; kwargs...), d.components), d.names)
 end

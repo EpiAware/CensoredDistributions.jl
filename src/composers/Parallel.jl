@@ -33,24 +33,42 @@ censored specialisation layered on top elsewhere, not part of this type.
 # Fields
 - `components`: tuple of the branch distributions (each univariate or a nested
   composer).
+- `names`: tuple of the branch names (`Symbol`s), one per component; the
+  `compose` front-ends thread the user's names through, positional construction
+  assigns `:branch_1, :branch_2, ...`.
 
 # See also
 - [`Sequential`](@ref): a chain of additive steps
 - [`Competing`](@ref): exactly one of several outcomes
 "
-struct Parallel{C <: Tuple} <: Distribution{Multivariate, Continuous}
+struct Parallel{C <: Tuple, N <: Tuple} <:
+       Distribution{Multivariate, Continuous}
     "Tuple of the branch distributions (each univariate or a nested composer)."
     components::C
+    "Tuple of the branch names (`Symbol`s), one per component. The `compose`
+    NamedTuple/table front-ends use the user's keys; positional construction
+    assigns `:branch_1, :branch_2, ...`."
+    names::N
 
-    function Parallel(components::C) where {C <: Tuple}
+    function Parallel(components::C, names::N) where {C <: Tuple, N <: Tuple}
         length(components) >= 1 ||
             throw(ArgumentError("Parallel needs at least one branch"))
         all(_is_composable, components) ||
             throw(ArgumentError(
                 "every Parallel branch must be a UnivariateDistribution or " *
                 "a nested composer"))
-        new{C}(components)
+        length(names) == length(components) ||
+            throw(ArgumentError(
+                "Parallel names must match the number of components"))
+        all(n -> n isa Symbol, names) ||
+            throw(ArgumentError("every Parallel name must be a Symbol"))
+        new{C, N}(components, names)
     end
+end
+
+# Positional construction assigns default `:branch_i` names.
+function Parallel(components::C) where {C <: Tuple}
+    return Parallel(components, _default_names(:branch, length(components)))
 end
 
 @doc raw"
@@ -82,7 +100,22 @@ function Base.eltype(::Type{<:Parallel{C}}) where {C <: Tuple}
     return mapreduce(eltype, promote_type, fieldtypes(C))
 end
 
-params(d::Parallel) = map(params, d.components)
+# Branch names, one per component.
+component_names(d::Parallel) = d.names
+
+@doc "
+
+Nested, name-keyed parameters of the branches (#351).
+
+Returns a `NamedTuple` keyed by the branch names, each value the `params` of that
+branch (recursing into nested composers; a leaf delegates to its standard/
+extended `Distributions.params`). This nested form is for prior introspection
+via [`params_table`](@ref); a composed distribution reconstructs through
+[`compose`](@ref), not through `Distribution(params...)`.
+
+See also: [`params_table`](@ref), [`event_names`](@ref), [`get_event`](@ref)
+"
+params(d::Parallel) = _composed_params(d)
 
 @doc "
 
@@ -126,8 +159,7 @@ into any nested composer children so the whole structure is shown at once.
 See also: [`Parallel`](@ref)
 "
 function Base.show(io::IO, ::MIME"text/plain", d::Parallel)
-    println(io, _node_header(d))
-    _show_tree(io, d, "")
+    _show_composer_tree(io, d)
     return nothing
 end
 

@@ -28,6 +28,11 @@ using SpecialFunctions: gamma, gamma_inc, loggamma, digamma
 
 import Tables
 
+# AbstractTrees provides the composer tree interface (children/printnode) that
+# drives both the recursive `show` (via `print_tree`) and the `params`/
+# `params_table` traversal (#351).
+import AbstractTrees
+
 import FastGaussQuadrature  # provides Gauss-Legendre nodes for the default solver
 
 using Optimization: OptimizationFunction, OptimizationProblem, solve, ReturnCode
@@ -51,6 +56,11 @@ export convolve_distributions
 
 # Exported generic composers and front-end constructor
 export Sequential, Parallel, Competing, compose, as_mixture
+
+# Exported composed-distribution introspection (#351): the flat prior table and
+# name introspection. Nested name-keyed values come from the extended
+# `Distributions.params`.
+export params_table, event_names, get_event
 
 # Exported composer-observed lowering used by the external censoring wrappers
 export observed_distribution
@@ -90,6 +100,7 @@ include("composers/Competing.jl")
 include("composers/nesting.jl")
 include("composers/equality.jl")
 include("composers/compose.jl")
+include("composers/introspection.jl")
 include("composers/wrap.jl")
 
 include("utils/Weighted.jl")

@@ -82,8 +82,12 @@ end
           logpdf(Normal(0.0, 1.0), 0.0)
 end
 
-@testitem "compose: NamedTuple, table and matrix build the same stack" begin
+@testitem "compose: NamedTuple, table and matrix are structurally equal" begin
     using Distributions
+
+    # The three front-ends build the same nested STRUCTURE; their node names may
+    # differ (each format carries its own), and `==` compares structure only
+    # (#351, Option A). These assertions exercise that relaxed equivalence.
 
     # --- irregular tree: NamedTuple, column table, row table agree ---
     nt = (a = Gamma(2.0, 1.0), b = [LogNormal(0.5, 0.4), Gamma(1.0, 1.0)])
@@ -223,4 +227,126 @@ end
     # The outer Competing outcome `a` is itself a Competing, nested under it.
     @test occursin("a (p = 0.4): Competing (2 outcomes)", out2)
     @test occursin("a1 (p = 0.5)", out2)
+end
+
+@testitem "compose threads names through every input format (#351)" begin
+    using Distributions
+    const CD = CensoredDistributions
+
+    nt = (onset_admit = LogNormal(1.5, 0.4), admit_death = Gamma(2.0, 1.0))
+    tbl = (name = [:onset_admit, :admit_death],
+        dist = [LogNormal(1.5, 0.4), Gamma(2.0, 1.0)])
+    mat = reshape([LogNormal(1.5, 0.4), Gamma(2.0, 1.0)], 2, 1)
+
+    c_nt = compose(nt)
+    c_tbl = compose(tbl)
+    c_mat = compose(mat; names = (:onset_admit, :admit_death))
+    c_mat_default = compose(mat)
+
+    # User names pass through whichever format carries them.
+    @test CD.component_names(c_nt) == (:onset_admit, :admit_death)
+    @test CD.component_names(c_tbl) == (:onset_admit, :admit_death)
+    @test CD.component_names(c_mat) == (:onset_admit, :admit_death)
+    # Positional fallback only when no names are supplied.
+    @test CD.component_names(c_mat_default) == (:branch_1, :branch_2)
+
+    # Structurally equal regardless of names (relaxed equivalence, #351).
+    @test c_nt == c_tbl == c_mat == c_mat_default
+
+    # Chained table: branch named by its first row; steps by their own rows.
+    tc = (name = [:incub, :rep, :solo],
+        dist = [Gamma(2.0, 1.0), LogNormal(0.5, 0.4), Normal(1.0, 0.5)],
+        chain = [1, 1, 0])
+    cc = compose(tc)
+    @test CD.component_names(cc) == (:incub, :solo)
+    @test CD.component_names(cc.components[1]) == (:incub, :rep)
+
+    # Matrix step names label the columns within a multi-step row.
+    m2 = [Gamma(2.0, 1.0) LogNormal(0.5, 0.4)
+          Gamma(1.0, 1.0) Gamma(3.0, 1.0)]
+    cm = compose(m2; names = (:r1, :r2), step_names = (:s1, :s2))
+    @test CD.component_names(cm) == (:r1, :r2)
+    @test CD.component_names(cm.components[1]) == (:s1, :s2)
+end
+
+@testitem "params is nested and name-keyed for composed dists (#351)" begin
+    using Distributions
+
+    tree = compose((onset_admit = LogNormal(1.5, 0.4),
+        admit_death = Gamma(2.0, 1.0)))
+    @test params(tree) == (onset_admit = (1.5, 0.4), admit_death = (2.0, 1.0))
+
+    # Recurses into a nested chain (default step names) and another NamedTuple.
+    nested = compose((
+        leaf = Normal(0.0, 1.0),
+        chain = [Gamma(2.0, 1.0), LogNormal(1.0, 0.5)],
+        sub = (a = Normal(0.0, 1.0), b = Gamma(1.0, 2.0))))
+    p = params(nested)
+    @test keys(p) == (:leaf, :chain, :sub)
+    @test p.leaf == (0.0, 1.0)
+    @test p.chain == (step_1 = (2.0, 1.0), step_2 = (1.0, 0.5))
+    @test p.sub == (a = (0.0, 1.0), b = (1.0, 2.0))
+
+    # Competing contributes name-keyed outcomes plus branch_probs.
+    c = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+        :disch => (Gamma(2.0, 1.5), 0.7))
+    pc = CensoredDistributions._competing_params(c)
+    @test pc.death == (1.5, 1.0)
+    @test pc.disch == (2.0, 1.5)
+    @test pc.branch_probs == (0.3, 0.7)
+end
+
+@testitem "params_table flattens to edge|param|value|support (#351)" begin
+    using Distributions
+    # `Tables` is a CensoredDistributions dependency; reach it through the
+    # package rather than adding a direct test dep.
+    const Tables = CensoredDistributions.Tables
+
+    tree = compose((onset_admit = LogNormal(1.5, 0.4),
+        admit_death = Gamma(2.0, 1.0)))
+    tbl = params_table(tree)
+
+    # It is a Tables.jl table with the documented columns.
+    @test Tables.istable(tbl)
+    @test Tables.columnnames(Tables.columns(tbl)) ==
+          (:edge, :param, :value, :support)
+
+    @test tbl.edge == [:onset_admit, :onset_admit, :admit_death, :admit_death]
+    @test tbl.param == [:mu, :sigma, :shape, :scale]
+    @test tbl.value == [1.5, 0.4, 2.0, 1.0]
+    # LogNormal and Gamma are positive-supported delays.
+    @test all(s -> s == (0.0, Inf), tbl.support)
+
+    # Constraints reflect each edge's support: a Normal edge is unbounded.
+    ntree = compose((x = Normal(0.0, 1.0),))
+    ntbl = params_table(ntree)
+    @test all(s -> s == (-Inf, Inf), ntbl.support)
+
+    # Competing branch probabilities appear as [0, 1]-supported rows.
+    ctree = Parallel(
+        (Gamma(2.0, 1.0),
+            Competing(:death => (Gamma(1.5, 1.0), 0.3),
+                :disch => (Gamma(2.0, 1.5), 0.7))),
+        (:incub, :resolution))
+    ct = params_table(ctree)
+    bp = findall(==(Symbol("resolution.branch_probs")), ct.edge)
+    @test length(bp) == 2
+    @test all(i -> ct.support[i] == (0.0, 1.0), bp)
+    @test ct.value[bp] == [0.3, 0.7]
+end
+
+@testitem "name introspection: event_names and get_event (#351)" begin
+    using Distributions
+
+    tree = compose((onset_admit = LogNormal(1.5, 0.4),
+        admit_death = Gamma(2.0, 1.0)))
+    @test event_names(tree) == (:onset_admit, :admit_death)
+    @test get_event(tree, :admit_death) == Gamma(2.0, 1.0)
+    @test_throws KeyError get_event(tree, :missing_edge)
+
+    # Competing: outcome names and delays by name.
+    c = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+        :disch => (Gamma(2.0, 1.5), 0.7))
+    @test event_names(c) == (:death, :disch)
+    @test get_event(c, :death) == Gamma(1.5, 1.0)
 end

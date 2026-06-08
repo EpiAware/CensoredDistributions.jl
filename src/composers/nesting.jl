@@ -11,6 +11,25 @@ _is_composable(::UnivariateDistribution) = true
 _is_composable(::Union{Sequential, Parallel}) = true
 _is_composable(::Any) = false
 
+# Default positional names for a composer node, used when the front-end (or a
+# positional constructor) supplies none. `_default_names(:step, 3)` is
+# `(:step_1, :step_2, :step_3)`; the prefix is `:step` for `Sequential` and
+# `:branch` for `Parallel`. Built as a typed tuple so the names field stays
+# concretely typed.
+function _default_names(prefix::Symbol, n::Int)
+    return ntuple(i -> Symbol(prefix, :_, i), n)
+end
+
+# Coerce a user-supplied names collection (a tuple/vector of Symbols, or
+# `nothing` for "use defaults") to a Symbol tuple of the right length. Used by
+# the `compose` front-ends so every input format threads names through.
+_coerce_names(::Nothing, prefix::Symbol, n::Int) = _default_names(prefix, n)
+function _coerce_names(names, ::Symbol, n::Int)
+    length(names) == n || throw(ArgumentError(
+        "supplied $(length(names)) names for $n components"))
+    return Tuple(Symbol(x) for x in names)
+end
+
 # Number of flat leaf values a child contributes: one for a univariate leaf,
 # its own leaf count for a nested composer.
 _child_nleaves(::UnivariateDistribution) = 1
@@ -66,61 +85,6 @@ function _child_rand!(
     return nothing
 end
 
-# ---------------------------------------------------------------------------
-# Recursive indented-tree printing for the composers
-# ---------------------------------------------------------------------------
-#
-# A nested composed distribution prints as ONE indented tree, recursing into
-# every child so the whole structure is visible at once. The three composers
-# share the same `├─ / └─` glyphs and indentation via `_show_tree`: a header
-# line for the node, then each child indented one level, with composer children
-# recursing and leaf distributions printed inline. The compact `show(io, d)`
-# one-liners on each type are kept for inline/array display.
-
-# Header label for a composer node (the node TYPE, plus a count).
-_node_header(d::Sequential) = "Sequential ($(length(d.components)) steps)"
-_node_header(d::Parallel) = "Parallel ($(length(d.components)) branches)"
-_node_header(c::Competing) = "Competing ($(_n_branches(c)) outcomes)"
-
-# Child labels: a composer child has no inline label (it recurses); a leaf is
-# shown by its compact `repr`. `Sequential`/`Parallel` children are unnamed
-# (positional); `Competing` labels each child with its outcome name and prob.
-_is_composer(::Union{Sequential, Parallel, Competing}) = true
-_is_composer(::Any) = false
-
-# Print `node`'s subtree to `io`. `prefix` is the accumulated indentation for
-# this node's children; the root call passes an empty prefix. Each child gets a
-# `├─ ` connector (or `└─ ` for the last), and a composer child recurses with an
-# extended prefix (`│  ` for non-last siblings, spaces for the last).
-function _show_tree(io::IO, node, prefix::String)
-    children, labels = _tree_children(node)
-    n = length(children)
-    for i in 1:n
-        last = i == n
-        connector = last ? "└─ " : "├─ "
-        child = children[i]
-        label = labels[i]
-        if _is_composer(child)
-            head = isempty(label) ? _node_header(child) :
-                   "$(label): $(_node_header(child))"
-            println(io, prefix, connector, head)
-            _show_tree(io, child, prefix * (last ? "   " : "│  "))
-        else
-            line = isempty(label) ? string(child) : "$(label): $(child)"
-            println(io, prefix, connector, line)
-        end
-    end
-    return nothing
-end
-
-# Children and their inline labels for each composer. `Sequential`/`Parallel`
-# children are positional (no label); `Competing` labels each by outcome name
-# and branch probability.
-function _tree_children(d::Union{Sequential, Parallel})
-    return collect(d.components), fill("", length(d.components))
-end
-function _tree_children(c::Competing)
-    labels = ["$(c.names[k]) (p = $(c.branch_probs[k]))"
-              for k in 1:_n_branches(c)]
-    return collect(c.delays), labels
-end
+# The recursive indented-tree printing and the `params`/`params_table` traversal
+# share the AbstractTrees.jl interface defined in `introspection.jl`
+# (`ComposerNode`, `children`, `printnode`, `_node_header`, `_show_composer_tree`).

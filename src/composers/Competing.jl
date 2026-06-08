@@ -136,6 +136,9 @@ end
 
 params(c::Competing) = (map(params, c.delays), c.branch_probs)
 
+# Outcome names, one per competing delay.
+component_names(c::Competing) = c.names
+
 # The univariate interface delegates to the mixture lowering, so a `Competing`
 # behaves as the marginal time-to-resolution wherever a distribution is needed.
 Base.minimum(c::Competing) = minimum(as_mixture(c))
@@ -186,8 +189,7 @@ composer outcome so the whole structure is shown at once.
 See also: [`Competing`](@ref)
 "
 function Base.show(io::IO, ::MIME"text/plain", c::Competing)
-    println(io, _node_header(c))
-    _show_tree(io, c, "")
+    _show_composer_tree(io, c)
     return nothing
 end
 

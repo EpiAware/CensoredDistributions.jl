@@ -1,8 +1,12 @@
-# Structural equality for the composers, so two front-ends that build the same
-# nested stack compare equal. Distributions.jl gives no structural `==` for these
-# wrappers, and the front-end tests assert the NamedTuple, table, and matrix
-# forms all produce the identical stack. Equality is defined field-wise over the
-# components (recursing into nested composers); `hash` is kept consistent.
+# STRUCTURAL equality for the composers (#351, Option A): two front-ends that
+# build the same nested stack compare equal even if their node NAMES differ.
+# Names are metadata labelling the structure for `params`/`params_table`/`show`,
+# so the NamedTuple, table, and matrix `compose` forms stay structurally `==`
+# while each carries its own names. `==`/`hash` therefore compare only
+# `components` for `Sequential`/`Parallel` (ignoring the `names` field); use
+# `component_names` to compare names explicitly. `Competing` keeps its names in
+# `==`/`hash`, as those names are intrinsic outcome identities, not relaxable
+# structure metadata.
 
 Base.:(==)(a::Sequential, b::Sequential) = a.components == b.components
 Base.:(==)(a::Parallel, b::Parallel) = a.components == b.components

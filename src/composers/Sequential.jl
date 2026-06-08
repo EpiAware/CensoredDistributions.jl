@@ -35,25 +35,43 @@ sum of the step values.
 # Fields
 - `components`: tuple of the step distributions (each univariate or a nested
   composer).
+- `names`: tuple of the step names (`Symbol`s), one per component; the `compose`
+  front-ends thread the user's names through, positional construction assigns
+  `:step_1, :step_2, ...`.
 
 # See also
 - [`Parallel`](@ref): independent branches
 - [`Competing`](@ref): exactly one of several outcomes
 "
-struct Sequential{C <: Tuple} <: Distribution{Multivariate, Continuous}
+struct Sequential{C <: Tuple, N <: Tuple} <:
+       Distribution{Multivariate, Continuous}
     "Tuple of the step distributions ``D_1, \\dots, D_k`` (each univariate or a
     nested composer)."
     components::C
+    "Tuple of the step names (`Symbol`s), one per component. The `compose`
+    NamedTuple front-end uses the user's keys; positional construction assigns
+    `:step_1, :step_2, ...`."
+    names::N
 
-    function Sequential(components::C) where {C <: Tuple}
+    function Sequential(components::C, names::N) where {C <: Tuple, N <: Tuple}
         length(components) >= 1 ||
             throw(ArgumentError("Sequential needs at least one component"))
         all(_is_composable, components) ||
             throw(ArgumentError(
                 "every Sequential component must be a UnivariateDistribution " *
                 "or a nested composer"))
-        new{C}(components)
+        length(names) == length(components) ||
+            throw(ArgumentError(
+                "Sequential names must match the number of components"))
+        all(n -> n isa Symbol, names) ||
+            throw(ArgumentError("every Sequential name must be a Symbol"))
+        new{C, N}(components, names)
     end
+end
+
+# Positional construction assigns default `:step_i` names.
+function Sequential(components::C) where {C <: Tuple}
+    return Sequential(components, _default_names(:step, length(components)))
 end
 
 @doc raw"
@@ -85,7 +103,22 @@ function Base.eltype(::Type{<:Sequential{C}}) where {C <: Tuple}
     return mapreduce(eltype, promote_type, fieldtypes(C))
 end
 
-params(d::Sequential) = map(params, d.components)
+# Step names, one per component.
+component_names(d::Sequential) = d.names
+
+@doc "
+
+Nested, name-keyed parameters of the chain (#351).
+
+Returns a `NamedTuple` keyed by the step names, each value the `params` of that
+step (recursing into nested composers; a leaf delegates to its standard/extended
+`Distributions.params`). This nested form is for prior introspection via
+[`params_table`](@ref); a composed distribution reconstructs through
+[`compose`](@ref), not through `Distribution(params...)`.
+
+See also: [`params_table`](@ref), [`event_names`](@ref), [`get_event`](@ref)
+"
+params(d::Sequential) = _composed_params(d)
 
 @doc "
 
@@ -130,8 +163,7 @@ into any nested composer children so the whole structure is shown at once.
 See also: [`Sequential`](@ref)
 "
 function Base.show(io::IO, ::MIME"text/plain", d::Sequential)
-    println(io, _node_header(d))
-    _show_tree(io, d, "")
+    _show_composer_tree(io, d)
     return nothing
 end
 
