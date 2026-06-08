@@ -24,6 +24,10 @@ public tree_event_names
 # right-truncation entry point used by the composed record model (#329).
 public event_logpdf
 
+# Sample a Competing outcome and its time as `(name, time)` (public but not
+# exported): the outcome-retaining draw used by full-path tree simulation.
+public rand_outcome
+
 # Per-record composed distributions for vectorised scoring + sampling (public but
 # not exported): the assembly entry that bakes per-record metadata and shares the
 # segment construction across records.

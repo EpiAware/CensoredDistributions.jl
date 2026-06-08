@@ -910,11 +910,41 @@ end
 # per-leaf-value realisation (PR3a); a censored composer simulates the full
 # event-time path including the latent origin draw.
 
-# Sequential: a plain chain returns the per-step value vector; a censored chain
-# returns the full event-time path `[E_0, E_1, ..., E_k]` with `E_0` the latent
-# origin draw and each subsequent time the previous plus a continuous-core delay
-# draw, so every internal event time is in the result.
+# A composer is simulated through three regimes, selected by structure:
+#   - NESTED tree (a child is itself a composer) or a `Competing` child: walk the
+#     tree sharing one latent origin draw, sampling each `Competing` outcome, and
+#     return a NAMED event record keyed by `tree_event_names` (the missing
+#     unsampled Competing outcomes round-trip back through `logpdf`);
+#   - FLAT censored chain/set: the full event-time path `[E_0, ...]` vector
+#     (back-compat, the original PR3b shape);
+#   - plain composer: the generic per-leaf-value realisation (PR3a).
+
+# Sequential: dispatch on the nested/flat trait, then on whether the flat chain
+# carries primary censoring.
 function _composer_rand(rng::AbstractRNG, d::Sequential)
+    return _composer_rand(_nested_trait(d.components), rng, d)
+end
+
+# Parallel: same trait split as Sequential.
+function _composer_rand(rng::AbstractRNG, d::Parallel)
+    return _composer_rand(_nested_trait(d.components), rng, d)
+end
+
+# A CENSORED nested tree draws the full named path (a shared latent origin to
+# sample). A PLAIN nested tree has no origin distribution, so it keeps the generic
+# per-leaf realisation (a Competing child stays its marginal time-to-resolution).
+function _composer_rand(::_Nested, rng::AbstractRNG,
+        d::Union{Sequential, Parallel})
+    _tree_primary_event(d) === nothing && return _composite_rand(
+        rng, d.components, float(eltype(d)))
+    return _tree_event_record(rng, d)
+end
+
+# Flat censored chain: the full event-time path `[E_0, E_1, ..., E_k]` with `E_0`
+# the latent origin draw and each subsequent time the previous plus a
+# continuous-core delay draw, so every internal event time is in the result. A
+# plain chain keeps the generic per-leaf realisation (PR3a).
+function _composer_rand(::_Flat, rng::AbstractRNG, d::Sequential)
     _is_censored_composer(d.components) || return _composite_rand(
         rng, d.components, float(eltype(d)))
     primary = _origin_primary_event(d.components[1])
@@ -929,12 +959,10 @@ function _composer_rand(rng::AbstractRNG, d::Sequential)
     return times
 end
 
-# Parallel: plain branches return one value per branch; censored branches
-# sharing one latent origin return the full event-time vector
-# `[O, Y_1, ..., Y_n]` with `O` the single shared origin draw and
-# `Y_i = O + D_i`, so the shared origin and every branch observation are in the
-# result.
-function _composer_rand(rng::AbstractRNG, d::Parallel)
+# Flat censored set: the shared-origin event-time vector `[O, Y_1, ..., Y_n]`
+# with `O` the single shared origin draw and `Y_i = O + D_i`. Plain branches keep
+# the generic per-leaf realisation (PR3a).
+function _composer_rand(::_Flat, rng::AbstractRNG, d::Parallel)
     primary = _is_censored_composer(d.components) ?
               _shared_primary_event(d.components) : nothing
     primary === nothing && return _composite_rand(
@@ -949,4 +977,142 @@ function _composer_rand(rng::AbstractRNG, d::Parallel)
         out[i + 1] = o + rand(rng, cores[i])
     end
     return out
+end
+
+# ---------------------------------------------------------------------------
+# Nested/Competing-aware full-path simulation: a NAMED event record
+# ---------------------------------------------------------------------------
+#
+# For an irregular tree (e.g. bdbv `onset -> {admit -> Competing(death,
+# discharge), notif}`) the flat vector shapes above cannot express the
+# structure: branches share one origin, a `Competing` resolves to ONE outcome,
+# and the slots are named. `_tree_event_record` walks the tree sharing a single
+# latent origin draw, samples each `Competing` outcome via its branch
+# probabilities, and returns a `NamedTuple` keyed by `tree_event_names` — the
+# root origin then one slot per leaf event in depth-first order. An UNSAMPLED
+# Competing outcome is `missing`, so the record feeds straight back into the
+# censored composer `logpdf` (one observed outcome slot, the rest missing).
+
+# Draw the full named event record of a nested tree: one shared origin draw at
+# the root, then the depth-first leaf-event slots filled by the tree walk.
+# Fill the typed event vector of a nested tree: one shared origin draw at the
+# root, then the depth-first leaf-event slots from the tree walk. The vector is
+# `Vector{Union{Missing, T}}` with a concrete sampled-time type `T` (an unsampled
+# Competing outcome stays `missing`), so the walk is type-stable.
+function _tree_event_vector(rng::AbstractRNG, d::Union{Sequential, Parallel})
+    primary = _tree_primary_event(d)
+    T = _tree_rand_type(d, primary)
+    out = Vector{Union{Missing, T}}(missing, _event_nleaves(d.components) + 1)
+    origin = convert(T, rand(rng, primary))
+    out[1] = origin
+    _tree_rand!(out, rng, d, origin, 2, T)
+    return out
+end
+
+# Draw the full NAMED event record of a nested tree: the typed event vector keyed
+# by `tree_event_names`, mirroring the same flat layout the scorer consumes.
+function _tree_event_record(rng::AbstractRNG, d::Union{Sequential, Parallel})
+    out = _tree_event_vector(rng, d)
+    enames = tree_event_names(d)
+    return NamedTuple{enames}(Tuple(out))
+end
+
+# The latent origin distribution seeding the whole tree: a `Sequential`'s origin
+# is its first step's primary (recursing into a nested first step); a `Parallel`'s
+# is its branches' shared primary. `nothing` for a plain (uncensored) tree.
+_tree_primary_event(d::Sequential) = _tree_primary_event(d.components[1])
+_tree_primary_event(d::Parallel) = _shared_primary_event(d.components)
+_tree_primary_event(d::UnivariateDistribution) = _origin_primary_event(d)
+
+# The sampled event-time element type: promote the primary and every leaf delay
+# core's parameter type so an AD/tracked param flows through (matching the
+# scoring path's type handling).
+function _tree_rand_type(d, primary)
+    return float(promote_type(_param_eltype(primary), _tree_core_eltype(d)))
+end
+
+# Promote a child's leaf-delay parameter types. `map` + splatting `promote_type`
+# over the fixed-length component tuple (the same shape the flat `_composer_rand`
+# uses) keeps the type computation inferable, where a `mapreduce` with an `init`
+# does not constant-fold here.
+_tree_core_eltype(d::Competing) = promote_type(map(_param_eltype, d.delays)...)
+_tree_core_eltype(d::UnivariateDistribution) = _param_eltype(_marginal_core(d))
+function _tree_core_eltype(d::Union{Sequential, Parallel})
+    return promote_type(map(_tree_core_eltype, d.components)...)
+end
+
+# Fill the event slots of composer `d` hanging off the absolute `origin` time,
+# starting at flat index `event_start`. Returns the next free index. A
+# `Sequential` threads the terminal time step to step; a `Parallel` hangs every
+# branch off the shared origin. The walk over children is a runtime loop over the
+# component tuple, mirroring the scoring recursion.
+function _tree_rand!(out, rng::AbstractRNG, d::Sequential, origin, event_start,
+        ::Type{T}) where {T}
+    idx = event_start
+    o = origin
+    @inbounds for step in d.components
+        idx, term = _tree_rand_step!(out, rng, step, o, idx, T)
+        o = term
+    end
+    return idx
+end
+
+function _tree_rand!(out, rng::AbstractRNG, d::Parallel, origin, event_start,
+        ::Type{T}) where {T}
+    idx = event_start
+    @inbounds for branch in d.components
+        idx, _ = _tree_rand_step!(out, rng, branch, origin, idx, T)
+    end
+    return idx
+end
+
+# Sample one step/branch hanging off the absolute `origin` time, filling slots
+# from `idx`. Returns `(next_idx, terminal_time)`: the terminal is what a
+# following chain step hangs off (its own event for a leaf, the last step for a
+# Sequential, the shared origin for a Parallel/Competing, mirroring
+# `_terminal_offset`).
+function _tree_rand_step!(out, rng::AbstractRNG,
+        step::Union{Sequential, Parallel}, origin, idx, ::Type{T}) where {T}
+    next = _tree_rand!(out, rng, step, origin, idx, T)
+    return next, _tree_subtree_terminal(out, step, origin, idx)
+end
+
+function _tree_rand_step!(out, rng::AbstractRNG, step::Competing, origin, idx,
+        ::Type{T}) where {T}
+    # Draw the resolved outcome from the branch probabilities, fill only its
+    # slot; the others stay missing so the record scores as the conditioned
+    # (one-outcome) Competing.
+    i = _sample_branch(rng, step.branch_probs)
+    delay = rand(rng, _marginal_core(step.delays[i]))
+    out[idx + i - 1] = origin + convert(T, delay)
+    return idx + _n_branches(step), origin
+end
+
+# Sample an outcome index from the branch probabilities by inverse-CDF (a single
+# uniform draw), so no `Categorical` dependency is pulled in. The last outcome
+# absorbs any rounding so an index is always returned.
+function _sample_branch(rng::AbstractRNG, probs)
+    u = rand(rng)
+    c = zero(float(eltype(probs)))
+    @inbounds for i in 1:(length(probs) - 1)
+        c += probs[i]
+        u <= c && return i
+    end
+    return length(probs)
+end
+
+function _tree_rand_step!(out, rng::AbstractRNG, step::UnivariateDistribution,
+        origin, idx, ::Type{T}) where {T}
+    y = origin + convert(T, rand(rng, _marginal_core(step)))
+    out[idx] = y
+    return idx + 1, y
+end
+
+# The terminal event time of a nested subtree just filled into `out` from
+# `idx`: the shared origin for a Parallel (every branch hangs off it), the last
+# leaf event for a Sequential. `_terminal_offset` gives that slot relative to the
+# subtree's first event index (the same offset the scorer uses).
+_tree_subtree_terminal(out, ::Parallel, origin, idx) = origin
+function _tree_subtree_terminal(out, d::Sequential, origin, idx)
+    return out[idx + _terminal_offset(d)]
 end

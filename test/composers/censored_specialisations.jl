@@ -567,3 +567,161 @@ end
            logpdf(e_on, notif - onset)
     @test logpdf(d, evd) ≈ refd rtol=1e-10
 end
+
+# --- Nested/Competing-aware full-path rand / predict_events -----------------
+
+@testitem "rand on a nested tree returns a named shared-origin path" begin
+    using Distributions, Random
+    Random.seed!(101)
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa = edge(1.4, 0.4)
+    e_ad = edge(1.8, 0.5)
+    e_on = edge(1.9, 0.5)
+
+    # Parallel(Sequential(onset->admit), notif): a chain branch + a leaf branch
+    # share one onset origin. Named edges so the record is semantically keyed.
+    seq = Sequential((e_oa, e_ad), (:onset_admit, :admit_x))
+    d = Parallel((seq, e_on), (:onset_x_seq, :onset_notif))
+    enames = CensoredDistributions.tree_event_names(d)
+
+    r = rand(d)
+    @test r isa NamedTuple
+    @test keys(r) == enames                     # named by the tree's events
+    origin = r[enames[1]]
+    @test all(r[k] >= origin for k in enames)   # every event after the origin
+    # The simulated full path scores finitely under the same tree.
+    ev = Vector{Union{Missing, Float64}}([r[k] for k in enames])
+    @test isfinite(logpdf(d, ev))
+end
+
+@testitem "rand on a bdbv Competing tree samples one outcome" begin
+    using Distributions, Random
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa = edge(1.4, 0.4)
+    e_on = edge(1.9, 0.5)
+    cmp = Competing(:death => (edge(2.0, 0.6), 0.3),
+        :discharge => (edge(2.1, 0.6), 0.7))
+    # bdbv: Parallel(Sequential(onset_admit, Competing(death, discharge)), notif)
+    seq = Sequential((e_oa, cmp), (:onset_admit, :admit_resolve))
+    d = Parallel((seq, e_on), (:onset_notif_seq, :onset_notif))
+    enames = CensoredDistributions.tree_event_names(d)
+    @test enames == (:onset, :admit, :death, :discharge, :notif)
+
+    r = rand(Xoshiro(7), d)
+    @test keys(r) == enames
+    @test r.onset !== missing && r.admit !== missing && r.notif !== missing
+    # Exactly one Competing outcome is resolved; the other is missing.
+    outcomes = (r.death, r.discharge)
+    @test count(!ismissing, outcomes) == 1
+    # The resolved outcome hangs off the admit event.
+    resolved = r.death === missing ? r.discharge : r.death
+    @test resolved >= r.admit
+    # The named record round-trips through logpdf.
+    ev = Vector{Union{Missing, Float64}}([r[k] for k in enames])
+    @test isfinite(logpdf(d, ev))
+end
+
+@testitem "rand Competing outcome frequencies follow branch probs" begin
+    using Distributions, Random
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa = edge(1.4, 0.4)
+    e_on = edge(1.9, 0.5)
+    cfr = 0.25
+    cmp = Competing(:death => (edge(2.0, 0.6), cfr),
+        :discharge => (edge(2.1, 0.6), 1 - cfr))
+    seq = Sequential((e_oa, cmp), (:onset_admit, :admit_resolve))
+    d = Parallel((seq, e_on), (:onset_notif_seq, :onset_notif))
+
+    rng = Xoshiro(42)
+    n = 4000
+    deaths = count(_ -> rand(rng, d).death !== missing, 1:n)
+    @test isapprox(deaths / n, cfr; atol = 0.03)
+end
+
+@testitem "rand on a Select top samples a branch's path" begin
+    using Distributions, Random
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    # An `index` alternative (a flat chain) and a `sourced` alternative (a nested
+    # tree that yields a named record), selected by the row's kind.
+    idx = Sequential(edge(1.4, 0.4), edge(1.8, 0.5))
+    src = Parallel(
+        (Sequential((edge(1.2, 0.4), edge(1.6, 0.5)),
+                (:onset_admit, :admit_x)),
+            edge(1.9, 0.5)),
+        (:onset_x_seq, :onset_notif))
+    sel = select(:index => idx, :sourced => src)
+
+    # With a kind, the selected branch's own draw (a named record for the nested
+    # sourced branch, a vector for the flat index branch).
+    rs = rand(Xoshiro(3), sel; kind = :sourced)
+    @test rs isa NamedTuple
+    @test keys(rs) == CensoredDistributions.tree_event_names(src)
+    ri = rand(Xoshiro(3), sel; kind = :index)
+    @test ri isa AbstractVector && length(ri) == 3
+    # Without a kind (forward simulation), a branch is sampled.
+    r = rand(Xoshiro(5), sel)
+    @test r isa NamedTuple || r isa AbstractVector
+end
+
+@testitem "predict_events matches rand on a nested tree" begin
+    using Distributions, Random
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    cmp = Competing(:death => (edge(2.0, 0.6), 0.3),
+        :discharge => (edge(2.1, 0.6), 0.7))
+    seq = Sequential((edge(1.4, 0.4), cmp), (:onset_admit, :admit_resolve))
+    d = Parallel((seq, edge(1.9, 0.5)), (:onset_notif_seq, :onset_notif))
+
+    a = predict_events(d; rng = Xoshiro(9))
+    b = rand(Xoshiro(9), d)
+    @test isequal(a, b)                    # same seeded draw (missing-safe)
+    paths = predict_events(d, 5; rng = Xoshiro(9))
+    @test length(paths) == 5
+    @test all(p -> keys(p) == keys(a), paths)
+end
+
+@testitem "rand on a nested tree walk is type-stable" begin
+    using Distributions, Random, Test
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    cmp = Competing(:death => (edge(2.0, 0.6), 0.3),
+        :discharge => (edge(2.1, 0.6), 0.7))
+    seq = Sequential((edge(1.4, 0.4), cmp), (:onset_admit, :admit_resolve))
+    d = Parallel((seq, edge(1.9, 0.5)), (:onset_notif_seq, :onset_notif))
+
+    # The sampling walk returns a concrete typed event vector.
+    v = @inferred CensoredDistributions._tree_event_vector(Xoshiro(1), d)
+    @test v isa Vector{Union{Missing, Float64}}
+end
+
+@testitem "rand_outcome retains the resolved Competing outcome" begin
+    using Distributions, Random
+
+    cmp = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+        :disch => (Gamma(2.0, 1.5), 0.7))
+    name, t = CensoredDistributions.rand_outcome(Xoshiro(1), cmp)
+    @test name in (:death, :disch)
+    @test t > 0
+    # Frequencies follow the branch probabilities.
+    rng = Xoshiro(5)
+    n = 4000
+    deaths = count(_ -> CensoredDistributions.rand_outcome(rng, cmp)[1] ==
+                        :death, 1:n)
+    @test isapprox(deaths / n, 0.3; atol = 0.03)
+end

@@ -144,9 +144,12 @@ pdf(d::Sequential, x::AbstractVector) = exp(logpdf(d, x))
 
 Sample a chain realisation. For a plain chain this is the step-value vector
 (one value per step, nested children contributing their own sub-vectors). For a
-censored chain (its steps carry primary censoring) it is the full event-time
-path including the latent origin draw (see the censored-specialisation
-[`rand`](@ref) method).
+flat censored chain (its steps carry primary censoring) it is the full
+event-time path `[E_0, ...]` including the latent origin draw. For a NESTED tree
+(a step is itself a composer, or a [`Competing`](@ref) step) it is a NAMED event
+record keyed by [`tree_event_names`](@ref): a shared origin draw, each Competing
+outcome sampled (the unsampled outcomes `missing`), so the whole tree path is one
+`rand`. See the censored-specialisation [`rand`](@ref) method.
 
 See also: [`Sequential`](@ref)
 "

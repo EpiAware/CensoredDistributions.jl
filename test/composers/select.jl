@@ -19,15 +19,18 @@ end
     using Random: Xoshiro
 
     d = select(:a => Gamma(2.0, 1.0), :b => Gamma(5.0, 1.0))
-    # No default selection: a Select has no single distribution to score/sample.
+    # No default selection for scoring: a Select has no single distribution to
+    # score without a kind.
     @test_throws ArgumentError logpdf(d, 3.0)
-    @test_throws ArgumentError rand(d)
     # An unknown name is rejected.
     @test_throws ArgumentError logpdf(d, 3.0; kind = :missing_name)
     @test_throws ArgumentError rand(d; kind = :missing_name)
     # A selection samples that alternative (seeded for determinism).
     x = rand(Xoshiro(1), d; kind = :a)
     @test x isa Real && x > 0
+    # Without a kind (forward simulation), an alternative is sampled.
+    y = rand(Xoshiro(2), d)
+    @test y isa Real && y > 0
 end
 
 @testitem "Select rand samples the selected alternative's distribution" begin

@@ -305,6 +305,34 @@ Base.rand(c::Competing) = rand(default_rng(), c)
 
 @doc "
 
+Sample a competing outcome AND its time, returning `(name, time)`.
+
+Unlike the univariate [`rand`](@ref) (the marginal time-to-resolution, which
+discards which outcome occurred), this draws the resolved outcome from the branch
+probabilities and the time from that outcome's own delay, so the chosen outcome
+is retained. Used by the full-path tree simulation, where a `Competing` node
+resolves to a single named outcome.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, Random
+
+node = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+    :disch => (Gamma(2.0, 1.5), 0.7))
+name, time = rand_outcome(MersenneTwister(1), node)
+```
+
+See also: [`Competing`](@ref), [`rand`](@ref)
+"
+function rand_outcome(rng::AbstractRNG, c::Competing)
+    i = _sample_branch(rng, c.branch_probs)
+    return c.names[i], rand(rng, c.delays[i])
+end
+
+rand_outcome(c::Competing) = rand_outcome(default_rng(), c)
+
+@doc "
+
 Print a [`Competing`](@ref) node as a recursive indented tree, labelling each
 outcome with its name and branch probability and descending into any nested
 composer outcome so the whole structure is shown at once.
