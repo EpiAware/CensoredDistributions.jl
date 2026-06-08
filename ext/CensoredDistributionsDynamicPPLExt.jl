@@ -263,42 +263,114 @@ end
 # field), so the chain is readable and groupable, and `prefix` at the call site
 # namespaces per-record latents.
 
-# A `latent`-wrapped `Sequential` chain spans events `E_0, ..., E_k` (one per row
-# field). The origin `E_0` is the latent primary (`e[1] ~ origin`); each
-# subsequent event time is its predecessor plus the edge delay, declared as a
-# shifted `~` (`e[i+1] ~ _ShiftedDelay(edge_i, e[i])`), so an observed event
-# scores its gap through the edge's declared censoring (#329) and a missing event
-# samples the next event time. Indexed VarNames `e[i]` give each event a distinct
-# name in the VarInfo. The likelihood is scaled by the row weight via the `~`.
+# A latent composer declares every internal event time as an indexed `~` over the
+# SAME flat event layout the marginal scoring uses (#329, #361): entry 1 is the
+# root origin `E_0`, then one slot per LEAF event in depth-first order. A FLAT
+# chain/branch set is handled directly by the loop; a NESTED composer step/branch
+# is unrolled to its leaf events by `_latent_leaf_plan`, so the latent twin
+# recurses through an irregular tree exactly as the marginal `_tree_score` does
+# (#361). The plan is a PURE-INTEGER description of the tree (which leaf hangs off
+# which already-sampled event, with which continuous core), built from the same
+# `_child_nleaves` / `_terminal_offset` helpers; the model body then runs one
+# indexed `~` per leaf, so a missing event samples and an observed event scores
+# its gap through the edge core (#329). Keeping every `~` in the model body (the
+# plan is just data) avoids nested-submodel prefixing and keeps the AD backends on
+# the same shape they already differentiate for the flat latent loop.
+
+# One leaf event in the latent sampling plan: the event slot `event_idx`, the
+# already-sampled event slot `shift_idx` it hangs off (its predecessor terminal in
+# a chain, or the shared origin in a parallel set), and the continuous delay
+# `core` from that predecessor to this event. Built by a pure walk over the tree.
+struct _LeafPlan{C}
+    event_idx::Int
+    shift_idx::Int
+    core::C
+end
+
+# Build the per-leaf sampling plan for a composer rooted with origin at event slot
+# `origin_idx` and its first leaf event at `event_start`, appending to `plan`.
+# Mirrors the marginal `_tree_score` layout (origin shared with the parent, leaf
+# events contiguous), recursing into nested composer steps/branches. Pure integer
+# + structure bookkeeping (no `~`, no sampled values), so it runs once up front.
+function _latent_plan!(plan, d::Sequential, origin_idx::Int, event_start::Int)
+    comps = d.components
+    o_idx = origin_idx
+    ev_idx = event_start
+    for step in comps
+        _latent_plan_step!(plan, step, o_idx, ev_idx)
+        o_idx = ev_idx + CensoredDistributions._terminal_offset(step)
+        ev_idx += CensoredDistributions._child_nleaves(step)
+    end
+    return plan
+end
+
+function _latent_plan!(plan, d::Parallel, origin_idx::Int, event_start::Int)
+    ev_idx = event_start
+    for branch in d.components
+        _latent_plan_step!(plan, branch, origin_idx, ev_idx)
+        ev_idx += CensoredDistributions._child_nleaves(branch)
+    end
+    return plan
+end
+
+# A nested composer step/branch recurses on the same shared event vector: its
+# origin is the parent's event slot `o_idx` and its own leaf events begin at
+# `ev_idx`.
+function _latent_plan_step!(plan, step::Union{Sequential, Parallel},
+        o_idx::Int, ev_idx::Int)
+    return _latent_plan!(plan, step, o_idx, ev_idx)
+end
+
+# A leaf edge: one event at `ev_idx` hanging off the predecessor/origin `o_idx`
+# through the edge's continuous core.
+function _latent_plan_step!(plan, step::UnivariateDistribution,
+        o_idx::Int, ev_idx::Int)
+    core = get_dist_recursive(step)
+    push!(plan, _LeafPlan(ev_idx, o_idx, core))
+    return plan
+end
+
+# A `latent`-wrapped `Sequential` chain spans events `E_0, ..., E_k` over the flat
+# event layout (origin then one slot per leaf event). The origin `E_0` is the
+# latent primary (`e[1] ~ origin`); each leaf event time is its predecessor plus
+# the edge delay, declared as a shifted `~` (`e[j] ~ _ShiftedDelay(core, e[s])`),
+# so an observed event scores its gap through the edge's declared censoring (#329)
+# and a missing event samples it. A nested composer step recurses through
+# `_latent_plan!`, so an irregular tree samples its full sub-path. Indexed
+# VarNames `e[i]` give each event a distinct name; the likelihood is scaled by the
+# row weight via the `~`.
 @model function composed_distribution_model(
         d::Latent{<:Sequential}, row::NamedTuple; weight = nothing)
     chain = d.dist
     obs = _event_vector(row)
     w = _row_weight(row, weight)
 
-    origin = CensoredDistributions._origin_primary_event(chain.components[1])
+    origin = CensoredDistributions._origin_primary_event(
+        CensoredDistributions._first_origin_node(chain))
     origin === nothing && throw(ArgumentError(
         "latent Sequential model needs a censored origin (its first step " *
         "must carry a primary event)"))
 
     e = Vector{Union{Missing, Float64}}(obs)
+    plan = _latent_plan!(_LeafPlan[], chain, 1, 2)
     # Origin E_0: the latent primary prior, declared but NOT weighted (the weight
     # scales the LIKELIHOOD, the observed conditionals, not the prior). Indexed
     # `~` so a missing origin samples it.
     e[1] ~ origin
-    for i in 1:length(chain.components)
-        edge = _ShiftedDelay(get_dist_recursive(chain.components[i]), e[i])
-        e[i + 1] ~ _weight(edge, w)
+    for p in plan
+        edge = _ShiftedDelay(p.core, e[p.shift_idx])
+        e[p.event_idx] ~ _weight(edge, w)
     end
     return e
 end
 
-# A `latent`-wrapped `Parallel` shares one latent origin across its branches. The
-# row is `(origin, branch_1, ..., branch_n)`. The shared origin `e[1] ~ shared`
-# is declared once; each branch event is the origin plus the branch delay,
-# declared as a shifted `~`, so an observed branch scores `logpdf(core_i,
-# y_i - o)` and a missing branch samples its observation. The shared origin
-# couples the branches (one common latent). Likelihood scaled by the weight.
+# A `latent`-wrapped `Parallel` shares one latent origin across its branches over
+# the flat event layout `[O, leaf events...]`. The shared origin `e[1] ~ shared`
+# is declared once; each leaf event is its predecessor/origin plus the branch
+# delay, declared as a shifted `~`, so an observed branch scores `logpdf(core,
+# y - o)` and a missing branch samples its observation. A nested composer branch
+# recurses through `_latent_plan!` so its whole sub-path is sampled off the shared
+# origin. The shared origin couples the branches; likelihood scaled by the weight.
 @model function composed_distribution_model(
         d::Latent{<:Parallel}, row::NamedTuple; weight = nothing)
     tree = d.dist
@@ -311,12 +383,13 @@ end
         "event"))
 
     e = Vector{Union{Missing, Float64}}(obs)
+    plan = _latent_plan!(_LeafPlan[], tree, 1, 2)
     # Shared origin prior, declared but NOT weighted (weight scales the observed
     # conditionals, not the prior).
     e[1] ~ shared
-    for i in 1:length(tree.components)
-        branch = _ShiftedDelay(get_dist_recursive(tree.components[i]), e[1])
-        e[i + 1] ~ _weight(branch, w)
+    for p in plan
+        edge = _ShiftedDelay(p.core, e[p.shift_idx])
+        e[p.event_idx] ~ _weight(edge, w)
     end
     return e
 end

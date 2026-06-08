@@ -45,6 +45,34 @@ else
         "Skipping Literate tutorial processing " *
         "(--skip-notebooks or SKIP_NOTEBOOKS=true)"
     )
+    # A fast build skips the heavy Literate + `@example` execution, but the
+    # tutorial pages are still referenced by the nav and linked from other pages.
+    # Write a lightweight stub `.md` for each so the nav resolves and the rest of
+    # the site builds; a full build overwrites these with the rendered tutorials.
+    tutorials_dir = joinpath(
+        @__DIR__, "src", "getting-started", "tutorials"
+    )
+    # Each stub heading preserves the cross-reference `@id` the full tutorial
+    # defines, so `@ref`s from other pages (e.g. the FAQ's `@ref ad-backends`)
+    # still resolve in a fast build.
+    tutorial_stubs = [
+        "analytical-primarycensored-cdfs.md" => "# Analytical CDF solutions",
+        "exponentially-tilted-primary-events.md" => "# Exponentially tilted primary events",
+        "ad-backends.md" => "# [Automatic differentiation backends](@id ad-backends)",
+        "fitting-with-turing.md" => "# Fitting with Turing.jl",
+        "fit-marginal-sample-event-based.md" => "# Fit marginal, sample event based"
+    ]
+    for (file, heading) in tutorial_stubs
+        open(joinpath(tutorials_dir, file), "w") do io
+            println(io, heading)
+            println(io)
+            println(io,
+                "_This tutorial is omitted from the fast documentation " *
+                "build. Build the full documentation (`task docs`) to render " *
+                "it._")
+        end
+    end
+    println("Wrote fast-build tutorial stubs")
 end
 
 # Generate index.md from README.md
@@ -121,7 +149,9 @@ bib = CitationBibliography(
 
 makedocs(; sitename = "CensoredDistributions.jl",
     authors = "Sam Abbott, and contributors",
-    clean = true, doctest = false, linkcheck = true,
+    # A fast build skips the network linkcheck (rate-limited, irrelevant to a
+    # local content build); a full build keeps it strict.
+    clean = true, doctest = false, linkcheck = !skip_notebooks,
     warnonly = [
         :docs_block, :missing_docs,
         :autodocs_block

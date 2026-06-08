@@ -51,6 +51,10 @@ struct Convolved{C <: Tuple} <: UnivariateDistribution{Continuous}
 
     function Convolved(components::C; force_numeric::Bool = false) where {
             C <: Tuple}
+        # The type allows a single-component (degenerate) convolution so the
+        # recursive moment fold and rebuild paths can wrap one component; the
+        # user-facing `convolve_distributions` requires two or more, since
+        # convolving fewer is a no-op.
         length(components) >= 1 ||
             throw(ArgumentError("Convolved needs at least one component"))
         all(c -> c isa UnivariateDistribution, components) ||

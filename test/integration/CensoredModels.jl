@@ -461,6 +461,41 @@ end
     @test logjoint(cond, (;)) ≈ manual
 end
 
+@testitem "composer model: latent twin recurses through a nested tree" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint, VarInfo, condition,
+                      @varname
+
+    # A nested tree onset -> {admit -> {b1, b2 off admit}}: the inner Parallel
+    # branches share the ADMIT event (E_1) as their origin, not the root onset.
+    # The latent twin must recurse so each branch hangs off the right event.
+    oa = primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1))
+    b1 = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    b2 = primary_censored(LogNormal(0.8, 0.4), Uniform(0, 1))
+    seq = Sequential(oa, Parallel(b1, b2))
+    lseq = latent(seq)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # The flat event vector is [E_0, E_1(admit), E_2(b1), E_3(b2)]: four events,
+    # so a fully-missing row samples four latents.
+    vi = VarInfo(demo(lseq, (a = missing, b = missing, c = missing,
+        d = missing)))
+    @test length(keys(vi)) == 4
+
+    # Conditioning on the full path: origin prior + the onset->admit edge at
+    # (E_1 - E_0) + each inner branch at (E_i - E_1), the SHARED admit event.
+    e0, e1, e2, e3 = 0.0, 2.0, 5.0, 4.5
+    cond = condition(demo(lseq, (a = e0, b = e1, c = e2, d = e3)),
+        (@varname(obs.e[1]) => e0, @varname(obs.e[2]) => e1,
+            @varname(obs.e[3]) => e2, @varname(obs.e[4]) => e3))
+    manual = logpdf(get_primary_event(oa), e0) +
+             logpdf(get_dist(oa), e1 - e0) +
+             logpdf(get_dist(b1), e2 - e1) +
+             logpdf(get_dist(b2), e3 - e1)
+    @test logjoint(cond, (;)) ≈ manual
+end
+
 @testitem "composer model: marginal Sequential short NUTS run" begin
     using CensoredDistributions, Distributions, Random
     using Turing: Turing, NUTS, sample, @model, to_submodel
