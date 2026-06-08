@@ -28,12 +28,14 @@ end
 
 # Read one parameter's value from the chain: posterior mean over all draws, or a
 # single draw when `draw` is set. Returns `nothing` if the parameter is absent
-# (e.g. a `Competing`'s branch probabilities kept fixed in the template).
+# (a `KeyError`, e.g. a `Competing`'s branch probabilities kept fixed in the
+# template); any other error propagates.
 function _read_value(chain, vn, draw)
     samples = try
         chain[vn]
-    catch
-        return nothing
+    catch err
+        err isa KeyError && return nothing
+        rethrow()
     end
     return draw === nothing ? Statistics.mean(samples) : samples[draw]
 end
@@ -66,10 +68,17 @@ function _node_params(c::Competing, chain, prefix, path, draw)
 end
 
 # Leaf: read each free parameter (in `_leaf_param_names` order) from the chain.
+# A leaf parameter is always sampled, so a missing one signals a chain that does
+# not match the template (wrong prefix, or not the chain that produced it);
+# error rather than build a NamedTuple with a `nothing` value.
 function _node_params(leaf, chain, prefix, path, draw)
     pnames = CensoredDistributions._leaf_param_names(leaf)
     vals = map(pnames) do p
-        _read_value(chain, _full_varname(prefix, (path..., p)), draw)
+        v = _read_value(chain, _full_varname(prefix, (path..., p)), draw)
+        v === nothing && throw(ArgumentError(
+            "leaf parameter $(_full_varname(prefix, (path..., p))) " *
+            "not found in chain"))
+        v
     end
     return NamedTuple{pnames}(Tuple(vals))
 end
