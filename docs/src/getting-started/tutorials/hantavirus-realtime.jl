@@ -122,9 +122,10 @@ We fix generating delays and simulate a line list to recover them.
 The transmission timing is centred below zero so some secondaries are infected
 before their source's onset, as the study finds.
 
-For each case we draw its natural-history delay with a single `rand` on the
-composed delay distribution, then apply the realtime keep-rule: a case enters
-the data only if it has been observed by the `horizon`.
+For each case we draw its natural-history delay with [`predict_events`](@ref) on
+the composed delay distribution (a structured `rand` over the event path), then
+apply the realtime keep-rule: a case enters the data only if it has been
+observed by the `horizon`.
 That keep-rule is exactly the right-truncation the likelihood corrects for, so
 the simulation and the fit share the same generative process.
 """
@@ -135,17 +136,17 @@ delta_true = Normal(-1.0, 2.0)
 
 horizon = 45.0
 
-function simulate(rng, inc, delta, horizon; n_index = 110, n_sourced = 110)
+function simulate(rng, inc, delta, horizon; n_index = 250, n_sourced = 80)
     rows = NamedTuple[]
     for _ in 1:n_index
         anchor = rand(rng, Uniform(0, 25))
-        y = rand(rng, index_delay(inc))             # single rand
-        anchor + y <= horizon || continue           # realtime keep-rule
+        y = predict_events(index_delay(inc); rng = rng)  # composed-dist draw
+        anchor + y <= horizon || continue                # realtime keep-rule
         push!(rows, (; kind = "index", y, window = horizon - anchor))
     end
     for _ in 1:n_sourced
         src_onset = rand(rng, Uniform(0, 18))
-        y = rand(rng, sourced_delay(delta, inc))    # single rand
+        y = predict_events(sourced_delay(delta, inc); rng = rng)
         src_onset + y <= horizon || continue
         push!(rows, (; kind = "sourced", y, window = horizon - src_onset))
     end
@@ -241,18 +242,20 @@ delay, censoring, and truncation of every record go through its submodel.
     end
 end
 
-chn = sample(hanta_delays(index_rows, sourced_rows), NUTS(0.95), 600)
+chn = sample(hanta_delays(index_rows, sourced_rows), NUTS(0.9),
+    MCMCThreads(), 600, 3)
 
 md"""
 ## Recovering the generating delays
 
 We check that the credible intervals cover the generating values.
-The transmission timing ``\delta`` is only seen through the convolved sourced
+The transmission timing ``\delta`` is seen only through the convolved sourced
 chain, where its contribution overlaps the incubation period, so its location
-and the incubation scale are weakly identified at this sample size.
-We therefore check coverage with a wide (99%) credible interval rather than the
-point estimate, which is the honest statement for a weakly identified
-convolution.
+in particular is weakly identified: the index cases pin the incubation period,
+which is what lets the sourced cases then identify ``\delta`` at all.
+The convolution is mildly multimodal, so we run several chains and check
+coverage with a wide (99%) credible interval over the pooled draws rather than a
+point estimate, which is the honest statement for a weakly identified delay.
 """
 
 function covers(sym, truth_value; q = (0.005, 0.995))
@@ -312,10 +315,6 @@ The realtime ANDV delay layer maps onto the rebuilt stack:
 
 The reproduction number random walk and the offspring clustering stay in the
 user's Turing model.
-
-!!! note "Pending integration"
-    The per-record dispatch will move to the generic `composed_distribution_model`
-    entry point and the simulation to a `predict_events` draw once those land;
-    this page uses the current `double_interval_censored_model` submodel and a
-    direct `rand` in the meantime.
+The only pending swap is the ascertainment thinning, flagged above, which will
+move to a dedicated completeness helper once that lands.
 """
