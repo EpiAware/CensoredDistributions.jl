@@ -55,7 +55,7 @@ export ExponentiallyTilted
 export convolve_distributions
 
 # Exported generic composers and front-end constructor
-export Sequential, Parallel, Competing, compose, as_mixture
+export Sequential, Parallel, Competing, competing, compose, as_mixture
 
 # Exported composed-distribution introspection (#351): the flat prior table and
 # name introspection. Nested name-keyed values come from the extended

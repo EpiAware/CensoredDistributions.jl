@@ -83,6 +83,38 @@ function Competing(outcomes::Pair...)
     return Competing(names, delays, branch_probs)
 end
 
+@doc "
+
+Build a [`Competing`](@ref) node from `name => (delay, branch_prob)` outcomes.
+
+Lowercase sugar mirroring [`primary_censored`](@ref) / [`interval_censored`](@ref):
+a thin wrapper over the [`Competing`](@ref) struct constructor. Each outcome is
+`name => (delay, branch_prob)`; the branch probabilities must each lie in
+``[0, 1]`` and sum to one, and at least two outcomes are required.
+
+# Arguments
+- `outcomes`: two or more `name => (delay, branch_prob)` pairs, each giving the
+  outcome name (a `Symbol`), its delay distribution, and the probability that
+  the outcome occurs.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+cfr = 0.3
+node = competing(:death => (Gamma(1.5, 1.0), cfr),
+    :disch => (Gamma(2.0, 1.5), 1 - cfr))
+mean(node)
+```
+
+# See also
+- [`Competing`](@ref): the composer type
+- [`as_mixture`](@ref): the `MixtureModel` lowering
+- [`compose`](@ref): the front-end that nests a `Competing` as a branch
+- [`Sequential`](@ref), [`Parallel`](@ref): the sibling composers
+"
+competing(outcomes::Pair...) = Competing(outcomes...)
+
 function _competing_delay(payload::Tuple{<:UnivariateDistribution, <:Real})
     return payload[1]
 end
