@@ -145,6 +145,11 @@ distribution.
   composer structure, marginalising or conditioning per record per the row's
   missingness pattern, and turning the origin/shared primary on in the latent
   case.
+- A [`Select`](@ref) data-selected disjunction reads the row's selector field
+  (`row[d.selector]`, default `:kind`), whose value names the active
+  alternative, and delegates to that selected alternative's own model. The
+  selector field is stripped before delegating, so the alternative sees only its
+  own events. This is the data-driven index-vs-sourced split (#356).
 
 Unlike the leaf models, this entry never misnames the distribution: a
 `Sequential` of double-censored edges is composed, not 'primary censored'. The

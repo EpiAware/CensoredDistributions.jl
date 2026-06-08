@@ -552,3 +552,70 @@ end
     manual = 2 * logpdf(seq, ev(rows[1])) + 3 * logpdf(seq, ev(rows[2]))
     @test logjoint(fit(rows), (;)) ≈ manual
 end
+
+@testitem "composed_distribution_model: Select routes by the data selector" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    # An index case (its own short origin) vs a sourced case (a longer coupled
+    # delay), selected by the row's `:kind` field (#356).
+    idx = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    src = primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))
+    d = select(:index => idx, :sourced => src)
+
+    @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
+
+    # The selector value picks WHICH alternative scores the record.
+    lj_idx = only(logjoint(demo(d, (kind = :index, y = 3.0)), (;)))
+    lj_src = only(logjoint(demo(d, (kind = :sourced, y = 3.0)), (;)))
+    @test lj_idx ≈ logpdf(idx, 3.0)
+    @test lj_src ≈ logpdf(src, 3.0)
+    @test lj_idx != lj_src
+
+    # A reserved weight on the row scales the selected alternative's likelihood.
+    lj_w = only(logjoint(demo(d, (kind = :index, y = 3.0, weight = 2.5)), (;)))
+    @test lj_w ≈ 2.5 * logpdf(idx, 3.0)
+end
+
+@testitem "composed_distribution_model: Select alternative may be a composer" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    # The sourced case is a whole chain; the index case is a single leaf. The
+    # data routes the record to the selected alternative's full handling.
+    chain = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    leaf = primary_censored(Gamma(3.0, 1.0), Uniform(0, 1))
+    d = select(:sourced => chain, :index => leaf)
+
+    @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
+
+    row_chain = (kind = :sourced, onset = 0.0, admit = 2.0, death = 5.0)
+    ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
+    @test only(logjoint(demo(d, row_chain), (;))) ≈ logpdf(chain, ev)
+
+    @test only(logjoint(demo(d, (kind = :index, y = 4.0)), (;))) ≈
+          logpdf(leaf, 4.0)
+end
+
+@testitem "composed_distribution_model: Select selector field is non-event" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    # A custom selector name, and the selector field must hold a Symbol.
+    idx = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    src = primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))
+    d = select(:index => idx, :sourced => src; selector = :case)
+
+    @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
+
+    # The selector field is stripped before delegating, so the leaf sees only
+    # its single event value.
+    @test only(logjoint(demo(d, (case = :sourced, y = 2.0)), (;))) ≈
+          logpdf(src, 2.0)
+
+    # A non-Symbol selector value is rejected.
+    @model bad(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
+    @test_throws Exception logjoint(bad(d, (case = 1, y = 2.0)), (;))
+end
