@@ -24,9 +24,10 @@ public tree_event_names
 # right-truncation entry point used by the composed record model (#329).
 public event_logpdf
 
-# Automatic batched / shared evaluation over many records (public but not
-# exported): the Turing-free core of the batched composed entry (#364).
-public batched_event_logpdf
+# Per-record composed distributions for vectorised scoring + sampling (public but
+# not exported): the assembly entry that bakes per-record metadata and shares the
+# segment construction across records.
+public record_distributions, EventRecord
 
 # Pluggable integration: the default solver, the entry point, and the
 # quadrature helper (public but not exported). `GaussLegendre` stays
