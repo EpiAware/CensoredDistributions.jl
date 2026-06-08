@@ -124,13 +124,26 @@ function backend_broken_scenarios()
     # Mooncake (both modes) all differentiate it correctly, so it is registered
     # broken for Enzyme only rather than worked around.
     nested_tree = "Nested tree censored observed logpdf"
+    # The batched scorer (#364) runs an AD-FREE pre-pass that collects the table
+    # rows (`Tables.rows` iteration, vector building, validation `throw`s) before
+    # the AD-traced build/evaluate. ForwardDiff and ReverseDiff trace straight
+    # through this data-collection (it touches only the constant rows), but the
+    # COMPILED backends build a rule for every reachable statement -- including
+    # the `_throw_argerror` validation branch and the row-collection loop -- and
+    # crash uncatchably on it (the same reachable-branch class as the Parallel
+    # shared-origin / nested-tree paths, #319). The batched MATH itself is the
+    # all-continuous per-edge conditioning the single-record scenario already
+    # differentiates on every backend; only the data-collection wrapper trips the
+    # compiled backends, so it is registered broken for them rather than worked
+    # around. Its gradient correctness is covered by ForwardDiff and ReverseDiff.
+    batched_seq = "Batched Sequential censored observed logpdf"
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
-        "Mooncake reverse" => Set{String}(),
-        "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => Set{String}([nested_tree]),
-        "Enzyme forward" => Set{String}([nested_tree])
+        "Mooncake reverse" => Set{String}([batched_seq]),
+        "Mooncake forward" => Set{String}([batched_seq]),
+        "Enzyme reverse" => Set{String}([nested_tree, batched_seq]),
+        "Enzyme forward" => Set{String}([nested_tree, batched_seq])
     )
 end
 
