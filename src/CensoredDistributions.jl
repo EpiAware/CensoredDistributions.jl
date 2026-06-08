@@ -76,7 +76,7 @@ export completeness_probability, thin_by_completeness
 # DynamicPPL (or Turing) is loaded; the methods live in the package extension so
 # the core stays Turing-free.
 export primary_censored_model, interval_censored_model,
-       double_interval_censored_model
+       double_interval_censored_model, composed_parameters_model
 
 include("docstrings.jl")
 
