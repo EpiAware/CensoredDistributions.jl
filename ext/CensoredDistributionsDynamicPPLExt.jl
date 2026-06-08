@@ -301,6 +301,24 @@ end
 # the template's concrete one (e.g. `Gamma` from a `Gamma{Float64}` template).
 _base_ctor(leaf) = Base.typename(typeof(leaf)).wrapper
 
+# Reconstruct a leaf of the same family from sampled parameters. Argument checks
+# are skipped (`check_args = false`) so a sampler probing an out-of-support point
+# yields a `-Inf` log-density rather than throwing mid-gradient; families whose
+# constructor lacks the keyword fall back to the plain (checked) constructor.
+function _reconstruct_leaf(leaf, vals::Tuple)
+    ctor = _base_ctor(leaf)
+    return _construct_unchecked(ctor, vals)
+end
+
+function _construct_unchecked(ctor, vals::Tuple)
+    try
+        return ctor(vals...; check_args = false)
+    catch err
+        err isa MethodError || rethrow()
+        return ctor(vals...)
+    end
+end
+
 # --- recursive submodel builder --------------------------------------------
 #
 # `_params_submodel(template, priors)` returns a DynamicPPL submodel sampling the
@@ -325,7 +343,7 @@ _base_ctor(leaf) = Base.typename(typeof(leaf)).wrapper
             ctx, priors[p], VarName{p}(), nothing, __varinfo__)
         v
     end
-    return _base_ctor(leaf)(vals...)
+    return _reconstruct_leaf(leaf, vals)
 end
 
 # A `Sequential` / `Parallel`: sample each named child through a prefixed child
