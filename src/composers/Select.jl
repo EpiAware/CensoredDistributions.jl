@@ -180,7 +180,22 @@ logpdf(d, 3.0; kind = :short)
 
 See also: [`Select`](@ref)
 "
-function logpdf(d::Select, x; kind::Union{Symbol, Nothing} = nothing)
+# A scalar `x` scores a univariate selected alternative; a vector `x` scores a
+# (possibly composer) selected alternative whose realisation is a flat vector.
+# Both route through the type-stable `_pick`. Typing `x` keeps these methods
+# distinct from the generic multivariate `logpdf(::Distribution, ::AbstractArray)`
+# batch methods (the Aqua ambiguity check), since a `Select`'s active dimension
+# is the selected alternative's, not fixed.
+function logpdf(
+        d::Select, x::Real; kind::Union{Symbol, Nothing} = nothing)
+    return _select_logpdf(d, x, kind)
+end
+function logpdf(d::Select, x::AbstractVector{<:Real};
+        kind::Union{Symbol, Nothing} = nothing)
+    return _select_logpdf(d, x, kind)
+end
+
+function _select_logpdf(d::Select, x, kind)
     kind === nothing && throw(ArgumentError(
         "logpdf(::Select, x) needs a `kind` selecting the alternative"))
     return logpdf(_pick(d, kind), x)
@@ -192,7 +207,13 @@ Probability density of the SELECTED alternative at `x`.
 
 See also: [`logpdf`](@ref)
 "
-pdf(d::Select, x; kind::Union{Symbol, Nothing} = nothing) = exp(logpdf(d, x; kind = kind))
+function pdf(d::Select, x::Real; kind::Union{Symbol, Nothing} = nothing)
+    return exp(logpdf(d, x; kind = kind))
+end
+function pdf(d::Select, x::AbstractVector{<:Real};
+        kind::Union{Symbol, Nothing} = nothing)
+    return exp(logpdf(d, x; kind = kind))
+end
 
 @doc "
 
