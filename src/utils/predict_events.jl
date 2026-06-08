@@ -18,7 +18,12 @@ Two dispatch paths share one name (#350):
 
 `d` should be in its latent representation so that `rand(d)` returns the full
 event-time path rather than a single marginal delay — for a leaf, wrap with
-[`latent`](@ref); `rand(latent(d))` returns `[primary, observed]`.
+[`latent`](@ref); `rand(latent(d))` returns `[primary, observed]`. For a composed
+tree (nested [`Sequential`](@ref)/[`Parallel`](@ref), a [`Competing`](@ref)
+outcome, or a [`Select`](@ref) top) `rand` walks the tree sharing the latent
+origin, samples each Competing outcome and the selected branch, and returns a
+NAMED event record keyed by [`tree_event_names`](@ref) (an unsampled Competing
+outcome is `missing`), so a whole case-study path is one `predict_events` call.
 
 # Arguments
 - `d`: A distribution whose `rand` yields a full event-time path (for example a

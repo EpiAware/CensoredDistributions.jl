@@ -140,9 +140,13 @@ pdf(d::Parallel, x::AbstractVector) = exp(logpdf(d, x))
 @doc "
 
 Sample a branch realisation. For plain branches this is one value per branch
-(nested children contributing their sub-vectors). For censored branches sharing
-one latent origin it is the full event-time vector `[origin, observed_1, ...]`
-(see the censored-specialisation [`rand`](@ref) method).
+(nested children contributing their sub-vectors). For flat censored branches
+sharing one latent origin it is the full event-time vector
+`[origin, observed_1, ...]`. For a NESTED tree (a branch is itself a composer, or
+a [`Competing`](@ref) branch) it is a NAMED event record keyed by
+[`tree_event_names`](@ref): one shared origin draw, each branch hung off it and
+each Competing outcome sampled (the unsampled outcomes `missing`). See the
+censored-specialisation [`rand`](@ref) method.
 
 See also: [`Parallel`](@ref)
 "

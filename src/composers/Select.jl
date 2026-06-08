@@ -219,17 +219,18 @@ end
 
 Sample the SELECTED alternative.
 
-`Select` has no single distribution to sample without a selection, so `rand`
-requires the active alternative's name through the `kind` keyword; there is no
-default. The draw is the selected alternative's own `rand`.
+With a `kind` the draw is that alternative's own `rand` (a full named event
+record if the alternative is a composed tree). WITHOUT a `kind` — the
+forward-simulation path, where no data names the branch — an alternative is
+sampled uniformly and its draw returned, so `rand`/[`predict_events`](@ref)
+produces a full path for a `Select` top with no manual selection.
 
 See also: [`Select`](@ref)
 "
 function Base.rand(
         rng::AbstractRNG, d::Select; kind::Union{Symbol, Nothing} = nothing)
-    kind === nothing && throw(ArgumentError(
-        "rand(::Select) needs a `kind` selecting the alternative"))
-    return rand(rng, _pick(d, kind))
+    chosen = kind === nothing ? d.names[rand(rng, 1:_n_alternatives(d))] : kind
+    return rand(rng, _pick(d, chosen))
 end
 
 function Base.rand(d::Select; kind::Union{Symbol, Nothing} = nothing)
