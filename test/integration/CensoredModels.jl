@@ -499,6 +499,204 @@ end
     @test any(!iszero, g)
 end
 
+@testitem "Nested Competing: bdbv tree scores per-record by name (#333)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa, e_on = edge(1.4, 0.4), edge(1.9, 0.5)
+    cfr = 0.3
+    death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
+    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    # onset -> {admit -> Competing(death, discharge), notif}.
+    d = Parallel(Sequential(e_oa, cmp), e_on)
+
+    @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
+
+    # A record's death/discharge/notif columns, by name; missingness selects the
+    # observed outcome. The onset/admit edges are positional (`event_1/2`).
+    death_row = (event_1 = 0.0, event_2 = 4.0, death = 12.0,
+        discharge = missing, event_3 = 9.0)
+    ref_death = logpdf(e_oa, 4.0) + log(cfr) + logpdf(death_d, 8.0) +
+                logpdf(e_on, 9.0)
+    @test only(logjoint(demo(d, death_row), (;))) ≈ ref_death
+
+    disch_row = (event_1 = 0.0, event_2 = 4.0, death = missing,
+        discharge = 11.0, event_3 = 9.0)
+    ref_disch = logpdf(e_oa, 4.0) + log(1 - cfr) + logpdf(disch_d, 7.0) +
+                logpdf(e_on, 9.0)
+    @test only(logjoint(demo(d, disch_row), (;))) ≈ ref_disch
+end
+
+@testitem "Nested Competing: per-row branch_probs override (#333)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa, e_on = edge(1.4, 0.4), edge(1.9, 0.5)
+    death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
+    cmp = Competing(:death => (death_d, 0.3), :discharge => (disch_d, 0.7))
+    d = Parallel(Sequential(e_oa, cmp), e_on)
+
+    @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
+
+    base = logpdf(e_oa, 4.0) + logpdf(death_d, 8.0) + logpdf(e_on, 9.0)
+    # NamedTuple override OVERRIDES the stored branch_probs for this record.
+    row = (event_1 = 0.0, event_2 = 4.0, death = 12.0, discharge = missing,
+        event_3 = 9.0, branch_probs = (death = 0.6, discharge = 0.4))
+    @test only(logjoint(demo(d, row), (;))) ≈ base + log(0.6)
+    @test !isapprox(only(logjoint(demo(d, row), (;))), base + log(0.3))
+
+    # Scalar override (first outcome's probability of the two-outcome node).
+    row_s = (event_1 = 0.0, event_2 = 4.0, death = 12.0, discharge = missing,
+        event_3 = 9.0, branch_probs = 0.6)
+    @test only(logjoint(demo(d, row_s), (;))) ≈ base + log(0.6)
+
+    # Out-of-range / non-summing overrides error.
+    bad = (event_1 = 0.0, event_2 = 4.0, death = 12.0, discharge = missing,
+        event_3 = 9.0, branch_probs = (death = 1.2, discharge = -0.2))
+    @test_throws ArgumentError logjoint(demo(d, bad), (;))
+end
+
+@testitem "Nested Competing: N-ary override and conditioning (#333)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa, e_on = edge(1.4, 0.4), edge(1.9, 0.5)
+    death_d, disch_d, trans_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0), Gamma(3.0, 1.0)
+    cmp = Competing(:death => (death_d, 0.2),
+        :discharge => (disch_d, 0.5), :transfer => (trans_d, 0.3))
+    d = Parallel(Sequential(e_oa, cmp), e_on)
+
+    @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
+
+    base = logpdf(e_oa, 4.0) + logpdf(trans_d, 6.0) + logpdf(e_on, 9.0)
+    # A three-entry override summing to one, transfer observed.
+    row = (event_1 = 0.0, event_2 = 4.0, death = missing, discharge = missing,
+        transfer = 10.0, event_3 = 9.0,
+        branch_probs = (death = 0.1, discharge = 0.6, transfer = 0.3))
+    @test only(logjoint(demo(d, row), (;))) ≈ base + log(0.3)
+
+    # A scalar override is rejected for a three-outcome node (ambiguous).
+    bad = (event_1 = 0.0, event_2 = 4.0, death = missing, discharge = missing,
+        transfer = 10.0, event_3 = 9.0, branch_probs = 0.3)
+    @test_throws ArgumentError logjoint(demo(d, bad), (;))
+end
+
+@testitem "Nested Competing: AD through conditioned tree + per-row prob" begin
+    using CensoredDistributions, Distributions
+    using Turing: Turing, @model, to_submodel, AutoForwardDiff
+    using DynamicPPL: DynamicPPL, LogDensityFunction
+    import DynamicPPL.LogDensityProblems as LDP
+
+    _logistic(z) = 1 / (1 + exp(-z))
+    e_on = double_interval_censored(LogNormal(1.9, 0.5);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    # One conditioned-death and one conditioned-discharge record over the bdbv
+    # tree; the per-record CFR is logistic(beta * x), passed into the node.
+    specs = [
+        (kind = :death, t = 12.0, x = 0.4),
+        (kind = :discharge, t = 11.0, x = -0.7)
+    ]
+
+    function _row(spec, beta)
+        p = _logistic(beta * spec.x)
+        bp = (branch_probs = (death = p, discharge = 1 - p),)
+        d_ev = spec.kind === :death ? spec.t : missing
+        c_ev = spec.kind === :discharge ? spec.t : missing
+        return merge(
+            (event_1 = 0.0, event_2 = 4.0, death = d_ev, discharge = c_ev,
+                event_3 = 9.0), bp)
+    end
+
+    # `sh` parameterises the death branch delay; `beta` drives the passed-in
+    # per-record prob. The gradient over (sh, beta) flows through both the
+    # conditioned tree edges and the per-row-prob path.
+    @model function fit(specs)
+        sh ~ truncated(Normal(2.0, 0.5); lower = 0.2)
+        beta ~ Normal(0.0, 1.0)
+        e_oa = double_interval_censored(LogNormal(1.4, 0.4);
+            primary_event = Uniform(0, 1), interval = 1.0)
+        cmp = Competing(:death => (Gamma(sh, 3.0), 0.5),
+            :discharge => (Gamma(2.0, 1.0), 0.5))
+        d = Parallel(Sequential(e_oa, cmp), e_on)
+        for i in eachindex(specs)
+            y ~ to_submodel(
+                composed_distribution_model(d, _row(specs[i], beta)), false)
+        end
+    end
+
+    ldf = LogDensityFunction(fit(specs); adtype = AutoForwardDiff())
+    v, g = LDP.logdensity_and_gradient(ldf, [2.0, 0.8])
+    @test length(g) == 2
+    @test all(isfinite, g)
+    @test any(!iszero, g)
+end
+
+@testitem "Nested Competing: covariate CFR recovers beta in bdbv tree (#333)" begin
+    using CensoredDistributions, Distributions, Random
+    using Turing: Turing, NUTS, sample, @model, to_submodel
+    using DynamicPPL: prefix
+
+    _logistic(z) = 1 / (1 + exp(-z))
+
+    rng = Random.MersenneTwister(333)
+    death_d, disch_d = Gamma(2.0, 1.5), Gamma(2.0, 1.0)
+    beta0, beta1 = -0.4, 1.1
+    n = 400
+    xs = randn(rng, n)
+    # Simulate the bdbv tree per record: onset at 0, admit + a delay, then the
+    # competing outcome (death w.p. logistic(Xbeta)), and notif. Only the
+    # competing branch carries the covariate; the rest are fixed delays.
+    onset_admit = Gamma(2.0, 1.0)
+    onset_notif = Gamma(2.0, 1.5)
+    rows = map(1:n) do i
+        p = _logistic(beta0 + beta1 * xs[i])
+        a = rand(rng, onset_admit)
+        nt = rand(rng, onset_notif)
+        if rand(rng) < p
+            (event_1 = 0.0, event_2 = a, death = a + rand(rng, death_d),
+                discharge = missing, event_3 = nt)
+        else
+            (event_1 = 0.0, event_2 = a, death = missing,
+                discharge = a + rand(rng, disch_d), event_3 = nt)
+        end
+    end
+
+    # The regression is PLAIN TURING; the per-record CFR is PASSED IN to the
+    # nested Competing via the reserved `branch_probs` field.
+    @model function fit(rows, xs)
+        b0 ~ Normal(0, 1)
+        b1 ~ Normal(0, 1)
+        e_oa = double_interval_censored(LogNormal(0.0, 0.6);
+            primary_event = Uniform(0, 1), interval = 1.0)
+        e_on = double_interval_censored(LogNormal(0.4, 0.6);
+            primary_event = Uniform(0, 1), interval = 1.0)
+        cmp = Competing(:death => (death_d, 0.5),
+            :discharge => (disch_d, 0.5))
+        d = Parallel(Sequential(e_oa, cmp), e_on)
+        for i in eachindex(rows)
+            p = _logistic(b0 + b1 * xs[i])
+            row = merge(rows[i], (branch_probs = p,))
+            x ~ to_submodel(
+                prefix(composed_distribution_model(d, row),
+                    Symbol("rec", i)), false)
+        end
+    end
+
+    chain = sample(rng, fit(rows, xs), NUTS(), 300; progress = false)
+    @test mean(chain[:b1]) > 0.5
+    @test abs(mean(chain[:b0]) - beta0) < 0.5
+    @test abs(mean(chain[:b1]) - beta1) < 0.6
+end
+
 @testitem "composer model: weight via reserved field and kwarg" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint

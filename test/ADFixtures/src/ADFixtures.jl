@@ -124,13 +124,18 @@ function backend_broken_scenarios()
     # Mooncake (both modes) all differentiate it correctly, so it is registered
     # broken for Enzyme only rather than worked around.
     nested_tree = "Nested tree censored observed logpdf"
+    # The nested-Competing tree (#333) recurses through the SAME heterogeneous
+    # censored-edge walk plus the conditioned competing branch, so it shares the
+    # Enzyme heterogeneous-edge gap (#319); ForwardDiff / ReverseDiff / Mooncake
+    # differentiate it correctly.
+    nested_comp = "Nested Competing tree conditioned logpdf"
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => Set{String}(),
         "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => Set{String}([nested_tree]),
-        "Enzyme forward" => Set{String}([nested_tree])
+        "Enzyme reverse" => Set{String}([nested_tree, nested_comp]),
+        "Enzyme forward" => Set{String}([nested_tree, nested_comp])
     )
 end
 
@@ -718,6 +723,32 @@ function scenarios(; with_reference::Bool = false)
                         LogNormal(θ[7], θ[8]), Uniform(0.0, 1.0))),
                 ev),
             [1.4, 0.4, 2.0, 1.0, 2.0, 1.2, 1.9, 0.5], (Constant(tree_ev),))
+
+        # Nested-Competing tree (#333): onset -> {admit -> Competing(death,
+        # discharge), notif}, the death outcome observed. The Competing exposes
+        # one event slot per outcome, so the event vector is
+        # [onset, admit, death, discharge, notif] with discharge `Missing`
+        # (inactive). The observed death conditions on its branch
+        # (log p_death + logpdf(Gamma, gap)), so the gradient over the death
+        # branch shape/scale + the surrounding edge params is all-continuous
+        # arithmetic, differentiating on every analytic backend (Enzyme shares
+        # the #319 heterogeneous-edge gap, registered broken above).
+        comp_ev = Vector{Union{Missing, Float64}}(
+            [0.0, 4.0, 12.0, missing, 9.0])
+        _push!("Nested Competing tree conditioned logpdf",
+            (θ,
+                ev) -> logpdf(
+                Parallel(
+                    Sequential(
+                        primary_censored(
+                            LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                        Competing(
+                            :death => (Gamma(θ[3], θ[4]), 0.3),
+                            :discharge => (Gamma(θ[5], θ[6]), 0.7))),
+                    primary_censored(
+                        LogNormal(θ[7], θ[8]), Uniform(0.0, 1.0))),
+                ev),
+            [1.4, 0.4, 2.0, 3.0, 2.0, 1.0, 1.9, 0.5], (Constant(comp_ev),))
     end
 
     # External censoring wrappers over composers (#334). Combine first, then

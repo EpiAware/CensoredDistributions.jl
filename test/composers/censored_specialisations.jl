@@ -384,3 +384,118 @@ end
 # ReverseDiff / Mooncake pass; Enzyme is the heterogeneous-edge gap #319) is
 # covered by the dedicated AD fixture suite (`test/ADFixtures`, scenario
 # "Nested tree censored observed logpdf") with the proper AD-backend deps.
+
+# --- Nested Competing self-dispatch (#333) ----------------------------------
+
+@testitem "Nested Competing: outcome event names anchor at the parent" begin
+    using Distributions
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    cmp = Competing(:death => (Gamma(2.0, 3.0), 0.3),
+        :discharge => (Gamma(2.0, 1.0), 0.7))
+    # bdbv: onset -> {admit -> Competing(death, discharge), notif}.
+    d = Parallel(Sequential(edge(1.4, 0.4), cmp), edge(1.9, 0.5))
+    enames = CensoredDistributions.tree_event_names(d)
+    # The Competing contributes one EVENT slot per OUTCOME, not one opaque
+    # resolution event: death/discharge appear, anchored after the admit event.
+    @test :death in enames
+    @test :discharge in enames
+    # Event-slot count counts the outcomes (value-vector length() is unchanged).
+    @test CensoredDistributions._event_nleaves(d.components) == 4
+    @test length(d) == 3
+end
+
+@testitem "Nested Competing: conditions on the observed outcome (#333)" begin
+    using Distributions
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa, e_on = edge(1.4, 0.4), edge(1.9, 0.5)
+    cfr = 0.3
+    death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
+    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    d = Parallel(Sequential(e_oa, cmp), e_on)
+
+    onset, admit, notif = 0.0, 4.0, 9.0
+    # Event vector [onset, admit, death, discharge, notif]; death observed.
+    ev = Vector{Union{Missing, Float64}}([onset, admit, 12.0, missing, notif])
+    # Hand reference: condition the observed death branch
+    # (log p_death + its delay logpdf at the gap from admit), each other edge on
+    # its own declared censoring.
+    ref = logpdf(e_oa, admit - onset) +
+          log(cfr) + logpdf(death_d, 12.0 - admit) +
+          logpdf(e_on, notif - onset)
+    @test logpdf(d, ev) ≈ ref rtol=1e-10
+
+    # Discharge observed instead selects the discharge branch.
+    evd = Vector{Union{Missing, Float64}}([onset, admit, missing, 11.0, notif])
+    refd = logpdf(e_oa, admit - onset) +
+           log(1 - cfr) + logpdf(disch_d, 11.0 - admit) +
+           logpdf(e_on, notif - onset)
+    @test logpdf(d, evd) ≈ refd rtol=1e-10
+
+    # No outcome observed -> the Competing contributes no factor (the resolved-
+    # but-unknown-outcome encoding for a nested node is deferred, #329).
+    evm = Vector{Union{Missing, Float64}}(
+        [onset, admit, missing, missing, notif])
+    @test logpdf(d, evm) ≈
+          logpdf(e_oa, admit - onset) + logpdf(e_on, notif - onset) rtol=1e-10
+
+    # Two observed outcomes is an error (at most one resolves).
+    evt = Vector{Union{Missing, Float64}}([onset, admit, 12.0, 11.0, notif])
+    @test_throws ArgumentError logpdf(d, evt)
+end
+
+@testitem "Nested Competing: type-stable scoring" begin
+    using Distributions, Test
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    cmp = Competing(:death => (Gamma(2.0, 3.0), 0.3),
+        :discharge => (Gamma(2.0, 1.0), 0.7))
+    d = Parallel(Sequential(edge(1.4, 0.4), cmp), edge(1.9, 0.5))
+    ev = Vector{Union{Missing, Float64}}([0.0, 4.0, 12.0, missing, 9.0])
+    @test (@inferred logpdf(d, ev)) isa Float64
+end
+
+@testitem "Nested Competing: N-ary (three outcomes) self-dispatch (#333)" begin
+    using Distributions
+
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa, e_on = edge(1.4, 0.4), edge(1.9, 0.5)
+    death_d, disch_d, trans_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0), Gamma(3.0, 1.0)
+    cmp = Competing(:death => (death_d, 0.2),
+        :discharge => (disch_d, 0.5),
+        :transfer => (trans_d, 0.3))
+    d = Parallel(Sequential(e_oa, cmp), e_on)
+
+    enames = CensoredDistributions.tree_event_names(d)
+    @test :death in enames
+    @test :discharge in enames
+    @test :transfer in enames
+    @test CensoredDistributions._event_nleaves(d.components) == 5
+
+    onset, admit, notif = 0.0, 4.0, 9.0
+    # Event vector [onset, admit, death, discharge, transfer, notif]; the THIRD
+    # outcome (transfer) is the one observed.
+    ev = Vector{Union{Missing, Float64}}(
+        [onset, admit, missing, missing, 10.0, notif])
+    ref = logpdf(e_oa, admit - onset) +
+          log(0.3) + logpdf(trans_d, 10.0 - admit) +
+          logpdf(e_on, notif - onset)
+    @test logpdf(d, ev) ≈ ref rtol=1e-10
+
+    # The first outcome (death) observed instead.
+    evd = Vector{Union{Missing, Float64}}(
+        [onset, admit, 8.0, missing, missing, notif])
+    refd = logpdf(e_oa, admit - onset) +
+           log(0.2) + logpdf(death_d, 8.0 - admit) +
+           logpdf(e_on, notif - onset)
+    @test logpdf(d, evd) ≈ refd rtol=1e-10
+end
