@@ -495,6 +495,37 @@ function scenarios(; with_reference::Bool = false)
         end
     end
 
+    # Right-truncation (#332). The index single-delay term right-truncates a
+    # LogNormal to the remaining window. This is the NaN-gradient regression:
+    # an upper-only `truncated(dist; upper = window)` never differentiates
+    # `logcdf(LogNormal, 0) = -Inf`, so the gradient stays finite. The chain
+    # term right-truncates a Convolved (unobserved intermediate event), so the
+    # denominator is the convolution CDF. Both guarded on the helper existing
+    # for the AirspeedVelocity baseline (see the Convolved note above).
+    if isdefined(CensoredDistributions, :truncate_to_horizon)
+        _push!("Truncated LogNormal single-delay right-truncation",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    truncate_to_horizon(LogNormal(θ[1], θ[2]), 6.0), x),
+                obs),
+            [1.0, 0.75], (Constant(obs),))
+        # Component order matches the working "Convolved Gamma+LogNormal
+        # numerical" scenario: the numeric convolution CDF replaces the
+        # infinite upper endpoint with a quantile of the LAST component, so a
+        # trailing LogNormal keeps Enzyme off `gamma_inc_inv_qsmall` (a known
+        # Enzyme illegal-type-analysis failure on Gamma quantile inversion).
+        _push!("Truncated Convolved chain right-truncation",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    truncate_chain(
+                        (Gamma(2.0, 1.0), LogNormal(θ[1], θ[2])),
+                        (false,), 8.0), x),
+                obs),
+            [1.0, 0.75], (Constant(obs),))
+    end
+
     # Pluggable integration path (#208). The numeric primary-censored CDF
     # routes its quadrature through the package's default `GaussLegendre`
     # solver passed explicitly via the `solver` keyword. This is the cost

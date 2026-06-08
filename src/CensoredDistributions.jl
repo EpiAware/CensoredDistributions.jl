@@ -69,6 +69,9 @@ export Select, select
 # Exported composer-observed lowering used by the external censoring wrappers
 export observed_distribution
 
+# Exported right-truncation helpers (single-delay vs convolved-chain)
+export truncate_to_horizon, truncate_chain
+
 # Exported utilities
 export weight, get_dist, get_dist_recursive, get_primary_event
 
@@ -103,6 +106,9 @@ include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")
 include("distributions/Convolved.jl")
+
+# Right-truncation helpers (#339): depend on Convolved / convolve_distributions.
+include("censoring/truncation.jl")
 
 include("composers/Sequential.jl")
 include("composers/Parallel.jl")
