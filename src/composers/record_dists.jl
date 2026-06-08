@@ -265,8 +265,9 @@ function record_distributions(d::Parallel, rows)
     parsed = _parse_rows(d, rows)
     primary = _shared_primary_event(d.components)
     primary === nothing && throw(ArgumentError(
-        "Parallel shared-origin scoring needs censored branches with a " *
-        "primary event; got plain branches"))
+        "vectorised `record_distributions` needs censored branches with a " *
+        "shared primary event; plain-branch Parallel is handled by the " *
+        "direct `logpdf` path (`_par_plain_logpdf`), not record assembly"))
     cores = map(_marginal_core, d.components)
     bundle = _ParSegs(primary, cores)
     return [_par_record(d, p, bundle) for p in parsed]
