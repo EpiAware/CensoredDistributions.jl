@@ -726,7 +726,10 @@ function scenarios(; with_reference::Bool = false)
         # verified on ForwardDiff and ReverseDiff by the main-suite reference
         # tests instead. Only the all-continuous-arithmetic Sequential
         # observed-intermediate scenario, which differentiates on every backend,
-        # is kept here.
+        # is kept here. The plain-branch (observed-origin) Parallel path shares
+        # the same `logpdf(::Parallel, ::event vector)` entry, so it also reaches
+        # the quadrature branch the compiled backends crash on; its gradient is
+        # likewise verified on ForwardDiff and ReverseDiff in the main suite.
 
         # Nested-composer (irregular tree) fully-observed scoring (#345): a
         # two-level tree onset -> {admit -> {death, discharge}, notif}, every
