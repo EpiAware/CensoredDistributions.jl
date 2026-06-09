@@ -62,6 +62,10 @@ export Sequential, Parallel, Competing, competing, compose, as_mixture
 # `Distributions.params`.
 export params_table, event_names, get_event, update, build_priors
 
+# Exported per-edge delay moments: all edge means / variances of a composed
+# distribution at once, keyed by edge name (sees through censored leaves).
+export edge_means, edge_vars
+
 # Exported chain reader (#353 follow-up): read a fitted Turing chain into the
 # nested NamedTuple `update` consumes. No method until DynamicPPL (or Turing) is
 # loaded; the method lives in the package extension.
@@ -127,6 +131,11 @@ include("composers/tree_events.jl")
 include("composers/wrap.jl")
 
 include("utils/Weighted.jl")
+
+# Per-edge delay moments: after Weighted (adds a `free_leaf(::Weighted)` method)
+# and the composers (Sequential/Parallel/Competing/Select/Latent it walks).
+include("composers/composed_moments.jl")
+
 include("utils/get_dist.jl")
 include("utils/quantile_optimization.jl")
 include("utils/thinning.jl")
