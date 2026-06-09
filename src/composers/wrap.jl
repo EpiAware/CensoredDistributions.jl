@@ -1,12 +1,12 @@
 # ============================================================================
-# Wrapping a composer with an external censoring wrapper (PR3c, #334)
+# Wrapping a composer with an external censoring wrapper
 # ============================================================================
 #
 # This layer defines what it MEANS to apply a censoring wrapper
 # (`primary_censored` / `interval_censored` / `double_interval_censored`) ON
-# TOP of a composer. It is the EXTERNAL direction: combine first, then censor
-# (#329) — the dual of PR3b (#333), which specialises a composer whose internal
-# nodes are already censored.
+# TOP of a composer. It is the EXTERNAL direction: combine first, then censor,
+# the dual of the internal direction, which specialises a composer whose
+# internal nodes are already censored.
 #
 # A censoring wrapper observes one scalar quantity. Each composer exposes its
 # observed scalar through `observed_distribution`:
@@ -22,7 +22,7 @@
 # `Convolved` and `Competing` are univariate, so the existing
 # `UnivariateDistribution` wrapper methods already accept them; this file adds
 # only the `Sequential` (collapse-then-wrap) and `Parallel` (distribute) cases.
-# Dispatch on the composer type — no runtime predicate, no new hierarchy (#329).
+# Dispatch on the composer type — no runtime predicate, no new hierarchy.
 
 @doc "
 
@@ -96,7 +96,7 @@ Primary-event-censor the total elapsed time of a [`Sequential`](@ref) chain.
 
 The chain is first collapsed to its observed quantity (the convolution of the
 steps via [`observed_distribution`](@ref)), then primary-censored. This is the
-combine-first-then-censor direction (#329).
+combine-first-then-censor direction.
 
 See also: [`primary_censored`](@ref), [`observed_distribution`](@ref)
 "

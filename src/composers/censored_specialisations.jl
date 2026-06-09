@@ -1,16 +1,16 @@
 # ============================================================================
-# Censored specialisations of the generic composers (#329, PR3b)
+# Censored specialisations of the generic composers
 # ============================================================================
 #
-# The generic `Sequential` / `Parallel` / `Competing` composers (PR3a) score a
+# The generic `Sequential` / `Parallel` / `Competing` composers score a
 # value vector with one entry per step/branch. When their internal nodes are our
 # censored distributions (`primary_censored` / `interval_censored` /
 # `double_interval_censored`), per-record marginalisation is AUTOMATIC and
 # data-driven, selected by MULTIPLE DISPATCH on the value vector's element type
-# (a `Missing`-admitting event vector) and on the node types (#329). There is no
+# (a `Missing`-admitting event vector) and on the node types. There is no
 # runtime predicate, no `mode` keyword, and no new node-type hierarchy.
 #
-# Per #329, evaluating a censored chain against an EVENT vector
+# Evaluating a censored chain against an EVENT vector
 # `[E_0, E_1, ..., E_k]` (one entry per event, each a value or `missing`):
 #   - the origin's primary censoring is ALWAYS applied (first segment);
 #   - an OBSERVED intermediate -> CONDITION on its (censored) value: the
@@ -22,7 +22,7 @@
 # For `Parallel` with censored branches the shared origin couples the branches:
 # a missing origin entry is marginalised by one 1-D origin integral, a present
 # origin conditions. `Competing` already lowers to a `MixtureModel`
-# (`as_mixture`, PR3a), so it needs no event-vector specialisation here.
+# (`as_mixture`), so it needs no event-vector specialisation here.
 
 # ---------------------------------------------------------------------------
 # Origin primary-event recovery
@@ -69,7 +69,7 @@ _any_nested_composer(components::Tuple) = any(_is_nested_composer, components)
 # branch leaves BOTH branches in one method body, and the compiled AD backends
 # (Mooncake) build a rule for every reachable branch -- including the flat
 # `convolve_distributions` marginalisation path that hard-crashes them
-# uncatchably (#319). Splitting by dispatch keeps the flat path out of the nested
+# uncatchably. Splitting by dispatch keeps the flat path out of the nested
 # method entirely, so a nested tree differentiates without dragging in the
 # crashing convolution code.
 #
@@ -84,7 +84,7 @@ struct _Flat end
 _nested_trait(components::C) where {C <: Tuple} = _nested_trait(C)
 @generated function _nested_trait(::Type{C}) where {C <: Tuple}
     # A `Competing` component also forces the tree path: its multi-slot outcome
-    # layout (#333) is scored by `_tree_step(::Competing)`, not the flat
+    # layout is scored by `_tree_step(::Competing)`, not the flat
     # segment-grouped scorer.
     has_nested = any(
         t -> t <: Sequential || t <: Parallel || t <: Competing, fieldtypes(C))
@@ -93,13 +93,13 @@ end
 
 # Whether a composer's components carry primary censoring (an origin primary
 # event), checked on the component types. `true` selects the censored
-# full-event-path `rand`; `false` keeps the generic per-leaf-value `rand` (PR3a).
+# full-event-path `rand`; `false` keeps the generic per-leaf-value `rand`.
 function _is_censored_composer(components::Tuple)
     any(c -> _origin_primary_event(c) !== nothing, components)
 end
 
 # ---------------------------------------------------------------------------
-# Recursive nested-composer scoring (#329, #333, #345)
+# Recursive nested-composer scoring
 # ---------------------------------------------------------------------------
 #
 # A composer whose branch/step is ITSELF a `Sequential` / `Parallel` is an
@@ -170,7 +170,7 @@ _first_origin_node(d::Sequential) = d.components[1]
 # that mixes a tracked log density with inactive `Int` indices hits Mooncake's
 # mixed-activity codegen, while a scalar-returning recursion over the same
 # unrolled-tuple loop differentiates exactly as the generic `_composite_logpdf`
-# does (#319 notwithstanding for Enzyme on deeply mixed trees).
+# does (notwithstanding for Enzyme on deeply mixed trees).
 
 # Offset (relative to a node's `event_start`) of the TERMINAL event a following
 # chain step hangs off. A leaf edge terminates at its own (single) event; a
@@ -185,7 +185,7 @@ _terminal_offset(d::Sequential) = _seq_terminal_offset(d.components)
 _terminal_offset(::Parallel) = -1
 function _seq_terminal_offset(components::Tuple)
     # The last step's terminal, measured from the chain's own first event. Uses
-    # the EVENT-slot count (a `Competing` step spans one slot per outcome, #333).
+    # the EVENT-slot count (a `Competing` step spans one slot per outcome).
     off = 0
     @inbounds for i in 1:(length(components) - 1)
         off += _event_child_nleaves(components[i])
@@ -265,7 +265,7 @@ end
 function _tree_step(step::Union{Sequential, Parallel}, events, o_idx::Int,
         ev_idx::Int, primary, ::Type{T}) where {T}
     # The sub-view spans the node's EVENT slots (a `Competing` step contributes
-    # one slot per outcome, #333), so use the event-slot count, not `length`.
+    # one slot per outcome), so use the event-slot count, not `length`.
     sub = _subevent_slice(events, o_idx, ev_idx, _event_nleaves(step.components))
     return _tree_score(step, sub, 1, 2, primary, T)
 end
@@ -302,8 +302,8 @@ function _tree_step(step::UnivariateDistribution, events, o_idx::Int,
     return zero(T)
 end
 
-# A nested `Competing` node SELF-DISPATCHES on the row's outcome missingness
-# (#333), mirroring the top-level `Competing` self-dispatch but anchored at the
+# A nested `Competing` node SELF-DISPATCHES on the row's outcome missingness,
+# mirroring the top-level `Competing` self-dispatch but anchored at the
 # parent event. Its `n_outcomes` event slots begin at `ev_idx`; the anchor (the
 # parent origin) is `events[o_idx]`. The numeric event-vector path uses the
 # node's STORED branch probabilities (the per-record `branch_probs` override is a
@@ -311,7 +311,7 @@ end
 # Competing with row context). Exactly one outcome slot observed -> condition on
 # that branch (`log(p[i]) + logpdf(delay[i], gap)`); no outcome observed ->
 # contributes no factor (the resolved-but-unknown-outcome encoding for a NESTED
-# Competing is deferred, #329). The shared core arithmetic
+# Competing is deferred). The shared core arithmetic
 # (`_competing_condition_logpdf`) is the SAME one the top-level path uses.
 function _tree_step(step::Competing, events, o_idx::Int, ev_idx::Int,
         primary, ::Type{T}) where {T}
@@ -344,7 +344,7 @@ function _competing_tree_logpdf(c::Competing, probs, o, events, ev_idx::Int,
     return _competing_condition_logpdf(probs, c.delays[obs_i], obs_gap, obs_i)
 end
 
-# --- per-record branch-probability override for a nested Competing (#333) -----
+# --- per-record branch-probability override for a nested Competing -----
 #
 # A per-record `branch_probs` override is a ROW input (the covariate CFR
 # `logistic(Xβ)` flows in per record), so it cannot ride the numeric event
@@ -366,7 +366,7 @@ end
 # Rebuild a composed tree with the single `Competing` node's branch probabilities
 # replaced by `probs` (already coerced to outcome order and validated). Errors if
 # the tree has no Competing node or more than one (the single `branch_probs` row
-# field is then ambiguous, #333). Pure, Turing-free; the new probs keep their
+# field is then ambiguous). Pure, Turing-free; the new probs keep their
 # element type.
 function _override_competing_branch_probs(d, probs)
     n = _count_competing(d)
@@ -395,7 +395,7 @@ end
 # against an EVENT vector (one entry per event, `missing` admitted) the chain
 # marginalises unobserved intermediates and conditions on observed ones. The
 # element-type dispatch (`>: Missing`) keeps the all-concrete one-value-per-step
-# generic path (PR3a) untouched: a `Vector{Float64}` of step gaps still hits the
+# generic path untouched: a `Vector{Float64}` of step gaps still hits the
 # generic `logpdf`, while a `Vector{Union{Missing, Float64}}` event vector hits
 # this specialisation.
 
@@ -424,7 +424,7 @@ See also: [`Sequential`](@ref), [`Parallel`](@ref)
 function logpdf(d::Sequential, events::AbstractVector{T}) where {T >: Missing}
     # The flat event vector carries one entry per EVENT slot plus the root
     # origin. A nested composer contributes its whole subtree; a `Competing`
-    # contributes one slot per OUTCOME (#333), so the count is
+    # contributes one slot per OUTCOME, so the count is
     # `_event_nleaves(d.components) + 1`, not `length(d) + 1` (the value layout).
     n = _event_nleaves(d.components) + 1
     length(events) == n || throw(DimensionMismatch(
@@ -448,7 +448,7 @@ function _seq_event_logpdf(::_Flat, d::Sequential, events)
 end
 
 # Flat `Sequential` scoring with an OPTIONAL per-record observation horizon
-# `horizon` (#329 hanta truncation). The WHOLE composed distribution is truncated
+# `horizon` (hanta truncation). The WHOLE composed distribution is truncated
 # per record at the horizon (the same combine-then-censor semantics as wrapping a
 # chain in `double_interval_censored`): the record's observed total is the elapsed
 # time from the FIRST observed event (origin) to the LAST observed event
@@ -468,7 +468,7 @@ function _seq_event_logpdf_h(d::Sequential, events, horizon)
         "per-record horizon truncation of a Sequential is defined for the " *
         "endpoint-observed case (origin + terminal observed, intermediates " *
         "unobserved); a record with observed intermediates needs the " *
-        "whole-compose-vs-per-segment decision (#329) before it is scored"))
+        "whole-compose-vs-per-segment decision before it is scored"))
     # Endpoint-observed: the collapsed origin->terminal total, truncated at the
     # remaining window from the observed origin.
     primary = _origin_primary_event(d.components[1])
@@ -526,7 +526,7 @@ end
 # `b`. The steps linking them are `components[a:(b - 1)]`.
 #
 # A SINGLE observed-bounded edge conditions on its OWN declared censoring: the
-# edge's gap is scored through the edge distribution AS DECLARED (#329 "condition
+# edge's gap is scored through the edge distribution AS DECLARED ("condition
 # on its (censored) value"). A `primary_censored` / `double_interval_censored` /
 # `interval_censored` edge therefore keeps that censoring (real linelist data is
 # day-resolution, so a day-observed edge delay is interval-censored, not an exact
@@ -584,7 +584,7 @@ See also: [`Parallel`](@ref), [`Sequential`](@ref)
 "
 function logpdf(d::Parallel, events::AbstractVector{T}) where {T >: Missing}
     # One entry per EVENT slot plus the shared origin; a tree branch contributes
-    # its whole subtree's events and a `Competing` one slot per OUTCOME (#333),
+    # its whole subtree's events and a `Competing` one slot per OUTCOME,
     # so the length is `_event_nleaves(d.components) + 1`.
     n = _event_nleaves(d.components) + 1
     length(events) == n || throw(DimensionMismatch(
@@ -662,7 +662,7 @@ function pdf(d::Parallel, events::AbstractVector{T}) where {T >: Missing}
 end
 
 # ---------------------------------------------------------------------------
-# Per-record observation-horizon right-truncation (#329 hanta)
+# Per-record observation-horizon right-truncation (hanta)
 # ---------------------------------------------------------------------------
 #
 # `event_logpdf(d, events; horizon)` is the horizon-aware event-vector log
@@ -681,7 +681,7 @@ end
 
 @doc raw"
 
-Horizon-aware event-vector log density of a censored composer (#329).
+Horizon-aware event-vector log density of a censored composer.
 
 `event_logpdf(d, events; horizon)` scores `events` exactly as
 `logpdf(d, events)` when `horizon === nothing`. With a per-record `horizon` the
@@ -803,7 +803,7 @@ end
 
 # Flatten the (possibly nested) `params` of a distribution to its scalar leaves,
 # so `_param_eltype` promotes over every parameter. The composed `params` is now
-# a name-keyed `NamedTuple` (#351), so a NamedTuple is flattened over its values
+# a name-keyed `NamedTuple`, so a NamedTuple is flattened over its values
 # just like a tuple; a bare scalar is its own leaf.
 _flatten_params(t::Tuple) = mapreduce(_flatten_params, (a, b) -> (a..., b...), t;
     init = ())
@@ -907,7 +907,7 @@ end
 # set of event times, not a summary. The composer-level `rand` delegates to
 # `_composer_rand`, which branches on whether the composer is censored (its
 # components carry an origin primary event). A plain composer keeps the generic
-# per-leaf-value realisation (PR3a); a censored composer simulates the full
+# per-leaf-value realisation; a censored composer simulates the full
 # event-time path including the latent origin draw.
 
 # A composer is simulated through three regimes, selected by structure:
@@ -916,8 +916,8 @@ end
 #     return a NAMED event record keyed by `tree_event_names` (the missing
 #     unsampled Competing outcomes round-trip back through `logpdf`);
 #   - FLAT censored chain/set: the full event-time path `[E_0, ...]` vector
-#     (back-compat, the original PR3b shape);
-#   - plain composer: the generic per-leaf-value realisation (PR3a).
+#     (back-compat, the original censored-composer shape);
+#   - plain composer: the generic per-leaf-value realisation.
 
 # Sequential: dispatch on the nested/flat trait, then on whether the flat chain
 # carries primary censoring.
@@ -943,7 +943,7 @@ end
 # Flat censored chain: the full event-time path `[E_0, E_1, ..., E_k]` with `E_0`
 # the latent origin draw and each subsequent time the previous plus a
 # continuous-core delay draw, so every internal event time is in the result. A
-# plain chain keeps the generic per-leaf realisation (PR3a).
+# plain chain keeps the generic per-leaf realisation.
 function _composer_rand(::_Flat, rng::AbstractRNG, d::Sequential)
     _is_censored_composer(d.components) || return _composite_rand(
         rng, d.components, float(eltype(d)))
@@ -961,7 +961,7 @@ end
 
 # Flat censored set: the shared-origin event-time vector `[O, Y_1, ..., Y_n]`
 # with `O` the single shared origin draw and `Y_i = O + D_i`. Plain branches keep
-# the generic per-leaf realisation (PR3a).
+# the generic per-leaf realisation.
 function _composer_rand(::_Flat, rng::AbstractRNG, d::Parallel)
     primary = _is_censored_composer(d.components) ?
               _shared_primary_event(d.components) : nothing

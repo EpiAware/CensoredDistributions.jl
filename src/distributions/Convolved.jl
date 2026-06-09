@@ -174,7 +174,7 @@ end
 #
 # A `Convolved` is a sum of independent components, so the mean and variance
 # are EXACT and additive: `mean = sum(mean.(components))` and
-# `var = sum(var.(components))` (#352). No sampling, no discretisation. Where a
+# `var = sum(var.(components))`. No sampling, no discretisation. Where a
 # single component lacks an analytic moment, the per-component moment falls back
 # to deterministic PMF-weighting (discretise via `interval_censored`, then
 # `sum(p_i * x_i)`), which is more accurate than Monte-Carlo sampling. The
@@ -186,12 +186,12 @@ const _MOMENT_NBINS = 2000
 const _MOMENT_TAIL = 1e-9
 
 # Per-component mean. Uses the analytic `mean` where the component provides one,
-# otherwise the PMF-weighting fallback (#352). Dispatch (not `try`/`catch`)
+# otherwise the PMF-weighting fallback. Dispatch (not `try`/`catch`)
 # selects the fallback so the differentiated path stays AD-safe.
 _component_mean(c::UnivariateDistribution) = _moment_dispatch(c, Val(:mean))
 _component_mean(c::Convolved) = mean(c)
 
-# Per-component variance, analytic where available else PMF-weighting (#352).
+# Per-component variance, analytic where available else PMF-weighting.
 _component_var(c::UnivariateDistribution) = _moment_dispatch(c, Val(:var))
 _component_var(c::Convolved) = var(c)
 

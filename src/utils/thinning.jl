@@ -1,5 +1,5 @@
 # ============================================================================
-# Completeness / ascertainment thinning helpers (#349)
+# Completeness / ascertainment thinning helpers
 # ============================================================================
 #
 # Turing-free, distributions-led helpers for thinning a reproduction number (or

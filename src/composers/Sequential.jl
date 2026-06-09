@@ -7,8 +7,8 @@
 # `[0, d1, d1 + d2, ...]`: the origin sits at zero and each step adds an
 # independent draw from the next component. The components are plain
 # distributions and may themselves be composers, so chains nest recursively;
-# that nesting is the tree. This layer adds NO censored-internal behaviour
-# (#329): it is the generic composition only.
+# that nesting is the tree. This layer adds NO censored-internal behaviour:
+# it is the generic composition only.
 
 @doc raw"
 
@@ -74,7 +74,7 @@ function Sequential(components::C) where {C <: Tuple}
     return Sequential(components, _default_names(:step, length(components)))
 end
 
-@doc raw"
+@doc "
 
 Compose univariate distributions into a [`Sequential`](@ref) chain.
 
@@ -130,7 +130,7 @@ component_names(d::Sequential) = d.names
 
 @doc "
 
-Nested, name-keyed parameters of the chain (#351).
+Nested, name-keyed parameters of the chain.
 
 Returns a `NamedTuple` keyed by the step names, each value the `params` of that
 step (recursing into nested composers; a leaf delegates to its standard/extended

@@ -7,8 +7,8 @@
 # [`Competing`](@ref) / [`Parallel`](@ref), the alternatives share NO common
 # origin and carry NO branch probability: a single DATA field (the `selector`,
 # e.g. `:kind`) picks WHICH alternative scores / `rand`s / dispatches for a
-# given record. This is the index-vs-sourced split in the hanta model (#323,
-# #356): an `index` case (origin = its own infection) versus a `sourced` case
+# given record. This is the index-vs-sourced split in the hanta model:
+# an `index` case (origin = its own infection) versus a `sourced` case
 # (origin = the source's onset, coupled). Neither `Parallel` (shared origin,
 # product) nor `Competing` (shared origin, probabilistic mixture) fits; this is
 # a disjunctive node selected by data.
@@ -82,7 +82,7 @@ struct Select{N, K <: NTuple{N, Symbol}, A <: Tuple} <:
     end
 end
 
-@doc raw"
+@doc "
 
 Build a [`Select`](@ref) data-selected disjunction from `name => dist`
 alternatives.

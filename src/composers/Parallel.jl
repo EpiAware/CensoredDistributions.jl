@@ -6,10 +6,10 @@
 # independent branches sharing one origin. A realisation is the vector of branch
 # values `[v1, v2, ...]`, one per branch. The branches are plain, independent
 # distributions and may themselves be composers, so trees nest recursively; that
-# nesting is the tree. This layer adds NO censored-internal behaviour (#329): in
+# nesting is the tree. This layer adds NO censored-internal behaviour: in
 # particular it does NOT couple the branches through a shared latent origin (that
-# shared-origin specialisation is PR3b). Here the joint is simply the product of
-# the branch densities.
+# shared-origin specialisation is layered elsewhere). Here the joint is simply
+# the product of the branch densities.
 
 @doc raw"
 
@@ -71,7 +71,7 @@ function Parallel(components::C) where {C <: Tuple}
     return Parallel(components, _default_names(:branch, length(components)))
 end
 
-@doc raw"
+@doc "
 
 Compose univariate distributions into [`Parallel`](@ref) branches.
 
@@ -105,7 +105,7 @@ component_names(d::Parallel) = d.names
 
 @doc "
 
-Nested, name-keyed parameters of the branches (#351).
+Nested, name-keyed parameters of the branches.
 
 Returns a `NamedTuple` keyed by the branch names, each value the `params` of that
 branch (recursing into nested composers; a leaf delegates to its standard/

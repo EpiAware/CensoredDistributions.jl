@@ -9,9 +9,9 @@
 # probabilities, so the realisation is a single time (the marginal
 # time-to-resolution). Because it stays univariate it nests inside
 # [`Sequential`](@ref) / [`Parallel`](@ref) as an ordinary child. This layer adds
-# NO censored-internal behaviour (#329): the generic composition only.
+# NO censored-internal behaviour: the generic composition only.
 
-@doc raw"
+@doc "
 
 Competing outcomes composed from any univariate distributions: exactly one of
 several outcomes occurs, governed by branch probabilities summing to one.
@@ -47,7 +47,7 @@ struct Competing{C <: Tuple, D <: Tuple, P <: Tuple} <:
     branch_probs::P
 end
 
-@doc raw"
+@doc "
 
 Build a [`Competing`](@ref) node from `name => (delay, branch_prob)` outcomes.
 
@@ -142,12 +142,12 @@ end
 _n_branches(c::Competing) = length(c.names)
 
 # ---------------------------------------------------------------------------
-# Shared self-dispatch scoring (#329, #333)
+# Shared self-dispatch scoring
 # ---------------------------------------------------------------------------
 #
-# The Turing-free arithmetic of the `Competing` self-dispatch (#329 decision 2),
+# The Turing-free arithmetic of the `Competing` self-dispatch (decision 2),
 # factored here so BOTH the top-level `composed_distribution_model(d::Competing,
-# row)` (the DynamicPPL extension) and the NESTED tree scorer (#333) use ONE
+# row)` (the DynamicPPL extension) and the NESTED tree scorer use ONE
 # implementation rather than two parallel copies. Each helper consumes already-
 # resolved inputs (the observed-outcome index or `nothing`, the gap from the
 # node's anchor, and the per-record branch probabilities) and returns a plain
@@ -208,7 +208,7 @@ end
 #
 # Computed as `logsumexp_i (log p_i + logpdf(delay_i, t))` directly, NOT via
 # `MixtureModel(delays, float.(probs))`: `float.(probs)` strips an AD `Dual`/
-# tracked type from the probabilities (#372), breaking the gradient through a
+# tracked type from the probabilities, breaking the gradient through a
 # sampled / `logistic(Xβ)` branch probability on the MARGINALISED path. The
 # explicit reduction keeps the probabilities' element type, so a `Dual`
 # propagates exactly as it does on the conditioned path.
@@ -232,7 +232,7 @@ function _competing_logmix(probs, delays, t)
     return m + log(s)
 end
 
-@doc raw"
+@doc "
 
 Lower a [`Competing`](@ref) node to a `Distributions.MixtureModel`.
 

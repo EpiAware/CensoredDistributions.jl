@@ -1,8 +1,8 @@
-@doc raw"
+@doc "
 
 Simulate event-based draws (the full internal event times) from a distribution.
 
-Two dispatch paths share one name (#350):
+Two dispatch paths share one name:
 
 - **raw distribution (Turing-free, this method):** `predict_events(d, ...)`
   forward-simulates complete event paths directly from a latent or composed
@@ -61,7 +61,7 @@ function predict_events(
     return [rand(rng, d) for _ in 1:n]
 end
 
-@doc raw"
+@doc "
 
 Simulate one event-based draw per supplied parameter set.
 

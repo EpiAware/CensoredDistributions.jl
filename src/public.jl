@@ -17,7 +17,7 @@ public primarycensored_uniform_cdf_formula
 
 # The flat EVENT-name layout of a composed distribution (public but not
 # exported): the data-row key space, distinct from the EDGE names of
-# `event_names` (#362).
+# `event_names`.
 public tree_event_names
 
 # Composer step/branch/outcome names (public but not exported): used by the
@@ -25,7 +25,7 @@ public tree_event_names
 public component_names
 
 # Horizon-aware event-vector log density (public but not exported): the per-record
-# right-truncation entry point used by the composed record model (#329).
+# right-truncation entry point used by the composed record model.
 public event_logpdf
 
 # Sample a Competing outcome and its time as `(name, time)` (public but not

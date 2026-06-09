@@ -3,7 +3,7 @@
 # ============================================================================
 #
 # `compose` is a CONSTRUCTOR over the [`Sequential`](@ref) / [`Parallel`](@ref)
-# composers (#329): it does NOT introduce a new monolithic tree type. Three
+# composers: it does NOT introduce a new monolithic tree type. Three
 # friendly inputs all lower to the SAME nested composer stack:
 #
 # - a `NamedTuple` (named, recursive): a `Parallel` over the named children; a
@@ -18,7 +18,7 @@
 # The mappings are chosen so the three inputs build identical stacks for the
 # same structure, which the tests assert by `==` on the composed objects.
 
-@doc raw"
+@doc "
 
 Build a nested composer stack from a friendly front-end input.
 
@@ -64,7 +64,7 @@ function compose end
 # --- NamedTuple front-end --------------------------------------------------
 # A NamedTuple maps to a Parallel over its values, each value lowered by
 # `_compose_child`. The keys become the branch NAMES, threaded into the
-# `Parallel` so `params`/`params_table`/`show` are name-keyed (#351, Option A).
+# `Parallel` so `params`/`params_table`/`show` are name-keyed (Option A).
 # Structurally this still matches the table and matrix forms (`==` ignores
 # names); only the labels differ.
 #
@@ -110,7 +110,7 @@ end
 # branch and a one-row matrix is parallel leaf branches, matching the
 # NamedTuple/table forms for the same structure.
 #
-# Names thread through optional keyword arguments (#351, Option A): `names`
+# Names thread through optional keyword arguments (Option A): `names`
 # labels the row branches and `step_names` labels the columns within each
 # multi-step row. Both fall back to positional defaults (`:branch_i` /
 # `:step_j`) when omitted, so the matrix form still works name-free.
@@ -166,7 +166,7 @@ end
 # one Sequential branch (in row order); a zero/`missing` group is a leaf branch.
 # Branches appear in first-seen group order, matching the NamedTuple value order.
 # Each branch is named by the FIRST row of its group; the steps within a chained
-# branch are named by their own rows' `name` entries (#351, Option A).
+# branch are named by their own rows' `name` entries (Option A).
 function _compose_table_chained(dists, row_names, groups)
     # Group ids must be non-negative: a zero/`missing` group is a unique leaf,
     # to which a fresh negative id is assigned, so a negative user group would

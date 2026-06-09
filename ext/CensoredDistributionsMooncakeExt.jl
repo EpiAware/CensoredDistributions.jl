@@ -10,7 +10,7 @@ using Mooncake: Mooncake
 # types (e.g. `_gamma_cdf(k + 1, θ, t)` where `k + 1::Int`, a `Float32`
 # parameter, or `BigFloat` for higher-precision testing) hit the
 # explicit rule rather than falling back to Mooncake tracing the
-# function body. The forward `frule` is what closes #270: without it the
+# function body. The forward `frule` is what closes the gap: without it the
 # generated `frule!!` calls `ChainRulesCore.frule`, gets `nothing`, and
 # errors with `iterate(::Nothing)`.
 Mooncake.@from_chainrules Mooncake.DefaultCtx Tuple{typeof(_gamma_cdf), Real, Real, Real}
