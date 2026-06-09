@@ -51,6 +51,51 @@ _origin_primary_event(::Union{Sequential, Parallel}) = nothing
 _marginal_core(d::UnivariateDistribution) = get_dist_recursive(d)
 _marginal_core(d::Convolved) = d
 
+# The secondary interval censoring a leaf carries (its `IntervalCensored` layer),
+# recovered THROUGH the `Truncated` / `Weighted` wrappers, or `nothing` when the
+# leaf has none (uncensored or primary-only). The sim walk draws a continuous
+# delay from `_marginal_core` and then applies this interval to the RECORDED
+# event times, matching the scorer that floors each gap to its day. A
+# primary-only leaf returns `nothing`, so it stays continuous (no spurious
+# flooring). Dispatch on the node type is the whole selection.
+_leaf_interval(d::IntervalCensored) = d
+_leaf_interval(d::Truncated) = _leaf_interval(d.untruncated)
+_leaf_interval(d::Weighted) = _leaf_interval(d.dist)
+_leaf_interval(::UnivariateDistribution) = nothing
+
+# Apply a leaf's secondary interval to a recorded (continuous) event time: floor
+# to the regular width or snap to the arbitrary boundary, mirroring
+# `rand(::IntervalCensored)`. A `nothing` interval leaves the value continuous.
+_apply_leaf_interval(value, ::Nothing) = value
+function _apply_leaf_interval(value, d::IntervalCensored)
+    is_regular_intervals(d) &&
+        return floor_to_interval(value, interval_width(d))
+    return find_interval_boundary(value, d.boundaries)
+end
+
+# The secondary interval of the edge that ANCHORS a composer's origin: the first
+# step of a `Sequential` (recursing into a nested first step), the shared-origin
+# edge of a `Parallel`. The recorded origin slot is discretised to this interval
+# so a first-level gap (its event minus the origin) reflects `floor(target) -
+# floor(origin)` and is unbiased; a primary-only origin edge returns `nothing`,
+# leaving the origin continuous.
+_origin_interval(d::Sequential) = _origin_interval(d.components[1])
+_origin_interval(d::Parallel) = _shared_origin_interval(d.components)
+_origin_interval(d::Competing) = _shared_origin_interval(d.delays)
+_origin_interval(d::UnivariateDistribution) = _leaf_interval(d)
+
+# The shared origin interval of a `Parallel`/`Competing`: the branches hang off
+# one origin, so they must agree on its interval; the first non-`nothing` is
+# returned (a mismatch is a malformed shared origin, but the scorer/data already
+# assume one shared origin so this stays a simple first-found).
+function _shared_origin_interval(components)
+    @inbounds for c in components
+        iv = _origin_interval(c)
+        iv === nothing || return iv
+    end
+    return nothing
+end
+
 # Whether a component is itself a nested composer (a branch/step that recurses)
 # rather than a leaf edge. Dispatch on the type, so the recursion is selected at
 # compile time with no runtime type lookup. A `Competing` is univariate (a single
@@ -956,7 +1001,24 @@ function _composer_rand(::_Flat, rng::AbstractRNG, d::Sequential)
     @inbounds for i in eachindex(cores)
         times[i + 1] = times[i] + rand(rng, cores[i])
     end
-    return times
+    # Discretise the RECORDED times to each step's secondary interval, leaving the
+    # continuous chaining above untouched so a chained anchor keeps its sub-day
+    # jitter (flooring it would re-introduce the recovery bias).
+    return _discretise_flat_seq(times, d.components)
+end
+
+# Apply each step's secondary interval to the recorded chain times AFTER the
+# continuous walk. Slot `i + 1` is step `i`'s event; the origin slot is floored
+# to the origin edge's interval so a first-level gap is unbiased (a primary-only
+# origin edge leaves it continuous).
+function _discretise_flat_seq(times, components::Tuple)
+    out = copy(times)
+    out[1] = _apply_leaf_interval(times[1], _origin_interval(components[1]))
+    @inbounds for i in eachindex(components)
+        out[i + 1] = _apply_leaf_interval(times[i + 1], _leaf_interval(
+            components[i]))
+    end
+    return out
 end
 
 # Flat censored set: the shared-origin event-time vector `[O, Y_1, ..., Y_n]`
@@ -976,7 +1038,22 @@ function _composer_rand(::_Flat, rng::AbstractRNG, d::Parallel)
     @inbounds for i in eachindex(cores)
         out[i + 1] = o + rand(rng, cores[i])
     end
-    return out
+    # Discretise each branch endpoint to its own secondary interval; the shared
+    # origin slot stays continuous (the latent primary).
+    return _discretise_flat_par(out, d.components)
+end
+
+# Apply each branch's secondary interval to the recorded endpoints AFTER the
+# continuous draw. Slot `i + 1` is branch `i`'s endpoint; the shared origin slot
+# is floored to the shared origin edge's interval (unbiased first-level gaps).
+function _discretise_flat_par(out, components::Tuple)
+    res = copy(out)
+    res[1] = _apply_leaf_interval(out[1], _shared_origin_interval(components))
+    @inbounds for i in eachindex(components)
+        res[i + 1] = _apply_leaf_interval(out[i + 1], _leaf_interval(
+            components[i]))
+    end
+    return res
 end
 
 # ---------------------------------------------------------------------------
@@ -1006,6 +1083,15 @@ function _tree_event_vector(rng::AbstractRNG, d::Union{Sequential, Parallel})
     origin = convert(T, rand(rng, primary))
     out[1] = origin
     _tree_rand!(out, rng, d, origin, 2, T)
+    # Discretise the RECORDED event times to each leaf's secondary interval as a
+    # SEPARATE pass: the continuous walk above leaves every chaining anchor with
+    # its sub-day jitter (a later step hangs off the continuous terminal), and
+    # flooring an anchor mid-walk would re-introduce the recovery bias. The pass
+    # mirrors the same depth-first slot layout. The origin slot is floored to the
+    # origin edge's interval so first-level gaps are unbiased (a primary-only
+    # origin edge keeps it continuous), then each leaf slot to its own interval.
+    out[1] = _apply_leaf_interval(out[1], _origin_interval(d))
+    _discretise_event_record!(out, d, 2)
     return out
 end
 
@@ -1115,4 +1201,50 @@ end
 _tree_subtree_terminal(out, ::Parallel, origin, idx) = origin
 function _tree_subtree_terminal(out, d::Sequential, origin, idx)
     return out[idx + _terminal_offset(d)]
+end
+
+# --- Post-walk discretisation of a tree event record --------------------------
+#
+# After the continuous tree walk fills `out`, apply each LEAF's secondary
+# interval to its own recorded slot in a SEPARATE depth-first pass mirroring the
+# walk's slot layout. Run after the whole walk so every chaining anchor keeps its
+# sub-day jitter; flooring an anchor mid-walk would re-introduce the bias. The
+# origin slot is never touched (the latent primary stays continuous). Returns the
+# next free index, like `_tree_rand!`.
+function _discretise_event_record!(out, d::Sequential, event_start::Int)
+    idx = event_start
+    @inbounds for step in d.components
+        idx = _discretise_step!(out, step, idx)
+    end
+    return idx
+end
+
+function _discretise_event_record!(out, d::Parallel, event_start::Int)
+    idx = event_start
+    @inbounds for branch in d.components
+        idx = _discretise_step!(out, branch, idx)
+    end
+    return idx
+end
+
+# Discretise one step/branch's slots, advancing the cursor by its event-slot
+# count (a Competing spans one slot per outcome, #333).
+function _discretise_step!(out, step::Union{Sequential, Parallel}, idx::Int)
+    return _discretise_event_record!(out, step, idx)
+end
+
+function _discretise_step!(out, step::Competing, idx::Int)
+    n = _n_branches(step)
+    @inbounds for k in 1:n
+        out[idx + k - 1] === missing && continue
+        out[idx + k - 1] = _apply_leaf_interval(
+            out[idx + k - 1], _leaf_interval(step.delays[k]))
+    end
+    return idx + n
+end
+
+function _discretise_step!(out, step::UnivariateDistribution, idx::Int)
+    out[idx] === missing ||
+        (out[idx] = _apply_leaf_interval(out[idx], _leaf_interval(step)))
+    return idx + 1
 end
