@@ -87,18 +87,14 @@ _resolve_solver_method(method::AbstractSolverMethod, solver, force_numeric) = me
 _resolve_solver_method(::Nothing, solver, ::Nothing) = AnalyticalSolver(solver)
 
 # Deprecated route: `force_numeric` was supplied without a `method`.
-function _resolve_solver_method(::Nothing, solver, force_numeric)
+function _resolve_solver_method(::Nothing, solver, force_numeric::Bool)
     Base.depwarn(
         "`force_numeric` is deprecated; pass `method = NumericSolver()` to " *
         "force numeric integration or `method = AnalyticalSolver()` for the " *
         "analytical path (each optionally takes a quadrature solver).",
         :primary_censored)
-    return _legacy_force_numeric(force_numeric) ? NumericSolver(solver) :
-           AnalyticalSolver(solver)
+    return force_numeric ? NumericSolver(solver) : AnalyticalSolver(solver)
 end
-
-_legacy_force_numeric(force_numeric::Bool) = force_numeric
-_legacy_force_numeric(::Val{B}) where {B} = B
 
 @doc "
 Compute the CDF of a primary event censored distribution.
