@@ -141,13 +141,15 @@ md"""
 md"""
 ## Benchmark
 
-`DifferentiationInterfaceTest.benchmark_differentiation` runs every
-(backend, scenario) pair. We pass every backend and scenario so broken
-combinations show up as gaps rather than being hidden, except for the
-per-backend scenarios `ADFixtures.backend_skip_scenarios()` flags as
-uncatchable crashes (Enzyme aborts the whole process on the heterogeneous
-composer-tree recursion, issue #319); those pairs are dropped before the run
-so the benchmark cannot take the process down with it.
+`DifferentiationInterfaceTest.benchmark_differentiation` runs each backend
+over the scenarios it can differentiate. We exclude, per backend, the
+scenarios it cannot handle (`ADFixtures.backend_broken_scenarios`) and the
+ones flagged as uncatchable crashes (`ADFixtures.backend_skip_scenarios`):
+Enzyme segfaults the whole process on the heterogeneous composer-tree
+recursion and the compiled-backend pre-pass scenarios (#319/#333), and a
+`try`/`catch` cannot recover a segfault, so those pairs must be dropped
+before the run rather than caught afterwards. The `Scenarios` coverage column
+below then reports exactly how many scenarios each backend differentiates.
 The figures are the prepared per-call cost.
 DifferentiationInterface prepares each backend once, recording a tape for
 ReverseDiff and compiling a rule for Enzyme and Mooncake, and we time the
@@ -173,15 +175,25 @@ md"""
 ```
 """
 
-## Some (backend, scenario) pairs crash the process uncatchably (Enzyme on the
-## heterogeneous composer-tree recursion, #319), so a `try`/`catch` cannot save
-## the build. We therefore drop those pairs per backend before timing, mirroring
+## Some (backend, scenario) pairs crash the process uncatchably — Enzyme
+## segfaults (signal 11) on the heterogeneous composer-tree recursion and the
+## compiled-backend pre-pass scenarios (#319/#333) — so a `try`/`catch` cannot
+## save the build. We therefore drop, per backend, every scenario that backend
+## cannot differentiate (`backend_broken_scenarios`) plus the ones flagged for
+## an uncatchable abort (`backend_skip_scenarios`) before timing, mirroring
 ## `test/ad/setup.jl`, and benchmark each backend over only its runnable
-## scenarios. Backends with no skip list still see the full scenario set.
+## scenarios. The excluded pairs would have produced non-finite/erroring rows
+## that the downstream `isfinite` filter already drops, so the table is
+## unchanged for the scenarios each backend actually handles; only the process
+## no longer segfaults. Backends with no exclusions still see every scenario.
+broken_map = ADFixtures.backend_broken_scenarios()
 skip_map = ADFixtures.backend_skip_scenarios()
 raw_bench = mapreduce(vcat, all_backends) do backend
-    skip = get(skip_map, backend_name[backend], Set{String}())
-    runnable = filter(s -> !(s.name in skip), scenarios)
+    name = backend_name[backend]
+    excluded = union(
+        get(broken_map, name, Set{String}()),
+        get(skip_map, name, Set{String}()))
+    runnable = filter(s -> !(s.name in excluded), scenarios)
     DataFrame(DIT.benchmark_differentiation(
         [backend], runnable;
         logging = false,
