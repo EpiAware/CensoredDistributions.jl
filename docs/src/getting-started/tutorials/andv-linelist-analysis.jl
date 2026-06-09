@@ -197,9 +197,13 @@ for _ in 1:40
     push!(sim_rows, (kind = :sourced, delay = y, obs_time = 200.0))
 end
 
+# The likelihood evaluates a nested numerical convolution per record, so each
+# leapfrog step is expensive. We therefore use a short warmup, a modest number
+# of draws, and a capped NUTS tree depth (`max_depth = 4`) to keep the doc build
+# tractable; a real analysis would use a longer run.
 Random.seed!(20260608)
-sim_chain = sample(andv(sim_rows), NUTS(100, 0.9), MCMCThreads(), 150, 2;
-    progress = false)
+sim_chain = sample(andv(sim_rows), NUTS(50, 0.9; max_depth = 4),
+    MCMCThreads(), 100, 2; progress = false)
 nothing #hide
 
 # Posterior means against the simulating truth. The incubation period is
@@ -216,8 +220,8 @@ sim_summary = DataFrame(
 # The same model is fitted to the real records.
 
 Random.seed!(20260608)
-chain = sample(andv(rows), NUTS(100, 0.9), MCMCThreads(), 150, 2;
-    progress = false)
+chain = sample(andv(rows), NUTS(50, 0.9; max_depth = 4),
+    MCMCThreads(), 100, 2; progress = false)
 nothing #hide
 
 # ## Priors and posteriors
