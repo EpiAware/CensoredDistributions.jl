@@ -216,7 +216,7 @@ sim_summary = DataFrame(
 # The same model is fitted to the real records.
 
 Random.seed!(20260608)
-chain = sample(andv(rows), NUTS(0.9), MCMCThreads(), 250, 4; progress = false)
+chain = sample(andv(rows), NUTS(0.9), MCMCThreads(), 200, 2; progress = false)
 nothing #hide
 
 # ## Priors and posteriors
@@ -352,8 +352,8 @@ comparison
 # The result is a `delta` posterior that stays close to its prior, with a mean
 # near zero and a credible interval that spans both signs, in agreement with the
 # upstream finding that transmission clusters around source onset.
-# We report it from several chains with the pooled credible interval rather than
-# a single point estimate, and read it with its width in mind.
+# We report it from multiple chains as a pooled credible interval rather than a
+# single point estimate, and read it with its width in mind.
 delta_diag = DataFrame(
     parameter = ["mu_delta", "sigma_delta"],
     posterior_mean = round.([here.mu_delta.mean, here.sigma_delta.mean],
