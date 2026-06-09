@@ -558,9 +558,9 @@ end
 
     # Regression for #367: the analytic-vs-numeric solver choice must be a
     # type-level decision so the return type stays concrete even when the
-    # delay parameters arrive as runtime values (as in a Turing model) and
-    # `force_numeric` cannot be constant-folded through the nested keyword
-    # call chain.
+    # delay parameters arrive as runtime values (as in a Turing model). The
+    # default resolves to a concrete `AnalyticalSolver` via dispatch, with no
+    # reliance on constant-folding through the nested keyword call chain.
     build(shape,
         scale,
         nmax) = double_interval_censored(
@@ -568,12 +568,12 @@ end
     rt = only(Base.return_types(build, Tuple{Float64, Float64, Int}))
     @test isconcretetype(rt)
 
-    # Forcing numeric integration via a `Val` flag is also concrete.
+    # Passing a concrete solver method object is also concrete.
     build_num(shape,
         scale,
         nmax) = double_interval_censored(
         Gamma(shape, scale); interval = 1.0, upper = float(nmax),
-        force_numeric = Val(true))
+        method = NumericSolver())
     rt_num = only(Base.return_types(build_num, Tuple{Float64, Float64, Int}))
     @test isconcretetype(rt_num)
 

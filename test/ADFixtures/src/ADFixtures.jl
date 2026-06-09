@@ -171,11 +171,11 @@ function scenarios(; with_reference::Bool = false)
     #
     # Delay distributions are still written as literals rather than a
     # captured `ctor::Type`. Capturing a distribution `Type` in a function
-    # that also makes a keyword call (`force_numeric = ...`) trips an
+    # that also makes a keyword call (`method = ...`) trips an
     # upstream Enzyme forward-mode "mixed activity for jl_new_struct"
     # limitation (#278): the keyword-call lowering builds a struct mixing
     # the active `Type` and `Vector` fields with the inactive
-    # `force_numeric` flag. Literal constructors avoid the captured-`Type`
+    # solver-method flag. Literal constructors avoid the captured-`Type`
     # field, so Enzyme forward differentiates every scenario; the
     # analytical/numerical split and math are unchanged.
     _push!("PrimaryCensored Gamma+Uniform analytical",
@@ -190,7 +190,7 @@ function scenarios(; with_reference::Bool = false)
             obs) -> sum(
             x -> logpdf(
                 primary_censored(Gamma(θ[1], θ[2]), Uniform(0.0, 1.0);
-                    force_numeric = true), x),
+                    method = NumericSolver()), x),
             obs),
         [2.0, 1.5], (Constant(obs),))
     _push!("PrimaryCensored LogNormal+Uniform analytical",
@@ -206,7 +206,7 @@ function scenarios(; with_reference::Bool = false)
             obs) -> sum(
             x -> logpdf(
                 primary_censored(LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0);
-                    force_numeric = true), x),
+                    method = NumericSolver()), x),
             obs),
         [1.0, 0.75], (Constant(obs),))
     _push!("PrimaryCensored Weibull+Uniform analytical",
@@ -221,7 +221,7 @@ function scenarios(; with_reference::Bool = false)
             obs) -> sum(
             x -> logpdf(
                 primary_censored(Weibull(θ[1], θ[2]), Uniform(0.0, 1.0);
-                    force_numeric = true), x),
+                    method = NumericSolver()), x),
             obs),
         [2.0, 1.5], (Constant(obs),))
 
@@ -452,7 +452,7 @@ function scenarios(; with_reference::Bool = false)
             obs_hd) -> sum(
             i -> logpdf(
                 primary_censored(LogNormal(θ[i], 0.5), Uniform(0.0, 1.0);
-                    force_numeric = true),
+                    method = NumericSolver()),
                 obs_hd[i]),
             eachindex(obs_hd)),
         fill(1.0, n_hd), (Constant(obs_hd),))
@@ -469,7 +469,7 @@ function scenarios(; with_reference::Bool = false)
             obs_hd) -> sum(
             i -> logpdf(
                 primary_censored(Gamma(θ[i], 1.5), Uniform(0.0, 1.0);
-                    force_numeric = true),
+                    method = NumericSolver()),
                 obs_hd[i]),
             eachindex(obs_hd)),
         fill(2.0, n_hd), (Constant(obs_hd),))

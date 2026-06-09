@@ -9,31 +9,33 @@ the sum of the primary event time and the delay.
 
 # Method Selection
 
-The CDF computation is handled by `primarycensored_cdf` which automatically
-dispatches between:
-- **Analytical methods**: Available for these distribution pairs with Uniform
-  primary events when `force_numeric=false`:
+The CDF computation is handled by `primarycensored_cdf`, which dispatches on
+the `method`:
+- [`AnalyticalSolver`](@ref) (the default): closed-form solutions for these
+  distribution pairs with Uniform primary events, falling back to numeric
+  quadrature otherwise:
   - `Gamma` delay distribution
   - `LogNormal` delay distribution
   - `Weibull` delay distribution
-- **Numeric integration**: Falls back to quadrature for all other distribution
-  pairs or when `force_numeric=true`
+- [`NumericSolver`](@ref): always uses quadrature integration, which may be
+  necessary for certain AD backends or when debugging.
 
-Set `force_numeric=true` to always use numeric integration, which may be
-necessary for certain AD backends or when debugging.
+Passing the solver method as a concrete object keeps the return type concrete
+even when the delay parameters are runtime values (e.g. inside a probabilistic
+model), so it is preferred over the deprecated `force_numeric` flag.
 
 # Arguments
 - `dist`: The delay distribution from primary event to observation
 - `primary_event`: The distribution of primary event times within the window
 
 # Keyword Arguments
-- `solver`: Quadrature solver (default: `GaussLegendre(; n = 64)`, AD-friendly;
-  pass `QuadGKJL()` for adaptive accuracy)
-- `force_numeric`: Force numeric integration even when analytical available
-  (default: `Val(false)`). Accepts a `Bool` or a `Val`; pass `Val(true)` /
-  `Val(false)` to keep the return type concrete when the delay parameters are
-  runtime values (e.g. inside a probabilistic model), since a `Bool` only stays
-  type-stable when it can be constant-folded.
+- `method`: The solver method, an [`AnalyticalSolver`](@ref) or
+  [`NumericSolver`](@ref). Defaults to `AnalyticalSolver()`. Each takes an
+  optional quadrature solver, e.g. `NumericSolver(QuadGKJL())`.
+- `solver`: Quadrature solver used when `method` is not given (default:
+  `GaussLegendre(; n = 64)`, AD-friendly; pass `QuadGKJL()` for adaptive
+  accuracy).
+- `force_numeric`: Deprecated. Pass `method = NumericSolver()` instead.
 
 This is useful for modeling:
 - Infection-to-symptom onset times when infection time is uncertain
@@ -55,7 +57,8 @@ cdf_at_5 = cdf(d, 5.0)    # cumulative probability by 5 days
 q50 = quantile(d, 0.5)    # median
 
 # Force numeric integration for debugging or AD compatibility
-d_numeric = primary_censored(incubation, infection_window; force_numeric=true)
+d_numeric = primary_censored(incubation, infection_window;
+    method = NumericSolver())
 ```
 
 # See also
@@ -63,9 +66,10 @@ d_numeric = primary_censored(incubation, infection_window; force_numeric=true)
 "
 function primary_censored(
         dist::UnivariateDistribution, primary_event::UnivariateDistribution;
-        solver = GaussLegendre(; n = 64), force_numeric = Val(false))
-    method = _solver_method(solver, _force_numeric_val(force_numeric))
-    return PrimaryCensored(dist, primary_event, method)
+        method::Union{AbstractSolverMethod, Nothing} = nothing,
+        solver = GaussLegendre(; n = 64), force_numeric = nothing)
+    resolved = _resolve_solver_method(method, solver, force_numeric)
+    return PrimaryCensored(dist, primary_event, resolved)
 end
 
 @doc "
@@ -90,9 +94,10 @@ d2 = primary_censored(LogNormal(1.5, 0.75); primary_event=Uniform(0, 2))
 function primary_censored(
         dist::UnivariateDistribution;
         primary_event::UnivariateDistribution = Uniform(0, 1),
-        solver = GaussLegendre(; n = 64), force_numeric = Val(false))
-    return primary_censored(
-        dist, primary_event; solver = solver, force_numeric = force_numeric)
+        method::Union{AbstractSolverMethod, Nothing} = nothing,
+        solver = GaussLegendre(; n = 64), force_numeric = nothing)
+    return primary_censored(dist, primary_event; method = method,
+        solver = solver, force_numeric = force_numeric)
 end
 
 @doc "

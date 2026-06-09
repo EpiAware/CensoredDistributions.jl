@@ -79,7 +79,7 @@ pc_gamma_analytical = primary_censored(
 
 ## Force numerical integration
 pc_gamma_numerical = primary_censored(
-    gamma_delay, primary_uniform; force_numeric = true
+    gamma_delay, primary_uniform; method = NumericSolver()
 )
 
 ## Store solver types for display
@@ -148,7 +148,7 @@ function benchmark_cdf_methods(
     ## Create both versions
     d_analytical = primary_censored(dist, primary)
     d_numerical = primary_censored(
-        dist, primary; force_numeric = true
+        dist, primary; method = NumericSolver()
     )
 
     ## Benchmark at multiple x values
@@ -324,7 +324,7 @@ accuracy. Let's verify this:
 function compare_accuracy(dist, primary, name, x_range)
     d_analytical = primary_censored(dist, primary)
     d_numerical = primary_censored(
-        dist, primary; force_numeric = true
+        dist, primary; method = NumericSolver()
     )
 
     ## Compute CDFs

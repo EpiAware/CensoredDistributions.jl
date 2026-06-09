@@ -71,7 +71,7 @@ distribution pairs with Uniform primary events:
 - Weibull delay with Uniform primary
 
 All other combinations use numerical integration.
-Use `force_numeric=true` to force numerical integration.
+Pass `method = NumericSolver()` to force numerical integration.
 
 ## CI Integration
 

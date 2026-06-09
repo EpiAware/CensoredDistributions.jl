@@ -71,20 +71,34 @@ end
 AnalyticalSolver() = AnalyticalSolver(GaussLegendre(; n = 64))
 NumericSolver() = NumericSolver(GaussLegendre(; n = 64))
 
-# Select the solver method at the type level. Encoding the force-numeric
-# flag as a `Val` makes the analytic-vs-numeric choice a dispatch
-# decision rather than a value-level branch, so callers keep a concrete
-# return type without relying on constant propagation of a `Bool` through
-# nested keyword calls (#367).
-_solver_method(solver, ::Val{false}) = AnalyticalSolver(solver)
-_solver_method(solver, ::Val{true}) = NumericSolver(solver)
+# Resolve the solver method from the keyword arguments. Dispatching on the
+# argument types (rather than branching on a `Bool` value) keeps the return
+# type concrete without relying on constant propagation through nested
+# keyword calls. A passed `method` object, or the `nothing`/`nothing`
+# default, both resolve to a concrete type; only the deprecated
+# `force_numeric` path stays value-dependent.
 
-# Normalise the user-facing `force_numeric` flag to a `Val`. A `Val`
-# stays type-stable; a `Bool` only does when constant-folded, so passing
-# `Val(true)`/`Val(false)` guarantees a concrete return at runtime call
-# sites.
-_force_numeric_val(force_numeric::Val) = force_numeric
-_force_numeric_val(force_numeric::Bool) = force_numeric ? Val(true) : Val(false)
+# New route: an explicit solver method takes precedence and flows through
+# unchanged, so its concrete type fixes the distribution's element type.
+_resolve_solver_method(method::AbstractSolverMethod, solver, force_numeric) = method
+
+# Default route: no method and no `force_numeric`, prefer analytical (with
+# numeric fallback) using the chosen quadrature solver.
+_resolve_solver_method(::Nothing, solver, ::Nothing) = AnalyticalSolver(solver)
+
+# Deprecated route: `force_numeric` was supplied without a `method`.
+function _resolve_solver_method(::Nothing, solver, force_numeric)
+    Base.depwarn(
+        "`force_numeric` is deprecated; pass `method = NumericSolver()` to " *
+        "force numeric integration or `method = AnalyticalSolver()` for the " *
+        "analytical path (each optionally takes a quadrature solver).",
+        :primary_censored)
+    return _legacy_force_numeric(force_numeric) ? NumericSolver(solver) :
+           AnalyticalSolver(solver)
+end
+
+_legacy_force_numeric(force_numeric::Bool) = force_numeric
+_legacy_force_numeric(::Val{B}) where {B} = B
 
 @doc "
 Compute the CDF of a primary event censored distribution.
