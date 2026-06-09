@@ -6,6 +6,7 @@ getting_started_pages = Any[
         "Exponentially tilted primary events" => "getting-started/tutorials/exponentially-tilted-primary-events.md",
         "Automatic differentiation backends" => "getting-started/tutorials/ad-backends.md",
         "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md",
+        "The composer toolkit" => "getting-started/tutorials/composer-toolkit.md",
         "Fit marginal, sample event based" => "getting-started/tutorials/fit-marginal-sample-event-based.md",
         "Bundibugyo Ebola delays" => "getting-started/tutorials/bdbv-linelist-analysis.md"
     ],

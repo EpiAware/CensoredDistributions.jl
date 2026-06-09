@@ -23,6 +23,7 @@ if !skip_notebooks
         "exponentially-tilted-primary-events.jl",
         "ad-backends.jl",
         "fitting-with-turing.jl",
+        "composer-toolkit.jl",
         "fit-marginal-sample-event-based.jl",
         "bdbv-linelist-analysis.jl"
     ]
@@ -61,6 +62,7 @@ else
         "exponentially-tilted-primary-events.md" => "# Exponentially tilted primary events",
         "ad-backends.md" => "# [Automatic differentiation backends](@id ad-backends)",
         "fitting-with-turing.md" => "# Fitting with Turing.jl",
+        "composer-toolkit.md" => "# [The composer toolkit](@id composer-toolkit)",
         "fit-marginal-sample-event-based.md" => "# Fit marginal, sample event based",
         "bdbv-linelist-analysis.md" => "# Bundibugyo Ebola delays from the 2012 Isiro line list"
     ]
