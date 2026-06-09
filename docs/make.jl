@@ -25,7 +25,8 @@ if !skip_notebooks
         "fitting-with-turing.jl",
         "composer-toolkit.jl",
         "fit-marginal-sample-event-based.jl",
-        "bdbv-linelist-analysis.jl"
+        "bdbv-linelist-analysis.jl",
+        "andv-linelist-analysis.jl"
     ]
 
     println(
