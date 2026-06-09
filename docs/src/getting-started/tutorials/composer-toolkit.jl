@@ -66,7 +66,7 @@ par = Parallel(onset_admit, admit_death);
 
 cfr = 0.3;
 
-resolution = competing(:death => (Gamma(1.5, 1.0), cfr),
+resolution = competing_branch(:death => (Gamma(1.5, 1.0), cfr),
     :discharge => (Gamma(2.0, 1.5), 1 - cfr));
 
 # Its marginal is the time to resolution regardless of which outcome occurs.
@@ -79,7 +79,7 @@ mean(resolution)
 # Neither `Parallel` (shared origin) nor `Competing` (shared origin) expresses
 # this.
 
-selector = select(:index => onset_admit, :sourced => admit_death);
+selector = select_branch(:index => onset_admit, :sourced => admit_death);
 
 # Scoring names the active alternative through the `kind` keyword.
 
@@ -99,7 +99,7 @@ event_names(nested)
 
 # A `Select` can hold a `Select`, or a composed tree, as an alternative.
 
-select_on_select = select(:a => selector, :b => onset_admit);
+select_on_select = select_branch(:a => selector, :b => onset_admit);
 
 # A pre-built composer is a valid `Sequential` step, so a chain can carry a
 # `Competing` resolution as its terminal step.
@@ -250,8 +250,8 @@ get_event(updated, :onset_admit)
 # - [`Sequential`](@ref), [`Parallel`](@ref), [`Competing`](@ref), and
 #   [`Select`](@ref) are conjunctive chains, shared-origin branches, competing
 #   outcomes, and data-selected disjunctions.
-# - The composers nest, including a composer as a chain step and a `select` of a
-#   `select`.
+# - The composers nest, including a composer as a chain step and a
+#   `select_branch` of a `select_branch`.
 # - One object scores records and simulates them; scoring marginalises by row
 #   missingness, prediction is the generative `rand`.
 # - [`params_table`](@ref), [`build_priors`](@ref),
