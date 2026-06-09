@@ -71,6 +71,11 @@ export chain_to_params
 # alternatives). `Select` is the type; `select` the friendly constructor.
 export Select, select
 
+# Exported shared-parameter tag: tie a leaf across branches by name so the
+# prior/params interface treats its occurrences as one free parameter. `Shared`
+# is the type; `shared` the friendly constructor.
+export Shared, shared
+
 # Exported composer-observed lowering used by the external censoring wrappers
 export observed_distribution
 
@@ -123,6 +128,9 @@ include("composers/nesting.jl")
 include("composers/equality.jl")
 include("composers/compose.jl")
 include("composers/introspection.jl")
+# Shared (name-tagged tied leaf): after introspection so it can extend
+# `free_leaf`/`rewrap_leaf`, and before tree_events/wrap which traverse leaves.
+include("composers/Shared.jl")
 include("composers/tree_events.jl")
 include("composers/wrap.jl")
 
