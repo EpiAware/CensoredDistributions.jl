@@ -128,9 +128,16 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 set_theme!(theme_latexfonts(); fontsize = 14)
 
 scenarios = ADFixtures.scenarios()
-all_backends = [entry.backend for entry in ADFixtures.backends()]
 backend_name = Dict(entry.backend => entry.name
 for entry in ADFixtures.backends())
+
+## Enzyme is exercised live by its own per-backend AD CI (the badges above),
+## but running it inside the docs build can abort the whole Documenter process
+## natively. Exclude the Enzyme backends from the benchmark executed here so the
+## page renders reliably; the prose and badge table still describe all backends.
+bench_backends = [entry.backend
+                  for entry in ADFixtures.backends()
+                  if !startswith(backend_name[entry.backend], "Enzyme")]
 
 md"""
 ```@raw html
@@ -148,6 +155,12 @@ per-backend scenarios `ADFixtures.backend_skip_scenarios()` flags as
 uncatchable crashes (Enzyme aborts the whole process on the heterogeneous
 composer-tree recursion, issue #319); those pairs are dropped before the run
 so the benchmark cannot take the process down with it.
+
+The benchmark executed on this page excludes the Enzyme backends, because
+running Enzyme inside the documentation build can abort the whole process
+natively. Enzyme is still measured live by its own per-backend AD CI (the
+badges at the top of this page), and you can include it locally by removing
+the Enzyme filter from the setup code above.
 The figures are the prepared per-call cost.
 DifferentiationInterface prepares each backend once, recording a tape for
 ReverseDiff and compiling a rule for Enzyme and Mooncake, and we time the
@@ -179,7 +192,7 @@ md"""
 ## `test/ad/setup.jl`, and benchmark each backend over only its runnable
 ## scenarios. Backends with no skip list still see the full scenario set.
 skip_map = ADFixtures.backend_skip_scenarios()
-raw_bench = mapreduce(vcat, all_backends) do backend
+raw_bench = mapreduce(vcat, bench_backends) do backend
     skip = get(skip_map, backend_name[backend], Set{String}())
     runnable = filter(s -> !(s.name in skip), scenarios)
     DataFrame(DIT.benchmark_differentiation(

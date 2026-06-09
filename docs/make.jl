@@ -24,16 +24,19 @@ if !skip_notebooks
     light_tutorials = [
         "analytical-primarycensored-cdfs.jl",
         "exponentially-tilted-primary-events.jl",
-        "ad-backends.jl",
         "composer-toolkit.jl",
         "fit-marginal-sample-event-based.jl"
     ]
 
-    # Heavy tutorials: live MCMC fits plus CairoMakie/PairPlots. Run each in its
-    # own subprocess with `execute = true` so the captured outputs become static
-    # ````julia```` blocks; Documenter then renders without re-executing, and no
-    # state accumulates across tutorials in the long-lived Documenter process.
+    # Heavy tutorials: live MCMC fits or a multi-backend AD benchmark, plus
+    # CairoMakie / AlgebraOfGraphics / PairPlots. Run each in its own subprocess
+    # with `execute = true` so the captured outputs become static ````julia````
+    # blocks; Documenter then renders without re-executing, and no native or
+    # memory state accumulates across tutorials in the long-lived Documenter
+    # process. `ad-backends` runs AD over many backends and Makie plots, so it
+    # is isolated here too.
     heavy_tutorials = [
+        "ad-backends.jl",
         "fitting-with-turing.jl",
         "bdbv-linelist-analysis.jl",
         "andv-linelist-analysis.jl"
