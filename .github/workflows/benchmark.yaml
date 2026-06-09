@@ -1,14 +1,36 @@
 name: Benchmark
 
+# Custom benchmark comparison that covers the evaluation AND AD gradient
+# suites against `main`, and posts a single PR comment grouped into
+# "Changed vs main" (inline) and "All benchmarks" (collapsed), each split
+# into Evaluation and AD gradients.
+#
+# Each revision is benchmarked in its own checkout (the PR working tree
+# and a `main` git worktree), so `main` runs `main`'s sources and AD
+# fixtures while the PR runs its own. This is what lets the AD gradient
+# benchmarks be compared across an API change, where staging one set of
+# fixtures against both packages (the previous AirspeedVelocity setup)
+# could not.
+#
+# Uses `pull_request` (not `pull_request_target`): the comparison runs the
+# PR's own code, so the workflow under test is the PR's and the
+# comment-posting token stays scoped to same-repo PRs. Fork PRs get a
+# read-only token and will not post a comment.
+
 on:
-  pull_request_target:
+  pull_request:
     branches: [main]
     paths:
       - 'src/**'
+      - 'ext/**'
       - 'benchmark/**'
+      - 'test/ADFixtures/**'
+      - '.github/workflows/benchmark.yaml'
 
 permissions:
+  contents: read
   pull-requests: write
+  issues: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,29 +39,60 @@ concurrency:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
-      # Full checkout: AirspeedVelocity's action reads the repo-root
-      # `Project.toml` (to get the package name) and benchmarks `src/` +
-      # `benchmark/`, so the working tree needs the whole package, not a
-      # sparse slice.
+      # Full history so the `main` worktree can be created below.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
 
-      # `benchmark/Project.toml` declares ADFixtures as a path source at
-      # `../test/ADFixtures`. AirspeedVelocity runs `benchpkg`, which calls
-      # `mktempdir()` (default `/tmp/`) and copies just
-      # `benchmark/Project.toml` into that env. Pkg then resolves the
-      # relative source path to `/tmp/test/ADFixtures` — which doesn't
-      # exist, so the run aborts before any benchmarking. Staging
-      # ADFixtures into `/tmp/test/` gives Pkg the path it expects without
-      # touching the action or the project file.
-      - name: Stage ADFixtures for AirspeedVelocity
-        run: |
-          mkdir -p /tmp/test
-          cp -r test/ADFixtures /tmp/test/ADFixtures
-
-      - uses: MilesCranmer/AirspeedVelocity.jl@action-v1
+      - uses: julia-actions/setup-julia@v3
         with:
-          julia-version: '1'
-          mode: 'time,memory'
+          version: '1'
+      - uses: julia-actions/cache@v3
+
+      - name: Benchmark PR
+        run: |
+          julia --project=benchmark -e '
+            using Pkg
+            Pkg.develop(path = pwd())
+            Pkg.instantiate()'
+          julia --project=benchmark benchmark/run.jl benchmark pr.json
+
+      - name: Benchmark main
+        run: |
+          git fetch --no-tags origin main
+          git worktree add --detach main-checkout origin/main
+          julia --project=main-checkout/benchmark -e '
+            using Pkg
+            Pkg.develop(path = joinpath(pwd(), "main-checkout"))
+            Pkg.instantiate()'
+          julia --project=main-checkout/benchmark \
+            benchmark/run.jl main-checkout/benchmark main.json
+
+      - name: Compare
+        run: |
+          julia --project=benchmark benchmark/compare.jl \
+            pr.json main.json comment.md
+
+      - name: Post comparison comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('comment.md', 'utf8');
+            const marker = '<!-- benchmark-comparison -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number });
+            const existing = comments.find(
+              (c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment(
+                { owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment(
+                { owner, repo, issue_number, body });
+            }
