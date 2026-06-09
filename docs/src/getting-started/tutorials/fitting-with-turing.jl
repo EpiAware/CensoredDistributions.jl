@@ -42,8 +42,8 @@ backends](@ref ad-backends) for the support matrix and per-backend benchmarks).
 
 ## Packages used
 We use Turing for probabilistic programming, FlexiChains for the chain output,
-DataFrames for the record table, CairoMakie with PairPlots for the posterior
-overlays, and Random for reproducibility.
+DataFramesMeta for the record table, CairoMakie with PairPlots for the
+posterior overlays, and Random for reproducibility.
 """
 
 using CensoredDistributions
@@ -51,7 +51,7 @@ using Distributions
 using Turing
 using DynamicPPL: to_submodel
 using FlexiChains: VNChain
-using DataFrames
+using DataFramesMeta
 using CairoMakie, PairPlots
 using Random
 using Statistics
