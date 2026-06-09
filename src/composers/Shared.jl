@@ -5,7 +5,7 @@
 # `shared(:inc, dist)` tags a leaf with a NAME so two occurrences carrying the
 # same tag are ONE free parameter, not two. A parameter can appear in several
 # branches of a tree (e.g. an incubation `inc` in BOTH the index and sourced
-# branches of a `select`); without a tie the prior/params interface would
+# branches of a `select_branch`); without a tie the prior/params interface would
 # inventory, sample and update each occurrence independently and duplicate the
 # shared parameter. A `Shared` tag lets the interface dedup BY NAME: inventory
 # once, sample once, place the one sampled value in every occurrence.
@@ -64,9 +64,9 @@ sampling.
 ```@example
 using CensoredDistributions, Distributions
 
-# The same incubation `inc` tied across two branches of a `select`.
+# The same incubation `inc` tied across two branches of a `select_branch`.
 inc = shared(:inc, Gamma(2.0, 1.0))
-d = select(:index => inc,
+d = select_branch(:index => inc,
     :sourced => compose((src = LogNormal(0.5, 0.4), inc = inc)))
 event_names(d)
 ```
