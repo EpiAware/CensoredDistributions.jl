@@ -525,6 +525,15 @@ that scales with the parameter's magnitude.
 # Arguments
 - `row`: a [`params_table`](@ref) row `(; edge, param, value, support)`.
 
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+# A positive-support scale parameter -> a positive-truncated default.
+default_prior((; edge = :onset_admit, param = :scale,
+    value = 1.0, support = (0.0, Inf)))
+```
+
 # See also
 - [`build_priors`](@ref): assembles the nested prior NamedTuple, using this as
   the per-row default and accepting overrides.

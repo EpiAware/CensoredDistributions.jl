@@ -229,6 +229,18 @@ _row_horizon(row::NamedTuple) = CensoredDistributions._row_horizon_field(row)
 # covariate CFR `logistic(Xβ)` flows in exactly as for the top-level node.
 @model function composed_distribution_model(
         d::Union{Sequential, Parallel}, row::NamedTuple; weight = nothing)
+    # A NamedTuple of equal-length columns IS a Tables.jl table (a `columntable`),
+    # not one record; route it to the vectorised table path. A scalar-valued row
+    # NamedTuple is not a table and scores as one record below.
+    if Tables.istable(row)
+        weight === nothing || throw(ArgumentError(
+            "the vectorised composed model takes per-row weights via a reserved " *
+            "`weight`/`count` row field, not the `weight` keyword"))
+        recs = CensoredDistributions.record_distributions(d, row)
+        obs ~ to_submodel(_vectorised_records_model(
+            recs, _record_obs_matrix(recs)))
+        return obs
+    end
     scored = _apply_branch_probs_override(d, row)
     events = _event_vector(scored, row)
     w = _row_weight(row, weight)
@@ -493,6 +505,17 @@ end
 # delegating so the alternative sees only its events (plus any reserved weight).
 @model function composed_distribution_model(
         d::Select, row::NamedTuple; weight = nothing)
+    # A column table (a `columntable` NamedTuple) is the whole table, not one
+    # record; route it to the vectorised path. A scalar-valued row is not a table.
+    if Tables.istable(row)
+        weight === nothing || throw(ArgumentError(
+            "the vectorised composed model takes per-row weights via a reserved " *
+            "`weight`/`count` row field, not the `weight` keyword"))
+        recs = CensoredDistributions.record_distributions(d, row)
+        obs ~ to_submodel(_vectorised_records_model(
+            recs, _record_obs_matrix(recs)))
+        return obs
+    end
     kind = row[d.selector]
     kind isa Symbol || throw(ArgumentError(
         "the Select selector field $(repr(d.selector)) must hold a Symbol " *
