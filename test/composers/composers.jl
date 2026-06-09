@@ -487,8 +487,70 @@ end
         default = row -> truncated(Normal(row.value, 1); lower = -10))
     @test mixed.onset_admit.shape == Normal(2, 0.5)
 
-    # A row with no prior and no default errors.
-    @test_throws ArgumentError build_priors(tbl)
+    # With no default and an uncovered row, building errors.
+    @test_throws ArgumentError build_priors(tbl; default = nothing)
+end
+
+@testitem "build_priors derives support-based defaults (brms-style)" begin
+    using Distributions
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    tbl = params_table(tree)
+
+    # No priors/default supplied: every row gets a support-derived default.
+    nested = build_priors(tbl)
+    @test Set(keys(nested)) == Set((:onset_admit, :admit_death))
+    # Positive-support scale/shape -> positive-truncated Normal.
+    @test nested.onset_admit.shape isa Truncated
+    @test minimum(nested.onset_admit.shape) == 0
+    @test nested.onset_admit.scale isa Truncated
+    # A location parameter (LogNormal mu) -> unconstrained Normal.
+    @test nested.admit_death.mu isa Normal
+    @test nested.admit_death.sigma isa Truncated
+
+    # default_prior is the per-row default and reads the support directly.
+    @test default_prior((; edge = :e, param = :p, value = 0.5,
+        support = (0.0, 1.0))) == Uniform(0, 1)
+    @test default_prior((; edge = :e, param = :scale, value = 2.0,
+        support = (0.0, Inf))) isa Truncated
+    @test default_prior((; edge = :e, param = :mu, value = -1.0,
+        support = (0.0, Inf))) isa Normal
+end
+
+@testitem "build_priors takes a nested-NamedTuple partial override" begin
+    using Distributions
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    tbl = params_table(tree)
+
+    # Override only one parameter; the rest keep their support-based defaults.
+    nested = build_priors(tbl;
+        priors = (onset_admit = (shape = Normal(9, 9),),))
+    @test nested.onset_admit.shape == Normal(9, 9)
+    @test nested.onset_admit.scale isa Truncated
+    @test nested.admit_death.mu isa Normal
+end
+
+@testitem "get_subtree pulls a named subtree from a composed dist" begin
+    using Distributions
+
+    tree = compose((
+        admit_path = compose((onset_admit = Gamma(2.0, 1.0),
+            admit_death = LogNormal(0.5, 0.4))),
+        onset_recover = Gamma(3.0, 1.0)))
+
+    # A single name matches get_event.
+    @test get_subtree(tree, :admit_path) === get_event(tree, :admit_path)
+    @test get_subtree(tree, :onset_recover) == Gamma(3.0, 1.0)
+    # A multi-name path descends to the leaf.
+    @test get_subtree(tree, :admit_path, :admit_death) == LogNormal(0.5, 0.4)
+    # A dotted-path Symbol (as in params_table's edge column) is equivalent.
+    @test get_subtree(tree, Symbol("admit_path.onset_admit")) == Gamma(2.0, 1.0)
+    # A bad name throws.
+    @test_throws KeyError get_subtree(tree, :admit_path, :missing_edge)
+    @test_throws ArgumentError get_subtree(tree)
 end
 
 @testitem "shared tags a leaf and is transparent to scoring" begin

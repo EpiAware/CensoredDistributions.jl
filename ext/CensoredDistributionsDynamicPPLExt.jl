@@ -17,6 +17,7 @@ using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
 using Distributions: Distributions, UnivariateDistribution, logpdf,
                      product_distribution
 using Random: AbstractRNG, default_rng
+import Tables
 
 # `CensoredDistributions.weight(d, w)` is called with the module qualifier
 # because the `weight` keyword argument shadows the function name inside the
@@ -228,6 +229,18 @@ _row_horizon(row::NamedTuple) = CensoredDistributions._row_horizon_field(row)
 # covariate CFR `logistic(Xβ)` flows in exactly as for the top-level node.
 @model function composed_distribution_model(
         d::Union{Sequential, Parallel}, row::NamedTuple; weight = nothing)
+    # A NamedTuple of equal-length columns IS a Tables.jl table (a `columntable`),
+    # not one record; route it to the vectorised table path. A scalar-valued row
+    # NamedTuple is not a table and scores as one record below.
+    if Tables.istable(row)
+        weight === nothing || throw(ArgumentError(
+            "the vectorised composed model takes per-row weights via a reserved " *
+            "`weight`/`count` row field, not the `weight` keyword"))
+        recs = CensoredDistributions.record_distributions(d, row)
+        obs ~ to_submodel(_vectorised_records_model(
+            recs, _record_obs_matrix(recs)))
+        return obs
+    end
     scored = _apply_branch_probs_override(d, row)
     events = _event_vector(scored, row)
     w = _row_weight(row, weight)
@@ -291,6 +304,24 @@ function composed_distribution_model(
         "the vectorised composed model takes per-row weights via a reserved " *
         "`weight`/`count` row field, not the `weight` keyword"))
     recs = CensoredDistributions.record_distributions(d, rows)
+    return _vectorised_records_model(recs, _record_obs_matrix(recs))
+end
+
+# A whole Tables.jl table (e.g. a `DataFrame`) scores in one `~` like the vector
+# entry: a DataFrame IS a Tables.jl source, so the doc passes it straight in
+# instead of iterating rows. `record_distributions` consumes any Tables.jl source
+# directly, so the table flows through the same vectorised record path; a single
+# `NamedTuple` row and a `Vector` of rows keep their own (more specific) methods,
+# so only a column table (a DataFrame) lands here.
+function composed_distribution_model(
+        d::Union{Sequential, Parallel, Select}, table; weight = nothing)
+    Tables.istable(table) || throw(ArgumentError(
+        "composed_distribution_model(d, table) takes a NamedTuple row, a vector " *
+        "of rows, or a Tables.jl table; got $(typeof(table))"))
+    weight === nothing || throw(ArgumentError(
+        "the vectorised composed model takes per-row weights via a reserved " *
+        "`weight`/`count` row field, not the `weight` keyword"))
+    recs = CensoredDistributions.record_distributions(d, table)
     return _vectorised_records_model(recs, _record_obs_matrix(recs))
 end
 
@@ -474,6 +505,17 @@ end
 # delegating so the alternative sees only its events (plus any reserved weight).
 @model function composed_distribution_model(
         d::Select, row::NamedTuple; weight = nothing)
+    # A column table (a `columntable` NamedTuple) is the whole table, not one
+    # record; route it to the vectorised path. A scalar-valued row is not a table.
+    if Tables.istable(row)
+        weight === nothing || throw(ArgumentError(
+            "the vectorised composed model takes per-row weights via a reserved " *
+            "`weight`/`count` row field, not the `weight` keyword"))
+        recs = CensoredDistributions.record_distributions(d, row)
+        obs ~ to_submodel(_vectorised_records_model(
+            recs, _record_obs_matrix(recs)))
+        return obs
+    end
     kind = row[d.selector]
     kind isa Symbol || throw(ArgumentError(
         "the Select selector field $(repr(d.selector)) must hold a Symbol " *

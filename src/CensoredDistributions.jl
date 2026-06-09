@@ -60,7 +60,8 @@ export Sequential, Parallel, Competing, competing, compose, as_mixture
 # Exported composed-distribution introspection: the flat prior table and
 # name introspection. Nested name-keyed values come from the extended
 # `Distributions.params`.
-export params_table, event_names, get_event, update, build_priors
+export params_table, event_names, get_event, get_subtree, update, build_priors,
+       default_prior
 
 # Exported per-edge delay moments: all edge means / variances of a composed
 # distribution at once, keyed by edge name (sees through censored leaves).

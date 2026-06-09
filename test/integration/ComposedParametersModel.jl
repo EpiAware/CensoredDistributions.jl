@@ -303,6 +303,65 @@ end
     @test length(rand(ready)) == 2
 end
 
+@testitem "update(template, chain) == update via chain_to_params" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: VNChain
+
+    template = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    priors = build_priors(params_table(template))
+
+    @model function fit(t, p, ys)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        for y in ys
+            DynamicPPL.@addlogprob! logpdf(d, y)
+        end
+        return d
+    end
+
+    Random.seed!(212)
+    ys = [[0.5, 2.0], [1.0, 3.0], [0.8, 2.5]]
+    chain = sample(fit(template, priors, ys), NUTS(), 60;
+        chain_type = VNChain, progress = false)
+
+    # The chain overload matches threading chain_to_params by hand.
+    @test update(template, chain) ==
+          update(template, chain_to_params(template, chain))
+    # A single draw too.
+    @test update(template, chain; draw = 5) ==
+          update(template, chain_to_params(template, chain; draw = 5))
+    # Result is the right structure and ready to sample.
+    ready = update(template, chain)
+    @test ready isa CensoredDistributions.Parallel
+    @test event_names(ready) == event_names(template)
+end
+
+@testitem "composed_distribution_model accepts a Tables.jl table" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL
+    import Tables
+
+    seq = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    rows = [(onset = 0.0, admit = 2.0, death = 5.0),
+        (onset = 1.0, admit = missing, death = 7.0)]
+    # A column table is a Tables.jl source (what a DataFrame is, structurally),
+    # not a single NamedTuple row nor a Vector of rows.
+    tbl = Tables.columntable(rows)
+    @test Tables.istable(tbl)
+    @test !(tbl isa AbstractVector)
+
+    @model demo_tbl(d, t) = obs ~ to_submodel(composed_distribution_model(d, t))
+    @model demo_vec(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # The table path matches the per-record (vector) path exactly.
+    @test only(logjoint(demo_tbl(seq, tbl), (;))) ≈
+          only(logjoint(demo_vec(seq, rows), (;)))
+
+    # A non-table second argument errors clearly.
+    @test_throws ArgumentError composed_distribution_model(seq, 3)
+end
+
 @testitem "composed_parameters_model: shared param sampled once, placed everywhere" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Random
 
