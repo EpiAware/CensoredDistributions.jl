@@ -7,83 +7,78 @@ module CensoredDistributionsFlexiChainsExt
 using CensoredDistributions: CensoredDistributions, Sequential, Parallel,
                              Competing, Select, component_names
 import CensoredDistributions: chain_to_params, update
-using DynamicPPL: DynamicPPL
-using FlexiChains: FlexiChains, VarName
-import Statistics
+using FlexiChains: FlexiChains
+using Statistics: mean
 
-# Build the full chain VarName for a free parameter: the submodel `~`-bound
-# `prefix` is the root and the edge path + parameter name become nested
-# `Property` optics over the `Iden` base, matching the optic a submodel-sampled
-# parameter carries (e.g. prefix `:d`, path `(:onset_admit, :shape)` ->
-# `d.onset_admit.shape`).
-function _full_varname(prefix::Symbol, path::Tuple)
-    APPL = DynamicPPL.AbstractPPL
-    optic = APPL.Iden()
-    for name in reverse(path)
-        optic = APPL.Property{name}(optic)
+# Read a chain's free parameters into a `String`-keyed lookup, so the tree-walk
+# matches each template parameter by its dotted name instead of rebuilding a
+# `VarName` optic per parameter. The chain keys ARE the submodel-prefixed
+# `VarName`s (e.g. `d.onset_admit.shape`); their `string` is the dotted path the
+# walk forms. For posterior means we read `mean(chain)` once (every parameter
+# mean, keyed by `VarName`); for a single draw we index that parameter's column.
+function _value_lookup(chain, draw)
+    vns = FlexiChains.parameters(chain)
+    if draw === nothing
+        means = mean(chain)
+        return Dict(string(vn) => means[vn] for vn in vns)
     end
-    return VarName{prefix}(optic)
+    return Dict(string(vn) => vec(chain[vn])[draw] for vn in vns)
 end
 
-# Read one parameter's value from the chain: posterior mean over all draws, or a
-# single draw when `draw` is set. Returns `nothing` if the parameter is absent
-# (a `KeyError`, e.g. a `Competing`'s branch probabilities kept fixed in the
-# template); any other error propagates.
-function _read_value(chain, vn, draw)
-    samples = try
-        chain[vn]
-    catch err
-        err isa KeyError && return nothing
-        rethrow()
-    end
-    return draw === nothing ? Statistics.mean(samples) : samples[draw]
-end
+# Look up one parameter by its dotted name (`prefix.path...`); `nothing` if
+# absent (e.g. a `Competing`'s branch probabilities kept fixed in the template).
+_read_value(lookup, key) = get(lookup, key, nothing)
+
+# Form the dotted name a submodel-sampled parameter carries: the `~`-bound
+# `prefix` then the edge path and parameter name (e.g. prefix `:d`, path
+# `(:onset_admit, :shape)` -> `"d.onset_admit.shape"`), matching `string(vn)`.
+_dotted(prefix::Symbol, path::Tuple) = join(string.((prefix, path...)), ".")
 
 # Build the nested NamedTuple by walking the template, so its key order matches
 # `params(template)` (deterministic, not Dict-ordered). Each node reads its
-# children/parameters from the chain at the running name `path`.
+# children/parameters from `lookup` at its running dotted name.
 
-function _node_params(d::Union{Sequential, Parallel}, chain, prefix, path, draw)
+function _node_params(d::Union{Sequential, Parallel}, lookup, prefix, path)
     names = component_names(d)
     vals = map(zip(names, d.components)) do (name, child)
-        _node_params(child, chain, prefix, (path..., name), draw)
+        _node_params(child, lookup, prefix, (path..., name))
     end
     return NamedTuple{names}(Tuple(vals))
 end
 
-function _node_params(c::Competing, chain, prefix, path, draw)
+function _node_params(c::Competing, lookup, prefix, path)
     delays = map(zip(c.names, c.delays)) do (name, delay)
-        _node_params(delay, chain, prefix, (path..., name), draw)
+        _node_params(delay, lookup, prefix, (path..., name))
     end
     base = NamedTuple{c.names}(Tuple(delays))
     # Branch probabilities only appear in the chain when sampled (a prior was
     # supplied); otherwise omit so `update` keeps the template's fixed values.
     bp = map(c.names) do name
-        _read_value(chain,
-            _full_varname(prefix, (path..., :branch_probs, name)), draw)
+        _read_value(lookup, _dotted(prefix, (path..., :branch_probs, name)))
     end
     any(x -> x === nothing, bp) && return base
     return merge(base, (; branch_probs = NamedTuple{c.names}(Tuple(bp))))
 end
 
-# Leaf: read each free parameter (in `_leaf_param_names` order) from the chain.
+# Leaf: read each free parameter (in `_leaf_param_names` order) from `lookup`.
 # A leaf parameter is always sampled, so a missing one signals a chain that does
 # not match the template (wrong prefix, or not the chain that produced it);
 # error rather than build a NamedTuple with a `nothing` value.
-function _node_params(leaf, chain, prefix, path, draw)
+function _node_params(leaf, lookup, prefix, path)
     pnames = CensoredDistributions._leaf_param_names(leaf)
     vals = map(pnames) do p
-        v = _read_value(chain, _full_varname(prefix, (path..., p)), draw)
+        key = _dotted(prefix, (path..., p))
+        v = _read_value(lookup, key)
         v === nothing && throw(ArgumentError(
-            "leaf parameter $(_full_varname(prefix, (path..., p))) " *
-            "not found in chain"))
+            "leaf parameter $key not found in chain"))
         v
     end
     return NamedTuple{pnames}(Tuple(vals))
 end
 
 function chain_to_params(template, chain; prefix::Symbol = :d, draw = nothing)
-    return _node_params(template, chain, prefix, (), draw)
+    lookup = _value_lookup(chain, draw)
+    return _node_params(template, lookup, prefix, ())
 end
 
 # Update a composed distribution directly from a fitted chain, so docs call
