@@ -204,7 +204,7 @@ function pdf(d::IntervalCensored, x::Real)
     # For lower bound at or below distribution minimum, CDF is 0.
     # `_cdf_ad_safe` routes `Gamma` through `_gamma_cdf` so the boundary
     # CDF stays differentiable; stock `cdf(Gamma, x)` hits `gamma_inc`,
-    # which no AD backend can push `Dual`/tracked numbers through (#257).
+    # which no AD backend can push `Dual`/tracked numbers through.
     cdf_lower = lower <= dist_min ? 0.0 : _cdf_ad_safe(get_dist(d), lower)
 
     # For upper bound at or above distribution maximum, CDF is 1
@@ -321,7 +321,7 @@ function pdf(d::IntervalCensored, x::AbstractVector{<:Real})
     end
 
     # Compute CDFs once for all unique boundaries using functional approach.
-    # `_cdf_ad_safe` keeps the `Gamma` path differentiable (see #257).
+    # `_cdf_ad_safe` keeps the `Gamma` path differentiable.
     cdf_lookup = Dict(
         boundary => T(_cdf_ad_safe(get_dist(d), boundary))
     for boundary in boundaries)
@@ -361,7 +361,7 @@ function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
     end
 
     # Route through the AD-safe helpers so the `Gamma` path stays
-    # differentiable rather than hitting `gamma_inc` directly (#257).
+    # differentiable rather than hitting `gamma_inc` directly.
     f_safe = f === logcdf ? _logcdf_ad_safe : _cdf_ad_safe
 
     if is_regular_intervals(d)

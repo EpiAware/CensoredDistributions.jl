@@ -5,7 +5,7 @@ using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS, TYPEDEF, TYPE
                            TYPEDSIGNATURES
 using Random: AbstractRNG, default_rng
 
-# Explicit imports approach for issue #121
+# Explicit imports approach
 # Import functions that we extend (for method extension)
 import Distributions: params, insupport, pdf, logpdf, cdf, logcdf,
                       ccdf, logccdf, quantile, mean, var, std, median, sampler,
@@ -30,7 +30,7 @@ import Tables
 
 # AbstractTrees provides the composer tree interface (children/printnode) that
 # drives both the recursive `show` (via `print_tree`) and the `params`/
-# `params_table` traversal (#351).
+# `params_table` traversal.
 import AbstractTrees
 
 import FastGaussQuadrature  # provides Gauss-Legendre nodes for the default solver
@@ -57,12 +57,12 @@ export convolve_distributions
 # Exported generic composers and front-end constructor
 export Sequential, Parallel, Competing, competing, compose, as_mixture
 
-# Exported composed-distribution introspection (#351): the flat prior table and
+# Exported composed-distribution introspection: the flat prior table and
 # name introspection. Nested name-keyed values come from the extended
 # `Distributions.params`.
 export params_table, event_names, get_event, update, build_priors
 
-# Exported chain reader (#353 follow-up): read a fitted Turing chain into the
+# Exported chain reader: read a fitted Turing chain into the
 # nested NamedTuple `update` consumes. No method until DynamicPPL (or Turing) is
 # loaded; the method lives in the package extension.
 export chain_to_params
@@ -80,7 +80,7 @@ export truncate_to_horizon, truncate_chain
 # Exported utilities
 export weight, get_dist, get_dist_recursive, get_primary_event
 
-# Exported thinning helpers (#349): completeness / ascertainment thinning,
+# Exported thinning helpers: completeness / ascertainment thinning,
 # Turing-free and distributions-led.
 export completeness_probability, thin_by_completeness
 
@@ -112,7 +112,7 @@ include("censoring/double_interval_censored.jl")
 include("distributions/ExponentiallyTilted.jl")
 include("distributions/Convolved.jl")
 
-# Right-truncation helpers (#339): depend on Convolved / convolve_distributions.
+# Right-truncation helpers: depend on Convolved / convolve_distributions.
 include("censoring/truncation.jl")
 
 include("composers/Sequential.jl")
@@ -131,7 +131,7 @@ include("utils/get_dist.jl")
 include("utils/quantile_optimization.jl")
 include("utils/thinning.jl")
 
-# Censored specialisations of the generic composers (#329, PR3b): included last
+# Censored specialisations of the generic composers: included last
 # as they depend on the composers, the censored types, `get_dist_recursive`
 # (utils/get_dist.jl) and the integration helpers.
 include("composers/censored_specialisations.jl")
@@ -141,11 +141,11 @@ include("composers/censored_specialisations.jl")
 # `_composer_rand`) and the row-parsing helpers in `tree_events.jl`.
 include("composers/record_dists.jl")
 
-# Turing-free `primary_censored_model` function stub (#88, PR2). Has no methods
+# Turing-free `primary_censored_model` function stub. Has no methods
 # until DynamicPPL is loaded; the methods live in the package extension.
 include("turing_models.jl")
 
-# Turing-free `predict_events` raw-distribution methods (#350): forward-simulate
+# Turing-free `predict_events` raw-distribution methods: forward-simulate
 # event paths from a latent/composed distribution. The fitted-model
 # `predict_events(chain, model)` method lives in the DynamicPPL extension.
 include("utils/predict_events.jl")

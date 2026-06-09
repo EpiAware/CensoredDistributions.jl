@@ -3,7 +3,7 @@
 # any composer is a FLAT vector of leaf values; a nested child contributes its
 # own flat sub-vector, so nesting is pure concatenation and that nesting is the
 # tree. These helpers do the flat-slice recursion shared by `Sequential` and
-# `Parallel`. This layer adds NO censored-internal behaviour (#329).
+# `Parallel`. This layer adds NO censored-internal behaviour.
 
 # A composable child is any univariate distribution (a leaf or a `Competing`) or
 # a nested `Sequential` / `Parallel` / `Select`. Used to validate composer
@@ -40,12 +40,12 @@ _child_nleaves(c::Union{Sequential, Parallel}) = length(c)
 # Total leaf count over a tuple of children.
 _nleaves(components::Tuple) = sum(_child_nleaves, components)
 
-# Number of EVENT slots a child contributes to the flat EVENT vector (#333).
+# Number of EVENT slots a child contributes to the flat EVENT vector.
 # Distinct from `_child_nleaves` (the generic VALUE-vector layout): a `Competing`
 # node contributes ONE value (its marginal time-to-resolution) to the value
 # vector but exposes one EVENT slot PER OUTCOME so a record's death/discharge
 # columns each land in their own slot and the observed outcome is identified
-# positionally (#329 self-dispatch). Every other child contributes the same count
+# positionally (self-dispatch). Every other child contributes the same count
 # as `_child_nleaves`, so the value and event layouts coincide for Competing-free
 # trees and `length`/the generic value path are untouched.
 _event_child_nleaves(c) = _child_nleaves(c)

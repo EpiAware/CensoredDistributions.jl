@@ -25,7 +25,7 @@ using Random: AbstractRNG, default_rng
 const _weight = CensoredDistributions.weight
 
 # ===========================================================================
-# Leaf submodels (#88, PR2)
+# Leaf submodels
 # ===========================================================================
 
 # Marginal: the primary event is integrated out inside `logpdf`, so score the
@@ -64,7 +64,7 @@ end
 end
 
 # ===========================================================================
-# Generic record entry: composed_distribution_model (#335, PR3d; #350)
+# Generic record entry: composed_distribution_model
 # ===========================================================================
 #
 # `composed_distribution_model(d, row)` is the SINGLE generic entry for a whole
@@ -80,7 +80,7 @@ end
 # event order `E_0, E_1, ..., E_k` the composer's components span (a Tables.jl
 # linelist row IS such a NamedTuple, so a row passes straight in). `missing`
 # fields are the per-record signal that drives the marginalise-vs-condition
-# dispatch (#329). A reserved `weight`/`count` field (or the `weight =` keyword)
+# dispatch. A reserved `weight`/`count` field (or the `weight =` keyword)
 # scales the likelihood and is EXCLUDED from the event dispatch.
 #
 # Marginal vs latent is DISPATCH on the STRUCT TYPE (not a runtime predicate),
@@ -88,12 +88,12 @@ end
 #   - a bare composer (`Sequential` / `Parallel` / `Competing`) is MARGINAL: it
 #     scores the row vector via `~ d`, so the censored composer `logpdf`
 #     auto-marginalises unobserved intermediates / the origin and conditions on
-#     observed events (#329). The submodel log-density equals the direct
+#     observed events. The submodel log-density equals the direct
 #     `logpdf(d, event_vector)`, and missing fields drive the per-record path.
 #   - a `latent`-wrapped composer turns the shared/origin primary ON: the origin
 #     `o ~ ...` is declared INSIDE the model (so the sampled origin lives in the
 #     VarInfo and the model fits AND generates the full event path), each
-#     observed downstream event conditions on `o` through its own edge (#329),
+#     observed downstream event conditions on `o` through its own edge,
 #     and unobserved intermediates marginalise by convolving the adjacent cores.
 # Per-record/branch latents are namespaced by `prefix` at the call site (see the
 # composer tests), so chains stay readable and groupable.
@@ -106,7 +106,7 @@ end
 # `weight =` keyword still applies and overrides a row weight.
 
 # A `PrimaryCensored` (marginal) -> the primary-censored leaf model. A reserved
-# `obs_time` row field right-truncates the marginal leaf at that horizon (#329);
+# `obs_time` row field right-truncates the marginal leaf at that horizon;
 # the leaf is observed from the origin, so its window is the horizon itself. The
 # truncated leaf is a plain univariate, so it routes through the univariate
 # marginal model; without a horizon the correctly named primary-censored model is
@@ -147,7 +147,7 @@ end
 # leaf model. A bare `Latent{<:PrimaryCensored}` is handled above; the composer
 # `Latent{<:Sequential}` / `Latent{<:Parallel}` methods below are multivariate
 # and dispatch ahead of this univariate fallback. A reserved `obs_time` row field
-# right-truncates the leaf at that horizon (#329).
+# right-truncates the leaf at that horizon.
 function composed_distribution_model(
         d::UnivariateDistribution, row; weight = nothing)
     return double_interval_censored_model(
@@ -187,12 +187,12 @@ _leaf_weight(row::NamedTuple, kw_weight) = _row_weight(row, kw_weight)
 #
 # The pure row -> event-vector / reserved-field parsing now lives in the CORE
 # (`src/composers/tree_events.jl`, Turing-free) so the per-record and batched
-# (#364) paths share one source of truth. These thin aliases keep the ext's local
+# paths share one source of truth. These thin aliases keep the ext's local
 # names while delegating to the core helpers.
 
 # Reserved row fields that are NOT events come from the CORE (`tree_events.jl`),
-# shared by the per-record and batched (#364) paths. They include the per-record
-# Competing branch-probability override (#333) `branch_probs`, so it is excluded
+# shared by the per-record and batched paths. They include the per-record
+# Competing branch-probability override `branch_probs`, so it is excluded
 # from by-name event matching for a nested Competing tree too.
 const _RESERVED_ROW_FIELDS = CensoredDistributions._RESERVED_ROW_FIELDS
 
@@ -214,13 +214,13 @@ _row_horizon(row::NamedTuple) = CensoredDistributions._row_horizon_field(row)
 # `row` argument), so the contribution is added with `@addlogprob!` rather than a
 # sampled `~`, leaving no spurious VarInfo variable (matching the leaf marginal,
 # which has no latent). The composer dispatches on the event vector's
-# `Missing`-admitting element type and per-record missingness pattern (#329):
+# `Missing`-admitting element type and per-record missingness pattern:
 # unobserved intermediates / a missing origin marginalise, observed events
 # condition on their declared censoring. The contribution equals
 # `logpdf(d, event_vector)`, scaled by the row weight, so the submodel
 # log-density equals the direct `logpdf`.
 #
-# A NESTED `Competing` node (#333) is scored by the same path: its outcome
+# A NESTED `Competing` node is scored by the same path: its outcome
 # columns occupy one event slot each (`tree_event_names`), so the observed
 # outcome is identified positionally and `_tree_step(::Competing)` conditions on
 # that branch. A per-record `branch_probs` field OVERRIDES the (single) nested
@@ -237,7 +237,7 @@ _row_horizon(row::NamedTuple) = CensoredDistributions._row_horizon_field(row)
 end
 
 # Rebuild a composed tree with the per-record `branch_probs` override applied to
-# its single nested `Competing` node (#333), or return it unchanged when the row
+# its single nested `Competing` node, or return it unchanged when the row
 # carries no override. The override is coerced + validated against that node's
 # outcomes via the SHARED core helper, then the tree is rebuilt with the new
 # probabilities (their element type preserved so a covariate `Dual` flows). The
@@ -321,8 +321,8 @@ end
 
 _record_has_observed(r) = any(v -> v !== missing, r.events)
 
-# A `Competing` node SELF-DISPATCHES on the row's outcome missingness (#329
-# decision 2), mirroring the observed-intermediate dispatch of a chain:
+# A `Competing` node SELF-DISPATCHES on the row's outcome missingness
+# (decision 2), mirroring the observed-intermediate dispatch of a chain:
 #
 #   - EXACTLY ONE outcome's event time observed in the row -> CONDITION on that
 #     branch: `log(p[obs]) + logpdf(delay[obs], gap)`, the observed branch's own
@@ -338,7 +338,7 @@ _record_has_observed(r) = any(v -> v !== missing, r.events)
 #   (b) COVARIATE-DRIVEN      -> a reserved `branch_probs` ROW field (a NamedTuple
 #       of outcome -> prob, or a scalar for a two-outcome node giving the FIRST
 #       outcome's probability) OVERRIDES the stored probabilities per record. This
-#       is how a covariate CFR `logistic(Xβ)` (computed in PLAIN TURING, #329
+#       is how a covariate CFR `logistic(Xβ)` (computed in PLAIN TURING,
 #       decision 2) flows in per record; the regression stays OUT of the node, the
 #       node only CONSUMES the probability. Validated to lie in `[0, 1]` and (for
 #       a NamedTuple) to sum to one across outcomes.
@@ -347,7 +347,7 @@ _record_has_observed(r) = any(v -> v !== missing, r.events)
 #
 # The observed OUTCOME (which outcome column is non-missing, Feature 1's by-name
 # missingness) and the per-record PROBABILITY (the reserved `branch_probs` field)
-# are DISTINCT row inputs (#362 interaction). The whole record is DATA, so the
+# are DISTINCT row inputs. The whole record is DATA, so the
 # contribution is added with `@addlogprob!` (no spurious VarInfo variable).
 @model function composed_distribution_model(
         d::Competing, row::NamedTuple; weight = nothing)
@@ -366,7 +366,7 @@ const _COMPETING_RESERVED = (_RESERVED_ROW_FIELDS..., :resolved)
 # The branch probabilities to USE for this record: a reserved `branch_probs` row
 # field overrides the node's stored probabilities (regime b), else the stored ones
 # (regime a). The coercion + validation is the SHARED core helper
-# (`_coerce_branch_probs`), so the top-level and nested (#333) paths agree on the
+# (`_coerce_branch_probs`), so the top-level and nested paths agree on the
 # NamedTuple/scalar override semantics.
 function _competing_branch_probs(d::Competing, row::NamedTuple)
     haskey(row, :branch_probs) || return d.branch_probs
@@ -375,7 +375,7 @@ end
 
 # The competing log-density for one record under branch probabilities `probs`,
 # scaled by the weight `w`, optionally right-truncated at the per-record horizon
-# (#329 hanta). Selects condition / marginalise / fully-missing from the row's
+# (hanta). Selects condition / marginalise / fully-missing from the row's
 # outcome missingness. A `horizon` right-truncates the conditioned branch delay
 # (resp. the mixture) at the horizon (the competing time is measured from the
 # origin, so the window is the horizon itself).
@@ -451,7 +451,7 @@ _marginal_logprob(d, x, ::Nothing) = logpdf(d, x)
 _marginal_logprob(d, x, w) = w * logpdf(d, x)
 
 # Marginal event-vector log-density of a censored composer, optionally right-
-# truncated at the per-record observation horizon (#329 hanta), scaled by the
+# truncated at the per-record observation horizon (hanta), scaled by the
 # weight `w`. With `horizon === nothing` this is the untruncated composer logpdf
 # (back-compat); a horizon routes through `event_logpdf`, which wraps each
 # already-factorised observed segment in `truncate_to_horizon`.
@@ -520,16 +520,16 @@ end
 # namespaces per-record latents.
 
 # A latent composer declares every internal event time as an indexed `~` over the
-# SAME flat event layout the marginal scoring uses (#329, #361): entry 1 is the
+# SAME flat event layout the marginal scoring uses: entry 1 is the
 # root origin `E_0`, then one slot per LEAF event in depth-first order. A FLAT
 # chain/branch set is handled directly by the loop; a NESTED composer step/branch
 # is unrolled to its leaf events by `_latent_leaf_plan`, so the latent twin
-# recurses through an irregular tree exactly as the marginal `_tree_score` does
-# (#361). The plan is a PURE-INTEGER description of the tree (which leaf hangs off
+# recurses through an irregular tree exactly as the marginal `_tree_score` does.
+# The plan is a PURE-INTEGER description of the tree (which leaf hangs off
 # which already-sampled event, with which continuous core), built from the same
 # `_child_nleaves` / `_terminal_offset` helpers; the model body then runs one
 # indexed `~` per leaf, so a missing event samples and an observed event scores
-# its gap through the edge core (#329). Keeping every `~` in the model body (the
+# its gap through the edge core. Keeping every `~` in the model body (the
 # plan is just data) avoids nested-submodel prefixing and keeps the AD backends on
 # the same shape they already differentiate for the flat latent loop.
 
@@ -556,7 +556,7 @@ function _latent_plan!(plan, d::Sequential, origin_idx::Int, event_start::Int)
         _latent_plan_step!(plan, step, o_idx, ev_idx)
         o_idx = ev_idx + CensoredDistributions._terminal_offset(step)
         # Advance by EVENT slots (a Competing step would span one slot per
-        # outcome, #333), matching the marginal scorer's layout.
+        # outcome), matching the marginal scorer's layout.
         ev_idx += CensoredDistributions._event_child_nleaves(step)
     end
     return plan
@@ -571,7 +571,7 @@ function _latent_plan!(plan, d::Parallel, origin_idx::Int, event_start::Int)
     return plan
 end
 
-# A nested `Competing` in a LATENT-wrapped composer is out of scope (#333): the
+# A nested `Competing` in a LATENT-wrapped composer is out of scope: the
 # latent turn-on must SAMPLE which outcome occurs and its time, a distinct
 # multivariate construction not built here. Reject it clearly rather than
 # mis-index the event slots. The MARGINAL composer model handles a nested
@@ -580,7 +580,7 @@ end
 function _latent_plan_step!(plan, ::Competing, o_idx::Int, ev_idx::Int)
     throw(ArgumentError(
         "a latent-wrapped composer with a nested Competing node is not " *
-        "supported (#333); score it through the marginal composed model " *
+        "supported; score it through the marginal composed model " *
         "(condition on the observed outcome / pass per-record branch_probs)"))
 end
 
@@ -605,7 +605,7 @@ end
 # event layout (origin then one slot per leaf event). The origin `E_0` is the
 # latent primary (`e[1] ~ origin`); each leaf event time is its predecessor plus
 # the edge delay, declared as a shifted `~` (`e[j] ~ _ShiftedDelay(core, e[s])`),
-# so an observed event scores its gap through the edge's declared censoring (#329)
+# so an observed event scores its gap through the edge's declared censoring
 # and a missing event samples it. A nested composer step recurses through
 # `_latent_plan!`, so an irregular tree samples its full sub-path. Indexed
 # VarNames `e[i]` give each event a distinct name; the likelihood is scaled by the
@@ -683,10 +683,10 @@ Distributions.pdf(d::_ShiftedDelay, y::Real) = exp(logpdf(d, y))
 Base.rand(rng::AbstractRNG, d::_ShiftedDelay) = d.shift + rand(rng, d.delay)
 
 # ===========================================================================
-# predict_events (#350): recover observed records' latent event times
+# predict_events: recover observed records' latent event times
 # ===========================================================================
 
-@doc raw"
+@doc "
 
 Recover the observed records' integrated-out latent event times from a
 marginal-fit posterior.
@@ -696,7 +696,7 @@ extra latent dimensions), then call `predict_events(chain, model)` to recover th
 internal event times of the records you fit, by running the LATENT form of the
 same model over the fitted posterior. This works because the marginal and latent
 forms are one family sharing the same parameter names together with the
-marginal-equals-latent equivalence (#301), so the marginal-fit posterior drops
+marginal-equals-latent equivalence, so the marginal-fit posterior drops
 straight into the latent form. It delegates to `DynamicPPL.predict`: the latent
 `model` is executed conditioned on each parameter draw in `chain`, re-sampling the
 event variables the marginal chain does not carry. The observed events are
@@ -741,16 +741,16 @@ end
 #
 # `composed_parameters_model(template, priors)` is a submodel that SAMPLES a
 # composed distribution's free parameters from user priors and RETURNS the
-# reconstructed distribution, ready for the matching record submodel to score
-# (#353). It completes the prior workflow: `compose` -> `params_table` (the
-# inventory, #351) -> the user keys priors against it -> this helper materialises
+# reconstructed distribution, ready for the matching record submodel to score.
+# It completes the prior workflow: `compose` -> `params_table` (the
+# inventory) -> the user keys priors against it -> this helper materialises
 # the sampling submodel.
 #
 # `priors` is a nested `NamedTuple` mirroring `params(template)`: a leaf is keyed
 # by its parameter names (`_leaf_param_names`), a `Sequential`/`Parallel` by its
 # edge/event names, a `Competing` by its outcome names plus an optional
 # `branch_probs` entry. The traversal REUSES the composers' `component_names` and
-# the leaf `params`/`_leaf_param_names` introspection (#351) for both structure
+# the leaf `params`/`_leaf_param_names` introspection for both structure
 # and names, never re-walking the tree by hand, and rebuilds the SAME structure
 # and names so the result matches the record submodel's by-name expectations
 # (Option A).
@@ -919,7 +919,7 @@ end
 
 # Dispatch a node to its parameter submodel: a composer to its composer model, a
 # `Competing` to its competing model, any other (leaf) distribution to the leaf
-# model. Mirrors the `params`/`params_table` traversal dispatch (#351).
+# model. Mirrors the `params`/`params_table` traversal dispatch.
 _params_submodel(d::Union{Sequential, Parallel}, priors) = _composer_params_model(d, priors)
 _params_submodel(c::Competing, priors) = _competing_params_model(c, priors)
 _params_submodel(leaf, priors) = _leaf_params_model(leaf, priors)

@@ -149,7 +149,7 @@ distribution.
   (`row[d.selector]`, default `:kind`), whose value names the active
   alternative, and delegates to that selected alternative's own model. The
   selector field is stripped before delegating, so the alternative sees only its
-  own events. This is the data-driven index-vs-sourced split (#356).
+  own events. This is the data-driven index-vs-sourced split.
 
 Unlike the leaf models, this entry never misnames the distribution: a
 `Sequential` of double-censored edges is composed, not 'primary censored'. The
@@ -199,7 +199,7 @@ function composed_distribution_model end
 @doc "
 
 Build a DynamicPPL submodel that samples a composed distribution's parameters
-from user priors and returns the reconstructed distribution (#353).
+from user priors and returns the reconstructed distribution.
 
 A `template` composed distribution (from [`compose`](@ref)) defines the parameter
 inventory; [`params_table`](@ref) lists it. The user supplies `priors`, a nested

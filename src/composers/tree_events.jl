@@ -1,8 +1,8 @@
 # ============================================================================
-# Tree EVENT names and by-name row -> event-vector mapping (#362)
+# Tree EVENT names and by-name row -> event-vector mapping
 # ============================================================================
 #
-# A composed distribution carries two distinct name spaces (#362):
+# A composed distribution carries two distinct name spaces:
 #
 #   - EDGE names (`k` of them for a `k`-edge composer): the `names` field used by
 #     `params_table` / `composed_parameters_model`. PARAMETERS belong to edges
@@ -57,7 +57,7 @@ end
 
 @doc "
 
-The flat EVENT names of a composed distribution (#362).
+The flat EVENT names of a composed distribution.
 
 Returns the tuple of event names matching the scored event vector
 `[E_0, E_1, ..., E_k]`: the root origin event followed by one target event per
@@ -163,7 +163,7 @@ function _walk_edge!(names, edge_name::Symbol,
     return _nested_terminal_name(child, names, origin)
 end
 
-# A nested `Competing` edge contributes one EVENT name per OUTCOME (#333),
+# A nested `Competing` edge contributes one EVENT name per OUTCOME,
 # anchored at the parent `origin`: the death/discharge columns of a record are
 # each their own event slot, so the observed outcome is identified by which slot
 # is present. The outcome names replace the single opaque resolution event; the
@@ -203,18 +203,18 @@ end
 # keeping a single source of truth for the by-name row matching.
 
 # Reserved row fields that are NOT events: a multiplicity weight (`weight` /
-# `count`), a per-record observation horizon (`obs_time`, the #329 hanta
+# `count`), a per-record observation horizon (`obs_time`, the hanta
 # right-truncation observation time D), and a per-record Competing branch-
-# probability override (`branch_probs`, #333) that rides a nested-Competing tree
+# probability override (`branch_probs`) that rides a nested-Competing tree
 # row and is excluded from by-name event matching.
 const _RESERVED_ROW_FIELDS = (:weight, :count, :obs_time, :branch_probs)
 
 # The event values of a row in field order, dropping the reserved weight/count
 # fields, as a `Vector{Union{Missing, Float64}}` (one entry per event, `missing`
 # admitted). The `Missing`-admitting element type keeps the censored composer
-# `logpdf` specialisation (#329) selected even for an all-observed row. This is
+# `logpdf` specialisation selected even for an all-observed row. This is
 # the POSITIONAL fallback, used only when a composer carries no derivable event
-# names (its edges are positional defaults), per #362.
+# names (its edges are positional defaults).
 function _row_event_vector(row::NamedTuple)
     ks = filter(k -> !(k in _RESERVED_ROW_FIELDS), keys(row))
     out = Vector{Union{Missing, Float64}}(undef, length(ks))
@@ -226,7 +226,7 @@ function _row_event_vector(row::NamedTuple)
 end
 
 # The event vector for a composer `d` from a `row`, matched to the tree's flat
-# EVENT names BY NAME (#362): `row.onset, row.admit, row.death` land in their
+# EVENT names BY NAME: `row.onset, row.admit, row.death` land in their
 # slots regardless of field order, `missing` fields drive the dispatch, and a
 # reserved field is excluded. When the tree's event names are all positional
 # defaults (`:event_i`), the row is matched POSITIONALLY (the fallback).
@@ -266,7 +266,7 @@ function _row_weight_field(row::NamedTuple, kw_weight)
 end
 
 # The per-record observation horizon D carried by a row's reserved `obs_time`
-# field (#329 hanta): present and non-missing right-truncates the record at the
+# field (hanta): present and non-missing right-truncates the record at the
 # horizon; absent or missing means no truncation (back-compat).
 function _row_horizon_field(row::NamedTuple)
     haskey(row, :obs_time) || return nothing

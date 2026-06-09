@@ -22,7 +22,7 @@ end
 # `@from_chainrules` lift in `CensoredDistributionsMooncakeExt` (ForwardDiff
 # dispatches on `Dual` types directly, so it never reaches here). Without
 # this, Mooncake's forward lift calls `ChainRulesCore.frule`, which returns
-# `nothing` for an undefined rule and trips `iterate(::Nothing)` (#270).
+# `nothing` for an undefined rule and trips `iterate(::Nothing)`.
 function ChainRulesCore.frule(
         (_, Δk, Δθ, Δx), ::typeof(_gamma_cdf), k::Real, θ::Real, x::Real)
     Ω, dk, dθ, dx = _gamma_cdf_value_and_partials(k, θ, x)

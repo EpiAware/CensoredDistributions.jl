@@ -11,7 +11,7 @@ using SpecialFunctions: gamma, digamma
 # single source-of-truth helper shared with the ChainRules rrule and
 # the ForwardDiff Dual path. Routing `_gamma_cdf` through this rule
 # avoids Enzyme differentiating `SpecialFunctions.gamma_inc` directly
-# (the cause of #259 — the previous `@import_rrule` lift returned a
+# (the previous `@import_rrule` lift returned a
 # `k`-partial that was ~8% off).
 
 EnzymeRules.@easy_rule(_gamma_cdf(k::Real, θ::Real, x::Real),
@@ -29,7 +29,7 @@ EnzymeRules.@easy_rule(_gamma_cdf(k::Real, θ::Real, x::Real),
 # wrong by a factor of `Γ(x)` in both modes (upstream bug). The
 # analytical Gamma and Weibull `primarycensored_cdf` paths call
 # `gamma(k + 1)` / `gamma(1 + 1/k)` outside the `_gamma_cdf` rule, so
-# without this the pipeline shape-partial is wrong (#263).
+# without this the pipeline shape-partial is wrong.
 EnzymeRules.@easy_rule(gamma(x::Real), (Ω * digamma(x),))
 
 end

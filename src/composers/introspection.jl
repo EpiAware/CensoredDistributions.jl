@@ -1,5 +1,5 @@
 # ============================================================================
-# Prior introspection for composed distributions (#351, Option A)
+# Prior introspection for composed distributions (Option A)
 # ============================================================================
 #
 # After `compose(structure)`, these helpers read the composed distribution's
@@ -26,7 +26,7 @@
 # EXTERNAL code can traverse our trees; our own paths never use it.
 #
 # Distributions-led: this reads structure + `params` + `support`; it is not a
-# model generator (#328) and stays Turing-free.
+# model generator and stays Turing-free.
 
 # --- node headers ----------------------------------------------------------
 
@@ -93,7 +93,7 @@ end
 
 @doc "
 
-Nested, name-keyed parameters of a composed distribution (#351).
+Nested, name-keyed parameters of a composed distribution.
 
 Returns a `NamedTuple` keyed by the node names, each value the `params` of that
 child (recursing into nested composers; a leaf delegates to its standard/
@@ -485,7 +485,7 @@ end
 
 @doc "
 
-List the event/edge names of a composed distribution (#351).
+List the event/edge names of a composed distribution.
 
 `event_names(d)` returns the tuple of top-level child names: branch names for a
 [`Parallel`](@ref), step names for a [`Sequential`](@ref), outcome names for a
@@ -509,7 +509,7 @@ event_names(d::Union{Sequential, Parallel, Competing}) = component_names(d)
 
 @doc "
 
-Fetch a composed distribution's child (event/edge) by name (#351).
+Fetch a composed distribution's child (event/edge) by name.
 
 `get_event(d, name)` returns the child distribution labelled `name` (a branch of
 a [`Parallel`](@ref), a step of a [`Sequential`](@ref), or an outcome delay of a
