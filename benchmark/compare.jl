@@ -2,19 +2,34 @@
 #
 # Usage: julia --project=benchmark compare.jl <pr.json> <main.json> <out.md>
 #
-# The comment has two parts:
-#   1. "Changed vs main" — benchmarks whose minimum time moved by more
-#      than `CHANGE_THRESHOLD`, shown inline for visibility.
-#   2. "All benchmarks" — every benchmark, in a collapsed section, sorted
-#      by how far the time ratio is from 1.
-# Each part is split into "Evaluation" and "AD gradients" so the gradient
-# benchmarks are easy to find.
+# The comment is:
+#   1. A summary table: rows are Evaluation and each AD backend, columns
+#      are time buckets (PR time as a percentage of main, lower = faster),
+#      cells are how many benchmarks fall in each bucket.
+#   2. Two collapsed tables — Evaluation and AD gradients — each listing
+#      every benchmark sorted by how much its time moved.
 using BenchmarkTools
-using Statistics: median
 
-const CHANGE_THRESHOLD = 0.05  # 5% time change counts as "changed"
-const SUMMARY_N = 20           # rows in the inline summary table
+const CHANGE_THRESHOLD = 0.05  # 5% time change = ±5% bucket edge
 const COMMENT_MARKER = "<!-- benchmark-comparison -->"
+
+# Time buckets for the summary table, keyed on PR time as a percentage of
+# main (so < 100% is faster). Edges mirror around 100%: ±5 neutral, ±25,
+# ±50. Each entry is (column label, upper edge in %). A benchmark lands in
+# the first bucket whose edge it is below.
+const BUCKETS = [
+    ("🟢 <50%", 50.0),
+    ("🟢 50–75%", 75.0),
+    ("🟢 75–95%", 95.0),
+    ("⚪ 95–105%", 105.0),
+    ("🔴 105–125%", 125.0),
+    ("🔴 125–150%", 150.0),
+    ("🔴 >150%", Inf)
+]
+
+# Summary row order: Evaluation first, then AD backends in this order.
+const BACKEND_ORDER = ["ForwardDiff", "ReverseDiff (tape)", "Mooncake reverse",
+    "Mooncake forward", "Enzyme reverse", "Enzyme forward"]
 
 pr_file, main_file, out_file = ARGS[1], ARGS[2], ARGS[3]
 
@@ -119,15 +134,43 @@ function render_table(rows)
     return String(take!(io))
 end
 
-# Render an "Evaluation" then "AD gradients" pair of tables for a row set.
-function render_sections(rows)
-    eval_rows = filter(r -> !is_ad(r.name), rows)
-    ad_rows = filter(r -> is_ad(r.name), rows)
+# Summary group for a benchmark: "Evaluation" for non-AD rows, otherwise
+# the AD backend (the last segment of the key path).
+group_of(name) = is_ad(name) ? String(split(name, " / ")[end]) : "Evaluation"
+
+# Index of the bucket a PR/main percentage falls in.
+function bucket_index(pct)
+    for (i, (_, edge)) in enumerate(BUCKETS)
+        pct < edge && return i
+    end
+    return length(BUCKETS)
+end
+
+# Count benchmarks per (group, bucket) and render the summary table.
+function summary_table(rows)
+    counts = Dict{String, Vector{Int}}()
+    for r in rows
+        isnan(r.time_ratio) && continue
+        v = get!(counts, group_of(r.name), zeros(Int, length(BUCKETS)))
+        v[bucket_index(100 * r.time_ratio)] += 1
+    end
+
+    groups = String[]
+    haskey(counts, "Evaluation") && push!(groups, "Evaluation")
+    for b in BACKEND_ORDER
+        haskey(counts, b) && push!(groups, b)
+    end
+    for g in sort(collect(keys(counts)))
+        g in groups || push!(groups, g)
+    end
+
     io = IOBuffer()
-    println(io, "#### Evaluation\n")
-    print(io, render_table(eval_rows))
-    println(io, "\n#### AD gradients\n")
-    print(io, render_table(ad_rows))
+    println(io, "| Group | ", join(first.(BUCKETS), " | "), " |")
+    println(io, "|---|", repeat("---|", length(BUCKETS)))
+    for g in groups
+        cells = [c == 0 ? "·" : string(c) for c in counts[g]]
+        println(io, "| ", g, " | ", join(cells, " | "), " |")
+    end
     return String(take!(io))
 end
 
@@ -135,38 +178,30 @@ pr = index_results(load_group(pr_file))
 main = index_results(load_group(main_file))
 rows = build_rows(pr, main)
 
-# Everything is sorted by how much the TIME moved (biggest movers first).
+# Both detail tables are sorted by how much the TIME moved (biggest first).
 all_sorted = sort(rows; by = sort_key, rev = true)
-
-slower = count(
-    r -> !isnan(r.time_ratio) && r.time_ratio > 1 + CHANGE_THRESHOLD, rows)
-faster = count(
-    r -> !isnan(r.time_ratio) && r.time_ratio < 1 - CHANGE_THRESHOLD, rows)
-changed = slower + faster
+eval_rows = filter(r -> !is_ad(r.name), all_sorted)
+ad_rows = filter(r -> is_ad(r.name), all_sorted)
 
 io = IOBuffer()
 println(io, COMMENT_MARKER)
 println(io, "## Benchmark comparison vs `main`\n")
-# Direction is fixed and stated up front: ratio = PR / main, so a number
-# below 1 means the PR is faster. Lower is better.
+# Direction is fixed and stated up front: cells are PR time as a
+# percentage of main, so below 100% means the PR is faster.
 println(io,
-    "Minimum time per call. **Ratio = PR / main, so lower is better** ",
-    "(🟢 faster, 🔴 slower, ⚪ within ", round(Int, 100CHANGE_THRESHOLD),
-    "%). Everything is sorted by time change.\n")
-pct = round(Int, 100CHANGE_THRESHOLD)
-println(io, "**", changed, " of ", length(rows),
-    " benchmarks changed by >", pct, "%** — 🔴 ", slower, " slower, 🟢 ",
-    faster, " faster.\n")
+    "Minimum time per call. Buckets are **PR time as a % of `main`, so ",
+    "lower is faster** (🟢 faster, ⚪ within ", round(Int, 100CHANGE_THRESHOLD),
+    "%, 🔴 slower). Counts of benchmarks per bucket:\n")
+print(io, summary_table(rows))
 
-# Inline summary: the biggest time movers, capped at SUMMARY_N rows.
-n_summary = min(SUMMARY_N, length(all_sorted))
-println(io, "### Summary — top ", n_summary, " by time change\n")
-print(io, render_table(all_sorted[1:n_summary]))
+println(io, "\n<details><summary><b>Evaluation</b> — ", length(eval_rows),
+    " benchmarks (by time change)</summary>\n")
+print(io, render_table(eval_rows))
+println(io, "\n</details>")
 
-# Full list, split into Evaluation and AD gradients, behind a fold.
-println(io, "\n<details><summary><b>All ", length(all_sorted),
-    " benchmarks</b> (Evaluation + AD gradients, by time change)</summary>\n")
-print(io, render_sections(all_sorted))
+println(io, "\n<details><summary><b>AD gradients</b> — ", length(ad_rows),
+    " benchmarks (by time change)</summary>\n")
+print(io, render_table(ad_rows))
 println(io, "\n</details>")
 
 write(out_file, String(take!(io)))
