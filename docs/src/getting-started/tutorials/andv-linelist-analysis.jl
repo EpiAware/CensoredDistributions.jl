@@ -216,7 +216,8 @@ sim_summary = DataFrame(
 # The same model is fitted to the real records.
 
 Random.seed!(20260608)
-chain = sample(andv(rows), NUTS(100, 0.9), MCMCThreads(), 150, 2; progress = false)
+chain = sample(andv(rows), NUTS(100, 0.9), MCMCThreads(), 150, 2;
+    progress = false)
 nothing #hide
 
 # ## Priors and posteriors
