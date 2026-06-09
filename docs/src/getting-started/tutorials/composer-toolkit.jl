@@ -152,7 +152,7 @@ row = (onset = 0.0, admit = 2.0, death = 5.0);
 
 only(logjoint(demo(obs_chain, row), (;)))
 
-# For many records, [`record_distributions`](@ref) assembles a vector of
+# For many records, `record_distributions` assembles a vector of
 # per-record distributions and `product_distribution` scores them at once.
 # Each record bakes in its own missingness pattern, so the same call handles a
 # mix of observed and unobserved intermediate events.
