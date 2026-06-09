@@ -41,7 +41,7 @@ end
         d; primary_event = Uniform(0, 1), interval = 1.0)
 
     # An andv-shaped Select: an index branch versus a sourced two-step chain.
-    sel = select(:index => dic(Gamma(2.0, 1.0)),
+    sel = select_branch(:index => dic(Gamma(2.0, 1.0)),
         :sourced => Sequential(
             (dic(Gamma(4.0, 1.5)), dic(Gamma(1.0, 2.0))), (:a, :b)))
     sm = edge_means(sel)
