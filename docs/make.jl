@@ -39,7 +39,8 @@ if !skip_notebooks
         "ad-backends.jl",
         "fitting-with-turing.jl",
         "bdbv-linelist-analysis.jl",
-        "andv-linelist-analysis.jl"
+        "andv-linelist-analysis.jl",
+        "rt-renewal-convolution.jl"
     ]
 
     println(
@@ -89,7 +90,8 @@ else
         "composer-toolkit.md" => "# [The composer toolkit](@id composer-toolkit)",
         "fit-marginal-sample-event-based.md" => "# Fit marginal, sample event based",
         "bdbv-linelist-analysis.md" => "# Bundibugyo Ebola delays from the 2012 Isiro line list",
-        "andv-linelist-analysis.md" => "# Real-time Andes virus delays from the Epuyén line list"
+        "andv-linelist-analysis.md" => "# Real-time Andes virus delays from the Epuyén line list",
+        "rt-renewal-convolution.md" => "# An Rt renewal model with delay convolution"
     ]
     for (file, heading) in tutorial_stubs
         open(joinpath(tutorials_dir, file), "w") do io
