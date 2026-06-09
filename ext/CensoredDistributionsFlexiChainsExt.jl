@@ -9,7 +9,6 @@ using CensoredDistributions: CensoredDistributions, Sequential, Parallel,
 import CensoredDistributions: chain_to_params
 using DynamicPPL: DynamicPPL
 using FlexiChains: FlexiChains, VarName
-using Distributions: params
 import Statistics
 
 # Build the full chain VarName for a free parameter: the submodel `~`-bound

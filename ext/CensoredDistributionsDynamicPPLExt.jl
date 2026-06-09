@@ -14,7 +14,7 @@ import CensoredDistributions: primary_censored_model, interval_censored_model,
                               composed_distribution_model,
                               composed_parameters_model, predict_events
 using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
-using Distributions: Distributions, UnivariateDistribution, params, logpdf,
+using Distributions: Distributions, UnivariateDistribution, logpdf,
                      product_distribution
 using Random: AbstractRNG, default_rng
 
