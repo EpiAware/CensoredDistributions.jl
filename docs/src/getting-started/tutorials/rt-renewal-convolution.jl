@@ -56,7 +56,7 @@ Statistics for reproducibility and summaries.
 using CensoredDistributions
 using Distributions
 using Turing
-using FlexiChains: VNChain
+using FlexiChains: VNChain, Parameter
 using CairoMakie
 using Random
 using Statistics
@@ -259,11 +259,13 @@ and compare them with the truth.
 The true block Rt are the levels we set: 1.6, 0.8 and 1.2.
 """
 
-post_R = [mean(chain[Symbol("R_block[$b]")]) for b in 1:n_blocks]
+R_draws = vec(chain[Parameter(@varname(R_block))])
 
-post_alpha = mean(chain[:alpha])
+post_R = [mean(getindex.(R_draws, b)) for b in 1:n_blocks]
 
-post_rho = mean(chain[:rho])
+post_alpha = mean(vec(chain[Parameter(@varname(alpha))]))
+
+post_rho = mean(vec(chain[Parameter(@varname(rho))]))
 
 true_R_block = [true_Rt[1], true_Rt[21], true_Rt[41]]
 
