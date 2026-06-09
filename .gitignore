@@ -19,6 +19,7 @@ build/
 *.csv
 # Keep bundled tutorial data (redistributed with the docs).
 !docs/src/getting-started/tutorials/data/*.csv
+!docs/src/getting-started/tutorials/andv-data/*.csv
 *.tsv
 *.parquet
 *.dat

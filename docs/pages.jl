@@ -8,7 +8,8 @@ getting_started_pages = Any[
         "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md",
         "The composer toolkit" => "getting-started/tutorials/composer-toolkit.md",
         "Fit marginal, sample event based" => "getting-started/tutorials/fit-marginal-sample-event-based.md",
-        "Bundibugyo Ebola delays" => "getting-started/tutorials/bdbv-linelist-analysis.md"
+        "Bundibugyo Ebola delays" => "getting-started/tutorials/bdbv-linelist-analysis.md",
+        "Real-time Andes virus delays" => "getting-started/tutorials/andv-linelist-analysis.md"
     ],
     "Julia" => "getting-started/julia.md",
     "FAQ" => "getting-started/faq.md"
