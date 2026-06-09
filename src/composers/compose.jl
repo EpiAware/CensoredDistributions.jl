@@ -89,7 +89,7 @@ end
 # recurses (carrying its own keys); a bare vector/tuple of composables becomes a
 # Sequential with default `:step_i` names (a plain vector has no names to carry).
 # A pre-built composer value (Sequential/Parallel/Select) drops in unchanged, so
-# a `compose(...)`/`select(...)` result nests as a child and a
+# a `compose(...)`/`select_branch(...)` result nests as a child and a
 # `Sequential((...), names)` value keeps readable step names. A `Competing` is a
 # UnivariateDistribution leaf and is covered by the first method.
 _compose_child(d::UnivariateDistribution) = d

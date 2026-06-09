@@ -746,16 +746,16 @@ function scenarios(; with_reference::Bool = false)
     # Select data-selected disjunction (#356). The gradient flows through the
     # SELECTED alternative's own `logpdf` (the type-stable selection barriers
     # into the chosen concrete type), with the selection name fixed and the
-    # value passed as a Constant context. Guarded on `select` existing so the
-    # AirspeedVelocity baseline build (which lacks `Select`) skips it. Literal
+    # value passed as a Constant context. Guarded on `select_branch` existing so
+    # the AirspeedVelocity baseline build (which lacks `Select`) skips it. Literal
     # constructors keep Enzyme forward happy (#278).
-    if isdefined(CensoredDistributions, :select)
+    if isdefined(CensoredDistributions, :select_branch)
         sel_obs = [0.5, 1.2, 2.5, 3.8]
         _push!("Select Gamma|LogNormal sourced logpdf",
             (θ,
                 obs) -> sum(
                 x -> logpdf(
-                    CensoredDistributions.select(
+                    CensoredDistributions.select_branch(
                         :index => Gamma(θ[1], θ[2]),
                         :sourced => LogNormal(θ[3], θ[4])),
                     x; kind = :sourced),
@@ -927,7 +927,7 @@ function scenarios(; with_reference::Bool = false)
         _push!("Vectorised Select per-record kind logpdf",
             (θ,
                 rows) -> _vectorised_select_logpdf(
-                select(
+                select_branch(
                     :index => primary_censored(
                         Gamma(θ[1], θ[2]), Uniform(0.0, 1.0)),
                     :sourced => primary_censored(

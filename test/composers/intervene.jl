@@ -36,7 +36,7 @@
     function andv_tree()
         index = dic(LogNormal(1.5, 0.4))
         sourced = dic(Sequential(Normal(0.2, 0.6), LogNormal(1.5, 0.4)))
-        return CensoredDistributions.select(:index => index,
+        return CensoredDistributions.select_branch(:index => index,
             :sourced => sourced; selector = :kind)
     end
 end
@@ -125,7 +125,7 @@ end
 end
 
 @testitem "cut_branch on a three-way Select drops an alternative" setup=[InterveneTrees] begin
-    d = CensoredDistributions.select(:a => Gamma(2.0, 1.0),
+    d = CensoredDistributions.select_branch(:a => Gamma(2.0, 1.0),
         :b => LogNormal(0.5, 0.4), :c => Normal(0.0, 1.0))
     d2 = cut_branch(d, :b)
     @test event_names(d2) == (:a, :c)

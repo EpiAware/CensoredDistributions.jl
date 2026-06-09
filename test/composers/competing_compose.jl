@@ -83,11 +83,11 @@ end
     @test logpdf(dm, ev) ≈ logpdf(compose((a = cmp, b = d_notif)), ev)
 end
 
-@testitem "competing sugar mirrors the Competing constructor" begin
+@testitem "competing_branch sugar mirrors the Competing constructor" begin
     using Distributions
 
     cfr = 0.3
-    a = competing(:death => (Gamma(1.5, 1.0), cfr),
+    a = competing_branch(:death => (Gamma(1.5, 1.0), cfr),
         :disch => (Gamma(2.0, 1.5), 1 - cfr))
     b = Competing(:death => (Gamma(1.5, 1.0), cfr),
         :disch => (Gamma(2.0, 1.5), 1 - cfr))

@@ -333,7 +333,7 @@ end
     # A hanta Select top: an index case (its own origin) vs a sourced case (a longer
     # delay), selected by the row's `:kind`.
     function hanta_select()
-        return select(
+        return select_branch(
             :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
             :sourced => primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
     end

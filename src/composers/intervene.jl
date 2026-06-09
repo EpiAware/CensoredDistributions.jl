@@ -174,7 +174,7 @@ scores and `rand`s.
 ```@example
 using CensoredDistributions, Distributions
 
-node = competing(:death => (Gamma(1.5, 1.0), 0.3),
+node = competing_branch(:death => (Gamma(1.5, 1.0), 0.3),
     :disch => (Gamma(2.0, 1.5), 0.5),
     :transfer => (Gamma(1.0, 1.0), 0.2))
 tree = compose((resolution = node, onset = Gamma(1.0, 1.0)))

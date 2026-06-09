@@ -368,7 +368,7 @@ end
     # `inc` is shared across the index and sourced branches of a select: one
     # free parameter, sampled once, placed in both occurrences.
     inc = shared(:inc, Gamma(2.0, 1.0))
-    template = select(:index => inc,
+    template = select_branch(:index => inc,
         :sourced => compose((delta = LogNormal(0.5, 0.4), inc = inc)))
     priors = (
         inc = (shape = truncated(Normal(2, 0.5); lower = 0),
@@ -413,7 +413,7 @@ end
     import Statistics
 
     inc = shared(:inc, Gamma(2.0, 1.0))
-    template = select(:index => inc,
+    template = select_branch(:index => inc,
         :sourced => compose((delta = LogNormal(0.5, 0.4), inc = inc)))
     priors = (
         inc = (shape = truncated(Normal(3, 1); lower = 0),

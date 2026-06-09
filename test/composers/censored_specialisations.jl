@@ -661,7 +661,7 @@ end
                 (:onset_admit, :admit_x)),
             edge(1.9, 0.5)),
         (:onset_x_seq, :onset_notif))
-    sel = select(:index => idx, :sourced => src)
+    sel = select_branch(:index => idx, :sourced => src)
 
     # With a kind, the selected branch's own draw (a named record for the nested
     # sourced branch, a vector for the flat index branch).

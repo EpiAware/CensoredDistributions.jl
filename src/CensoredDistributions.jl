@@ -61,7 +61,7 @@ export Affine, affine
 export convolve_distributions
 
 # Exported generic composers and front-end constructor
-export Sequential, Parallel, Competing, competing, compose, as_mixture
+export Sequential, Parallel, Competing, competing_branch, compose, as_mixture
 
 # Exported composed-distribution introspection: the flat prior table and
 # name introspection. Nested name-keyed values come from the extended
@@ -84,8 +84,8 @@ export edge_means, edge_vars
 export chain_to_params
 
 # Exported data-selected disjunction node (the case selector over independent
-# alternatives). `Select` is the type; `select` the friendly constructor.
-export Select, select
+# alternatives). `Select` is the type; `select_branch` the friendly constructor.
+export Select, select_branch
 
 # Exported shared-parameter tag: tie a leaf across branches by name so the
 # prior/params interface treats its occurrences as one free parameter. `Shared`

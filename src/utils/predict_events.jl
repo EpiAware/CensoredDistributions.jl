@@ -75,7 +75,7 @@ forward-simulation path), matching `rand`.
 ```@example
 using CensoredDistributions, Distributions, Random
 
-d = select(:index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+d = select_branch(:index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
     :sourced => primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
 path = predict_events(d; kind = :index, rng = MersenneTwister(1))
 ```

@@ -37,9 +37,9 @@
 # left between its origin and that date.
 #
 # The composed object below is built with the package's composer tools. The
-# mechanics of `select`, `Sequential`, and the per-record scoring are covered in
-# the [getting-started composer tutorial](@ref getting-started); here the focus
-# is the delay model and the Bayesian workflow.
+# mechanics of `select_branch`, `Sequential`, and the per-record scoring are
+# covered in the [getting-started composer tutorial](@ref getting-started); here
+# the focus is the delay model and the Bayesian workflow.
 
 # ## Data
 #
@@ -86,7 +86,7 @@ horizon = maximum(onset_day) + 7.0
 # A `:sourced` record measures onset relative to the source's onset, the
 # transmission-timing-plus-incubation chain.
 # Each record carries its delay, its `:obs_time` horizon, and the `:kind` the
-# `select` routes on.
+# `select_branch` routes on.
 index_rows = NamedTuple[]
 sourced_rows = NamedTuple[]
 for i in eachindex(pid)
@@ -121,7 +121,7 @@ rows = vcat(index_rows, sourced_rows)
 # Each branch is doubly interval censored with a one-day primary window (the
 # day-resolution origin) and a one-day secondary window (the day-resolution
 # onset).
-# `select` routes a record to its branch by the record's `:kind`.
+# `select_branch` routes a record to its branch by the record's `:kind`.
 
 pwindow = 1.0
 swindow = 1.0
@@ -131,8 +131,7 @@ function delay_model(inc, delta)
         primary_event = Uniform(0, pwindow), interval = swindow)
     sourced_branch = double_interval_censored(Sequential(delta, inc);
         primary_event = Uniform(0, pwindow), interval = swindow)
-    ## `select` is qualified because DataFramesMeta also exports the name.
-    return CensoredDistributions.select(:index => index_branch,
+    return select_branch(:index => index_branch,
         :sourced => sourced_branch; selector = :kind)
 end
 
@@ -145,7 +144,7 @@ delay_model(LogNormal(3.06, 0.32), Normal(0.17, 0.62))
 # The incubation period is shared between the two branches, so its parameters
 # are a single TIED pair rather than one set per branch.
 # We therefore sample `inc` and `delta` DIRECTLY from their priors inside the
-# model and build the `select` from them, rather than asking
+# model and build the `select_branch` from them, rather than asking
 # `composed_parameters_model` to build independent priors per branch (which
 # would duplicate the shared incubation period).
 # The priors are those of the upstream model.
@@ -157,10 +156,10 @@ delay_model(LogNormal(3.06, 0.32), Normal(0.17, 0.62))
 # all, not six.
 params_table(Sequential(Normal(0.17, 0.62), LogNormal(3.06, 0.32)))
 
-# The model samples the two delay parameter pairs, builds the `select`, and
-# scores the whole table of records in one vectorised submodel.
+# The model samples the two delay parameter pairs, builds the `select_branch`,
+# and scores the whole table of records in one vectorised submodel.
 # A record's `:obs_time` right-truncates its branch at the real-time horizon,
-# and the `select` picks each record's branch by its `:kind`.
+# and the `select_branch` picks each record's branch by its `:kind`.
 # The same submodel both scores observed delays and, with a missing-delay table,
 # samples full delays, so it fits and generates from one definition.
 

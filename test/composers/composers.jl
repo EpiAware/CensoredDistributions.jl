@@ -170,7 +170,7 @@ end
         CD.Parallel(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)), Normal(0.0, 1.0))
 
     # A select result nests as a compose child.
-    sel = select(:s1 => Gamma(2.0, 1.0), :s2 => Gamma(5.0, 1.0))
+    sel = select_branch(:s1 => Gamma(2.0, 1.0), :s2 => Gamma(5.0, 1.0))
     withsel = compose((k = sel, m = Normal(0.0, 1.0)))
     @test withsel == CD.Parallel(sel, Normal(0.0, 1.0))
 
@@ -580,7 +580,7 @@ end
     inc = shared(:inc, Gamma(2.0, 1.0))
     delta = LogNormal(0.5, 0.4)
     # `inc` appears in BOTH the index and sourced branches of a select.
-    tree = select(:index => inc,
+    tree = select_branch(:index => inc,
         :sourced => compose((delta = delta, inc = inc)))
     tbl = params_table(tree)
 
@@ -596,7 +596,7 @@ end
 
     inc = shared(:inc, Gamma(2.0, 1.0))
     delta = LogNormal(0.5, 0.4)
-    tree = select(:index => inc,
+    tree = select_branch(:index => inc,
         :sourced => compose((delta = delta, inc = inc)))
 
     # One top-level `inc` entry updates both occurrences.
