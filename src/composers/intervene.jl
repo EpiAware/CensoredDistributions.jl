@@ -8,14 +8,14 @@
 # arm or a `Select` alternative, renormalising probs), or splice a before/after
 # change at a named node. Each op walks the tree by name path and rebuilds only
 # the touched spine, so the result is a fresh, valid composed distribution that
-# scores (`logpdf`) and `rand`s. The walk is hand-rolled and type-stable, reusing
-# the `component_names` / `_rebuild` / `Competing` / `Select` machinery rather
+# scores (`logpdf`) and `rand`s. The walk is hand-rolled and type-stable,
+# reusing `component_names` / `_rebuild` / `Competing` / `Select` rather
 # than adding tree types. Distributions-led: a node-to-node edit, Turing-free.
 #
 # Paths are tuples of edge names from the root (e.g.
 # `(:admit_path, :admit_resolution, :death)`); a single `Symbol` is a one-step
-# path. The op family mirrors the `apply(op, node)` shape from the node-transform
-# protocol: each public function resolves a path then applies a leaf op.
+# path. The op family mirrors the `apply(op, node)` shape from the
+# node-transform protocol: a public function resolves a path then applies an op.
 
 # --- path-walk core ---------------------------------------------------------
 #
@@ -233,9 +233,13 @@ function _drop_child(leaf, name::Symbol)
         "cut_branch: $(nameof(typeof(leaf))) has no child to drop"))
 end
 
-# `_rebuild` taking explicit names (the dropped-child case changes the name set).
-_rebuild_named(::Sequential, parts::Tuple, names::Tuple) = Sequential(parts, names)
-_rebuild_named(::Parallel, parts::Tuple, names::Tuple) = Parallel(parts, names)
+# `_rebuild` taking explicit names (a dropped child changes the name set).
+function _rebuild_named(::Sequential, parts::Tuple, names::Tuple)
+    return Sequential(parts, names)
+end
+function _rebuild_named(::Parallel, parts::Tuple, names::Tuple)
+    return Parallel(parts, names)
+end
 
 # --- splice: insert a before/after step at a node ---------------------------
 
@@ -245,10 +249,10 @@ Splice before/after steps around a node in a composed distribution.
 
 `splice(d, path; before, after)` replaces the node at `path` with a
 [`Sequential`](@ref) chain of `before`, the original node, then `after` (any of
-which may be omitted). This inserts a change-point step around the addressed node
-without rebuilding the rest of the tree, e.g. an extra delay before a branch or a
-follow-up step after it. The result is a valid composed distribution that scores
-and `rand`s.
+which may be omitted). This inserts a change-point step around the addressed
+node without rebuilding the rest of the tree, e.g. an extra delay before a
+branch or a follow-up step after it. The result is a valid composed
+distribution that scores and `rand`s.
 
 # Arguments
 - `d`: the composed distribution to edit.
