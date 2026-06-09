@@ -510,6 +510,24 @@ function scenarios(; with_reference::Bool = false)
             x -> logpdf(ExponentiallyTilted(0.0, 1.0, θ[1]), x), obs),
         [0.5], (Constant(obs_et),))
 
+    # Affine transform (#344). The change-of-variables logpdf is
+    # `logpdf(inner, (y - shift) / scale) - log(scale)`, so the gradient flows
+    # through the inner delay parameters (θ[1], θ[2]) AND the affine scale (θ[3])
+    # and shift (θ[4]). Guarded on `affine` existing for the AirspeedVelocity
+    # baseline build, as with the other PR-tree scenarios above.
+    if isdefined(CensoredDistributions, :affine)
+        obs_aff = [2.0, 3.5, 5.0, 7.0]
+        _push!("Affine LogNormal scale+shift logpdf",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    CensoredDistributions.affine(
+                        LogNormal(θ[1], θ[2]); scale = θ[3], shift = θ[4]),
+                    x),
+                obs),
+            [1.0, 0.5, 2.0, 1.0], (Constant(obs_aff),))
+    end
+
     # IntervalCensored with regular intervals for Gamma and Weibull (only
     # LogNormal covered).
     _push!("IntervalCensored Gamma regular",

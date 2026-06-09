@@ -51,6 +51,10 @@ export primarycensored_cdf, primarycensored_logcdf
 # Exported distributions
 export ExponentiallyTilted
 
+# Exported affine transform: a deterministic shift+scale of a delay, nesting as
+# a leaf. `Affine` is the type; `affine` the friendly constructor.
+export Affine, affine
+
 # Exported convolution constructor. A method on a numeric-vector second argument
 # also provides the renewal layer (convolve a timeseries through a composed delay
 # stack to selected event series), so it needs no separate export.
@@ -135,6 +139,9 @@ include("composers/nesting.jl")
 include("composers/equality.jl")
 include("composers/compose.jl")
 include("composers/introspection.jl")
+# Affine transform leaf: after introspection so it can extend
+# `free_leaf`/`rewrap_leaf` for transparent inner-delay introspection.
+include("distributions/Affine.jl")
 # Shared (name-tagged tied leaf): after introspection so it can extend
 # `free_leaf`/`rewrap_leaf`, and before tree_events/wrap which traverse leaves.
 include("composers/Shared.jl")
