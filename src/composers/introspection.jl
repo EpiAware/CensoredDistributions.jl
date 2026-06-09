@@ -220,12 +220,13 @@ tbl.edge
 - [`params`](@ref): the nested name-keyed values
 - [`event_names`](@ref), [`get_event`](@ref): name introspection
 "
-function params_table(d::Union{Sequential, Parallel, Competing})
+function params_table(d::Union{Sequential, Parallel, Competing, Select})
     edges = Symbol[]
     params_col = Symbol[]
     values = Any[]
     supports = Any[]
-    _walk_rows!(edges, params_col, values, supports, d, ())
+    seen = Set{Symbol}()
+    _walk_rows!(edges, params_col, values, supports, seen, d, ())
     return (edge = edges, param = params_col,
         value = values, support = supports)
 end
@@ -234,18 +235,33 @@ end
 # root to the current node. A composer recurses into its named children; a
 # `Competing` additionally emits its branch-probability rows; a leaf emits one
 # row per scalar parameter. Hand-rolled (not AbstractTrees) to stay type-stable.
-function _walk_rows!(edges, params_col, values, supports,
+function _walk_rows!(edges, params_col, values, supports, seen,
         d::Union{Sequential, Parallel}, path)
     names = component_names(d)
     for (name, child) in zip(names, d.components)
-        _walk_rows!(edges, params_col, values, supports, child, (path..., name))
+        _walk_rows!(edges, params_col, values, supports, seen, child,
+            (path..., name))
     end
     return nothing
 end
 
-function _walk_rows!(edges, params_col, values, supports, c::Competing, path)
+# A `Select`'s alternatives each contribute their own rows; a tag shared across
+# alternatives is deduped via `seen`, so a parameter tied across the index and
+# sourced branches is inventoried once.
+function _walk_rows!(edges, params_col, values, supports, seen,
+        d::Select, path)
+    for (name, alt) in zip(d.names, d.alternatives)
+        _walk_rows!(edges, params_col, values, supports, seen, alt,
+            (path..., name))
+    end
+    return nothing
+end
+
+function _walk_rows!(edges, params_col, values, supports, seen,
+        c::Competing, path)
     for (name, delay) in zip(c.names, c.delays)
-        _walk_rows!(edges, params_col, values, supports, delay, (path..., name))
+        _walk_rows!(edges, params_col, values, supports, seen, delay,
+            (path..., name))
     end
     sup = (zero(eltype(c.branch_probs)), one(eltype(c.branch_probs)))
     edge = _join_path((path..., :branch_probs))
@@ -260,13 +276,19 @@ end
 
 # Leaf distribution: one row per scalar FREE parameter. A censored leaf shows
 # only its inner free delay's params and that delay's support (the censoring
-# bounds are fixed structure, see `free_leaf`).
-function _walk_rows!(edges, params_col, values, supports, leaf, path)
+# bounds are fixed structure, see `free_leaf`). A shared-tagged leaf
+# (`_shared_tag`) is inventoried ONCE under its TAG as the edge: the first
+# occurrence emits the rows, later occurrences with the same tag are skipped so
+# the tied parameter is listed once.
+function _walk_rows!(edges, params_col, values, supports, seen, leaf, path)
+    tag = _shared_tag(leaf)
+    tag !== nothing && tag in seen && return nothing
     inner = free_leaf(leaf)
     pnames = _leaf_param_names(leaf)
     vals = params(inner)
     sup = (minimum(inner), maximum(inner))
-    edge = _join_path(path)
+    edge = tag === nothing ? _join_path(path) : tag
+    tag === nothing || push!(seen, tag)
     for (pname, v) in zip(pnames, vals)
         push!(edges, edge)
         push!(params_col, pname)
@@ -327,19 +349,44 @@ get_event(tree2, :onset_admit)
 - [`params_table`](@ref): the flat inventory whose `param` names key the leaves
 - [`chain_to_params`](@ref): build the NamedTuple from a fitted chain
 "
-function update(d::Union{Sequential, Parallel}, params::NamedTuple)
+function update(d::Union{Sequential, Parallel, Competing, Select},
+        params::NamedTuple)
+    return _update(d, params, params)
+end
+
+function update(leaf, params::NamedTuple)
+    return _update(leaf, params, params)
+end
+
+# `_update` is the recursive worker. The whole top-level `params` is threaded down
+# as the `shared` source: a shared-tagged leaf is keyed at the TOP level by its
+# tag (matching `params_table`'s tag edge), so every occurrence reads the one
+# entry; per-node keys are validated against the per-occurrence params with the
+# shared tags excluded.
+
+function _update(d::Union{Sequential, Parallel}, params::NamedTuple, shared)
     names = component_names(d)
-    _check_update_keys(params, names, nameof(typeof(d)))
+    _check_child_keys(params, names, nameof(typeof(d)), shared)
     parts = ntuple(length(names)) do i
-        update(d.components[i], params[names[i]])
+        _update(d.components[i], _child_params(params, names[i]), shared)
     end
     return _rebuild(d, parts)
 end
 
-function update(c::Competing, params::NamedTuple)
-    _check_update_keys(params, c.names, :Competing; optional = (:branch_probs,))
+# A `Select` updates each alternative; a tag shared across alternatives reads one
+# entry from `shared` and is placed in every occurrence.
+function _update(d::Select, params::NamedTuple, shared)
+    _check_child_keys(params, d.names, :Select, shared)
+    alts = ntuple(length(d.names)) do i
+        _update(d.alternatives[i], _child_params(params, d.names[i]), shared)
+    end
+    return Select(d.names, alts, d.selector)
+end
+
+function _update(c::Competing, params::NamedTuple, shared)
+    _check_child_keys(params, c.names, :Competing, shared; optional = (:branch_probs,))
     delays = ntuple(length(c.names)) do i
-        update(c.delays[i], params[c.names[i]])
+        _update(c.delays[i], _child_params(params, c.names[i]), shared)
     end
     probs = if haskey(params, :branch_probs)
         bp = params.branch_probs
@@ -351,12 +398,46 @@ function update(c::Competing, params::NamedTuple)
     return Competing(c.names, delays, probs)
 end
 
-# Leaf: take the new parameter values in `_leaf_param_names` order and rebuild.
-function update(leaf, params::NamedTuple)
+# Leaf: take the new parameter values in `_leaf_param_names` order and rebuild. A
+# shared-tagged leaf reads its values from the top-level `shared` entry under its
+# tag, so every occurrence of the tag updates from the one entry.
+function _update(leaf, params::NamedTuple, shared)
+    tag = _shared_tag(leaf)
+    leaf_params = tag === nothing ? params : _shared_entry(shared, tag, leaf)
     pnames = _leaf_param_names(leaf)
-    _check_update_keys(params, pnames, nameof(typeof(leaf)))
-    vals = ntuple(i -> params[pnames[i]], length(pnames))
+    _check_update_keys(leaf_params, pnames, nameof(typeof(leaf)))
+    vals = ntuple(i -> leaf_params[pnames[i]], length(pnames))
     return _update_leaf(leaf, vals)
+end
+
+# A child's per-occurrence params: a shared-tagged child carries no per-occurrence
+# entry (its values live at the top level under its tag), so an absent key is fine
+# and an empty NamedTuple is threaded down (the leaf then reads `shared`).
+function _child_params(params::NamedTuple, name::Symbol)
+    return haskey(params, name) ? params[name] : NamedTuple()
+end
+
+# The top-level shared entry for a tag, erroring clearly when it is absent.
+function _shared_entry(shared::NamedTuple, tag::Symbol, leaf)
+    haskey(shared, tag) || throw(ArgumentError(
+        "update(...) is missing the shared parameter $(repr(tag)) " *
+        "(a `shared($(repr(tag)), ...)` leaf needs a top-level `$tag` entry)"))
+    return shared[tag]
+end
+
+# Validate a composer node's child keys. A child key may be ABSENT (a branch
+# whose only params are shared carries no per-occurrence entry; the leaf reads
+# the top-level shared entry), so missing names are tolerated; an UNEXPECTED key
+# (not a child name, a shared tag, or an `optional`) errors. With no shared tags
+# and no all-shared branch this is the same exact-cover check as before.
+function _check_child_keys(params::NamedTuple, names::Tuple, what, shared;
+        optional::Tuple = ())
+    allowed = (names..., optional..., keys(shared)...)
+    extra_keys = filter(k -> !(k in allowed), keys(params))
+    isempty(extra_keys) || throw(ArgumentError(
+        "update($what, ...) has unexpected keys $(collect(extra_keys)); " *
+        "expected $(collect(names))"))
+    return nothing
 end
 
 # Validate `params` covers exactly `expected` (plus any `optional` keys) at the

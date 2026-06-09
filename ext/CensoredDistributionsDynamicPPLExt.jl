@@ -826,8 +826,15 @@ end
 # A leaf: sample each parameter (in `params` order) from its named prior and
 # rebuild the leaf via its base constructor. `tilde_assume!!` with `VarName{p}()`
 # gives each sampled parameter the bare name `p`; the enclosing submodel prefixes
-# add the edge path, so the chain name is `<edge>.<p>`.
-@model function _leaf_params_model(leaf, priors::NamedTuple)
+# add the edge path, so the chain name is `<edge>.<p>`. A SHARED-tagged leaf is
+# NOT sampled here: its value tuple is already in `shared` (sampled once up
+# front), so the occurrence reconstructs from that tracked tuple, re-applying its
+# own censoring.
+@model function _leaf_params_model(leaf, priors::NamedTuple, shared)
+    tag = CensoredDistributions._shared_tag(leaf)
+    if tag !== nothing
+        return _reconstruct_leaf(leaf, shared[tag])
+    end
     pnames = CensoredDistributions._leaf_param_names(leaf)
     _check_prior_keys(priors, pnames, "leaf $(nameof(typeof(leaf)))")
     ctx = __model__.context
@@ -841,38 +848,64 @@ end
     return _reconstruct_leaf(leaf, vals)
 end
 
+# A child's per-occurrence priors: a shared-tagged child carries no per-occurrence
+# prior (its prior lives at the top level under the tag), so an absent key yields
+# an empty NamedTuple and the leaf reads `shared`.
+function _child_priors(priors::NamedTuple, name::Symbol)
+    haskey(priors, name) ? priors[name] : NamedTuple()
+end
+
 # A `Sequential` / `Parallel`: sample each named child through a prefixed child
-# submodel, then rebuild the SAME composer type with the SAME names.
+# submodel, then rebuild the SAME composer type with the SAME names. A child whose
+# only params are shared has no own prior key and samples nothing locally.
 @model function _composer_params_model(
-        d::Union{Sequential, Parallel}, priors::NamedTuple)
+        d::Union{Sequential, Parallel}, priors::NamedTuple, shared)
     names = component_names(d)
-    _check_prior_keys(priors, names, "$(nameof(typeof(d)))")
+    _check_composer_prior_keys(priors, names, "$(nameof(typeof(d)))", shared)
     parts = Vector{Any}(undef, length(names))
     for i in 1:length(names)
         name = names[i]
         child = d.components[i]
         sub = DynamicPPL.prefix(
-            _params_submodel(child, priors[name]), Val(name))
+            _params_submodel(child, _child_priors(priors, name), shared),
+            Val(name))
         parts[i] ~ to_submodel(sub, false)
     end
     return _rebuild(d, Tuple(parts))
+end
+
+# A `Select`: sample each named alternative through a prefixed child submodel; a
+# tag shared across alternatives is sampled once (up front) and reused, so the
+# alternative that only carries the shared parameter samples nothing locally.
+@model function _select_params_model(d::Select, priors::NamedTuple, shared)
+    _check_composer_prior_keys(priors, d.names, "Select", shared)
+    alts = Vector{Any}(undef, length(d.names))
+    for i in 1:length(d.names)
+        name = d.names[i]
+        sub = DynamicPPL.prefix(
+            _params_submodel(d.alternatives[i], _child_priors(priors, name),
+                shared), Val(name))
+        alts[i] ~ to_submodel(sub, false)
+    end
+    return Select(d.names, Tuple(alts), d.selector)
 end
 
 # A `Competing`: sample each outcome delay through a prefixed child submodel; the
 # branch probabilities are kept fixed from the template unless a `branch_probs`
 # entry of priors is supplied (then each is sampled, prefixed under
 # `branch_probs`). Rebuild the `Competing` with the SAME outcome names.
-@model function _competing_params_model(c::Competing, priors::NamedTuple)
+@model function _competing_params_model(c::Competing, priors::NamedTuple, shared)
     expected = (c.names..., :branch_probs)
     have = keys(priors)
     # `branch_probs` is optional; every other expected key is required.
     required = c.names
-    _check_competing_keys(priors, required, expected)
+    _check_competing_keys(priors, required, expected, shared)
     delays = Vector{Any}(undef, length(c.names))
     for i in 1:length(c.names)
         name = c.names[i]
         sub = DynamicPPL.prefix(
-            _params_submodel(c.delays[i], priors[name]), Val(name))
+            _params_submodel(c.delays[i], _child_priors(priors, name), shared),
+            Val(name))
         delays[i] ~ to_submodel(sub, false)
     end
     if :branch_probs in have
@@ -902,12 +935,14 @@ end
     return probs
 end
 
-# `branch_probs` is optional, the outcome names are required: validate the
-# required outcome priors are present and no key outside `expected` appears.
-function _check_competing_keys(priors::NamedTuple, required::Tuple, expected::Tuple)
+# `branch_probs` is optional, the outcome names are required UNLESS an outcome's
+# only params are shared (its prior is top-level, no per-outcome key): validate the
+# required outcome priors are present and no key outside `expected`/shared appears.
+function _check_competing_keys(priors::NamedTuple, required::Tuple,
+        expected::Tuple, shared)
     have = keys(priors)
     missing_keys = filter(k -> !(k in have), required)
-    extra_keys = filter(k -> !(k in expected), have)
+    extra_keys = filter(k -> !(k in expected) && !(k in keys(shared)), have)
     isempty(missing_keys) || throw(ArgumentError(
         "Competing is missing priors for $(collect(missing_keys)); " *
         "expected outcomes $(collect(required))"))
@@ -917,19 +952,83 @@ function _check_competing_keys(priors::NamedTuple, required::Tuple, expected::Tu
     return nothing
 end
 
+# A composer node's child prior keys. A child key may be ABSENT (its only params
+# are shared; the prior is top-level under the tag), so missing names are
+# tolerated; an UNEXPECTED key (not a child name or a shared tag) errors. With no
+# shared tags this is the exact-cover check of `_check_prior_keys`.
+function _check_composer_prior_keys(priors::NamedTuple, names::Tuple, what, shared)
+    no_shared = isempty(keys(shared))
+    if no_shared
+        return _check_prior_keys(priors, names, what)
+    end
+    allowed = (names..., keys(shared)...)
+    extra_keys = filter(k -> !(k in allowed), keys(priors))
+    isempty(extra_keys) || throw(ArgumentError(
+        "$what has unexpected prior keys $(collect(extra_keys)); " *
+        "expected $(collect(names))"))
+    return nothing
+end
+
 # Dispatch a node to its parameter submodel: a composer to its composer model, a
 # `Competing` to its competing model, any other (leaf) distribution to the leaf
-# model. Mirrors the `params`/`params_table` traversal dispatch (#351).
-_params_submodel(d::Union{Sequential, Parallel}, priors) = _composer_params_model(d, priors)
-_params_submodel(c::Competing, priors) = _competing_params_model(c, priors)
-_params_submodel(leaf, priors) = _leaf_params_model(leaf, priors)
+# model. Mirrors the `params`/`params_table` traversal dispatch (#351). The
+# `shared` NamedTuple (tag -> sampled value tuple) is threaded so a shared-tagged
+# leaf reuses the one sampled group rather than sampling again.
+function _params_submodel(d::Union{Sequential, Parallel}, priors, shared)
+    _composer_params_model(d, priors, shared)
+end
+_params_submodel(d::Select, priors, shared) = _select_params_model(d, priors, shared)
+_params_submodel(c::Competing, priors, shared) = _competing_params_model(c, priors, shared)
+_params_submodel(leaf, priors, shared) = _leaf_params_model(leaf, priors, shared)
 
 # `_rebuild` (preserve composer type + names) is shared with the core `update`
 # helper; reuse it rather than redefining.
 const _rebuild = CensoredDistributions._rebuild
 
-# The public entry: dispatch to the recursive submodel builder. A composed
-# `template` rebuilds its structure; a bare leaf template rebuilds the leaf.
-composed_parameters_model(template, priors) = _params_submodel(template, priors)
+# ---------------------------------------------------------------------------
+# Shared-parameter tracking (tie a leaf across branches by name)
+# ---------------------------------------------------------------------------
+#
+# A shared-tagged leaf (`shared(:inc, dist)`) is ONE free parameter even when it
+# occurs in several branches. Its prior lives at the TOP level of `priors` under
+# the tag (matching `params_table`'s tag edge). The public model samples each
+# shared group ONCE up front (named `tag.param`, prefixed by the tag), then
+# threads the sampled value tuples down as `shared`; every occurrence of the tag
+# reconstructs from the one sampled tuple, re-applying its OWN censoring, so the
+# same tracked value flows to all occurrences (AD-safe).
+
+# Sample one shared group from its top-level prior, returning its sampled value
+# tuple. Names each parameter `tag.param` via a prefixed leaf-sampling submodel.
+@model function _shared_group_model(leaf, priors::NamedTuple)
+    pnames = CensoredDistributions._leaf_param_names(leaf)
+    _check_prior_keys(priors, pnames, "shared $(repr(CensoredDistributions._shared_tag(leaf)))")
+    ctx = __model__.context
+    vals = ntuple(length(pnames)) do i
+        p = pnames[i]
+        v,
+        __varinfo__ = DynamicPPL.tilde_assume!!(
+            ctx, priors[p], VarName{p}(), nothing, __varinfo__)
+        v
+    end
+    return vals
+end
+
+# The public entry. Samples each shared group once (prefixed by its tag), then
+# builds the tree, threading the sampled shared value tuples to every occurrence.
+# With no shared tags this is exactly the per-node recursive builder.
+@model function composed_parameters_model(template, priors)
+    groups = CensoredDistributions._collect_shared(template)
+    shared = NamedTuple()
+    for (tag, leaf) in groups
+        haskey(priors, tag) || throw(ArgumentError(
+            "missing prior for shared parameter $(repr(tag)); expected a " *
+            "top-level `$tag` entry in the priors"))
+        sub = DynamicPPL.prefix(_shared_group_model(leaf, priors[tag]), Val(tag))
+        vals ~ to_submodel(sub, false)
+        shared = merge(shared, NamedTuple{(tag,)}((vals,)))
+    end
+    d ~ to_submodel(_params_submodel(template, priors, shared), false)
+    return d
+end
 
 end

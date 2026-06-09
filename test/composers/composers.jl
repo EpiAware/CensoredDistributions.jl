@@ -490,3 +490,63 @@ end
     # A row with no prior and no default errors.
     @test_throws ArgumentError build_priors(tbl)
 end
+
+@testitem "shared tags a leaf and is transparent to scoring" begin
+    using Distributions
+
+    base = Gamma(2.0, 1.0)
+    s = shared(:inc, base)
+    @test s isa Shared
+    @test CensoredDistributions._shared_tag(s) == :inc
+    # Every distribution method delegates to the wrapped leaf.
+    for x in (0.5, 1.5, 3.0)
+        @test logpdf(s, x) == logpdf(base, x)
+        @test cdf(s, x) == cdf(base, x)
+    end
+    @test params(s) == params(base)
+    @test minimum(s) == minimum(base) && maximum(s) == maximum(base)
+
+    # The tag survives censoring wrappers.
+    cs = shared(:inc, double_interval_censored(base; upper = 10.0, interval = 1.0))
+    @test CensoredDistributions._shared_tag(cs) == :inc
+    @test CensoredDistributions.free_leaf(cs) == base
+end
+
+@testitem "params_table dedups a shared tag across branches" begin
+    using Distributions
+
+    inc = shared(:inc, Gamma(2.0, 1.0))
+    delta = LogNormal(0.5, 0.4)
+    # `inc` appears in BOTH the index and sourced branches of a select.
+    tree = select(:index => inc,
+        :sourced => compose((delta = delta, inc = inc)))
+    tbl = params_table(tree)
+
+    # `inc` is inventoried ONCE (under its tag), `delta` once: no duplicate inc.
+    @test tbl.edge == [:inc, :inc, Symbol("sourced.delta"), Symbol("sourced.delta")]
+    @test tbl.param == [:shape, :scale, :mu, :sigma]
+    @test count(==(:inc), tbl.edge) == 2  # shape + scale of the one inc group
+    @test tbl.value == [2.0, 1.0, 0.5, 0.4]
+end
+
+@testitem "update places a shared value in every occurrence" begin
+    using Distributions
+
+    inc = shared(:inc, Gamma(2.0, 1.0))
+    delta = LogNormal(0.5, 0.4)
+    tree = select(:index => inc,
+        :sourced => compose((delta = delta, inc = inc)))
+
+    # One top-level `inc` entry updates both occurrences.
+    upd = update(tree, (inc = (shape = 3.0, scale = 1.5),
+        sourced = (delta = (mu = 0.7, sigma = 0.5),)))
+    idx = CensoredDistributions._pick(upd, :index)
+    src = CensoredDistributions._pick(upd, :sourced)
+    @test get_dist(idx) == Gamma(3.0, 1.5)
+    @test get_dist(get_event(src, :inc)) == Gamma(3.0, 1.5)
+    @test get_event(src, :delta) == LogNormal(0.7, 0.5)
+
+    # A missing shared entry errors clearly.
+    @test_throws ArgumentError update(tree,
+        (sourced = (delta = (mu = 0.7, sigma = 0.5),),))
+end

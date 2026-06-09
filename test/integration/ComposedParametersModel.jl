@@ -302,6 +302,101 @@ end
     @test length(rand(ready)) == 2
 end
 
+@testitem "composed_parameters_model: shared param sampled once, placed everywhere" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Random
+
+    # `inc` is shared across the index and sourced branches of a select: one
+    # free parameter, sampled once, placed in both occurrences.
+    inc = shared(:inc, Gamma(2.0, 1.0))
+    template = select(:index => inc,
+        :sourced => compose((delta = LogNormal(0.5, 0.4), inc = inc)))
+    priors = (
+        inc = (shape = truncated(Normal(2, 0.5); lower = 0),
+            scale = truncated(Normal(1, 0.3); lower = 0)),
+        sourced = (delta = (mu = Normal(0.5, 0.2),
+            sigma = truncated(Normal(0.4, 0.1); lower = 0)),),)
+
+    @model function pm(t, p)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        return d
+    end
+
+    Random.seed!(120)
+    m = pm(template, priors)
+    d = m()
+
+    idx = CensoredDistributions._pick(d, :index)
+    src = CensoredDistributions._pick(d, :sourced)
+    # The SAME inc value flows to both occurrences.
+    @test params(get_dist(idx)) == params(get_dist(get_event(src, :inc)))
+
+    # The shared group is sampled ONCE (under its tag), not per occurrence; the
+    # sourced delta is its own free parameter.
+    vns = Set(string.(collect(keys(VarInfo(m)))))
+    @test "d.inc.shape" in vns
+    @test "d.inc.scale" in vns
+    @test "d.sourced.delta.mu" in vns
+    @test "d.sourced.delta.sigma" in vns
+    # No per-occurrence inc names.
+    @test !("d.sourced.inc.shape" in vns)
+    @test !("d.index.inc.shape" in vns)
+
+    # A missing shared prior errors.
+    bad = (sourced = priors.sourced,)
+    @test_throws ArgumentError pm(template, bad)()
+end
+
+@testitem "composed_parameters_model: shared param AD + NUTS recovery" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: Prefixed, VNChain
+    const LDP = DynamicPPL.LogDensityProblems
+    import Statistics
+
+    inc = shared(:inc, Gamma(2.0, 1.0))
+    template = select(:index => inc,
+        :sourced => compose((delta = LogNormal(0.5, 0.4), inc = inc)))
+    priors = (
+        inc = (shape = truncated(Normal(3, 1); lower = 0),
+            scale = truncated(Normal(1.5, 0.5); lower = 0)),
+        sourced = (delta = (mu = Normal(0.7, 0.3),
+            sigma = truncated(Normal(0.5, 0.2); lower = 0)),),)
+
+    @model function fit(t, p, idx_obs, src_obs)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        idx = CensoredDistributions._pick(d, :index)
+        src = CensoredDistributions._pick(d, :sourced)
+        for y in idx_obs
+            DynamicPPL.@addlogprob! logpdf(idx, y)
+        end
+        for y in src_obs
+            DynamicPPL.@addlogprob! logpdf(src, y)
+        end
+    end
+
+    Random.seed!(121)
+    true_inc = Gamma(3.0, 1.5)
+    idx_obs = rand(true_inc, 150)
+    src_obs = [[rand(LogNormal(0.7, 0.5)), rand(true_inc)] for _ in 1:150]
+    m = fit(template, priors, idx_obs, src_obs)
+
+    # AD flows through the shared sample -> both occurrences -> logpdf. The free
+    # dimension is the deduped set (inc.shape, inc.scale, delta.mu, delta.sigma).
+    vi = DynamicPPL.link(VarInfo(m), m)
+    ldf = DynamicPPL.LogDensityFunction(
+        m, DynamicPPL.getlogjoint_internal, vi; adtype = AutoForwardDiff())
+    lp, grad = LDP.logdensity_and_gradient(ldf, vi[:])
+    @test isfinite(lp)
+    @test length(grad) == 4
+    @test all(isfinite, grad)
+    @test any(!iszero, grad)
+
+    # NUTS recovers the shared inc from both branches' data.
+    chain = sample(m, NUTS(), 300; chain_type = VNChain, progress = false)
+    sh = Statistics.mean(chain[Prefixed(@varname(inc.shape))])
+    sc = Statistics.mean(chain[Prefixed(@varname(inc.scale))])
+    @test isapprox(sh * sc, 4.5; atol = 1.0)  # true mean = 3.0 * 1.5
+end
+
 @testitem "composed_parameters_model: NUTS samples the full loop" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
     using FlexiChains: Prefixed, niters
