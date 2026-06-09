@@ -190,7 +190,8 @@ println(io, "## Benchmark comparison vs `main`\n")
 # percentage of main, so below 100% means the PR is faster.
 println(io,
     "Minimum time per call. Buckets are **PR time as a % of `main`, so ",
-    "lower is faster** (🟢 faster, ⚪ within ", round(Int, 100CHANGE_THRESHOLD),
+    "lower is faster** (🟢 faster, ⚪ within ",
+    round(Int, 100CHANGE_THRESHOLD),
     "%, 🔴 slower). Counts of benchmarks per bucket:\n")
 print(io, summary_table(rows))
 
