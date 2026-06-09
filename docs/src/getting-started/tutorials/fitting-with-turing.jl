@@ -14,8 +14,9 @@ and in recovery at a small sampling budget.
 
 We cover:
 
-1. Building one composed distribution for the whole record with
-   [`compose`](@ref) and the censored building blocks.
+1. Building one composed distribution for the whole record from the censored
+   building blocks (a [`Sequential`](@ref) chain, the composer
+   [`compose`](@ref) lowers a chain to).
 2. Deriving priors from the parameter table with [`params_table`](@ref) and
    [`build_priors`](@ref).
 3. Simulating a line list from the model, so the true parameters are known.
@@ -49,7 +50,7 @@ posterior overlays, and Random for reproducibility.
 using CensoredDistributions
 using Distributions
 using Turing
-using DynamicPPL: to_submodel
+using DynamicPPL: to_submodel, prefix
 using FlexiChains: VNChain
 using DataFramesMeta
 using CairoMakie, PairPlots
@@ -61,21 +62,22 @@ md"""
 ## One composed delay model
 
 The record is an onset that leads to admission, then admission to death: a
-two-step chain. Each step is a Gamma delay censored directly in the stack with
-[`double_interval_censored`](@ref), giving a one-day primary-event window and a
-one-day secondary (interval) window, so the censoring is part of the composed
-object rather than a separate step.
+two-step chain. The chain is a [`Sequential`](@ref), the composer that
+[`compose`](@ref) lowers a `Vector` of steps to; here we name the steps so the
+event slots come out clean. Each step is a Gamma delay censored directly in the
+stack with [`double_interval_censored`](@ref), giving a one-day primary-event
+window and a one-day secondary (interval) window, so the censoring is part of
+the composed object rather than a separate step.
 
-The named chain steps give clean event slots: the tree's event names are
-`onset, admit, death`, exactly the columns each data row supplies.
+The tree's event names are `onset, admit, death`, exactly the columns each data
+row supplies.
 """
 
 dic(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
     interval = 1.0)
 
-template = compose((path = Sequential(
-    (dic(Gamma(2.0, 1.5)), dic(Gamma(1.5, 2.0))),
-    (:onset_admit, :admit_death)),))
+template = Sequential((dic(Gamma(2.0, 1.5)), dic(Gamma(1.5, 2.0))),
+    (:onset_admit, :admit_death))
 
 md"""
 The flat event names are the row columns; a missing column drives whether that
@@ -99,36 +101,53 @@ param_table = params_table(template)
 priors = build_priors(param_table)
 
 md"""
-## The fitting model
+## The two fitting models
 
-One model serves both fits. It samples the delay parameters from the priors
-with [`composed_parameters_model`](@ref), rebuilding the same composed
-structure, then scores the record table through the vectorised
-[`composed_distribution_model`](@ref) in a single `~`.
+Both fits share the same parameter block: they sample the delay parameters from
+the priors with [`composed_parameters_model`](@ref), rebuilding the same
+composed `delays` object. They differ only in how that object scores the data.
 
-The `wrap` argument controls the direction: `identity` keeps the bare composed
-object (the **marginal** fit, the intermediate admission integrated out), and
-[`latent`](@ref) wraps it (the **latent** fit, the intermediate admission
-sampled as a `~` variable). Everything else is shared, so the two fits target
-the same posterior.
+The **marginal** model scores the whole record table through the vectorised
+[`composed_distribution_model`](@ref) in a single `~`: the intermediate
+admission is integrated out inside the composed `logpdf`, so there are no
+per-record latent dimensions. A `DataFrame` is a Tables.jl source, so it passes
+straight in.
 """
 
-@model function delay_model(template, priors, rows; wrap = identity)
+@model function marginal_model(template, priors, data)
     delays ~ to_submodel(composed_parameters_model(template, priors))
-    obs ~ to_submodel(composed_distribution_model(wrap(delays), rows))
+    obs ~ to_submodel(composed_distribution_model(delays, data))
+end
+
+md"""
+The **latent** model wraps the same object in [`latent`](@ref) and scores one
+record at a time, sampling the intermediate admission as a `~` variable per
+record. The latent composer model takes one row, so we loop and `prefix` each
+record's latents to keep the chain readable. The parameter block is identical,
+so both models target the same posterior over `delays`.
+"""
+
+@model function latent_model(template, priors, rows)
+    delays ~ to_submodel(composed_parameters_model(template, priors))
+    ld = latent(delays)
+    for i in eachindex(rows)
+        obs ~ to_submodel(
+            prefix(composed_distribution_model(ld, rows[i]), Symbol(:rec, i)),
+            false)
+    end
 end
 
 md"""
 ## Simulate a line list
 
 We simulate from the model with known true parameters, so recovery can be
-checked. [`predict_events`](@ref) draws a full event path
-`[onset, admit, death]` from the latent form of the truth; we keep all three
-events as an observed record.
+checked. [`update`](@ref) sets the truth on the composed object, then
+[`predict_events`](@ref) walks it to draw a full event path
+`[onset, admit, death]`; we keep all three events as an observed record.
 """
 
-true_params = (path = (onset_admit = (shape = 2.0, scale = 1.5),
-    admit_death = (shape = 1.5, scale = 2.0)),)
+true_params = (onset_admit = (shape = 2.0, scale = 1.5),
+    admit_death = (shape = 1.5, scale = 2.0))
 
 truth = update(template, true_params)
 
@@ -136,15 +155,15 @@ n = 150;
 
 sim_rows = let rng = MersenneTwister(20260609)
     map(1:n) do _
-        s = predict_events(latent(truth); rng = rng)
-        (onset = s.onset, admit = s.admit, death = s.death)
+        s = predict_events(truth; rng = rng)
+        (onset = s[1], admit = s[2], death = s[3])
     end
 end;
 
 md"""
-We collect the records into a `DataFrame`; the vectorised
-[`composed_distribution_model`](@ref) consumes any Tables.jl source, so the
-table passes straight in.
+We also collect the records into a `DataFrame` for the marginal fit; the
+vectorised [`composed_distribution_model`](@ref) consumes any Tables.jl source,
+so the table passes straight in.
 """
 
 data = DataFrame(sim_rows)
@@ -154,31 +173,29 @@ first(data, 5)
 md"""
 ## Fit the marginal form
 
-The marginal fit scores each record through the composed `logpdf` with the
-intermediate admission integrated out, so there are no per-record latent
-dimensions. We keep the budget modest (this page runs in a per-tutorial
-subprocess) and time the run.
+The marginal fit scores the whole table in one `~`, the intermediate admission
+integrated out, so there are no per-record latent dimensions. We keep the budget
+modest (this page runs in a per-tutorial subprocess) and time the run.
 """
 
 marginal_time = @elapsed marginal_chain = sample(
     Xoshiro(1),
-    delay_model(template, priors, data),
+    marginal_model(template, priors, data),
     NUTS(0.8; adtype = AutoForwardDiff()), 300;
     chain_type = VNChain, progress = false)
 
 md"""
 ## Fit the latent form
 
-The latent fit is the same model with the composed object wrapped in
-[`latent`](@ref): the intermediate admission time is sampled as a `~` variable
-per record and each segment scores against it. This adds dimensions but can mix
-more robustly at a small budget, because the sampler walks the augmented joint
-rather than a stiff marginal.
+The latent fit samples the intermediate admission time as a `~` variable per
+record and scores each segment against it. This adds dimensions but can mix more
+robustly at a small budget, because the sampler walks the augmented joint rather
+than a stiff marginal. We give it the same budget and time it too.
 """
 
 latent_time = @elapsed latent_chain = sample(
     Xoshiro(1),
-    delay_model(template, priors, data; wrap = latent),
+    latent_model(template, priors, sim_rows),
     NUTS(0.8; adtype = AutoForwardDiff()), 300;
     chain_type = VNChain, progress = false)
 
@@ -197,13 +214,16 @@ marginal_fit = update(template, marginal_chain; prefix = :delays)
 
 latent_fit = update(template, latent_chain; prefix = :delays)
 
+marginal_means_fit = edge_means(marginal_fit)
+
+latent_means_fit = edge_means(latent_fit)
+
 recovery = DataFrame(
     edge = ["onset_admit", "admit_death"],
-    truth = [true_means.path.onset_admit, true_means.path.admit_death],
-    marginal = [edge_means(marginal_fit).path.onset_admit,
-        edge_means(marginal_fit).path.admit_death],
-    latent = [edge_means(latent_fit).path.onset_admit,
-        edge_means(latent_fit).path.admit_death])
+    truth = [true_means.onset_admit, true_means.admit_death],
+    marginal = [marginal_means_fit.onset_admit,
+        marginal_means_fit.admit_death],
+    latent = [latent_means_fit.onset_admit, latent_means_fit.admit_death])
 
 md"""
 Both fits recover the true edge means closely, as the marginal-equals-latent
@@ -236,16 +256,16 @@ function mean_draws(chain)
     em = map(1:prod(size(chain))) do i
         edge_means(update(template, chain; prefix = :delays, draw = i))
     end
-    return (onset_admit = [e.path.onset_admit for e in em],
-        admit_death = [e.path.admit_death for e in em])
+    return (onset_admit = [e.onset_admit for e in em],
+        admit_death = [e.admit_death for e in em])
 end
 
 marginal_means = mean_draws(marginal_chain)
 
 latent_means = mean_draws(latent_chain)
 
-truth_nt = (onset_admit = true_means.path.onset_admit,
-    admit_death = true_means.path.admit_death)
+truth_nt = (onset_admit = true_means.onset_admit,
+    admit_death = true_means.admit_death)
 
 md"""
 The two fits' posteriors over the delay means sit on top of each other and
@@ -263,14 +283,14 @@ pairplot(
 md"""
 ## Summary
 
-- One composed distribution describes the whole record; [`compose`](@ref) and
-  the censored leaves build it, while [`params_table`](@ref) and
+- One composed distribution describes the whole record; the censored leaves and
+  a [`Sequential`](@ref) chain build it, while [`params_table`](@ref) and
   [`build_priors`](@ref) derive support-aware priors.
-- The records score through the vectorised [`composed_distribution_model`](@ref)
-  on a `DataFrame` in one `~`, and the same model fits and generates.
+- The marginal fit scores the whole record table through the vectorised
+  [`composed_distribution_model`](@ref) on a `DataFrame` in one `~`.
 - The marginal and latent forms are one family on the same parameters: wrapping
-  the composed object in [`latent`](@ref) switches a single fit between them,
-  and both recover the truth.
+  the composed object in [`latent`](@ref) scores each record's intermediate
+  event as a latent, and both fits recover the truth.
 - The marginal form is the cheap default; the latent form costs an extra
   sampled event per record but suits small counts or impractical marginal
   integrals.
