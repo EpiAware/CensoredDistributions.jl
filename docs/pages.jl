@@ -7,7 +7,8 @@ getting_started_pages = Any[
         "Automatic differentiation backends" => "getting-started/tutorials/ad-backends.md",
         "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md",
         "Fit marginal, sample event based" => "getting-started/tutorials/fit-marginal-sample-event-based.md",
-        "Bundibugyo Ebola delays" => "getting-started/tutorials/bdbv-linelist-analysis.md"
+        "Bundibugyo Ebola delays" => "getting-started/tutorials/bdbv-linelist-analysis.md",
+        "Real-time Andes virus delays" => "getting-started/tutorials/andv-linelist-analysis.md"
     ],
     "Julia" => "getting-started/julia.md",
     "FAQ" => "getting-started/faq.md"
