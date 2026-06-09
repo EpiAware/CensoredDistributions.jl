@@ -92,6 +92,9 @@ get_dist(d::Shared) = d.dist
 free_leaf(d::Shared) = free_leaf(d.dist)
 rewrap_leaf(d::Shared, inner) = Shared(d.tag, rewrap_leaf(d.dist, inner))
 
+# The tag does not change the realisation type, so the element type is the
+# wrapped leaf's (keeps a composed tree's `eltype`/`rand` element type correct).
+Base.eltype(::Type{<:Shared{D}}) where {D} = eltype(D)
 minimum(d::Shared) = minimum(d.dist)
 maximum(d::Shared) = maximum(d.dist)
 insupport(d::Shared, x::Real) = insupport(d.dist, x)

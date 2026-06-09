@@ -550,3 +550,19 @@ end
     @test_throws ArgumentError update(tree,
         (sourced = (delta = (mu = 0.7, sigma = 0.5),),))
 end
+
+@testitem "shared leaf is transparent to rand on a composed tree" begin
+    using Distributions, Random
+
+    inc = shared(:inc, Gamma(2.0, 1.0))
+    # A composed tree carrying a shared leaf draws a full event path; the tag does
+    # not change the realisation type (eltype delegates to the wrapped leaf).
+    tree = compose((delta = LogNormal(0.5, 0.4), inc = inc))
+    @test eltype(tree) == Float64
+    @test length(rand(MersenneTwister(3), tree)) == 2
+
+    # A shared leaf's own draw delegates to the wrapped distribution.
+    a = rand(MersenneTwister(5), inc)
+    b = rand(MersenneTwister(5), Gamma(2.0, 1.0))
+    @test a == b
+end
