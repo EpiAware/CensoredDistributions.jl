@@ -5,569 +5,275 @@ md"""
 
 ### What are we going to do in this exercise
 
-We'll demonstrate how to use `CensoredDistributions.jl` in conjunction with
-Turing.jl for Bayesian inference of epidemiological delay distributions.
-We'll cover the following key points:
+We fit one composed delay model to censored, right-truncated line-list data
+with Turing.jl, then fit the *same* model two ways: in its cheap **marginal**
+form and in its event-based **latent** form.
+The marginal and latent forms are one family sharing the same parameters, so
+they target the same posterior; the comparison shows how they differ in runtime
+and in recovery at a small sampling budget.
 
-1. Defining a simple delay distribution model without observation processes.
-2. Exploring the prior distribution of this model.
-3. Defining a Bayesian model that incorporates double censoring and right
-   truncation
-4. Generating synthetic data from the model using fixed parameters
-5. Fitting a naive model that ignores censoring
-6. Fitting a model that accounts for secondary event censoring and
-   truncation but not primary event censoring.
-7. Fitting the full model that accounts for double censoring and right
-   truncation.
-8. Using improved weight conditioning with joint observations and
-   fix() patterns
-9. Demonstrating StatsBase.AbstractWeights integration patterns
+We cover:
 
-## What might I need to know before starting
+1. Building one composed distribution for the whole record with
+   [`compose`](@ref) and the censored building blocks.
+2. Deriving priors from the parameter table with [`params_table`](@ref) and
+   [`build_priors`](@ref).
+3. Simulating a line list from the model, so the true parameters are known.
+4. Fitting the marginal form through the vectorised
+   [`composed_distribution_model`](@ref) (a DataFrame scored in one `~`).
+5. Fitting the latent form of the same object, sampling the intermediate event.
+6. Comparing runtime and recovery, and reading the fitted delays back with
+   [`update`](@ref) and [`edge_means`](@ref).
 
-This tutorial builds on the concepts introduced in
-[Getting Started with CensoredDistributions.jl](@ref getting-started).
+### What might I need to know before starting
 
-We sample with Mooncake forward-mode AD
-(`AutoMooncakeForward`); see
-[Automatic differentiation backends](@ref ad-backends) for the support
-matrix and per-backend benchmarks.
+This tutorial builds on [Getting Started with
+CensoredDistributions.jl](@ref getting-started) and the composer reference, [The
+composer toolkit](@ref composer-toolkit), which introduces [`compose`](@ref),
+the marginal-versus-latent duality, and the parameter tooling used here.
+
+The Turing-facing functions ([`composed_distribution_model`](@ref),
+[`composed_parameters_model`](@ref), [`update`](@ref)`(template, chain)`) come
+from package extensions loaded once Turing and FlexiChains are available, so
+the core package stays Turing-free.
+
+We sample with non-Enzyme AD: ForwardDiff here (see [Automatic differentiation
+backends](@ref ad-backends) for the support matrix and per-backend benchmarks).
 
 ## Packages used
-We use CairoMakie for plotting, Turing for probabilistic programming,
-FlexiChains for working with MCMC output, Chain.jl for data pipeline
-workflows, DataFramesMeta, Random, and StatsBase.
+We use Turing for probabilistic programming, FlexiChains for the chain output,
+DataFrames for the record table, CairoMakie with PairPlots for the posterior
+overlays, and Random for reproducibility.
 """
 
-using DataFramesMeta
-using Turing
-using DynamicPPL
-using Distributions
-using Random
-using CairoMakie, PairPlots
-using StatsBase
-using FlexiChains
-using FlexiChains: Prefixed, parameters
 using CensoredDistributions
-using ADTypes: AutoMooncakeForward
-import Mooncake
+using Distributions
+using Turing
+using DynamicPPL: to_submodel
+using FlexiChains: VNChain
+using DataFrames
+using CairoMakie, PairPlots
+using Random
+using Statistics
+using ADTypes: AutoForwardDiff
 
 md"""
-## Generate synthetic data using Turing model simulation
+## One composed delay model
 
-We'll generate synthetic data by simulating from our Turing model with
-known true parameters. This approach ensures consistency between the
-data generation process and the model we'll use for inference,
-demonstrating how Turing models can be used for both simulation and
-fitting.
+The record is an onset that leads to admission, then admission to death: a
+two-step chain. Each step is a Gamma delay censored directly in the stack with
+[`double_interval_censored`](@ref), giving a one-day primary-event window and a
+one-day secondary (interval) window, so the censoring is part of the composed
+object rather than a separate step.
 
-The proper Turing simulation approach:
-1. Define a Turing model that incorporates double censoring and right
-   truncation
-2. Create a model instance with missing observations for simulation
-3. Use DynamicPPL's `fix` function to set parameters to their true
-   values
-4. Sample from the prior predictive distribution by calling the model
-   as a function
+The named chain steps give clean event slots: the tree's event names are
+`onset, admit, death`, exactly the columns each data row supplies.
 """
+
+dic(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
+    interval = 1.0)
+
+template = compose((path = Sequential(
+    (dic(Gamma(2.0, 1.5)), dic(Gamma(1.5, 2.0))),
+    (:onset_admit, :admit_death)),))
 
 md"""
-### Define the true parameters for generating synthetic data
+The flat event names are the row columns; a missing column drives whether that
+delay is conditioned on or marginalised for that record.
 """
+
+CensoredDistributions.tree_event_names(template)
 
 md"""
-We start by defining the number of samples and the true parameters
-of the lognormal.
+## Priors
+
+[`params_table`](@ref) lists every free delay parameter as a flat table, keyed
+by edge path and parameter name, with the support a prior must respect.
+[`build_priors`](@ref) turns that table into the nested prior NamedTuple the
+parameter model consumes, deriving a support-aware default for each row (a
+positive-truncated prior for the positive shapes and scales here).
 """
 
-n = 2000;
+param_table = params_table(template)
 
-meanlog = 1.5;
-
-sdlog = 0.75;
+priors = build_priors(param_table)
 
 md"""
-Now we can define a lognormal distribution using Distributions.jl.
+## The fitting model
+
+One model serves both fits. It samples the delay parameters from the priors
+with [`composed_parameters_model`](@ref), rebuilding the same composed
+structure, then scores the record table through the vectorised
+[`composed_distribution_model`](@ref) in a single `~`.
+
+The `wrap` argument controls the direction: `identity` keeps the bare composed
+object (the **marginal** fit, the intermediate admission integrated out), and
+[`latent`](@ref) wraps it (the **latent** fit, the intermediate admission
+sampled as a `~` variable). Everything else is shared, so the two fits target
+the same posterior.
 """
 
-true_dist = LogNormal(meanlog, sdlog);
-
-md"""
-For each individual we now sample a primary and secondary event
-window as well as a relative observation time (relative to their
-censored primary event).
-"""
-
-md"""
-### Define a reusable submodel for the latent delay distribution
-
-To avoid code duplication across our models, we define a submodel
-that encapsulates the latent delay distribution parameters. This
-pattern allows us to reuse the same prior structure across all our
-models:
-"""
-
-@model function latent_delay_dist()
-    mu ~ Normal(1.0, 2.0);
-    sigma ~ truncated(Normal(0.5, 1); lower = 0.0)
-    return LogNormal(mu, sigma)
+@model function delay_model(template, priors, rows; wrap = identity)
+    delays ~ to_submodel(composed_parameters_model(template, priors))
+    obs ~ to_submodel(composed_distribution_model(wrap(delays), rows))
 end
 
 md"""
-and define a helper function to standardise our pairplot
-visualisations across all model fits. We sample with
-`chain_type = VNChain` to get a FlexiChains `VNChain` and wrap it
-in `PairPlots.Series` so we can overlay a `PairPlots.Truth` layer
-with the known values. The same helper works for both the plain
-`latent_delay_dist()` chain and chains where `latent_delay_dist()`
-has been used as a submodel (where parameters are automatically
-prefixed, e.g. `dist.mu`).
+## Simulate a line list
+
+We simulate from the model with known true parameters, so recovery can be
+checked. [`predict_events`](@ref) draws a full event path
+`[onset, admit, death]` from the latent form of the truth; we keep all three
+events as an observed record.
 """
 
-function plot_fit_with_truth(chain, truth_nt)
-    samples = NamedTuple{keys(truth_nt)}(
-        Tuple(vec(chain[Prefixed(k)]) for k in keys(truth_nt))
-    )
-    return pairplot(
-        PairPlots.Series(samples),
-        PairPlots.Truth(truth_nt, label = "True Values")
-    )
-end
+true_params = (path = (onset_admit = (shape = 2.0, scale = 1.5),
+    admit_death = (shape = 1.5, scale = 2.0)),)
 
-md"""
-### Prior predictive checks using pairplot
+truth = update(template, true_params)
 
-First, let's visualise the prior predictive distribution by sampling
-from the instantiated model with uninformative priors and comparing
-against our true parameters. This shows what the model believes
-before seeing any data.
-"""
+n = 150;
 
-Random.seed!(123);
-
-## Sample from the latent delay distribution prior
-latent_prior_samples = sample(
-    latent_delay_dist(), Prior(), 1000; chain_type = VNChain
-)
-
-## Visualise the prior distribution
-plot_fit_with_truth(
-    latent_prior_samples,
-    (; mu = meanlog, sigma = sdlog)
-)
-
-md"""
-### Define the double censored model for simulation and fitting
-
-Now we define our full model that incorporates double censoring and
-right truncation. This model uses the `latent_delay_dist()` submodel
-via `to_submodel()` to include the delay distribution parameters.
-It also uses our `double_interval_censored()` function to define
-each double censored and right truncated delay:
-"""
-
-@model function CensoredDistributions_model(
-        pwindow_bounds, swindow_bounds, obs_time_bounds
-)
-    pwindows ~ product_distribution(
-        [DiscreteUniform(pw[1], pw[2]) for pw in pwindow_bounds]
-    )
-    swindows ~ product_distribution(
-        [DiscreteUniform(sw[1], sw[2]) for sw in swindow_bounds]
-    )
-    obs_times ~ product_distribution(
-        [DiscreteUniform(ot[1], ot[2]) for ot in obs_time_bounds]
-    )
-
-    dist ~ to_submodel(latent_delay_dist())
-
-    pcens_dists = map(
-        pwindows, obs_times, swindows
-    ) do pw, D, sw
-        pe = Uniform(0, pw)
-        double_interval_censored(
-            dist;
-            primary_event = pe,
-            upper = D,
-            interval = sw
-        )
-    end
-
-    obs ~ weight(pcens_dists)
-end
-
-md"""
-We also need to define our simulated observation window bounds for
-each observed delay as well as the bounds on the amount of censored
-time in which events have been observed (required to adjust for
-truncation). We will then combine these bounds with the model in
-order to simulate data.
-"""
-
-bounds_df = DataFrame(
-    pwindow_bounds = fill((1, 3), n),
-    swindow_bounds = fill((1, 3), n),
-    obs_time_bounds = fill((8, 12), n)
-);
-
-md"""
-### Simulate from the double censored distribution for each
-individual
-"""
-
-md"""
-Using the double censored model, we simulate data by sampling from
-the model using known true parameters. We use Turing's simulation
-approach with DynamicPPL's `fix` function to set parameters to their
-true values and sample from the prior predictive distribution. This
-means we can use the same model for simulation and inference.
-"""
-
-md"""
-We first create the base model which only specifies bounds to sample
-for the observations processes. We'll use this for both simulation
-and fitting:
-"""
-
-base_model = @with bounds_df begin
-    CensoredDistributions_model(
-        :pwindow_bounds,
-        :swindow_bounds,
-        :obs_time_bounds
-    )
-end
-
-md"""
-For simulation, fix the distribution parameters to known true
-values:
-"""
-
-simulation_model = fix(
-    base_model,
-    (
-        @varname(dist.mu) => meanlog,
-        @varname(dist.sigma) => sdlog
-    )
-)
-
-md"""
-Now we can sample from the model using `rand` to get simulated
-observations with their observation windows and relative observation
-time:
-"""
-
-simulated_data = @chain simulation_model begin
-    rand
-    NamedTuple
-    DataFrame
-end;
-
-md"""
-### Visualise the simulated data
-
-To make handling the data easier and later to speed up our models we
-first create a dataframe with the data we just generated, aggregated
-to unique combinations and count occurrences.
-"""
-
-simulated_counts = @chain simulated_data begin
-    @transform :obs_upper = :obs .+ :swindows
-    @groupby All()
-    @combine :n = length(:pwindows)
-end;
-
-md"""
-Now let's compare the samples with and without double interval
-censoring to the true distribution. First let's calculate the
-empirical CDF:
-"""
-
-empirical_cdf_obs = @with(simulated_counts, ecdf(:obs, weights = :n));
-
-## Create a sequence of x values for the theoretical CDF
-x_seq = @with simulated_counts begin
-    range(
-        minimum(:obs),
-        stop = maximum(:obs) + 2,
-        length = 100
-    );
-end;
-
-## Calculate theoretical CDF using true log-normal distribution
-theoretical_cdf = @chain x_seq begin
-    cdf.(true_dist, _)
-end;
-
-## Generate uncensored samples from the true distribution
-uncensored_samples = rand(true_dist, n);
-empirical_cdf_uncensored = ecdf(uncensored_samples);
-
-f = Figure()
-ax = Axis(
-    f[1, 1],
-    title = "Censored vs Uncensored vs Theoretical CDF",
-    ylabel = "Cumulative Probability",
-    xlabel = "Delay"
-)
-scatter!(
-    ax,
-    x_seq,
-    empirical_cdf_obs.(x_seq),
-    label = "Empirical CDF (Censored)",
-    color = :blue
-)
-scatter!(
-    ax,
-    x_seq,
-    empirical_cdf_uncensored.(x_seq),
-    label = "Empirical CDF (Uncensored)",
-    color = :red,
-    marker = :cross
-)
-lines!(
-    ax, x_seq, theoretical_cdf,
-    label = "Theoretical CDF",
-    color = :black, linewidth = 2
-)
-vlines!(
-    ax, [mean(simulated_data.obs)],
-    color = :blue, linestyle = :dash,
-    label = "Censored mean", linewidth = 2
-)
-vlines!(
-    ax, [mean(uncensored_samples)],
-    color = :red, linestyle = :dash,
-    label = "Uncensored mean", linewidth = 2
-)
-vlines!(
-    ax, [mean(true_dist)],
-    linestyle = :dash,
-    label = "Theoretical mean",
-    color = :black, linewidth = 2
-)
-axislegend(position = :rb)
-f
-
-md"""
-## Fitting a naive model using Turing
-
-We'll now fit a naive model that ignores the censoring process. This
-model treats the observed delay data as if it came directly from the
-uncensored delay distribution, providing a baseline for comparison.
-"""
-
-@model function naive_model()
-    dist ~ to_submodel(latent_delay_dist())
-    obs ~ weight(dist)
-end
-
-md"""
-Now let's instantiate and condition this model using weighted
-observations. We use a small constant to avoid issues at zero (a
-hint that this model is misspecified) and condition directly using
-NamedTuple format `(values = values, weights = counts)` which
-enables joint observation conditioning.
-"""
-
-naive_mdl = @with simulated_counts begin
-    condition(
-        naive_model(),
-        obs = (values = :obs .+ 1e-6, weights = :n)
-    )
-end
-
-md"""
-Now let's fit the conditioned model using the joint observation
-pattern `(values = values, weights = counts)`.
-"""
-
-naive_fit = sample(
-    naive_mdl,
-    NUTS(; adtype = AutoMooncakeForward()),
-    MCMCThreads(), 500, 4;
-    chain_type = VNChain
-);
-
-summarystats(naive_fit)
-
-md"""
-And let's visualise the posterior alongside the true values:
-"""
-
-plot_fit_with_truth(
-    naive_fit,
-    (; mu = meanlog, sigma = sdlog)
-)
-
-md"""
-We see that the model has converged and the diagnostics look good.
-However, just from the model posterior summary we see that we might
-not be very happy with the fit. `mu` is smaller than the target
-1.5 and `sigma` is larger than the target 0.75.
-"""
-
-md"""
-## Fitting a truncation-adjusted interval model
-
-Now let's fit an intermediate model that accounts for interval
-censoring and right truncation but ignores the primary censoring
-process. This provides a comparison point between the naive model
-and the full model.
-"""
-
-@model function interval_only_model(
-        swindow_bounds, obs_time_bounds
-)
-    swindows ~ product_distribution(
-        [Uniform(sw[1], sw[2]) for sw in swindow_bounds]
-    )
-    obs_times ~ product_distribution(
-        [Uniform(ot[1], ot[2]) for ot in obs_time_bounds]
-    )
-
-    dist ~ to_submodel(latent_delay_dist())
-
-    icens_dists = map(obs_times, swindows) do D, sw
-        truncated(
-            interval_censored(dist, sw), upper = D
-        )
-    end
-    obs ~ weight(icens_dists)
-    return obs
-end
-
-md"""
-Create the interval-only model with bounds, fix the window
-parameters, and condition on observations
-"""
-
-interval_only_mdl = @with simulated_counts begin
-    @chain interval_only_model(
-        bounds_df.swindow_bounds,
-        bounds_df.obs_time_bounds
-    ) begin
-        fix((
-            @varname(swindows) => :swindows,
-            @varname(obs_times) => :obs_times
-        ))
-        condition(
-            obs = (values = :obs, weights = :n)
-        )
+sim_rows = let rng = MersenneTwister(20260609)
+    map(1:n) do _
+        s = predict_events(latent(truth); rng = rng)
+        (onset = s.onset, admit = s.admit, death = s.death)
     end
 end;
 
 md"""
-Fit the interval-only model (*Note: `Turing.jl` supports a wide
-range of fitting methods but here we use the No-U-turn sampler*):
+We collect the records into a `DataFrame`; the vectorised
+[`composed_distribution_model`](@ref) consumes any Tables.jl source, so the
+table passes straight in.
 """
 
-interval_only_fit = sample(
-    interval_only_mdl,
-    NUTS(; adtype = AutoMooncakeForward()),
-    MCMCThreads(), 500, 4;
-    chain_type = VNChain
-);
+data = DataFrame(sim_rows)
 
-summarystats(interval_only_fit)
+first(data, 5)
 
 md"""
-Lets plot the posterior compared to the true values again. `to_submodel()`
-automatically prefixes the LHS name to all variables in the inner model
-(so `mu` becomes `dist.mu`). Using FlexiChains' `Prefixed` wrapper in
-`plot_fit_with_truth` handles that transparently, so the same helper
-works for both the plain prior chain and the prefixed posterior chain.
+## Fit the marginal form
+
+The marginal fit scores each record through the composed `logpdf` with the
+intermediate admission integrated out, so there are no per-record latent
+dimensions. We keep the budget modest (this page runs in a per-tutorial
+subprocess) and time the run.
 """
 
-plot_fit_with_truth(
-    interval_only_fit,
-    (; mu = meanlog, sigma = sdlog)
-)
+marginal_time = @elapsed marginal_chain = sample(
+    Xoshiro(1),
+    delay_model(template, priors, data),
+    NUTS(0.8; adtype = AutoForwardDiff()), 300;
+    chain_type = VNChain, progress = false)
 
 md"""
-## Fitting the double censored model
+## Fit the latent form
 
-Now we'll fit the full model that accounts for the censoring
-process. Since the CensoredDistributions_model was defined earlier
-and used for simulation, we'll reuse it for fitting. Here we fix
-the censoring windows and observation time based on the observed
-data and then condition on the weighted observations.
+The latent fit is the same model with the composed object wrapped in
+[`latent`](@ref): the intermediate admission time is sampled as a `~` variable
+per record and each segment scores against it. This adds dimensions but can mix
+more robustly at a small budget, because the sampler walks the augmented joint
+rather than a stiff marginal.
 """
 
-CensoredDistributions_mdl = @with simulated_counts begin
-    @chain base_model begin
-        fix((
-            @varname(pwindows) => :pwindows,
-            @varname(swindows) => :swindows,
-            @varname(obs_times) => :obs_times
-        ))
-        condition(
-            obs = (values = :obs, weights = :n)
-        )
+latent_time = @elapsed latent_chain = sample(
+    Xoshiro(1),
+    delay_model(template, priors, data; wrap = latent),
+    NUTS(0.8; adtype = AutoForwardDiff()), 300;
+    chain_type = VNChain, progress = false)
+
+md"""
+## Compare runtime and recovery
+
+We read the fitted delays off each chain with
+[`update`](@ref)`(template, chain)` and [`edge_means`](@ref), which sees through
+each censored leaf to its inner free delay mean. The true edge means are the
+means of the underlying Gammas.
+"""
+
+true_means = edge_means(truth)
+
+marginal_fit = update(template, marginal_chain; prefix = :delays)
+
+latent_fit = update(template, latent_chain; prefix = :delays)
+
+recovery = DataFrame(
+    edge = ["onset_admit", "admit_death"],
+    truth = [true_means.path.onset_admit, true_means.path.admit_death],
+    marginal = [edge_means(marginal_fit).path.onset_admit,
+        edge_means(marginal_fit).path.admit_death],
+    latent = [edge_means(latent_fit).path.onset_admit,
+        edge_means(latent_fit).path.admit_death])
+
+md"""
+Both fits recover the true edge means closely, as the marginal-equals-latent
+equivalence requires: the two forms target the same posterior.
+"""
+
+md"""
+At this small budget the latent form is the slower of the two per effective
+sample at scale, since it carries one extra sampled event per record; the
+marginal form is the cheap default. The latent form earns its cost when the
+marginal integral is impractical, or when the augmented geometry mixes better
+than a stiff marginal at small counts.
+"""
+
+runtime = DataFrame(
+    form = ["marginal", "latent"],
+    seconds = [marginal_time, latent_time])
+
+md"""
+## Posterior overlay
+
+We summarise each posterior by its two edge means, the quantity reported for a
+delay distribution, rather than by raw shape/scale samples. `mean_draws` reads
+the edge means off every posterior draw through repeated
+[`update`](@ref)`(template, chain; draw = i)` and [`edge_means`](@ref), with no
+manual chain indexing.
+"""
+
+function mean_draws(chain)
+    em = map(1:prod(size(chain))) do i
+        edge_means(update(template, chain; prefix = :delays, draw = i))
     end
-end;
+    return (onset_admit = [e.path.onset_admit for e in em],
+        admit_death = [e.path.admit_death for e in em])
+end
 
-CensoredDistributions_mdl()
+marginal_means = mean_draws(marginal_chain)
 
-md"""
-Now we fit the model to recover the true parameters from the
-synthetic data we generated earlier. This demonstrates the
-package's ability to perform accurate parameter recovery when
-the censoring process is properly modelled.
-"""
+latent_means = mean_draws(latent_chain)
 
-CensoredDistributions_fit = sample(
-    CensoredDistributions_mdl,
-    NUTS(; adtype = AutoMooncakeForward()), MCMCThreads(), 1000, 4;
-    chain_type = VNChain
-);
-
-summarystats(CensoredDistributions_fit)
+truth_nt = (onset_admit = true_means.path.onset_admit,
+    admit_death = true_means.path.admit_death)
 
 md"""
-And the corresponding pair plot with the true parameters overlaid:
+The two fits' posteriors over the delay means sit on top of each other and
+bracket the true values, confirming that the marginal and latent forms target
+the same posterior.
 """
 
-plot_fit_with_truth(
-    CensoredDistributions_fit,
-    (; mu = meanlog, sigma = sdlog)
-)
+pairplot(
+    PairPlots.Series(marginal_means; label = "marginal",
+        color = (:steelblue, 0.6)),
+    PairPlots.Series(latent_means; label = "latent",
+        color = (:orange, 0.6)),
+    PairPlots.Truth(truth_nt, label = "True values"))
 
 md"""
-We see that the model has converged and the diagnostics look good.
-We also see that the posterior means are near the true parameters
-and the 90% credible intervals include the true parameters.
+## Summary
+
+- One composed distribution describes the whole record; [`compose`](@ref) and
+  the censored leaves build it, while [`params_table`](@ref) and
+  [`build_priors`](@ref) derive support-aware priors.
+- The records score through the vectorised [`composed_distribution_model`](@ref)
+  on a `DataFrame` in one `~`, and the same model fits and generates.
+- The marginal and latent forms are one family on the same parameters: wrapping
+  the composed object in [`latent`](@ref) switches a single fit between them,
+  and both recover the truth.
+- The marginal form is the cheap default; the latent form costs an extra
+  sampled event per record but suits small counts or impractical marginal
+  integrals.
+- [`update`](@ref)`(template, chain)` and [`edge_means`](@ref) read the fitted
+  delays back onto the composed object with no manual chain indexing.
 """
-
-md"""
-## Working with FlexiChains output
-
-Because we asked Turing to return a `VNChain`, the posterior is keyed
-by `VarName`s rather than flattened `Symbol`s. That makes it easy to
-pull out specific quantities without string munging. For example, we
-can list the parameters in the chain directly:
-"""
-
-parameters(CensoredDistributions_fit)
-
-md"""
-We can also compute per-parameter summaries by passing the chain to
-Statistics functions that FlexiChains extends. Here we ask for the
-posterior mean of each parameter:
-"""
-
-mean(CensoredDistributions_fit)
-
-md"""
-and the rhat convergence diagnostic:
-"""
-
-rhat(CensoredDistributions_fit)
-
-md"""
-Finally, because the chain is keyed by `VarName`, we can index into
-it with a `Prefixed` wrapper to recover the raw samples for a single
-parameter as a matrix of `(iter, chain)`:
-"""
-
-mu_samples = CensoredDistributions_fit[Prefixed(@varname(mu))]
-size(mu_samples)
