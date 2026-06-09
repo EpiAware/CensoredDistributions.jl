@@ -725,3 +725,99 @@ end
                         :death, 1:n)
     @test isapprox(deaths / n, 0.3; atol = 0.03)
 end
+
+@testitem "rand discretises event times to each leaf's interval" begin
+    using Distributions, Random
+
+    pe = Uniform(0, 1)
+    edge(m) = double_interval_censored(Gamma(m, 1.0);
+        primary_event = pe, interval = 1.0)
+
+    # bdbv tree: onset -> {admit -> {death, discharge}, notif}.
+    tree = Parallel(
+        Sequential(edge(3.6), Parallel(edge(7.0), edge(7.5))), edge(14.0))
+    r = rand(Xoshiro(1), tree)
+    v = collect(values(r))
+    # The origin and every leaf slot are floored to the day interval.
+    @test all(x -> x === missing || x == floor(x), v)
+end
+
+@testitem "simulate-then-score gap means are unbiased (bdbv tree)" begin
+    using Distributions, Random, Statistics
+
+    # The scorer floors each gap to its day; the sim must apply the same interval
+    # to the RECORDED times so E[gap] == E[Gamma], not E[Gamma] - 0.5. The origin
+    # is floored to the origin edge's interval so first-level gaps are unbiased.
+    pe = Uniform(0, 1)
+    edge(m) = double_interval_censored(Gamma(m, 1.0);
+        primary_event = pe, interval = 1.0)
+    am, dm, nm = 3.6, 7.0, 14.0
+    # onset -> {admit -> {death, discharge}, notif}; notif hangs off onset.
+    tree = Parallel(
+        Sequential(edge(am), Parallel(edge(dm), edge(7.5))), edge(nm))
+
+    rng = Xoshiro(20)
+    N = 200_000
+    adm = Float64[];
+    dth = Float64[];
+    ntf = Float64[]
+    for _ in 1:N
+        v = collect(values(rand(rng, tree)))   # [onset, admit, death, disch, notif]
+        push!(adm, v[2] - v[1])                # admit - onset
+        push!(dth, v[3] - v[2])                # death - admit
+        push!(ntf, v[5] - v[1])                # notif - onset
+    end
+    @test isapprox(mean(adm), am; atol = 0.05)
+    @test isapprox(mean(dth), dm; atol = 0.05)
+    @test isapprox(mean(ntf), nm; atol = 0.05)
+end
+
+@testitem "simulate-then-score gap is unbiased for a single censored leaf" begin
+    using Distributions, Random, Statistics
+
+    pe = Uniform(0, 1)
+    m = 7.0
+    chain = Sequential(
+        double_interval_censored(LogNormal(1.0, 0.4);
+            primary_event = pe, interval = 1.0),
+        double_interval_censored(Gamma(m, 1.0);
+            primary_event = pe, interval = 1.0))
+    rng = Xoshiro(30)
+    gaps = [(r = collect(rand(rng, chain)); r[3] - r[2])
+            for _ in 1:200_000]
+    # E[gap] == E[Gamma], not E[Gamma] - 0.5.
+    @test isapprox(mean(gaps), m; atol = 0.05)
+end
+
+@testitem "rand discretises mixed leaf intervals correctly" begin
+    using Distributions, Random
+
+    pe = Uniform(0, 1)
+    # Step 1 is day-resolution, step 2 two-day-resolution.
+    mix = Sequential(
+        double_interval_censored(Gamma(5.0, 1.0);
+            primary_event = pe, interval = 1.0),
+        double_interval_censored(Gamma(8.0, 1.0);
+            primary_event = pe, interval = 2.0))
+    rng = Xoshiro(40)
+    for _ in 1:2000
+        r = collect(rand(rng, mix))
+        @test r[2] == floor(r[2])        # step 1: day floor
+        @test r[3] % 2 == 0              # step 2: two-day floor
+    end
+end
+
+@testitem "rand keeps primary-only leaves continuous" begin
+    using Distributions, Random
+
+    pe = Uniform(0, 1)
+    # No secondary interval anywhere: every slot stays continuous.
+    chain = Sequential(primary_censored(Gamma(4.0, 1.0), pe),
+        primary_censored(Gamma(3.0, 1.0), pe))
+    rng = Xoshiro(50)
+    saw_noninteger = any(1:200) do _
+        r = collect(rand(rng, chain))
+        any(x -> x != floor(x), r)
+    end
+    @test saw_noninteger
+end

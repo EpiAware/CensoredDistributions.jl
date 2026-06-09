@@ -63,6 +63,38 @@ end
 
 @doc "
 
+Simulate event-based draws from a [`Select`](@ref) disjunction.
+
+`kind` names the active alternative (the selector value); the draw is that
+alternative's own event path. Routing the selection through the public
+`rand(::Select; kind)` keeps simulation off the internal selection helper. With
+`kind = nothing` an alternative is sampled uniformly (the no-data
+forward-simulation path), matching `rand`.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, Random
+
+d = select(:index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+    :sourced => primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
+path = predict_events(d; kind = :index, rng = MersenneTwister(1))
+```
+
+See also: [`Select`](@ref), [`predict_events`](@ref).
+"
+function predict_events(d::Select; kind::Union{Symbol, Nothing} = nothing,
+        rng::AbstractRNG = default_rng())
+    return rand(rng, d; kind = kind)
+end
+
+function predict_events(d::Select, n::Integer;
+        kind::Union{Symbol, Nothing} = nothing,
+        rng::AbstractRNG = default_rng())
+    return [rand(rng, d; kind = kind) for _ in 1:n]
+end
+
+@doc "
+
 Simulate one event-based draw per supplied parameter set.
 
 `build` maps a parameter set to a latent/composed distribution (for example one
