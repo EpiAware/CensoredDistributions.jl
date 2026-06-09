@@ -13,6 +13,9 @@
 #
 # We use Distributions for the delay distributions, DynamicPPL for the Turing
 # entry points, and Random for reproducibility.
+# The Turing-facing functions ([`composed_distribution_model`](@ref),
+# [`composed_parameters_model`](@ref)) live in a package extension that loads
+# only once DynamicPPL is available, so the core package stays Turing-free.
 
 using CensoredDistributions
 using Distributions
@@ -145,6 +148,8 @@ obs_chain = Sequential(
 # [`composed_distribution_model`](@ref) scores one record passed as a NamedTuple
 # keyed by event name.
 # A `missing` field is integrated out; an observed field is conditioned on.
+# This is the first use of Turing here, so the model entry comes from the
+# DynamicPPL package extension loaded above.
 
 @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
 
@@ -155,14 +160,15 @@ only(logjoint(demo(obs_chain, row), (;)))
 # For many records, `record_distributions` assembles a vector of
 # per-record distributions and `product_distribution` scores them at once.
 # Each record bakes in its own missingness pattern, so the same call handles a
-# mix of observed and unobserved intermediate events.
+# mix of missingness across records: the first has its intermediate admission
+# observed, the second leaves it unobserved (integrated out).
 
-rows = [(onset = 0.0, admit = missing, death = 5.0),
+rows = [(onset = 0.0, admit = 2.0, death = 5.0),
     (onset = 1.0, admit = missing, death = 7.0)];
 
 recs = CensoredDistributions.record_distributions(obs_chain, rows);
 
-events = hcat([0.0, 0.0, 5.0], [1.0, 0.0, 7.0]);
+events = hcat([0.0, 2.0, 5.0], [1.0, 0.0, 7.0]);
 
 logpdf(product_distribution(recs), events)
 
@@ -177,14 +183,6 @@ draw = rand(Xoshiro(7), tree)
 
 count(!ismissing, (draw.death, draw.discharge))
 
-# [`predict_events`](@ref) draws full event paths directly from a
-# [`latent`](@ref) distribution, with no model and no conditioning.
-# This is the forward-simulation path for fresh records.
-
-ld = latent(primary_censored(LogNormal(1.4, 0.5), Uniform(0, 1)));
-
-predict_events(ld; rng = MersenneTwister(1))
-
 # ## Marginal versus latent
 #
 # Scoring and prediction are two directions on the same object.
@@ -192,11 +190,60 @@ predict_events(ld; rng = MersenneTwister(1))
 # integrated-out event convolves into its neighbours, an observed event
 # conditions.
 # Prediction is the generative `rand`, which samples every internal event time.
-# Because the marginal and latent forms are one family sharing the same
-# parameters, a posterior fitted in the cheap marginal form drops straight into
-# the latent form for event-based prediction.
+#
+# The marginal and latent forms are one family sharing the same parameters.
+# The marginal form integrates the intermediate event out inside `logpdf`, so it
+# adds no extra dimensions and is the cheap default.
+# The latent form instead samples the intermediate event and scores each segment
+# against it, the same object read in the other direction.
+# [`latent`](@ref) wraps a node to select the latent representation.
+
+leaf = primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1));
+
+ld = latent(leaf);
+
+# The marginal form scores one number: the observed time with the primary event
+# integrated out.
+
+y = 3.0;
+
+marginal_lp = logpdf(leaf, y)
+
+# The latent form is multivariate over `[primary, observed]`: sample the
+# intermediate primary event, then score the two segments against it.
+# Its `logpdf` is the primary prior plus the observed-given-primary conditional.
+
+path = rand(Xoshiro(11), ld)
+
+# Scoring that drawn path is the joint over both segments.
+
+latent_lp = logpdf(ld, path)
+
+# The marginal scores one number; the latent scores the sampled event path. The
+# latent integrates to the marginal over the primary, so a marginal fit and a
+# latent fit recover the same parameters (worked through in the fitting
+# tutorial).
+
+(marginal = marginal_lp, latent_joint = latent_lp)
+
+# Prediction samples every internal event time directly from the latent form via
+# [`predict_events`](@ref): a full `[primary, observed]` path with no model and
+# no conditioning.
+
+predict_events(ld; rng = Xoshiro(11))
+
+# Prefer the LATENT form when the marginal integral is impractical: very complex
+# delay distributions where the convolution has no closed form and numeric
+# integration is expensive, or small-count problems where the extra latent
+# dimensions cost little and the sampler explores the joint more robustly than a
+# stiff one-dimensional marginal.
+# Prefer the MARGINAL form by default: it carries no per-record latents, so it
+# is cheaper and lower-dimensional at scale.
+# Because both share the same parameters, a posterior fitted in the cheap
+# marginal form drops straight into the latent form for event-based prediction.
 # The [Fit marginal, sample event based](@ref) tutorial works this through end
-# to end.
+# to end, and [Fitting CensoredDistributions.jl modified distributions with
+# Turing.jl](@ref) compares the two fits directly.
 
 # ## Parameters and priors
 #
@@ -213,16 +260,21 @@ tbl.edge, tbl.param
 
 # [`build_priors`](@ref) turns that table into the nested prior NamedTuple the
 # parameter model expects.
-# A `default` function picks a prior per row, so priors are defined against the
-# table rather than by hand-matching the tree.
+# It derives a default prior per row from that leaf's SUPPORT: a positive scale
+# parameter gets a positive-truncated prior, a location parameter an unbounded
+# one, a `[0, 1]` probability a `Uniform(0, 1)`.
+# So `build_priors(tbl)` alone yields a complete set, and a `default` function
+# or per-parameter override replaces only the rows you care about, all defined
+# against the table rather than by hand-matching the tree.
 
-priors = build_priors(tbl;
-    default = row -> truncated(Normal(row.value, 1); lower = 0));
+priors = build_priors(tbl);
 
 priors.onset_admit.shape
 
-# [`composed_parameters_model`](@ref) samples those priors and rebuilds the same
-# composer structure, ready to drop into a record model for the likelihood.
+# The nested prior NamedTuple feeds [`composed_parameters_model`](@ref): it
+# samples those priors and rebuilds the same composer structure, which then
+# drops into the record model ([`composed_distribution_model`](@ref)) for the
+# likelihood.
 
 @model function param_demo(t, p)
     d ~ to_submodel(composed_parameters_model(t, p))
@@ -235,13 +287,15 @@ event_names(reconstructed)
 
 # [`update`](@ref) applies a set of parameter values back to a composed object,
 # returning a distribution of the same structure.
-# Pair it with [`chain_to_params`](@ref) to read a posterior into the right
-# NamedTuple after fitting.
+# After fitting, `update(template, chain)` reads posterior means straight off a
+# fitted chain (via [`chain_to_params`](@ref)), giving a ready-to-`rand` or
+# ready-to-inspect distribution; [`edge_means`](@ref) then reads every per-edge
+# delay mean off it in one call.
 
 updated = update(template, (onset_admit = (shape = 3.0, scale = 1.5),
     admit_death = (mu = 0.7, sigma = 0.5)));
 
-get_event(updated, :onset_admit)
+edge_means(updated)
 
 # ## Summary
 #
@@ -253,7 +307,10 @@ get_event(updated, :onset_admit)
 # - The composers nest, including a composer as a chain step and a
 #   `select_branch` of a `select_branch`.
 # - One object scores records and simulates them; scoring marginalises by row
-#   missingness, prediction is the generative `rand`.
-# - [`params_table`](@ref), [`build_priors`](@ref),
+#   missingness (mixed across records), prediction is the generative `rand`.
+# - The marginal and latent forms are one family on the same parameters. The
+#   marginal is the cheap default; the latent samples the intermediate event and
+#   suits small counts or distributions whose marginal integral is impractical.
+# - [`params_table`](@ref), [`build_priors`](@ref) (support-derived defaults),
 #   [`composed_parameters_model`](@ref), and [`update`](@ref) attach parameters
-#   and priors to the same object.
+#   and priors to the same object and feed the record model.
