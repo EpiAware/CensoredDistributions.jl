@@ -73,7 +73,7 @@ end
             death = (shape = truncated(Normal(1.5, 0.3); lower = 0),
                 scale = truncated(Normal(1, 0.2); lower = 0)),
             disch = (shape = truncated(Normal(2, 0.3); lower = 0),
-                scale = truncated(Normal(1.5, 0.2); lower = 0))))
+                scale = truncated(Normal(1.5, 0.2); lower = 0)))
     )
 
     @model function pm(t, p)
@@ -149,7 +149,8 @@ end
 
     # Extra leaf parameter.
     extra_param = merge(full,
-        (; onset_admit = (shape = Normal(2, 0.5),
+        (;
+            onset_admit = (shape = Normal(2, 0.5),
             scale = Normal(1, 0.3), bogus = Normal(0, 1))))
     @test_throws ArgumentError pm(template, extra_param)()
 
@@ -314,7 +315,7 @@ end
         inc = (shape = truncated(Normal(2, 0.5); lower = 0),
             scale = truncated(Normal(1, 0.3); lower = 0)),
         sourced = (delta = (mu = Normal(0.5, 0.2),
-            sigma = truncated(Normal(0.4, 0.1); lower = 0)),),)
+            sigma = truncated(Normal(0.4, 0.1); lower = 0)),))
 
     @model function pm(t, p)
         d ~ to_submodel(composed_parameters_model(t, p))
@@ -359,7 +360,7 @@ end
         inc = (shape = truncated(Normal(3, 1); lower = 0),
             scale = truncated(Normal(1.5, 0.5); lower = 0)),
         sourced = (delta = (mu = Normal(0.7, 0.3),
-            sigma = truncated(Normal(0.5, 0.2); lower = 0)),),)
+            sigma = truncated(Normal(0.5, 0.2); lower = 0)),))
 
     @model function fit(t, p, idx_obs, src_obs)
         d ~ to_submodel(composed_parameters_model(t, p))
