@@ -265,26 +265,25 @@ sim_fit = update(template, chain_to_params(template, sim_chain;
     prefix = :delays))
 
 md"""
-`edge_means` reads the four delay means off any fitted composed object by name,
-through [`get_event`](@ref) and the inner free delay of each censored leaf.
-`delay_mean_draws` applies that to every posterior draw, giving the posterior
-distribution of each delay mean through repeated [`update`](@ref) /
-[`chain_to_params`](@ref) rather than any manual chain indexing.
+[`edge_means`](@ref) reads every delay mean off any fitted composed object at
+once, keyed by edge name and seeing through each censored leaf to its inner free
+delay. `flat_means` names the four delays we report, and `delay_mean_draws`
+applies that to every posterior draw, giving the posterior distribution of each
+delay mean through repeated [`update`](@ref) / [`chain_to_params`](@ref) rather
+than any manual chain indexing.
 """
 
-function edge_means(fit)
-    ap = get_event(fit, :admit_path)
-    res = get_event(ap, :admit_resolution)
-    inner(leaf) = CensoredDistributions.free_leaf(leaf)
-    return (onset_admit = mean(inner(get_event(ap, :onset_admit))),
-        admit_death = mean(inner(get_event(res, :death))),
-        admit_discharge = mean(inner(get_event(res, :discharge))),
-        onset_notif = mean(inner(get_event(fit, :onset_notif))))
+function flat_means(fit)
+    em = edge_means(fit)
+    return (onset_admit = em.admit_path.onset_admit,
+        admit_death = em.admit_path.admit_resolution.death,
+        admit_discharge = em.admit_path.admit_resolution.discharge,
+        onset_notif = em.onset_notif)
 end
 
 function delay_mean_draws(chain)
     rows = map(1:prod(size(chain))) do i
-        edge_means(update(template,
+        flat_means(update(template,
             chain_to_params(template, chain; prefix = :delays, draw = i)))
     end
     return (onset_admit = [r.onset_admit for r in rows],
