@@ -5,12 +5,13 @@ name: Benchmark
 # "Changed vs main" (inline) and "All benchmarks" (collapsed), each split
 # into Evaluation and AD gradients.
 #
-# Each revision is benchmarked in its own checkout (the PR working tree
-# and a `main` git worktree), so `main` runs `main`'s sources and AD
-# fixtures while the PR runs its own. This is what lets the AD gradient
-# benchmarks be compared across an API change, where staging one set of
-# fixtures against both packages (the previous AirspeedVelocity setup)
-# could not.
+# Each revision is benchmarked in its OWN job (a fresh runner checked out
+# at that revision), so `main` runs `main`'s sources and AD fixtures while
+# the PR runs its own. This is what lets the AD gradient benchmarks be
+# compared across an API change, where staging one set of fixtures against
+# both packages (the previous AirspeedVelocity setup) could not. Splitting
+# the revisions into separate jobs also keeps a single runner from loading
+# two heavy AD stacks (Enzyme + Mooncake) at once, which exhausted it.
 #
 # Uses `pull_request` (not `pull_request_target`): the comparison runs the
 # PR's own code, so the workflow under test is the PR's and the
@@ -37,44 +38,65 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # One revision per job. `ref` selects the checkout; `name` labels the
+  # uploaded results artifact. The runner inlines a tiny runner script so
+  # it works even on `main`, which predates `benchmark/run.jl`.
   benchmark:
+    name: Benchmark (${{ matrix.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: pr
+            ref: ${{ github.event.pull_request.head.sha }}
+          - name: main
+            ref: ${{ github.event.pull_request.base.sha }}
     steps:
-      # Full history so the `main` worktree can be created below.
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-
+          ref: ${{ matrix.ref }}
       - uses: julia-actions/setup-julia@v3
         with:
           version: '1'
       - uses: julia-actions/cache@v3
-
-      - name: Benchmark PR
+      - name: Run benchmark suite
         run: |
           julia --project=benchmark -e '
             using Pkg
             Pkg.develop(path = pwd())
-            Pkg.instantiate()'
-          julia --project=benchmark benchmark/run.jl benchmark pr.json
+            Pkg.instantiate()
+            using BenchmarkTools
+            include("benchmark/benchmarks.jl")
+            results = run(SUITE; verbose = true, seconds = 1)
+            BenchmarkTools.save("results-${{ matrix.name }}.json", results)'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ matrix.name }}
+          path: results-${{ matrix.name }}.json
 
-      - name: Benchmark main
+  compare:
+    needs: benchmark
+    runs-on: ubuntu-latest
+    steps:
+      # PR checkout for `benchmark/compare.jl`.
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Build comparison comment
         run: |
-          git fetch --no-tags origin main
-          git worktree add --detach main-checkout origin/main
-          julia --project=main-checkout/benchmark -e '
-            using Pkg
-            Pkg.develop(path = joinpath(pwd(), "main-checkout"))
-            Pkg.instantiate()'
-          julia --project=main-checkout/benchmark \
-            benchmark/run.jl main-checkout/benchmark main.json
-
-      - name: Compare
-        run: |
-          julia --project=benchmark benchmark/compare.jl \
-            pr.json main.json comment.md
-
+          julia -e '
+            import Pkg
+            Pkg.activate(; temp = true)
+            Pkg.add("BenchmarkTools")
+            include("benchmark/compare.jl")' \
+            artifacts/bench-pr/results-pr.json \
+            artifacts/bench-main/results-main.json comment.md
       - name: Post comparison comment
         uses: actions/github-script@v7
         with:

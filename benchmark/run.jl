@@ -1,25 +1,21 @@
-# Run the benchmark suite of a given checkout and save the results.
+# Run this checkout's benchmark suite and save the results to JSON.
 #
-# Usage: julia --project=<checkout>/benchmark run.jl <benchmark_dir> <out.json>
+# Usage (from the repo root):
+#   julia --project=benchmark benchmark/run.jl [out.json]
 #
-# `benchmark_dir` is the `benchmark/` directory of the checkout to
-# benchmark (the PR working tree or a `main` worktree). Including that
-# directory's `benchmarks.jl` builds `SUITE` from the checkout's own
-# sources and fixtures, so each revision is benchmarked against its own
-# code. This is what lets the comparison cover the AD gradient suite even
-# across an API change: `main` runs `main`'s fixtures, the PR runs its
-# own. `run.jl` itself always comes from the PR, so a new runner does not
-# need to exist on the baseline.
+# The CI benchmark workflow inlines an equivalent runner rather than
+# calling this file, so that it also works on the `main` baseline (which
+# predates this script). Kept here as a local convenience and as the
+# documented shape of what CI runs.
 using BenchmarkTools
 
-benchmark_dir = abspath(ARGS[1])
-out_file = ARGS[2]
+out_file = get(ARGS, 1, "results.json")
 
-include(joinpath(benchmark_dir, "benchmarks.jl"))  # defines `SUITE`
+include(joinpath(@__DIR__, "benchmarks.jl"))  # defines `SUITE`
 
-# A short per-benchmark budget keeps the two-revision run affordable in
-# CI; the minimum-time estimator used in the comparison is stable well
-# below the default 5 s.
-results = run(SUITE; verbose = true, seconds = 2)
+# A short per-benchmark budget keeps the run affordable; the
+# minimum-time estimator used in the comparison is stable well below the
+# default 5 s.
+results = run(SUITE; verbose = true, seconds = 1)
 BenchmarkTools.save(out_file, results)
 println("Saved benchmark results to ", out_file)
