@@ -2,6 +2,18 @@
 
 ### Bug fixes
 
+- `double_interval_censored` and `primary_censored` now select the
+  analytic-vs-numeric solver at the type level, so the return type stays
+  concrete when the delay parameters are runtime values (e.g. inside a
+  Turing model). Previously the value-level `force_numeric` branch
+  inferred to a `Union` of the `AnalyticalSolver` and `NumericSolver`
+  specialisations at non-constant-folded call sites, which propagated an
+  abstract element type into downstream `pdf` loops and poisoned
+  reverse-mode AD. `force_numeric` now also accepts a `Val`; pass
+  `Val(true)` / `Val(false)` to guarantee a concrete return without
+  relying on constant propagation. Closes
+  [#367](https://github.com/EpiAware/CensoredDistributions.jl/issues/367).
+
 - Skip the CDF-saturation early-return in the numeric
   `primarycensored_cdf` path when the lower bound is at the distribution
   boundary (`lower == minimum(dist)`). Evaluating `cdf(dist, lower)`

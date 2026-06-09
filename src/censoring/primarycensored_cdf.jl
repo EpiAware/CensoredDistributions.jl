@@ -71,6 +71,21 @@ end
 AnalyticalSolver() = AnalyticalSolver(GaussLegendre(; n = 64))
 NumericSolver() = NumericSolver(GaussLegendre(; n = 64))
 
+# Select the solver method at the type level. Encoding the force-numeric
+# flag as a `Val` makes the analytic-vs-numeric choice a dispatch
+# decision rather than a value-level branch, so callers keep a concrete
+# return type without relying on constant propagation of a `Bool` through
+# nested keyword calls (#367).
+_solver_method(solver, ::Val{false}) = AnalyticalSolver(solver)
+_solver_method(solver, ::Val{true}) = NumericSolver(solver)
+
+# Normalise the user-facing `force_numeric` flag to a `Val`. A `Val`
+# stays type-stable; a `Bool` only does when constant-folded, so passing
+# `Val(true)`/`Val(false)` guarantees a concrete return at runtime call
+# sites.
+_force_numeric_val(force_numeric::Val) = force_numeric
+_force_numeric_val(force_numeric::Bool) = force_numeric ? Val(true) : Val(false)
+
 @doc "
 Compute the CDF of a primary event censored distribution.
 

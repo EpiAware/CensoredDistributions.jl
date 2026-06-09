@@ -29,7 +29,11 @@ necessary for certain AD backends or when debugging.
 # Keyword Arguments
 - `solver`: Quadrature solver (default: `GaussLegendre(; n = 64)`, AD-friendly;
   pass `QuadGKJL()` for adaptive accuracy)
-- `force_numeric`: Force numeric integration even when analytical available (default: `false`)
+- `force_numeric`: Force numeric integration even when analytical available
+  (default: `Val(false)`). Accepts a `Bool` or a `Val`; pass `Val(true)` /
+  `Val(false)` to keep the return type concrete when the delay parameters are
+  runtime values (e.g. inside a probabilistic model), since a `Bool` only stays
+  type-stable when it can be constant-folded.
 
 This is useful for modeling:
 - Infection-to-symptom onset times when infection time is uncertain
@@ -59,12 +63,8 @@ d_numeric = primary_censored(incubation, infection_window; force_numeric=true)
 "
 function primary_censored(
         dist::UnivariateDistribution, primary_event::UnivariateDistribution;
-        solver = GaussLegendre(; n = 64), force_numeric = false)
-    method = if force_numeric
-        NumericSolver(solver)
-    else
-        AnalyticalSolver(solver)
-    end
+        solver = GaussLegendre(; n = 64), force_numeric = Val(false))
+    method = _solver_method(solver, _force_numeric_val(force_numeric))
     return PrimaryCensored(dist, primary_event, method)
 end
 
@@ -90,7 +90,7 @@ d2 = primary_censored(LogNormal(1.5, 0.75); primary_event=Uniform(0, 2))
 function primary_censored(
         dist::UnivariateDistribution;
         primary_event::UnivariateDistribution = Uniform(0, 1),
-        solver = GaussLegendre(; n = 64), force_numeric = false)
+        solver = GaussLegendre(; n = 64), force_numeric = Val(false))
     return primary_censored(
         dist, primary_event; solver = solver, force_numeric = force_numeric)
 end
