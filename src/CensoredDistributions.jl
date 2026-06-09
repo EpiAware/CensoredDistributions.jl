@@ -51,7 +51,9 @@ export primarycensored_cdf, primarycensored_logcdf
 # Exported distributions
 export ExponentiallyTilted
 
-# Exported convolution constructor
+# Exported convolution constructor. A method on a numeric-vector second argument
+# also provides the renewal layer (convolve a timeseries through a composed delay
+# stack to selected event series), so it needs no separate export.
 export convolve_distributions
 
 # Exported generic composers and front-end constructor
@@ -148,6 +150,11 @@ include("composers/composed_moments.jl")
 include("utils/get_dist.jl")
 include("utils/quantile_optimization.jl")
 include("utils/thinning.jl")
+
+# Renewal layer: convolve a timeseries through a composed delay stack. After the
+# composers/wrap (uses `observed_distribution`, `_observed_leaves`) and
+# tree_events (`tree_event_names`).
+include("utils/convolve_with_vector.jl")
 
 # Censored specialisations of the generic composers: included last
 # as they depend on the composers, the censored types, `get_dist_recursive`
