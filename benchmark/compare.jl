@@ -153,9 +153,10 @@ println(io,
     "Minimum time per call. **Ratio = PR / main, so lower is better** ",
     "(🟢 faster, 🔴 slower, ⚪ within ", round(Int, 100CHANGE_THRESHOLD),
     "%). Everything is sorted by time change.\n")
+pct = round(Int, 100CHANGE_THRESHOLD)
 println(io, "**", changed, " of ", length(rows),
-    " benchmarks changed by >", round(Int, 100CHANGE_THRESHOLD), "%** — 🔴 ",
-    slower, " slower, 🟢 ", faster, " faster.\n")
+    " benchmarks changed by >", pct, "%** — 🔴 ", slower, " slower, 🟢 ",
+    faster, " faster.\n")
 
 # Inline summary: the biggest time movers, capped at SUMMARY_N rows.
 n_summary = min(SUMMARY_N, length(all_sorted))
