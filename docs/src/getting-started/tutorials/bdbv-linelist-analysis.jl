@@ -310,17 +310,21 @@ We tabulate each known simulation value against its posterior mean and 95%
 credible interval.
 The case-fatality coefficients are recovered cleanly, the true value inside the
 interval for each.
-The simulation draws are unbiased: a draw emits a continuous event path that the
-day-level censoring discretises with the same `floor(target) - floor(origin)`
-rule the scorer uses, so the gaps carry no systematic offset.
-The onset-to-admission and admission-to-death delays recover well, with the true
-mean near the centre of a tight interval.
-The two hard delays are weakly identified even at this sample size: the
-onset-to-notification delay has a heavy tail (Gamma shape 0.7), so its mean is
-dominated by rare long delays and its interval is wide; the
-admission-to-discharge delay sits on the smaller resolved-as-discharge subset.
-Both still cover the truth, but with much wider intervals than the two easy
-delays, which previews the same pattern in the real fit.
+The simulation draws themselves are unbiased: a draw emits a continuous event
+path that the day-level censoring discretises with the same
+`floor(target) - floor(origin)` rule the scorer uses, so the gaps carry no
+systematic offset (the notification draw mean is ~14.0, its true Gamma mean).
+The onset-to-admission delay recovers well, the true mean near the centre of a
+tight interval.
+The other three are harder.
+The heavy-tailed onset-to-notification delay (Gamma shape 0.7) is the worst: its
+mean is carried by rare long delays, so the posterior is pulled low (around 12
+against a true 14) with a wide interval that the truth sits just above.
+The admission-to-death mean comes back a little low for the same reason on a
+lighter tail, and the admission-to-discharge mean is recovered but wide on the
+smaller resolved-as-discharge subset.
+So even with clean simulated data the two tail-sensitive delays are only weakly
+identified, which previews the same split on the real line list.
 """
 
 ci(v) = (mean = mean(v), lower = quantile(v, 0.025),
@@ -562,16 +566,16 @@ md"""
 Every delay's credible interval overlaps the re-estimated target.
 The onset-to-admission and admission-to-death delays recover well: they match
 the target closely in both mean and width.
-The other two delays are weakly identified and sit below their targets, a
-residual downward bias in the fit rather than a simulation artefact.
+The other two delays are weakly identified, which here shows as wide intervals
+rather than a clean recovery.
 The onset-to-notification delay has a heavy tail (Gamma shape 0.7): the long
-right tail that carries most of the mean is poorly constrained by 38 records and
-is pulled in by the upper truncation at the observation horizon, so the
-posterior mean comes out low with a wide interval.
+right tail that carries most of the mean is poorly constrained by 38 records, so
+the posterior mean is uncertain and the interval is wide; the simulation showed
+the same tail pulling the mean low even with clean data.
 The admission-to-discharge delay is the smallest pathway: discharge is the
 minority outcome and the mutually exclusive assignment by recorded outcome moves
-a few ambiguous cases to death, so it sits on a smaller subset (n = 11), and its
-interval is both wide and shifted low while still overlapping.
+a few ambiguous cases to death, so it sits on a smaller subset (n = 11) and its
+interval is the widest of the four.
 Read these two as covered-but-uncertain rather than precisely recovered; the
 discharge pathway in particular is the least informed here.
 """
@@ -618,6 +622,7 @@ md"""
 - Recovery is honest about identifiability: onset-to-admission and
   admission-to-death recover well, whereas the heavy-tailed onset-to-notification
   (Gamma shape 0.7) and the small-n admission-to-discharge (n = 11) are weakly
-  identified and sit low, a residual bias in the fit rather than the old
-  simulation artefact.
+  identified, with wide intervals; the simulation shows the heavy tail pulling
+  the notification mean low even with clean data, a tail/identifiability effect
+  rather than the old simulation artefact.
 """
