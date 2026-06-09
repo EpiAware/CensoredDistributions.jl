@@ -143,7 +143,11 @@ md"""
 
 `DifferentiationInterfaceTest.benchmark_differentiation` runs every
 (backend, scenario) pair. We pass every backend and scenario so broken
-combinations show up as gaps rather than being hidden.
+combinations show up as gaps rather than being hidden, except for the
+per-backend scenarios `ADFixtures.backend_skip_scenarios()` flags as
+uncatchable crashes (Enzyme aborts the whole process on the heterogeneous
+composer-tree recursion, issue #319); those pairs are dropped before the run
+so the benchmark cannot take the process down with it.
 The figures are the prepared per-call cost.
 DifferentiationInterface prepares each backend once, recording a tape for
 ReverseDiff and compiling a rule for Enzyme and Mooncake, and we time the
@@ -169,11 +173,21 @@ md"""
 ```
 """
 
-raw_bench = DIT.benchmark_differentiation(
-    all_backends, scenarios;
-    logging = false,
-    benchmark_test = false
-)
+## Some (backend, scenario) pairs crash the process uncatchably (Enzyme on the
+## heterogeneous composer-tree recursion, #319), so a `try`/`catch` cannot save
+## the build. We therefore drop those pairs per backend before timing, mirroring
+## `test/ad/setup.jl`, and benchmark each backend over only its runnable
+## scenarios. Backends with no skip list still see the full scenario set.
+skip_map = ADFixtures.backend_skip_scenarios()
+raw_bench = mapreduce(vcat, all_backends) do backend
+    skip = get(skip_map, backend_name[backend], Set{String}())
+    runnable = filter(s -> !(s.name in skip), scenarios)
+    DataFrame(DIT.benchmark_differentiation(
+        [backend], runnable;
+        logging = false,
+        benchmark_test = false
+    ))
+end
 
 ## `replace` order matters because `DoubleIntervalCensored` contains
 ## `IntervalCensored`; the longer key is matched first.
