@@ -18,22 +18,32 @@ if !skip_notebooks
     tutorials_dir = joinpath(
         @__DIR__, "src", "getting-started", "tutorials"
     )
-    tutorial_files = [
+
+    # Light tutorials: Literate emits `@example` blocks that Documenter runs
+    # in-process. They are cheap and accumulate no native/memory state.
+    light_tutorials = [
         "analytical-primarycensored-cdfs.jl",
         "exponentially-tilted-primary-events.jl",
         "ad-backends.jl",
-        "fitting-with-turing.jl",
         "composer-toolkit.jl",
-        "fit-marginal-sample-event-based.jl",
+        "fit-marginal-sample-event-based.jl"
+    ]
+
+    # Heavy tutorials: live MCMC fits plus CairoMakie/PairPlots. Run each in its
+    # own subprocess with `execute = true` so the captured outputs become static
+    # ````julia```` blocks; Documenter then renders without re-executing, and no
+    # state accumulates across tutorials in the long-lived Documenter process.
+    heavy_tutorials = [
+        "fitting-with-turing.jl",
         "bdbv-linelist-analysis.jl",
         "andv-linelist-analysis.jl"
     ]
 
     println(
-        "Building Literate tutorials " *
+        "Building light Literate tutorials " *
         "(this may take several minutes)..."
     )
-    for file in tutorial_files
+    for file in light_tutorials
         Literate.markdown(
             joinpath(tutorials_dir, file),
             tutorials_dir;
@@ -41,6 +51,16 @@ if !skip_notebooks
             mdstrings = true,
             credit = false
         )
+    end
+
+    println(
+        "Executing heavy Literate tutorials, one per subprocess..."
+    )
+    runner = joinpath(@__DIR__, "run_literate_tutorial.jl")
+    for file in heavy_tutorials
+        input = joinpath(tutorials_dir, file)
+        println("  executing $file in a fresh subprocess...")
+        run(`$(Base.julia_cmd()) --project=$(@__DIR__) $runner $input $tutorials_dir`)
     end
     println("Literate tutorial processing complete")
 else
