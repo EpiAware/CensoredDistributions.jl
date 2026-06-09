@@ -41,6 +41,7 @@ distribution, Random for reproducibility, and FlexiChains for the chain output.
 using CensoredDistributions
 using Distributions
 using Turing
+using ADTypes: AutoForwardDiff
 using DynamicPPL: prefix, @varname
 using FlexiChains: Parameter
 using Random
@@ -84,7 +85,8 @@ are no per-record latent dimensions to sample.
     end
 end
 
-chain = sample(rng, fit_marginal(observed), NUTS(), 200; progress = false)
+chain = sample(rng, fit_marginal(observed),
+    NUTS(; adtype = AutoForwardDiff()), 200; progress = false)
 
 md"""
 The posterior concentrates near the true parameters.

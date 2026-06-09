@@ -53,6 +53,7 @@
 using CSV, DataFramesMeta, Dates
 using CensoredDistributions, Distributions
 using Turing, Random, Statistics
+using ADTypes: AutoForwardDiff
 using CairoMakie, PairPlots
 
 datadir = joinpath(@__DIR__, "andv-data")
@@ -200,9 +201,13 @@ end
 # The likelihood evaluates a nested numerical convolution per record, so each
 # leapfrog step is expensive. We therefore use a short warmup, a modest number
 # of draws, and a capped NUTS tree depth (`max_depth = 4`) to keep the doc build
-# tractable; a real analysis would use a longer run.
+# tractable; a real analysis would use a longer run. The composed-tree
+# likelihood is differentiated with `AutoForwardDiff`; Enzyme is not used here
+# because it aborts uncatchably on the heterogeneous composer-tree recursion
+# (see issue #319).
 Random.seed!(20260608)
-sim_chain = sample(andv(sim_rows), NUTS(50, 0.9; max_depth = 4),
+sim_chain = sample(andv(sim_rows),
+    NUTS(50, 0.9; max_depth = 4, adtype = AutoForwardDiff()),
     MCMCThreads(), 100, 2; progress = false)
 nothing #hide
 
@@ -220,7 +225,8 @@ sim_summary = DataFrame(
 # The same model is fitted to the real records.
 
 Random.seed!(20260608)
-chain = sample(andv(rows), NUTS(50, 0.9; max_depth = 4),
+chain = sample(andv(rows),
+    NUTS(50, 0.9; max_depth = 4, adtype = AutoForwardDiff()),
     MCMCThreads(), 100, 2; progress = false)
 nothing #hide
 
