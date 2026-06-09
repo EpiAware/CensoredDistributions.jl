@@ -38,12 +38,13 @@
 # Probability masses of `delay` on the unit-spaced intervals
 # `[0, 1), [1, 2), ..., [maxlag, maxlag + 1)`, as a length `maxlag + 1` vector.
 # Masses are the raw `interval_censored` interval probabilities (no silent
-# renormalise), evaluated in one batched pass so the underlying CDF is computed
-# once per boundary.
+# renormalise). The SCALAR `IntervalCensored` PDF is mapped over the grid: it
+# routes each interval mass through `_cdf_ad_safe`, so `Dual`/tracked CDF values
+# survive (the batched PDF would force its cache to `Float64`, breaking AD).
 function _delay_pmf(delay::UnivariateDistribution, maxlag::Integer, interval)
     ic = interval_censored(delay, interval)
     grid = (0:maxlag) .* interval
-    return pdf(ic, grid)
+    return map(g -> pdf(ic, g), grid)
 end
 
 # --- the causal discrete convolution series ⊛ pmf --------------------------
