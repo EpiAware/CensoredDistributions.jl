@@ -5,8 +5,8 @@ module CensoredDistributionsFlexiChainsExt
 # when both DynamicPPL and FlexiChains are available.
 
 using CensoredDistributions: CensoredDistributions, Sequential, Parallel,
-                             Competing, component_names
-import CensoredDistributions: chain_to_params
+                             Competing, Select, component_names
+import CensoredDistributions: chain_to_params, update
 using DynamicPPL: DynamicPPL
 using FlexiChains: FlexiChains, VarName
 import Statistics
@@ -84,6 +84,45 @@ end
 
 function chain_to_params(template, chain; prefix::Symbol = :d, draw = nothing)
     return _node_params(template, chain, prefix, (), draw)
+end
+
+# Update a composed distribution directly from a fitted chain, so docs call
+# `update(template, chain)` rather than threading `chain_to_params` by hand.
+# Reads the chain into the nested NamedTuple (posterior means, or a single `draw`)
+# at the submodel `prefix`, then reconstructs through the core `update`.
+@doc "
+
+Update a composed distribution's parameters straight from a fitted chain.
+
+`update(template, chain)` reads `chain` (sampled through
+[`composed_parameters_model`](@ref)) into the nested NamedTuple and rebuilds
+`template` with those values, so the workflow is one call instead of
+`update(template, chain_to_params(template, chain))`. By default it applies
+posterior means; pass `draw=i` for a single iteration. The `prefix` keyword names
+the submodel variable the parameters were sampled under (default `:d`).
+
+This method is available only when both `DynamicPPL` and `FlexiChains` are
+loaded.
+
+# Arguments
+- `template`: the composed distribution that was the `composed_parameters_model`
+  template.
+- `chain`: the fitted `FlexiChains` chain to read parameter values from.
+
+# Keyword Arguments
+- `prefix`: the submodel variable name the parameters were sampled under
+  (default `:d`).
+- `draw`: a single iteration index to read, or `nothing` for posterior means
+  (default `nothing`).
+
+# See also
+- [`chain_to_params`](@ref): the nested NamedTuple this reads.
+- [`update`](@ref): the NamedTuple-keyed reconstruction this delegates to.
+"
+function update(template, chain::FlexiChains.FlexiChain;
+        prefix::Symbol = :d, draw = nothing)
+    params = chain_to_params(template, chain; prefix = prefix, draw = draw)
+    return update(template, params)
 end
 
 end

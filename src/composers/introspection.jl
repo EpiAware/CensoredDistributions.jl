@@ -494,6 +494,56 @@ function _freeze_tree(d::Dict{Symbol})
     return NamedTuple{ks}(map(k -> _freeze_tree(d[k]), ks))
 end
 
+# --- support-derived default priors (brms-style family defaults) ------------
+
+# Location parameters are unconstrained even for a positive-support delay (a
+# LogNormal/Normal `mu` lives on the whole line), so they get an unconstrained
+# default; scale/shape parameters are positive. Anything unmapped falls back to
+# the variate-support rule.
+_is_location_param(p::Symbol) = p === :mu || p === :lower || p === :upper
+
+@doc "
+
+Pick a default prior for a parameter row, brms-style.
+
+`default_prior(row)` is the per-row default [`build_priors`](@ref) uses for rows
+the user does not override. `row` is a `(; edge, param, value, support)`
+NamedTuple (a [`params_table`](@ref) row); the prior family follows the
+parameter's name and its `support` bounds:
+
+- a `branch_probs` row, support `[0, 1]` -> `Uniform(0, 1)`.
+- a location parameter (`:mu` of a `Normal`/`LogNormal`) -> an unconstrained
+  `Normal(value, scale)`, since the location lives on the whole line even for a
+  positive-support delay.
+- otherwise, a non-negative variate support (a positive-support delay's
+  scale/shape) -> `truncated(Normal(value, scale); lower = 0)`.
+- otherwise (unconstrained variate) -> `Normal(value, scale)`.
+
+The spread `scale` defaults to `max(abs(value), 1)`, a weakly-informative width
+that scales with the parameter's magnitude.
+
+# Arguments
+- `row`: a [`params_table`](@ref) row `(; edge, param, value, support)`.
+
+# See also
+- [`build_priors`](@ref): assembles the nested prior NamedTuple, using this as
+  the per-row default and accepting overrides.
+"
+function default_prior(row)
+    lo, hi = row.support
+    scale = max(abs(float(row.value)), one(float(row.value)))
+    if lo == 0 && hi == 1
+        return Distributions.Uniform(0, 1)
+    elseif _is_location_param(row.param)
+        return Distributions.Normal(row.value, scale)
+    elseif lo >= 0 && isinf(hi)
+        return Distributions.truncated(
+            Distributions.Normal(row.value, scale); lower = 0)
+    else
+        return Distributions.Normal(row.value, scale)
+    end
+end
+
 @doc "
 
 Assemble the nested prior `NamedTuple` from a [`params_table`](@ref) inventory.
@@ -504,21 +554,31 @@ expect, so users define priors against the flat table rows rather than by hand-
 matching the tree.
 
 For each row the prior is chosen in order:
-1. `priors[(edge, param)]` if that `(edge, param)` pair is present, else
-2. `default(row)` if a `default` function is given, else an error.
+1. a user `priors` override for that `(edge, param)`, if present, else
+2. `default(row)`, the per-row default (support-derived [`default_prior`](@ref)
+   unless a different `default` function is given).
+
+By default every row gets a sensible support-derived prior, so
+`build_priors(params_table(tree))` alone yields a complete prior NamedTuple. A
+user overrides only the parameters they care about (brms-style partial override)
+through `priors`.
 
 `row` is a `NamedTuple` `(; edge, param, value, support)` (the table's columns
-for that row), so a `default` can pick a prior from the parameter's `support`.
+for that row), so a custom `default` can pick a prior from the parameter's
+`support`.
 
 # Arguments
 - `table`: a [`params_table`](@ref) inventory (any Tables.jl column table with
   `edge`, `param`, `value`, `support` columns).
 
 # Keyword Arguments
-- `priors`: a mapping (e.g. `Dict`) from `(edge::Symbol, param::Symbol)` to a
-  prior distribution (default: empty).
-- `default`: a function `row -> prior` for rows not covered by `priors`
-  (default: `nothing`, meaning every row must be in `priors`).
+- `priors`: per-parameter overrides, either a `(edge, param) => prior` mapping
+  (e.g. a `Dict`) or a nested `NamedTuple` keyed like the tree
+  (`(onset_admit = (shape = prior,),)`); only the listed parameters are
+  overridden (default: empty).
+- `default`: a function `row -> prior` for rows not overridden (default:
+  [`default_prior`](@ref), deriving the prior family from the parameter's
+  support).
 
 # Examples
 ```@example
@@ -527,17 +587,19 @@ using CensoredDistributions, Distributions
 tree = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
 tbl = params_table(tree)
+# Support-derived defaults everywhere, overriding only one parameter.
 nested = build_priors(tbl;
-    default = row -> truncated(Normal(row.value, 1); lower = 0))
+    priors = (onset_admit = (shape = truncated(Normal(2, 0.5); lower = 0),),))
 nested.onset_admit.shape
 ```
 
 # See also
 - [`params_table`](@ref): the flat inventory keyed against.
+- [`default_prior`](@ref): the support-derived per-row default.
 - [`composed_parameters_model`](@ref), [`update`](@ref): consume the result.
 "
 function build_priors(table; priors = Dict{Tuple{Symbol, Symbol}, Any}(),
-        default = nothing)
+        default = default_prior)
     edges = Tables.getcolumn(table, :edge)
     params_col = Tables.getcolumn(table, :param)
     values = Tables.getcolumn(table, :value)
@@ -546,9 +608,9 @@ function build_priors(table; priors = Dict{Tuple{Symbol, Symbol}, Any}(),
     for i in eachindex(edges)
         edge = edges[i]
         param = params_col[i]
-        key = (edge, param)
-        prior = if haskey(priors, key)
-            priors[key]
+        ovr = _prior_override(priors, edge, param)
+        prior = if ovr !== nothing
+            ovr
         elseif default !== nothing
             row = (; edge = edge, param = param,
                 value = values[i], support = supports[i])
@@ -560,6 +622,25 @@ function build_priors(table; priors = Dict{Tuple{Symbol, Symbol}, Any}(),
         _nest_insert!(tree, _split_edge(edge), param, prior)
     end
     return _freeze_tree(tree)
+end
+
+# A user override for `(edge, param)`, or `nothing` if none. Accepts a mapping
+# keyed by the `(edge, param)` pair (a `Dict`) or a nested `NamedTuple` keyed
+# like the tree (descend the edge path, then the param). Missing keys return
+# `nothing` so the row falls through to the default.
+function _prior_override(priors::NamedTuple, edge::Symbol, param::Symbol)
+    node = priors
+    for name in _split_edge(edge)
+        node isa NamedTuple && haskey(node, name) || return nothing
+        node = node[name]
+    end
+    node isa NamedTuple && haskey(node, param) || return nothing
+    return node[param]
+end
+
+function _prior_override(priors, edge::Symbol, param::Symbol)
+    key = (edge, param)
+    return haskey(priors, key) ? priors[key] : nothing
 end
 
 # --- name introspection ----------------------------------------------------
@@ -587,6 +668,7 @@ event_names(tree)
 - [`params_table`](@ref): the parameter table
 "
 event_names(d::Union{Sequential, Parallel, Competing}) = component_names(d)
+event_names(d::Select) = d.names
 
 @doc "
 
@@ -624,6 +706,55 @@ function get_event(c::Competing, name::Symbol)
     idx = findfirst(==(name), c.names)
     idx === nothing && throw(KeyError(name))
     return c.delays[idx]
+end
+
+function get_event(d::Select, name::Symbol)
+    idx = findfirst(==(name), d.names)
+    idx === nothing && throw(KeyError(name))
+    return d.alternatives[idx]
+end
+
+@doc "
+
+Pull a sub-distribution out of a composed distribution by a name path.
+
+`get_subtree(d, path...)` follows the chain of edge/event names `path` down the
+tree and returns the sub-distribution (a nested composer or a leaf delay) at that
+location, so a named subtree (e.g. a [`Sequential`](@ref) admit-path inside a
+[`Parallel`](@ref)) is fetched directly rather than rebuilt. A single name is the
+same as [`get_event`](@ref); a dotted path `Symbol` (`:resolution.death`, as in
+[`params_table`](@ref)'s `edge` column) is also accepted. Throws a `KeyError` if
+a name along the path is not a child at that level.
+
+# Arguments
+- `d`: the composed distribution to descend into.
+- `path`: one or more edge/event names (`Symbol`s) from `d` down to the target,
+  or a single dotted-path `Symbol`.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+tree = compose((admit_path = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4))),
+    onset_recover = Gamma(3.0, 1.0)))
+get_subtree(tree, :admit_path, :admit_death)
+```
+
+# See also
+- [`get_event`](@ref): fetch a direct child by name.
+- [`event_names`](@ref): list a node's child names.
+"
+function get_subtree(d, path::Vararg{Symbol})
+    isempty(path) && throw(ArgumentError("get_subtree needs at least one name"))
+    # A single dotted-path Symbol (`:a.b`) is split into its name steps; plain
+    # names descend one level each.
+    names = length(path) == 1 ? _split_edge(path[1]) : path
+    node = d
+    for name in names
+        node = get_event(node, name)
+    end
+    return node
 end
 
 # --- AbstractTrees interop (interface only; NOT used internally) -----------

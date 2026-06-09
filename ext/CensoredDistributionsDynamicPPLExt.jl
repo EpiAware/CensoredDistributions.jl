@@ -17,6 +17,7 @@ using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
 using Distributions: Distributions, UnivariateDistribution, logpdf,
                      product_distribution
 using Random: AbstractRNG, default_rng
+import Tables
 
 # `CensoredDistributions.weight(d, w)` is called with the module qualifier
 # because the `weight` keyword argument shadows the function name inside the
@@ -291,6 +292,24 @@ function composed_distribution_model(
         "the vectorised composed model takes per-row weights via a reserved " *
         "`weight`/`count` row field, not the `weight` keyword"))
     recs = CensoredDistributions.record_distributions(d, rows)
+    return _vectorised_records_model(recs, _record_obs_matrix(recs))
+end
+
+# A whole Tables.jl table (e.g. a `DataFrame`) scores in one `~` like the vector
+# entry: a DataFrame IS a Tables.jl source, so the doc passes it straight in
+# instead of iterating rows. `record_distributions` consumes any Tables.jl source
+# directly, so the table flows through the same vectorised record path; a single
+# `NamedTuple` row and a `Vector` of rows keep their own (more specific) methods,
+# so only a column table (a DataFrame) lands here.
+function composed_distribution_model(
+        d::Union{Sequential, Parallel, Select}, table; weight = nothing)
+    Tables.istable(table) || throw(ArgumentError(
+        "composed_distribution_model(d, table) takes a NamedTuple row, a vector " *
+        "of rows, or a Tables.jl table; got $(typeof(table))"))
+    weight === nothing || throw(ArgumentError(
+        "the vectorised composed model takes per-row weights via a reserved " *
+        "`weight`/`count` row field, not the `weight` keyword"))
+    recs = CensoredDistributions.record_distributions(d, table)
     return _vectorised_records_model(recs, _record_obs_matrix(recs))
 end
 
