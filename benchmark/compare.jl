@@ -13,6 +13,7 @@ using BenchmarkTools
 using Statistics: median
 
 const CHANGE_THRESHOLD = 0.05  # 5% time change counts as "changed"
+const SUMMARY_N = 20           # rows in the inline summary table
 const COMMENT_MARKER = "<!-- benchmark-comparison -->"
 
 pr_file, main_file, out_file = ARGS[1], ARGS[2], ARGS[3]
@@ -134,32 +135,36 @@ pr = index_results(load_group(pr_file))
 main = index_results(load_group(main_file))
 rows = build_rows(pr, main)
 
-changed = filter(rows) do r
-    r.status !== :both || abs(r.time_ratio - 1) > CHANGE_THRESHOLD
-end
-sort!(changed; by = sort_key, rev = true)
-
+# Everything is sorted by how much the TIME moved (biggest movers first).
 all_sorted = sort(rows; by = sort_key, rev = true)
+
+slower = count(
+    r -> !isnan(r.time_ratio) && r.time_ratio > 1 + CHANGE_THRESHOLD, rows)
+faster = count(
+    r -> !isnan(r.time_ratio) && r.time_ratio < 1 - CHANGE_THRESHOLD, rows)
+changed = slower + faster
 
 io = IOBuffer()
 println(io, COMMENT_MARKER)
 println(io, "## Benchmark comparison vs `main`\n")
+# Direction is fixed and stated up front: ratio = PR / main, so a number
+# below 1 means the PR is faster. Lower is better.
 println(io,
-    "Minimum time and allocations per benchmark. Ratio is PR / main ",
-    "(🔴 slower, 🟢 faster, ⚪ within ", round(Int, 100CHANGE_THRESHOLD),
-    "%).\n")
+    "Minimum time per call. **Ratio = PR / main, so lower is better** ",
+    "(🟢 faster, 🔴 slower, ⚪ within ", round(Int, 100CHANGE_THRESHOLD),
+    "%). Everything is sorted by time change.\n")
+println(io, "**", changed, " of ", length(rows),
+    " benchmarks changed by >", round(Int, 100CHANGE_THRESHOLD), "%** — 🔴 ",
+    slower, " slower, 🟢 ", faster, " faster.\n")
 
-if isempty(changed)
-    println(io, "**No benchmarks changed by more than ",
-        round(Int, 100CHANGE_THRESHOLD), "% vs `main`.**\n")
-else
-    println(io, "### Changed vs `main` (", length(changed), ")\n")
-    print(io, render_sections(changed))
-    println(io)
-end
+# Inline summary: the biggest time movers, capped at SUMMARY_N rows.
+n_summary = min(SUMMARY_N, length(all_sorted))
+println(io, "### Summary — top ", n_summary, " by time change\n")
+print(io, render_table(all_sorted[1:n_summary]))
 
-println(io, "<details><summary><b>All benchmarks</b> (",
-    length(all_sorted), ", sorted by |ratio − 1|)</summary>\n")
+# Full list, split into Evaluation and AD gradients, behind a fold.
+println(io, "\n<details><summary><b>All ", length(all_sorted),
+    " benchmarks</b> (Evaluation + AD gradients, by time change)</summary>\n")
 print(io, render_sections(all_sorted))
 println(io, "\n</details>")
 
