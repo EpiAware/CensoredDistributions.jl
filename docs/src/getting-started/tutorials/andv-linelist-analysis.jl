@@ -312,12 +312,15 @@ comparison = DataFrame(
     target_lower = [targets[k].lower for k in keys_],
     target_upper = [targets[k].upper for k in keys_])
 
-# Overlay the two interval sets so the overlap reads directly.
-cfig = Figure(size = (760, 420))
+# Overlay the two interval sets so the overlap reads directly. The four model
+# parameters share a comparable scale, so they go on one axis; the incubation
+# mean in days is kept in the table above rather than squashing the axis.
+np = 4
+cfig = Figure(size = (760, 380))
 ax = Axis(cfig[1, 1]; xlabel = "value",
-    yticks = (1:5, comparison.quantity),
+    yticks = (1:np, comparison.quantity[1:np]),
     title = "Posterior vs published targets")
-for i in 1:5
+for i in 1:np
     lines!(ax, [comparison.posterior_lower[i], comparison.posterior_upper[i]],
         [i + 0.12, i + 0.12]; color = :steelblue, linewidth = 6)
     scatter!(ax, [comparison.posterior_mean[i]], [i + 0.12];
