@@ -42,12 +42,16 @@
         global_broken = Set(ADFixtures.broken_scenario_names())
         per_backend = get(
             ADFixtures.backend_broken_scenarios(), name, Set{String}())
+        # Scenarios that crash this backend UNCATCHABLY are skipped entirely (not
+        # even run through `check_broken`, which would still execute them).
+        skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
+        runnable = filter(s -> !(s.name in skip), all_scenarios)
         ok = filter(
             s -> !(s.name in global_broken) && !(s.name in per_backend),
-            all_scenarios)
+            runnable)
         broken_scens = filter(
             s -> s.name in global_broken || s.name in per_backend,
-            all_scenarios)
+            runnable)
         # `scenario_intact = false`: some scenarios carry a `Missing`-bearing
         # event vector as a `Constant` context (the censored-composer
         # marginalisation path, #333). DIT's default post-run equality check

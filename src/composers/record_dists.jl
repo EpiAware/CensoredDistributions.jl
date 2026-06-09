@@ -257,12 +257,16 @@ logpdf(product_distribution(recs), [[0.0, 0.0, 5.0], [1.0, 0.0, 7.0]])
 "
 function record_distributions(d::Sequential, rows)
     parsed = _parse_rows(d, rows)
+    # A nested tree (a nested composer or a Competing step) has no flat
+    # collapsed-segment layout; build each record generically (correctness first).
+    _nested_trait(d.components) isa _Nested && return _generic_records(d, parsed)
     bundle = _build_seq_bundle(d, parsed)
     return [_seq_record(d, p, bundle) for p in parsed]
 end
 
 function record_distributions(d::Parallel, rows)
     parsed = _parse_rows(d, rows)
+    _nested_trait(d.components) isa _Nested && return _generic_records(d, parsed)
     primary = _shared_primary_event(d.components)
     primary === nothing && throw(ArgumentError(
         "vectorised `record_distributions` needs censored branches with a " *
@@ -273,16 +277,18 @@ function record_distributions(d::Parallel, rows)
     return [_par_record(d, p, bundle) for p in parsed]
 end
 
-# A parsed record: the event vector plus the reserved weight / horizon. Data only.
-struct _ParsedRow{E, W, H}
+# A parsed record: the event vector plus the reserved weight / horizon and the
+# raw per-record `branch_probs` override (or `nothing`). Data only.
+struct _ParsedRow{E, W, H, B}
     events::Vector{Union{Missing, E}}
     weight::W
     horizon::H
+    branch_probs::B
 end
 
 # Parse a table into `_ParsedRow`s once (the AD-free data pre-pass): each row is
 # matched to the tree's flat event vector by name and its reserved weight /
-# horizon read, reusing the shared core row helpers.
+# horizon / branch_probs read, reusing the shared core row helpers.
 function _parse_rows(d::Union{Sequential, Parallel}, rows)
     rowvec = collect(Tables.rows(rows))
     isempty(rowvec) && throw(ArgumentError(
@@ -295,8 +301,18 @@ function _parse_row(d::Union{Sequential, Parallel}, row)
     ev = _row_event_vector(d, nt)
     w = _row_weight_field(nt, nothing)
     h = _row_horizon_field(nt)
+    bp = _row_branch_probs_field(nt)
     E = _data_value_type(eltype(ev))
-    return _ParsedRow{E, typeof(w), typeof(h)}(ev, w, h)
+    return _ParsedRow{E, typeof(w), typeof(h), typeof(bp)}(ev, w, h, bp)
+end
+
+# The raw per-record `branch_probs` override carried by a row (a NamedTuple of
+# outcome -> prob or a scalar), or `nothing` when the row carries none. Read but
+# NOT coerced here; coercion is deferred to the per-record build, which has the
+# Competing node to validate against.
+function _row_branch_probs_field(row::NamedTuple)
+    haskey(row, :branch_probs) || return nothing
+    return row.branch_probs
 end
 
 # A Tables.jl row as a NamedTuple (a NamedTuple passes through; any other row is
@@ -356,4 +372,193 @@ end
 
 function _par_record(d::Parallel, p::_ParsedRow, bundle::_ParSegs)
     return EventRecord(d, p.events, bundle, p.weight, p.horizon)
+end
+
+# ---------------------------------------------------------------------------
+# Generic per-record build: nested trees, per-record branch_probs, Select
+# ---------------------------------------------------------------------------
+#
+# A nested-Competing tree (bdbv) and a Select top need per-record handling the
+# flat shared-segment build cannot express: a nested tree scores through the
+# recursive `_tree_score`, a covariate-CFR `branch_probs` override is baked PER
+# RECORD into the record's Competing node, and a Select picks a different branch
+# (and obs_time) per row. Each such record holds its OWN (possibly overridden /
+# selected) distribution and scores by `event_logpdf(dist, events; horizon)`,
+# exactly the per-record loop the vectorised path must equal. The shared-segment
+# dedup is skipped here (correctness first); the leaf cores are still cheap to
+# rebuild per record.
+
+# One record's distribution that scores through the full `event_logpdf` path.
+# `dist` is the record's resolved tree (with any per-record `branch_probs`
+# override already applied); `events` carries the missingness pattern; `weight`
+# and `horizon` are baked in. `logpdf` equals `event_logpdf(dist, merged;
+# horizon) * weight`, matching the per-record loop.
+struct _GenericRecord{D, E, W, H} <: Distribution{Multivariate, Continuous}
+    dist::D
+    events::Vector{Union{Missing, E}}
+    weight::W
+    horizon::H
+end
+
+Base.length(r::_GenericRecord) = length(r.events)
+Base.eltype(::Type{<:_GenericRecord}) = Float64
+
+# Score a generic record: merge the supplied values into the record's missingness
+# pattern, then route through the shared `event_logpdf` (the SAME function the
+# per-record loop calls), scaled by the weight. A composer scores the event
+# vector; a univariate-leaf alternative scores its single observed value.
+function _record_logpdf(r::_GenericRecord, x::AbstractVector)
+    merged = _merge_events(r.events, x)
+    lp = _generic_event_logpdf(r.dist, merged, r.horizon)
+    return _weight_lp(lp, r.weight)
+end
+
+function _generic_event_logpdf(d::Union{Sequential, Parallel}, merged, horizon)
+    event_logpdf(d, merged; horizon = horizon)
+end
+# A univariate-leaf alternative scores its single observed value; a missing slot
+# (a fully-missing record that `rand` generates) contributes no factor.
+function _generic_event_logpdf(d::UnivariateDistribution, merged, horizon)
+    merged[1] === missing && return 0.0
+    return event_logpdf(d, merged[1]; horizon = horizon)
+end
+
+# Sample a generic record's full event path. A nested tree returns its flat event
+# vector (one shared origin draw, each Competing outcome sampled); a flat tree
+# uses the flat-path simulation. Both yield a `[E_0, ...]` vector to fill `x`.
+function _record_rand(rng::AbstractRNG, r::_GenericRecord)
+    return _generic_record_rand(rng, r.dist)
+end
+
+function _generic_record_rand(rng::AbstractRNG, d::Union{Sequential, Parallel})
+    _nested_trait(d.components) isa _Nested ?
+    collect(_tree_event_vector(rng, d)) : _composer_rand(rng, d)
+end
+# A univariate-leaf alternative samples its single observed value.
+_generic_record_rand(rng::AbstractRNG, d::UnivariateDistribution) = [rand(rng, d)]
+
+function Distributions._logpdf(r::_GenericRecord, x::AbstractVector)
+    return _record_logpdf(r, x)
+end
+logpdf(r::_GenericRecord, x::AbstractVector) = _record_logpdf(r, x)
+
+function Distributions._rand!(
+        rng::AbstractRNG, r::_GenericRecord, x::AbstractVector)
+    path = _record_rand(rng, r)
+    # A nested tree's sampled path leaves the UNRESOLVED Competing outcome slots
+    # `missing` (one outcome resolves per record); the dual-purpose generative
+    # matrix is `Float64`, so an unresolved slot is filled with `NaN` (a sentinel
+    # the scored slots never take).
+    @inbounds for i in eachindex(x)
+        v = path[i]
+        x[i] = v === missing ? NaN : v
+    end
+    return x
+end
+
+# Build a generic per-record distribution vector: each record bakes in its own
+# `branch_probs` override (coerced + validated against the tree's single Competing
+# node) so a covariate CFR flows in per record, plus its weight / horizon.
+function _generic_records(d::Union{Sequential, Parallel}, parsed)
+    return [_generic_record(d, p) for p in parsed]
+end
+
+function _generic_record(d, p::_ParsedRow)
+    scored = _bake_branch_probs(d, p.branch_probs)
+    E = _data_value_type(eltype(p.events))
+    return _GenericRecord{typeof(scored), E, typeof(p.weight),
+        typeof(p.horizon)}(scored, p.events, p.weight, p.horizon)
+end
+
+# Apply a per-record `branch_probs` override to the tree's single Competing node,
+# or return the tree unchanged when the row carries none. Coercion + validation
+# reuse the shared core helpers, so the override semantics match the per-record
+# `composed_distribution_model` path exactly.
+_bake_branch_probs(d, ::Nothing) = d
+function _bake_branch_probs(d, raw)
+    node = _the_competing_node(d)
+    node === nothing && throw(ArgumentError(
+        "a `branch_probs` row field needs a Competing node in the tree; none " *
+        "found"))
+    probs = _coerce_branch_probs(node, raw)
+    return _override_competing_branch_probs(d, probs)
+end
+
+# The single Competing node of a tree (for coercing a per-record override against
+# its outcome names), or `nothing` when there is none; errors if more than one.
+_the_competing_node(c::Competing) = c
+_the_competing_node(::UnivariateDistribution) = nothing
+function _the_competing_node(d::Union{Sequential, Parallel})
+    found = nothing
+    for c in d.components
+        f = _the_competing_node(c)
+        f === nothing && continue
+        found === nothing || throw(ArgumentError(
+            "a per-record `branch_probs` override needs exactly one Competing " *
+            "node in the tree; found more than one"))
+        found = f
+    end
+    return found
+end
+
+# ---------------------------------------------------------------------------
+# Select top: per-record branch selection
+# ---------------------------------------------------------------------------
+#
+# A `Select` top routes each record to ONE of its independent alternatives, named
+# by the row's selector field (`row[d.selector]`, default `:kind`). The chosen
+# alternative is itself a leaf or a composer, so each record builds that
+# alternative's record distribution (with the record's own obs_time / weight),
+# selected per row. Different rows may pick different alternatives and carry
+# different obs_time horizons, exactly as the per-record
+# `composed_distribution_model(d::Select, row)` does.
+
+function record_distributions(d::Select, rows)
+    rowvec = collect(Tables.rows(rows))
+    isempty(rowvec) && throw(ArgumentError(
+        "record_distributions needs at least one record; got an empty table"))
+    return [_select_record(d, _row_namedtuple(row)) for row in rowvec]
+end
+
+# Build one Select record: read the selector, pick the alternative, and build
+# that alternative's record distribution from the row (selector field stripped).
+function _select_record(d::Select, row::NamedTuple)
+    kind = row[d.selector]
+    kind isa Symbol || throw(ArgumentError(
+        "the Select selector field $(repr(d.selector)) must hold a Symbol " *
+        "naming the alternative; got $(typeof(kind))"))
+    chosen = _pick(d, kind)
+    inner = _drop_named_field(row, d.selector)
+    return _alternative_record(chosen, inner)
+end
+
+# Build the chosen alternative's record distribution. A composer alternative
+# reuses the per-record build (so nested trees / branch_probs work under a
+# Select); a leaf alternative builds a univariate-leaf record scored through
+# `event_logpdf`.
+function _alternative_record(d::Union{Sequential, Parallel}, row::NamedTuple)
+    return only(record_distributions(d, [row]))
+end
+function _alternative_record(d::UnivariateDistribution, row::NamedTuple)
+    return _leaf_record(d, row)
+end
+
+# A univariate-leaf Select alternative as a one-event record: the single observed
+# value, the reserved weight / horizon baked in, scored through the shared
+# `event_logpdf(::UnivariateDistribution, x; horizon)` so the value equals the
+# per-record leaf model.
+function _leaf_record(d::UnivariateDistribution, row::NamedTuple)
+    ev = _row_event_vector(row)
+    length(ev) == 1 || throw(ArgumentError(
+        "a leaf Select alternative takes one event value; got $(length(ev))"))
+    w = _row_weight_field(row, nothing)
+    h = _row_horizon_field(row)
+    E = _data_value_type(eltype(ev))
+    return _GenericRecord{typeof(d), E, typeof(w), typeof(h)}(d, ev, w, h)
+end
+
+# Drop a single named field from a NamedTuple, preserving the order of the rest.
+function _drop_named_field(row::NamedTuple, field::Symbol)
+    ks = filter(!=(field), keys(row))
+    return NamedTuple{ks}(map(k -> row[k], ks))
 end

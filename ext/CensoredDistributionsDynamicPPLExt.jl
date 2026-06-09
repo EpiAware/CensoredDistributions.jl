@@ -493,6 +493,20 @@ function _drop_field(row::NamedTuple, field::Symbol)
     return NamedTuple{ks}(map(k -> row[k], ks))
 end
 
+# VECTORISED Select entry: score a WHOLE TABLE of records whose top node is a
+# `Select` in one `~`. Each record selects its alternative (and carries its own
+# obs_time) per row via `record_distributions`, then the table scores AND samples
+# with the standard `obs ~ product_distribution(...)` tilde, dual-purpose like the
+# Sequential/Parallel vectorised entry.
+function composed_distribution_model(
+        d::Select, rows::AbstractVector; weight = nothing)
+    weight === nothing || throw(ArgumentError(
+        "the vectorised composed model takes per-row weights via a reserved " *
+        "`weight`/`count` row field, not the `weight` keyword"))
+    recs = CensoredDistributions.record_distributions(d, rows)
+    return _vectorised_records_model(recs, _record_obs_matrix(recs))
+end
+
 # --- Latent composer models ------------------------------------------------
 #
 # A `latent`-wrapped composer turns its origin primary ON and declares every

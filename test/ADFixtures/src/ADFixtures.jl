@@ -33,7 +33,8 @@ import ForwardDiff, ReverseDiff, Mooncake, Enzyme
 import DifferentiationInterfaceTest as DIT
 
 export scenarios, backends, working_backends, broken_backends,
-       broken_scenario_names, backend_broken_scenarios
+       broken_scenario_names, backend_broken_scenarios,
+       backend_skip_scenarios
 
 # Vectorised-records log density for the AD fixture: assemble the per-record
 # distributions (sharing the segment construction) and sum each record's log
@@ -46,6 +47,33 @@ function _vectorised_records_logpdf(d, rows)
     for i in 2:length(recs)
         total += logpdf(recs[i],
             [CensoredDistributions._row_event_vector(d, rows[i])...])
+    end
+    return total
+end
+
+# Vectorised log density of a nested-Competing (bdbv) tree where each record's
+# Competing branch probability is a COVARIATE CFR carried in the row's reserved
+# `branch_probs`. `ps` (one per record, derived from the differentiated params)
+# is injected into the rows so the gradient flows through the per-record CFR.
+function _vectorised_branch_probs_logpdf(d, rows, ps)
+    full = [merge(rows[i], (branch_probs = ps[i],)) for i in eachindex(rows)]
+    recs = CensoredDistributions.record_distributions(d, full)
+    total = logpdf(recs[1],
+        [CensoredDistributions._row_event_vector(d, rows[1])...])
+    for i in 2:length(recs)
+        total += logpdf(recs[i],
+            [CensoredDistributions._row_event_vector(d, rows[i])...])
+    end
+    return total
+end
+
+# Vectorised log density of a Select (hanta) top: each record selects its
+# alternative by `:kind` and scores its single observed value.
+function _vectorised_select_logpdf(d, rows)
+    recs = CensoredDistributions.record_distributions(d, rows)
+    total = logpdf(recs[1], [Float64(rows[1].delay)])
+    for i in 2:length(recs)
+        total += logpdf(recs[i], [Float64(rows[i].delay)])
     end
     return total
 end
@@ -157,15 +185,47 @@ function backend_broken_scenarios()
     # is registered broken for them. Its gradient correctness is covered by
     # ForwardDiff and ReverseDiff.
     vectorised_seq = "Vectorised Sequential censored observed logpdf"
+    # The vectorised bdbv (nested Competing + per-record covariate CFR) and hanta
+    # (Select top) paths share the SAME AD-free data-collection pre-pass (row
+    # iteration, vector building, validation) that the compiled backends crash on
+    # for `vectorised_seq`; the bdbv path additionally walks the nested tree. Their
+    # MATH matches the per-record loop and is verified on ForwardDiff / ReverseDiff;
+    # the compiled backends are registered broken on the same pre-pass grounds.
+    vectorised_bdbv = "Vectorised nested Competing per-record branch_probs logpdf"
+    vectorised_select = "Vectorised Select per-record kind logpdf"
+    compiled_broken = Set{String}(
+        [vectorised_seq, vectorised_bdbv, vectorised_select])
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
-        "Mooncake reverse" => Set{String}([vectorised_seq]),
-        "Mooncake forward" => Set{String}([vectorised_seq]),
-        "Enzyme reverse" => Set{String}([nested_tree, nested_comp,
-            vectorised_seq]),
-        "Enzyme forward" => Set{String}([nested_tree, nested_comp,
-            vectorised_seq])
+        "Mooncake reverse" => copy(compiled_broken),
+        "Mooncake forward" => copy(compiled_broken),
+        "Enzyme reverse" => union(
+            Set{String}([nested_tree, nested_comp]), compiled_broken),
+        "Enzyme forward" => union(
+            Set{String}([nested_tree, nested_comp]), compiled_broken)
+    )
+end
+
+"""
+    backend_skip_scenarios()
+
+Per-backend scenario names that must be SKIPPED ENTIRELY (not even run through
+`check_broken`). Some scenarios crash a compiled backend UNCATCHABLY (an abort /
+`signal 6`) that a `try`/`catch` cannot recover, so they cannot be marked
+`@test_broken` by running them; they are dropped from that backend's run and
+their gradient correctness is covered by the analytic backends instead. Returns
+a `Dict{String, Set{String}}` keyed on the backend `name`.
+"""
+function backend_skip_scenarios()
+    # The vectorised bdbv scenario rebuilds the nested tree per record (the
+    # per-record `branch_probs` override) inside the differentiated function;
+    # Enzyme (both modes) aborts uncatchably on that reconstruction. Skip it for
+    # Enzyme entirely; ForwardDiff / ReverseDiff / Mooncake verify its gradient.
+    bdbv = "Vectorised nested Competing per-record branch_probs logpdf"
+    return Dict{String, Set{String}}(
+        "Enzyme reverse" => Set{String}([bdbv]),
+        "Enzyme forward" => Set{String}([bdbv])
     )
 end
 
@@ -803,6 +863,59 @@ function scenarios(; with_reference::Bool = false)
                         LogNormal(θ[7], θ[8]), Uniform(0.0, 1.0))),
                 ev),
             [1.4, 0.4, 2.0, 3.0, 2.0, 1.0, 1.9, 0.5], (Constant(comp_ev),))
+
+        # Vectorised nested-Competing (bdbv) with a PER-RECORD covariate CFR
+        # (#333): each record's Competing branch probability comes from a
+        # differentiated covariate, injected as the reserved `branch_probs`. The
+        # death outcome is observed (conditioned branch), so the gradient over the
+        # branch shape/scale AND the per-record CFR is all-continuous arithmetic.
+        # Matches the per-record loop; rows are inactive DATA carried as Constants.
+        bdbv_rows = [
+            (onset = 0.0, admit = 4.0, death = 12.0,
+                discharge = missing, notif = 9.0),
+            (onset = 0.5, admit = 5.0, death = 13.0,
+                discharge = missing, notif = 10.0)]
+        _push!("Vectorised nested Competing per-record branch_probs logpdf",
+            (θ,
+                rows) -> _vectorised_branch_probs_logpdf(
+                Parallel(
+                    (
+                        Sequential(
+                            (primary_censored(
+                                    LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                                Competing(
+                                    :death => (Gamma(θ[3], θ[4]), 0.3),
+                                    :discharge => (Gamma(θ[5], θ[6]), 0.7))),
+                            (:onset_admit, :admit_resolution)),
+                        primary_censored(
+                            LogNormal(θ[7], θ[8]), Uniform(0.0, 1.0))),
+                    (:onset_admit, :onset_notif)),
+                rows,
+                # Per-record CFR from a logistic of the differentiated covariate.
+                [(death = 1 / (1 + exp(-θ[9])),
+                        discharge = 1 - 1 / (1 + exp(-θ[9]))),
+                    (death = 1 / (1 + exp(-θ[9] - θ[10])),
+                        discharge = 1 - 1 / (1 + exp(-θ[9] - θ[10])))]),
+            [1.4, 0.4, 2.0, 3.0, 2.0, 1.0, 1.9, 0.5, 0.2, -0.3],
+            (Constant(bdbv_rows),))
+
+        # Vectorised Select (hanta) top: each record selects its alternative by
+        # `:kind` and scores its single observed value, right-truncated at its
+        # `obs_time`. The gradient over the selected alternative's params is the
+        # leaf primary-censored path, differentiating on the analytic backends and
+        # matching the per-record loop. Rows are inactive DATA Constants.
+        hanta_rows = [(kind = :index, delay = 3.0, obs_time = 8.0),
+            (kind = :sourced, delay = 5.0, obs_time = 12.0)]
+        _push!("Vectorised Select per-record kind logpdf",
+            (θ,
+                rows) -> _vectorised_select_logpdf(
+                select(
+                    :index => primary_censored(
+                        Gamma(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                    :sourced => primary_censored(
+                        Gamma(θ[3], θ[4]), Uniform(0.0, 1.0))),
+                rows),
+            [2.0, 1.0, 4.0, 1.5], (Constant(hanta_rows),))
     end
 
     # External censoring wrappers over composers (#334). Combine first, then
