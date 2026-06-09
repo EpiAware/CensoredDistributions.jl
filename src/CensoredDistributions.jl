@@ -69,6 +69,11 @@ export Sequential, Parallel, Competing, competing, compose, as_mixture
 export params_table, event_names, get_event, get_subtree, update, build_priors,
        default_prior
 
+# Exported structural interventions on a composed tree: replace a named node,
+# swap a child, cut a branch (renormalising a Competing arm), splice a
+# before/after step. Node-to-node edits reusing the `update` reconstruction.
+export intervene, swap_child, cut_branch, splice
+
 # Exported per-edge delay moments: all edge means / variances of a composed
 # distribution at once, keyed by edge name (sees through censored leaves).
 export edge_means, edge_vars
@@ -142,6 +147,10 @@ include("composers/introspection.jl")
 # Affine transform leaf: after introspection so it can extend
 # `free_leaf`/`rewrap_leaf` for transparent inner-delay introspection.
 include("distributions/Affine.jl")
+# Structural interventions on a composed tree (node replace / cut / splice):
+# after introspection so it reuses `_rebuild`, `component_names` and the
+# composer constructors.
+include("composers/intervene.jl")
 # Shared (name-tagged tied leaf): after introspection so it can extend
 # `free_leaf`/`rewrap_leaf`, and before tree_events/wrap which traverse leaves.
 include("composers/Shared.jl")
