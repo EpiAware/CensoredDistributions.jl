@@ -37,9 +37,9 @@ A competing-outcomes node keeps the resolution time and the outcome together,
 and lets the case-fatality ratio depend on covariates.
 
 This page assembles the case as one composed distribution.
-For how the composer stack is built and scored in general, see [`compose`](@ref)
-and the [public API](@ref public-api); here we use the stack and focus on the
-science.
+How the composer stack is built, scored, and simulated from in general is
+covered in the [composer toolkit tutorial](@ref composer-toolkit); here we use
+the stack and focus on the science.
 
 ### Replication targets
 
@@ -149,19 +149,25 @@ delay_table = let keep = [!is_cfr_row(e) for e in param_inventory.edge]
 end
 
 md"""
-Each delay gets a weakly informative prior.
-Shapes are centred near one, the scale of an exponential-like delay; scales are
-centred on the template value with a wide spread, so the data dominate.
+[`build_priors`](@ref) gives every row a support-derived default: a
+positive-support Gamma shape or scale becomes a positive-truncated Normal centred
+on the template value with a width that scales with its magnitude, so the data
+dominate.
+We override only the four Gamma shapes, recentring them near one (the shape of an
+exponential-like delay) rather than on the template, a brms-style partial
+override that leaves the scales on their defaults.
 """
 
-function prior_for(row)
-    row.param == :shape ?
-    truncated(Normal(1.0, 1.5); lower = 0.05) :
-    truncated(Normal(row.value, 2 * max(row.value, 4.0));
-        lower = 0.05)
-end
+shape_prior = truncated(Normal(1.0, 1.5); lower = 0.05)
 
-priors = build_priors(delay_table; default = prior_for)
+shape_overrides = (
+    admit_path = (
+        onset_admit = (shape = shape_prior,),
+        admit_resolution = (death = (shape = shape_prior,),
+            discharge = (shape = shape_prior,))),
+    onset_notif = (shape = shape_prior,))
+
+priors = build_priors(delay_table; priors = shape_overrides)
 
 md"""
 ## The case-fatality ratio
@@ -252,25 +258,33 @@ md"""
 ## Step 2: fit the simulation and check recovery
 
 We fit the synthetic line list and read the posterior back onto the composed
-object with [`update`](@ref) and [`chain_to_params`](@ref).
-The mean delay of each edge follows directly from the updated distribution, so
-there is no manual chain indexing.
+object with [`update`](@ref), passing the fitted chain directly.
+[`edge_means`](@ref) then reads each delay's mean off the updated distribution,
+so there is no manual chain indexing.
+
+The likelihood is differentiated with forward mode (`AutoForwardDiff`).
+Mooncake reverse mode is the preferred backend for a tree this size, but it
+cannot compile a rule here: the tree's dotted edge-name handling compiles a
+`Regex`, and Mooncake does not differentiate the try/catch inside regex
+compilation, so we fall back to forward mode for this page.
+The same backend is used for both the simulation fit and the real fit.
 """
 
+adbackend = AutoForwardDiff()
+
 sim_chain = sample(Xoshiro(1), bdbv(template, priors, sim_rows),
-    NUTS(0.8; adtype = AutoForwardDiff()), MCMCThreads(), 400, 2;
+    NUTS(0.8; adtype = adbackend), MCMCThreads(), 600, 2;
     chain_type = VNChain, progress = false)
 
-sim_fit = update(template, chain_to_params(template, sim_chain;
-    prefix = :delays))
+sim_fit = update(template, sim_chain; prefix = :delays)
 
 md"""
 [`edge_means`](@ref) reads every delay mean off any fitted composed object at
 once, keyed by edge name and seeing through each censored leaf to its inner free
 delay. `flat_means` names the four delays we report, and `delay_mean_draws`
-applies that to every posterior draw, giving the posterior distribution of each
-delay mean through repeated [`update`](@ref) / [`chain_to_params`](@ref) rather
-than any manual chain indexing.
+applies it to every posterior draw, giving the posterior distribution of each
+delay mean through repeated [`update`](@ref) on the chain (one draw at a time)
+rather than any manual chain indexing.
 """
 
 function flat_means(fit)
@@ -283,8 +297,7 @@ end
 
 function delay_mean_draws(chain)
     rows = map(1:prod(size(chain))) do i
-        flat_means(update(template,
-            chain_to_params(template, chain; prefix = :delays, draw = i)))
+        flat_means(update(template, chain; prefix = :delays, draw = i))
     end
     return (onset_admit = [r.onset_admit for r in rows],
         admit_death = [r.admit_death for r in rows],
@@ -297,25 +310,37 @@ We tabulate each known simulation value against its posterior mean and 95%
 credible interval.
 The case-fatality coefficients are recovered cleanly, the true value inside the
 interval for each.
-The delay means are recovered close to the truth, with a small consistent
-downward offset from deconvolving the day-level censoring at these short,
-discrete delays; the ordering and spread of the four delays come back as
-generated.
+The simulation draws themselves are unbiased: a draw emits a continuous event
+path that the day-level censoring discretises with the same
+`floor(target) - floor(origin)` rule the scorer uses, so the gaps carry no
+systematic offset (the notification draw mean is ~14.0, its true Gamma mean).
+The onset-to-admission delay recovers well, the true mean near the centre of a
+tight interval.
+The other three are harder.
+The heavy-tailed onset-to-notification delay (Gamma shape 0.7) is the worst: its
+mean is carried by rare long delays, so the posterior is pulled low (around 12
+against a true 14) with a wide interval that the truth sits just above.
+The admission-to-death mean comes back a little low for the same reason on a
+lighter tail, and the admission-to-discharge mean is recovered but wide on the
+smaller resolved-as-discharge subset.
+So even with clean simulated data the two tail-sensitive delays are only weakly
+identified, which previews the same split on the real line list.
 """
 
-interval(v) = (mean(v), quantile(v, 0.025), quantile(v, 0.975))
+ci(v) = (mean = mean(v), lower = quantile(v, 0.025),
+    upper = quantile(v, 0.975))
 
 sim_delays = delay_mean_draws(sim_chain)
 
 coef_draws(name) = vec(sim_chain[Parameter(name)])
 
 recovery = let
-    qs = [interval(sim_delays.onset_admit), interval(sim_delays.admit_death),
-        interval(sim_delays.admit_discharge), interval(sim_delays.onset_notif),
-        interval(coef_draws(@varname(β0))),
-        interval(coef_draws(@varname(β_hcw))),
-        interval(coef_draws(@varname(β_def))),
-        interval(coef_draws(@varname(β_age)))]
+    qs = [ci(sim_delays.onset_admit), ci(sim_delays.admit_death),
+        ci(sim_delays.admit_discharge), ci(sim_delays.onset_notif),
+        ci(coef_draws(@varname(β0))),
+        ci(coef_draws(@varname(β_hcw))),
+        ci(coef_draws(@varname(β_def))),
+        ci(coef_draws(@varname(β_age)))]
     DataFrame(
         quantity = ["onset → admission mean", "admission → death mean",
             "admission → discharge mean", "onset → notification mean",
@@ -325,9 +350,9 @@ recovery = let
             round(mean(Gamma(1.0, 8.0)), digits = 2),
             round(mean(Gamma(0.7, 20.0)), digits = 2),
             sim_truth.β0, sim_truth.β_hcw, sim_truth.β_def, sim_truth.β_age],
-        post_mean = [round(q[1], digits = 2) for q in qs],
-        post_lower = [round(q[2], digits = 2) for q in qs],
-        post_upper = [round(q[3], digits = 2) for q in qs])
+        post_mean = [round(q.mean, digits = 2) for q in qs],
+        post_lower = [round(q.lower, digits = 2) for q in qs],
+        post_upper = [round(q.upper, digits = 2) for q in qs])
 end
 
 md"""
@@ -346,12 +371,6 @@ datadir = joinpath(@__DIR__, "data")
 linelist = CSV.read(joinpath(datadir, "linelist.csv"), DataFrame;
     missingstring = ["NA", ""])
 
-for c in (:Date_of_onset_symp, :Date_hospital_discharge,
-    :Date_of_notification, :Date_of_Hospitalisation, :Date_of_Death)
-    linelist[!, c] = map(x -> ismissing(x) ? missing : Date(string(x)),
-        linelist[!, c])
-end
-
 md"""
 Admission-date offsets the Rosello deposit encodes as outliers (−89, −5, −4, −1,
 and 328720 days from onset) are set to missing, as are negative offsets.
@@ -361,28 +380,47 @@ resolved case carries exactly one of the two as its competing outcome.
 
 admit_outliers = (-89, -5, -4, -1, 328720)
 
+parse_date(x) = ismissing(x) ? missing : Date(string(x))
+
 dayoff(a, b) = (ismissing(a) || ismissing(b)) ? missing :
                Float64(Dates.value(b - a))
 
+drop_neg(x) = (!ismissing(x) && x < 0) ? missing : x
+
+md"""
+The pipeline parses the date columns, drops cases with no onset date, takes each
+delay as a day offset from onset, then cleans the offsets.
+Date parsing and outcome flags are whole-column transforms (`@transform`,
+`@subset`); the offset and missing-data rules are genuinely per row, so they stay
+`@rtransform`.
+"""
+
 clean = @chain linelist begin
-    @rsubset !ismissing(:Date_of_onset_symp)
+    @transform begin
+        :Date_of_onset_symp = parse_date.(:Date_of_onset_symp)
+        :Date_hospital_discharge = parse_date.(:Date_hospital_discharge)
+        :Date_of_notification = parse_date.(:Date_of_notification)
+        :Date_of_Hospitalisation = parse_date.(:Date_of_Hospitalisation)
+        :Date_of_Death = parse_date.(:Date_of_Death)
+    end
+    @subset .!ismissing.(:Date_of_onset_symp)
     @rtransform begin
         :admit = dayoff(:Date_of_onset_symp, :Date_of_Hospitalisation)
         :death = dayoff(:Date_of_onset_symp, :Date_of_Death)
         :discharge = dayoff(:Date_of_onset_symp, :Date_hospital_discharge)
         :notif = dayoff(:Date_of_onset_symp, :Date_of_notification)
-        :is_hcw = :hcw === true
-        :probable = :Case_definition == "Probable"
-        :died = :Outcome == "Dead"
     end
-    @rtransform :admit = (!ismissing(:admit) &&
-                          (:admit in admit_outliers || :admit < 0)) ?
-                         missing : :admit
+    @transform begin
+        :is_hcw = :hcw .=== true
+        :probable = :Case_definition .== "Probable"
+        :died = :Outcome .== "Dead"
+    end
     @rtransform begin
-        :death = (!ismissing(:death) && :death < 0) ? missing : :death
-        :discharge = (!ismissing(:discharge) && :discharge < 0) ?
-                     missing : :discharge
-        :notif = (!ismissing(:notif) && :notif < 0) ? missing : :notif
+        :admit = (!ismissing(:admit) && :admit in admit_outliers) ?
+                 missing : drop_neg(:admit)
+        :death = drop_neg(:death)
+        :discharge = drop_neg(:discharge)
+        :notif = drop_neg(:notif)
     end
     @rtransform begin
         :death = (ismissing(:admit) || !:died) ? missing : :death
@@ -393,17 +431,21 @@ end
 md"""
 Age is standardised, imputing the sample mean for the few missing ages, and each
 case becomes one record row.
+The standardisation uses whole-column statistics, so it is one more `@transform`
+step before the rows are assembled.
 """
 
-age_obs = collect(skipmissing(clean.Age))
-age_mean = mean(age_obs)
-age_sd = std(age_obs)
+age_mean = mean(skipmissing(clean.Age))
+age_sd = std(skipmissing(clean.Age))
+
+clean = @transform clean :age_z = map(clean.Age) do a
+    ismissing(a) ? 0.0 : (a - age_mean) / age_sd
+end
 
 real_rows = map(eachrow(clean)) do r
-    age_z = ismissing(r.Age) ? 0.0 : (r.Age - age_mean) / age_sd
     (onset = 0.0, admit = r.admit, death = r.death,
         discharge = r.discharge, notif = r.notif,
-        hcw = r.is_hcw, probable = r.probable, age_z = age_z)
+        hcw = r.is_hcw, probable = r.probable, age_z = r.age_z)
 end
 
 n_obs(field) = count(r -> !ismissing(getproperty(r, field)), real_rows)
@@ -418,11 +460,10 @@ The same model and priors fit the real records.
 """
 
 real_chain = sample(Xoshiro(20260609), bdbv(template, priors, real_rows),
-    NUTS(0.8; adtype = AutoForwardDiff()), MCMCThreads(), 500, 2;
+    NUTS(0.8; adtype = adbackend), MCMCThreads(), 800, 2;
     chain_type = VNChain, progress = false)
 
-real_fit = update(template, chain_to_params(template, real_chain;
-    prefix = :delays))
+real_fit = update(template, real_chain; prefix = :delays)
 
 md"""
 ## Step 4: equivalence with the published study
@@ -430,19 +471,15 @@ md"""
 ### Priors and posteriors together
 
 PairPlots shows the prior and posterior of the four delay means on one figure.
-We draw the prior delay means by sampling the prior parameters, and the
-posterior delay means from the fitted draws, both through the same delay-mean
-map, so the shrinkage from prior to posterior is read directly.
+The prior draws come from running the same model in prior mode, so the prior
+delay means pass through the very same delay-mean map as the posterior draws and
+the shrinkage from prior to posterior is read directly.
 """
 
-prior_means = let rng = MersenneTwister(3), n = 1000
-    draw_mean(leaf) = rand(rng, leaf.shape, n) .* rand(rng, leaf.scale, n)
-    (onset_admit = draw_mean(priors.admit_path.onset_admit),
-        admit_death = draw_mean(priors.admit_path.admit_resolution.death),
-        admit_discharge =
-        draw_mean(priors.admit_path.admit_resolution.discharge),
-        onset_notif = draw_mean(priors.onset_notif))
-end
+prior_chain = sample(Xoshiro(3), bdbv(template, priors, real_rows),
+    Prior(), MCMCThreads(), 1000, 2; chain_type = VNChain, progress = false)
+
+prior_means = delay_mean_draws(prior_chain)
 
 posterior_means = delay_mean_draws(real_chain)
 
@@ -453,8 +490,10 @@ pairplot(
         color = (:steelblue, 0.6)))
 
 md"""
-The posteriors are far tighter than the priors and sit at the data-driven delay
-means, with the discharge mean the widest of the four.
+The posteriors are tighter than the priors and sit at data-driven delay means.
+The two easy delays (onset-to-admission, admission-to-death) shrink to narrow
+posteriors; the onset-to-notification and admission-to-discharge means stay
+comparatively wide, reflecting the heavy tail and the small discharge subset.
 
 ### Posterior versus re-estimated targets
 
@@ -469,9 +508,6 @@ targets = (
     admit_death = (mean = 7.71, lower = 5.63, upper = 10.44),
     admit_discharge = (mean = 8.10, lower = 4.81, upper = 13.82),
     onset_notif = (mean = 20.37, lower = 13.64, upper = 29.99))
-
-ci(v) = (mean = mean(v), lower = quantile(v, 0.025),
-    upper = quantile(v, 0.975))
 
 comparison = let
     oa = ci(posterior_means.onset_admit)
@@ -528,14 +564,20 @@ end
 
 md"""
 Every delay's credible interval overlaps the re-estimated target.
-The onset-to-admission and admission-to-death delays match closely in both mean
-and width.
-The admission-to-discharge delay is the weakest pathway here: discharge is the
+The onset-to-admission and admission-to-death delays recover well: they match
+the target closely in both mean and width.
+The other two delays are weakly identified, which here shows as wide intervals
+rather than a clean recovery.
+The onset-to-notification delay has a heavy tail (Gamma shape 0.7): the long
+right tail that carries most of the mean is poorly constrained by 38 records, so
+the posterior mean is uncertain and the interval is wide; the simulation showed
+the same tail pulling the mean low even with clean data.
+The admission-to-discharge delay is the smallest pathway: discharge is the
 minority outcome and the mutually exclusive assignment by recorded outcome moves
 a few ambiguous cases to death, so it sits on a smaller subset (n = 11) and its
-interval is wider and shifted while still overlapping.
-The onset-to-notification delay is long and heavy tailed; its interval is wide
-and should be read with that skew in mind.
+interval is the widest of the four.
+Read these two as covered-but-uncertain rather than precisely recovered; the
+discharge pathway in particular is the least informed here.
 """
 
 comparison
@@ -567,14 +609,20 @@ md"""
   every leaf censored directly through [`double_interval_censored`](@ref).
 - The case-fatality ratio is a logistic regression in plain Turing, fed to the
   competing node per record through the reserved `:branch_probs` field.
-- Priors come from [`params_table`](@ref) and [`build_priors`](@ref); the records
+- Priors come from [`params_table`](@ref) and [`build_priors`](@ref), which
+  derives weakly informative defaults from each parameter's support; the records
   score through the vectorised [`composed_distribution_model`](@ref).
-- The workflow simulates from the model, recovers the known simulation
-  parameters, fits the real line list, and matches the re-estimated study delays
-  within uncertainty.
-- The posterior is read back with [`update`](@ref) and [`chain_to_params`](@ref),
-  so delay means and the onset-to-death convolution come straight from the
-  fitted object.
-- The discharge pathway is the least informed (n = 11) and its wider interval
-  reflects that honestly.
+- The workflow simulates from the model with [`predict_events`](@ref), whose
+  draws are unbiased now that the censoring is applied as `floor(target) -
+  floor(origin)`, fits the real line list, and overlaps the re-estimated study
+  delays within uncertainty for all four delays.
+- The posterior is read back with [`update`](@ref) applied to the fitted chain
+  and [`edge_means`](@ref), so delay means and the onset-to-death convolution come
+  straight from the fitted object.
+- Recovery is honest about identifiability: onset-to-admission and
+  admission-to-death recover well, whereas the heavy-tailed onset-to-notification
+  (Gamma shape 0.7) and the small-n admission-to-discharge (n = 11) are weakly
+  identified, with wide intervals; the simulation shows the heavy tail pulling
+  the notification mean low even with clean data, a tail/identifiability effect
+  rather than the old simulation artefact.
 """
