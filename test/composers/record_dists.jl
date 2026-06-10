@@ -309,7 +309,7 @@ end
         total = 0.0
         for row in rows
             scored = haskey(row, :branch_probs) ?
-                     CensoredDistributions._override_competing_branch_probs(d,
+                     CensoredDistributions._override_competing_outcome_probs(d,
                 CensoredDistributions._coerce_branch_probs(
                     CensoredDistributions._the_competing_node(d),
                     row.branch_probs)) : d
@@ -333,7 +333,7 @@ end
     # A hanta Select top: an index case (its own origin) vs a sourced case (a longer
     # delay), selected by the row's `:kind`.
     function hanta_select()
-        return select_branch(
+        return selecting(
             :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
             :sourced => primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
     end
@@ -469,7 +469,7 @@ end
     # `product_distribution` would throw Distributions.jl's opaque "all
     # distributions must be of the same size". `record_distributions` raises a
     # clear `ArgumentError` instead.
-    d = select_branch(
+    d = selecting(
         :leaf => Gamma(2.0, 1.0),
         :pair => Sequential(Gamma(1.0, 1.0), LogNormal(0.5, 0.4)))
     rows = [(kind = :leaf, value = 2.0),

@@ -27,7 +27,7 @@
         e1 = primary_censored(Gamma(θ[1], θ[2]), Uniform(0, 1))
         a = primary_censored(Gamma(θ[3], θ[4]), Uniform(0, 1))
         b = primary_censored(Gamma(θ[5], θ[6]), Uniform(0, 1))
-        inner = select_branch(:a => a, :b => b)
+        inner = selecting(:a => a, :b => b)
         seq = Sequential((e1, inner), (:onset_admit, :admit_death))
         recs = CensoredDistributions.record_distributions(seq, rows)
         return sum(i -> logpdf(recs[i], obs[i]), eachindex(recs))

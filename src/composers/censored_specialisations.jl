@@ -444,7 +444,7 @@ end
 # the tree has no Competing node or more than one (the single `branch_probs` row
 # field is then ambiguous). Pure, Turing-free; the new probs keep their
 # element type.
-function _override_competing_branch_probs(d, probs)
+function _override_competing_outcome_probs(d, probs)
     n = _count_competing(d)
     n == 1 || throw(ArgumentError(
         "a per-record `branch_probs` override needs exactly one Competing node " *
@@ -1037,7 +1037,7 @@ end
 # A composer is simulated through three regimes, selected by structure:
 #   - NESTED tree (a child is itself a composer) or a `Competing` child: walk the
 #     tree sharing one latent origin draw, sampling each `Competing` outcome, and
-#     return a NAMED event record keyed by `tree_event_names` (the missing
+#     return a NAMED event record keyed by `_flat_event_names` (the missing
 #     unsampled Competing outcomes round-trip back through `logpdf`);
 #   - FLAT censored chain/set: the full event-time path `[E_0, ...]` vector
 #     (back-compat, the original censored-composer shape);
@@ -1144,7 +1144,7 @@ end
 # structure: branches share one origin, a `Competing` resolves to ONE outcome,
 # and the slots are named. `_tree_event_record` walks the tree sharing a single
 # latent origin draw, samples each `Competing` outcome via its branch
-# probabilities, and returns a `NamedTuple` keyed by `tree_event_names` — the
+# probabilities, and returns a `NamedTuple` keyed by `_flat_event_names` — the
 # root origin then one slot per leaf event in depth-first order. An UNSAMPLED
 # Competing outcome is `missing`, so the record feeds straight back into the
 # censored composer `logpdf` (one observed outcome slot, the rest missing).
@@ -1175,10 +1175,10 @@ function _tree_event_vector(rng::AbstractRNG, d::Union{Sequential, Parallel})
 end
 
 # Draw the full NAMED event record of a nested tree: the typed event vector keyed
-# by `tree_event_names`, mirroring the same flat layout the scorer consumes.
+# by `_flat_event_names`, mirroring the same flat layout the scorer consumes.
 function _tree_event_record(rng::AbstractRNG, d::Union{Sequential, Parallel})
     out = _tree_event_vector(rng, d)
-    enames = tree_event_names(d)
+    enames = _flat_event_names(d)
     return NamedTuple{enames}(Tuple(out))
 end
 

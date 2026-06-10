@@ -147,11 +147,11 @@ end
     @test derivative(fp, 0.3) ≈ exp(f(0.3)) * expected
 end
 
-@testitem "competing_branch sugar mirrors the Competing constructor" begin
+@testitem "competing sugar mirrors the Competing constructor" begin
     using Distributions
 
     cfr = 0.3
-    a = competing_branch(:death => (Gamma(1.5, 1.0), cfr),
+    a = competing(:death => (Gamma(1.5, 1.0), cfr),
         :disch => (Gamma(2.0, 1.5), 1 - cfr))
     b = Competing(:death => (Gamma(1.5, 1.0), cfr),
         :disch => (Gamma(2.0, 1.5), 1 - cfr))

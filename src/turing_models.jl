@@ -263,10 +263,13 @@ consumes.
 `chain_to_params(template, chain)` walks the `template` composed distribution and
 pulls each free parameter's value out of `chain` (sampled through
 [`composed_parameters_model`](@ref)), returning a nested `NamedTuple` keyed like
-[`params`](@ref)`(template)`. By default it returns posterior means; pass
-`draw=i` for a single draw. The `prefix` keyword names the submodel variable the
-parameters were sampled under (the `~`-bound name, default `:d`), matching the
-edge-path-prefixed chain names like `d.onset_admit.shape`.
+[`params`](@ref)`(template)`. By default it reduces each parameter's draws with
+`mean`; pass any reduction `summary` (`median`, `mode`, `x -> quantile(x, 0.9)`),
+restrict to a subset of draws with `draws` (a range / index vector, or a
+predicate `i -> Bool` over the iteration index for warmup-drop / thinning), or
+pass `draw=i` for a single iteration. The `prefix` keyword names the submodel
+variable the parameters were sampled under (the `~`-bound name, default `:d`),
+matching the edge-path-prefixed chain names like `d.onset_admit.shape`.
 
 `update(template, chain_to_params(template, chain))` returns a ready-to-`rand`/
 inspect distribution, replacing manual `chain[Prefixed(@varname(...))]`
@@ -283,8 +286,13 @@ method lives in the package extension so the core stays free of `DynamicPPL`.
 # Keyword Arguments
 - `prefix`: the submodel variable name the parameters were sampled under
   (default `:d`).
-- `draw`: a single iteration index to read, or `nothing` for posterior means
+- `summary`: the reduction `AbstractVector -> scalar` applied to each
+  parameter's draws (default `mean`).
+- `draws`: a subset of iterations to reduce over: a range / index vector, or a
+  predicate `i -> Bool` over the iteration index; `nothing` uses every draw
   (default `nothing`).
+- `draw`: a single iteration index to read (overrides `summary`/`draws`), or
+  `nothing` (default `nothing`).
 
 # Examples
 ```@example
@@ -306,7 +314,7 @@ Random.seed!(1)
 chain = sample(fit(template, priors, [[0.5, 2.0], [1.0, 3.0]]), NUTS(), 20;
     progress = false)
 ready = update(template, chain_to_params(template, chain))
-get_event(ready, :onset_admit)
+event(ready, :onset_admit)
 ```
 
 # See also

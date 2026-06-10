@@ -15,11 +15,6 @@ public NumericSolver
 # Extension helper for user-defined analytical CDF pairs (public but not exported)
 public primarycensored_uniform_cdf_formula
 
-# The flat EVENT-name layout of a composed distribution (public but not
-# exported): the data-row key space, distinct from the EDGE names of
-# `event_names`.
-public tree_event_names
-
 # Composer step/branch/outcome names (public but not exported): used by the
 # DynamicPPL extension to key parameter priors by child name.
 public component_names
@@ -47,3 +42,8 @@ public latent_primary_priors, latent_observed_logpdf
 # unexported to avoid clashing with `Integrals.GaussLegendre` when both
 # are loaded; the Integrals.jl extension adds an `integrate` method.
 public GaussLegendre, integrate, gl_integrate
+
+# Public interface-conformance harness submodule (public but not exported):
+# `TestUtils.test_interface(d)` lets a downstream author verify a new leaf /
+# composer against the package's interface checklist.
+public TestUtils

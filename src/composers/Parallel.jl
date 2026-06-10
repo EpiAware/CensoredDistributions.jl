@@ -113,7 +113,7 @@ extended `Distributions.params`). This nested form is for prior introspection
 via [`params_table`](@ref); a composed distribution reconstructs through
 [`compose`](@ref), not through `Distribution(params...)`.
 
-See also: [`params_table`](@ref), [`event_names`](@ref), [`get_event`](@ref)
+See also: [`params_table`](@ref), [`event_names`](@ref), [`event`](@ref)
 "
 params(d::Parallel) = _composed_params(d)
 
@@ -144,7 +144,7 @@ Sample a branch realisation. For plain branches this is one value per branch
 sharing one latent origin it is the full event-time vector
 `[origin, observed_1, ...]`. For a NESTED tree (a branch is itself a composer, or
 a [`Competing`](@ref) branch) it is a NAMED event record keyed by
-[`tree_event_names`](@ref): one shared origin draw, each branch hung off it and
+[`_flat_event_names`](@ref): one shared origin draw, each branch hung off it and
 each Competing outcome sampled (the unsampled outcomes `missing`). See the
 censored-specialisation [`rand`](@ref) method.
 

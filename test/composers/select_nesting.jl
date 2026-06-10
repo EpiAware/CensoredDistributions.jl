@@ -11,18 +11,18 @@
 
     # All alternatives share one leaf width, so a nested Select occupies that
     # many flat value slots.
-    s = select_branch(:a => Gamma(2.0, 1.0), :b => LogNormal(0.5, 0.4))
+    s = selecting(:a => Gamma(2.0, 1.0), :b => LogNormal(0.5, 0.4))
     @test _child_nleaves(s) == 1
 
     # A composer alternative widens the slot to its own leaf count; every
     # alternative must agree.
-    s2 = select_branch(
+    s2 = selecting(
         :flat => Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)),
         :also => Sequential(Gamma(1.0, 1.0), Gamma(3.0, 1.0)))
     @test _child_nleaves(s2) == 2
 
     # Disagreeing widths cannot occupy a fixed flat slot.
-    bad = select_branch(:one => Gamma(2.0, 1.0),
+    bad = selecting(:one => Gamma(2.0, 1.0),
         :two => Sequential(Gamma(1.0, 1.0), Gamma(2.0, 1.0)))
     @test_throws ArgumentError _child_nleaves(bad)
 end
@@ -30,7 +30,7 @@ end
 @testitem "Select nests in a Parallel: logpdf and rand" begin
     using CensoredDistributions, Distributions, Random
 
-    inner = select_branch(:a => Gamma(2.0, 1.0), :b => LogNormal(0.5, 0.4))
+    inner = selecting(:a => Gamma(2.0, 1.0), :b => LogNormal(0.5, 0.4))
     par = Parallel(Gamma(3.0, 1.0), inner)
     # Two leaves: the plain branch and the Select child (its first alternative).
     @test length(par) == 2
@@ -52,7 +52,7 @@ end
 @testitem "Select nests in a Sequential: logpdf and rand" begin
     using CensoredDistributions, Distributions, Random
 
-    inner = select_branch(:a => Gamma(2.0, 1.0), :b => LogNormal(0.5, 0.4))
+    inner = selecting(:a => Gamma(2.0, 1.0), :b => LogNormal(0.5, 0.4))
     seq = Sequential(Gamma(3.0, 1.0), inner)
     @test length(seq) == 2
 
@@ -69,7 +69,7 @@ end
 @testitem "Select nests inside a compose front-end" begin
     using CensoredDistributions, Distributions, Random
 
-    inner = select_branch(:a => Gamma(2.0, 1.0), :b => LogNormal(0.5, 0.4))
+    inner = selecting(:a => Gamma(2.0, 1.0), :b => LogNormal(0.5, 0.4))
     # A Select as a compose component nests as a Parallel branch.
     outer = compose((pick = inner, side = Normal(0.0, 1.0)))
     @test outer isa CensoredDistributions.Parallel

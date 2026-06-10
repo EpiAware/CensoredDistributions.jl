@@ -69,7 +69,7 @@ par = Parallel(onset_admit, admit_death);
 
 cfr = 0.3;
 
-resolution = competing_branch(:death => (Gamma(1.5, 1.0), cfr),
+resolution = competing(:death => (Gamma(1.5, 1.0), cfr),
     :discharge => (Gamma(2.0, 1.5), 1 - cfr));
 
 # Its marginal is the time to resolution regardless of which outcome occurs.
@@ -82,7 +82,7 @@ mean(resolution)
 # Neither `Parallel` (shared origin) nor `Competing` (shared origin) expresses
 # this.
 
-selector = select_branch(:index => onset_admit, :sourced => admit_death);
+selector = selecting(:index => onset_admit, :sourced => admit_death);
 
 # Scoring names the active alternative through the `kind` keyword.
 
@@ -102,7 +102,7 @@ event_names(nested)
 
 # A `Select` can hold a `Select`, or a composed tree, as an alternative.
 
-select_on_select = select_branch(:a => selector, :b => onset_admit);
+select_on_select = selecting(:a => selector, :b => onset_admit);
 
 # A pre-built composer is a valid `Sequential` step, so a chain can carry a
 # `Competing` resolution as its terminal step.
@@ -115,7 +115,7 @@ tree = compose((
 
 # The flat event layout of a tree is derived from the edge names.
 
-CensoredDistributions.tree_event_names(tree)
+event_names(tree)
 
 # ## Censoring is transparent
 #
@@ -289,13 +289,15 @@ event_names(reconstructed)
 # returning a distribution of the same structure.
 # After fitting, `update(template, chain)` reads posterior means straight off a
 # fitted chain (via [`chain_to_params`](@ref)), giving a ready-to-`rand` or
-# ready-to-inspect distribution; [`edge_means`](@ref) then reads every per-edge
-# delay mean off it in one call.
+# ready-to-inspect distribution. The overall [`mean`](@ref) gives the mean delay
+# per branch endpoint (this `Parallel` template has two independent endpoints),
+# and the per-event [`mean`](@ref)`(latent(updated))` Vector reads every event
+# mean off it in one call.
 
 updated = update(template, (onset_admit = (shape = 3.0, scale = 1.5),
     admit_death = (mu = 0.7, sigma = 0.5)));
 
-edge_means(updated)
+NamedTuple{keys(event_tree(updated))}(Tuple(mean(updated)))
 
 # ## Summary
 #
@@ -305,7 +307,7 @@ edge_means(updated)
 #   [`Select`](@ref) are conjunctive chains, shared-origin branches, competing
 #   outcomes, and data-selected disjunctions.
 # - The composers nest, including a composer as a chain step and a
-#   `select_branch` of a `select_branch`.
+#   `selecting` of a `selecting`.
 # - One object scores records and simulates them; scoring marginalises by row
 #   missingness (mixed across records), prediction is the generative `rand`.
 # - The marginal and latent forms are one family on the same parameters. The

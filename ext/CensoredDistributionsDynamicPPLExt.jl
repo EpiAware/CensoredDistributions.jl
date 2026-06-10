@@ -235,7 +235,7 @@ _row_horizon(row::NamedTuple) = CensoredDistributions._row_horizon_field(row)
 # log-density equals the direct `logpdf`.
 #
 # A NESTED `Competing` node is scored by the same path: its outcome
-# columns occupy one event slot each (`tree_event_names`), so the observed
+# columns occupy one event slot each (`_flat_event_names`), so the observed
 # outcome is identified positionally and `_tree_step(::Competing)` conditions on
 # that branch. A per-record `branch_probs` field OVERRIDES the (single) nested
 # Competing's stored probabilities by rebuilding the tree for the record, so a
@@ -275,7 +275,7 @@ function _apply_branch_probs_override(d, row::NamedTuple)
         "a `branch_probs` row field needs a Competing node in the tree; none " *
         "found"))
     probs = CensoredDistributions._coerce_branch_probs(node, row.branch_probs)
-    return CensoredDistributions._override_competing_branch_probs(d, probs)
+    return CensoredDistributions._override_competing_outcome_probs(d, probs)
 end
 
 # The single Competing node of a tree (for coercing a per-record override against
@@ -396,7 +396,7 @@ _record_has_observed(r) = any(v -> v !== missing, r.events)
 @model function composed_distribution_model(
         d::Competing, row::NamedTuple; weight = nothing)
     w = _row_weight(row, weight)
-    probs = _competing_branch_probs(d, row)
+    probs = _competing_outcome_probs(d, row)
     horizon = _row_horizon(row)
     DynamicPPL.@addlogprob! _competing_logprob(d, row, probs, w, horizon)
     return nothing
@@ -412,7 +412,7 @@ const _COMPETING_RESERVED = (_RESERVED_ROW_FIELDS..., :resolved)
 # (regime a). The coercion + validation is the SHARED core helper
 # (`_coerce_branch_probs`), so the top-level and nested paths agree on the
 # NamedTuple/scalar override semantics.
-function _competing_branch_probs(d::Competing, row::NamedTuple)
+function _competing_outcome_probs(d::Competing, row::NamedTuple)
     haskey(row, :branch_probs) || return d.branch_probs
     return CensoredDistributions._coerce_branch_probs(d, row.branch_probs)
 end

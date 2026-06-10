@@ -12,7 +12,7 @@
 # - `params_table(d)`: that structure FLATTENED to a Tables.jl table, one row
 #   per scalar parameter, columns `edge | param | value | support` (the support
 #   being the edge distribution's variate support, the domain a prior respects).
-# - `event_names(d)` / `get_event(d, name)`: list the edge/event names of a
+# - `event_names(d)` / `event(d, name)`: list the edge/event names of a
 #   composed distribution and fetch a child by name.
 #
 # Names come from the composers' `names` field, which every `compose` front-end
@@ -102,7 +102,7 @@ NamedTuple of its outcomes plus a `branch_probs` entry. This nested form is for
 prior introspection via [`params_table`](@ref); a composed distribution
 reconstructs through [`compose`](@ref), not through `Distribution(params...)`.
 
-See also: [`params_table`](@ref), [`event_names`](@ref), [`get_event`](@ref)
+See also: [`params_table`](@ref), [`event_names`](@ref), [`event`](@ref)
 "
 function _composed_params(d::Union{Sequential, Parallel})
     names = component_names(d)
@@ -190,8 +190,10 @@ end
 
 Flatten a composed distribution's parameters into a prior-definition table.
 
-`params_table(d)` returns a Tables.jl-compatible column table with one row per
-scalar free parameter of the composed distribution `d`, with columns:
+`params_table(d)` returns a Tables.jl column table (a `NamedTuple` of equal-length
+column vectors, so `Tables.istable(params_table(d))` is `true`); wrap it in
+`DataFrame` for a DataFrame. It has one row per scalar free parameter of the
+composed distribution `d`, with columns:
 
 - `edge`: the dotted path of names to the parameter's edge/leaf (e.g.
   `:onset_admit`, or `:resolution.branch_probs` inside a `Competing`).
@@ -213,12 +215,12 @@ using CensoredDistributions, Distributions
 tree = compose((onset_admit = LogNormal(1.5, 0.4),
     admit_death = Gamma(2.0, 1.0)))
 tbl = params_table(tree)
-tbl.edge
+tbl.edge  # a column; wrap the table in `DataFrame(tbl)` for a DataFrame
 ```
 
 # See also
 - [`params`](@ref): the nested name-keyed values
-- [`event_names`](@ref), [`get_event`](@ref): name introspection
+- [`event_names`](@ref), [`event`](@ref): name introspection
 "
 function params_table(d::Union{Sequential, Parallel, Competing, Select})
     edges = Symbol[]
@@ -342,7 +344,7 @@ tree = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
 tree2 = update(tree, (onset_admit = (shape = 3.0, scale = 1.5),
     admit_death = (mu = 0.7, sigma = 0.5)))
-get_event(tree2, :onset_admit)
+event(tree2, :onset_admit)
 ```
 
 # See also
@@ -681,12 +683,18 @@ end
 
 @doc "
 
-List the event/edge names of a composed distribution.
+The FLAT event names of a composed distribution.
 
-`event_names(d)` returns the tuple of top-level child names: branch names for a
-[`Parallel`](@ref), step names for a [`Sequential`](@ref), outcome names for a
-[`Competing`](@ref). Pair with [`get_event`](@ref) to fetch a child by name and
-[`params_table`](@ref) to see its parameters.
+`event_names(d)` returns the tuple of event names in the SAME flat depth-first
+layout as a `rand(latent(d))` draw and the per-event
+[`mean`](@ref)`(latent(d))`/`var(latent(d))`/`std(latent(d))`: the root origin
+event followed by one target event per leaf edge.
+An inner composer's events are exposed, so `compose((path = [a, b],))` lists the
+inner `(:onset, ...)` events rather than just the `(:path,)` edge. Event names
+are derived from the edge names (an edge `:onset_admit` gives origin `:onset` and
+target `:admit`); a positional default edge contributes `:event_i`. These EVENT
+names key a data ROW, distinct from the nested EDGE/child structure of
+[`event_tree`](@ref) (whose first level is the top-level child names).
 
 # Examples
 ```@example
@@ -698,51 +706,83 @@ event_names(tree)
 ```
 
 # See also
-- [`get_event`](@ref): fetch a child by name
+- [`event_tree`](@ref): the NESTED tree of event names
+- [`event`](@ref): fetch a child or subtree by name path
 - [`params_table`](@ref): the parameter table
 "
-event_names(d::Union{Sequential, Parallel, Competing}) = component_names(d)
+event_names(d::Union{Sequential, Parallel, Competing}) = _flat_event_names(d)
+# A `Select` has no single flat layout (the active alternative is data-selected),
+# so its flat event names are its alternative names.
 event_names(d::Select) = d.names
 
 @doc "
 
-Fetch a composed distribution's child (event/edge) by name.
+The NESTED tree of event names of a composed distribution.
 
-`get_event(d, name)` returns the child distribution labelled `name` (a branch of
-a [`Parallel`](@ref), a step of a [`Sequential`](@ref), or an outcome delay of a
-[`Competing`](@ref)). Throws a `KeyError` if `name` is not one of
-[`event_names`](@ref).
-
-# Arguments
-- `d`: the composed distribution to look up a child of.
-- `name`: the edge/event name (`Symbol`) of the child to fetch.
+`event_tree(d)` returns the event-name structure as data: a nested `NamedTuple`
+keyed by child name down to the leaves, mirroring the tree. Its FIRST level is
+the top-level child names (the old top-level `event_names` result); a
+[`Sequential`](@ref)/[`Parallel`](@ref)/[`Select`](@ref) child recurses to its
+own nested NamedTuple, a [`Competing`](@ref) child to its outcome names, and a
+leaf to its own name. Pair with [`event_names`](@ref) for the FLAT per-event
+layout that matches `rand`/`mean`/`var`.
 
 # Examples
 ```@example
 using CensoredDistributions, Distributions
 
-tree = compose((onset_admit = LogNormal(1.5, 0.4),
-    admit_death = Gamma(2.0, 1.0)))
-get_event(tree, :admit_death)
+tree = compose((admit_path = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4))),
+    onset_recover = Gamma(3.0, 1.0)))
+event_tree(tree)
 ```
 
 # See also
-- [`event_names`](@ref): list the names
+- [`event_names`](@ref): the FLAT per-event names
+- [`event`](@ref): fetch a child or subtree by name path
 "
-function get_event(d::Union{Sequential, Parallel}, name::Symbol)
+function event_tree(d::Union{Sequential, Parallel})
+    names = component_names(d)
+    vals = ntuple(i -> _event_tree_child(names[i], d.components[i]),
+        length(names))
+    return NamedTuple{names}(vals)
+end
+
+function event_tree(c::Competing)
+    vals = ntuple(i -> _event_tree_child(c.names[i], c.delays[i]),
+        length(c.names))
+    return NamedTuple{c.names}(vals)
+end
+
+function event_tree(d::Select)
+    vals = ntuple(i -> _event_tree_child(d.names[i], d.alternatives[i]),
+        length(d.names))
+    return NamedTuple{d.names}(vals)
+end
+
+# A composer child recurses to its own nested NamedTuple; a leaf is keyed by its
+# parent under its own name, so its value is just that name (the leaf event).
+function _event_tree_child(::Symbol, c::Union{Sequential, Parallel, Competing, Select})
+    event_tree(c)
+end
+_event_tree_child(name::Symbol, ::Any) = name
+
+# Direct-child lookup by a single (un-dotted) name. Internal so the public
+# `event` can split a dotted path before descending.
+function _event_child(d::Union{Sequential, Parallel}, name::Symbol)
     names = component_names(d)
     idx = findfirst(==(name), names)
     idx === nothing && throw(KeyError(name))
     return d.components[idx]
 end
 
-function get_event(c::Competing, name::Symbol)
+function _event_child(c::Competing, name::Symbol)
     idx = findfirst(==(name), c.names)
     idx === nothing && throw(KeyError(name))
     return c.delays[idx]
 end
 
-function get_event(d::Select, name::Symbol)
+function _event_child(d::Select, name::Symbol)
     idx = findfirst(==(name), d.names)
     idx === nothing && throw(KeyError(name))
     return d.alternatives[idx]
@@ -750,18 +790,18 @@ end
 
 @doc "
 
-Pull a sub-distribution out of a composed distribution by a name path.
+Fetch a composed distribution's child (event/edge), or descend a name path.
 
-`get_subtree(d, path...)` follows the chain of edge/event names `path` down the
-tree and returns the sub-distribution (a nested composer or a leaf delay) at that
-location, so a named subtree (e.g. a [`Sequential`](@ref) admit-path inside a
-[`Parallel`](@ref)) is fetched directly rather than rebuilt. A single name is the
-same as [`get_event`](@ref); a dotted path `Symbol` (`:resolution.death`, as in
-[`params_table`](@ref)'s `edge` column) is also accepted. Throws a `KeyError` if
-a name along the path is not a child at that level.
+`event(d, path...)` returns the sub-distribution of `d` at the named location: a
+single `Symbol` fetches a direct child (a branch of a [`Parallel`](@ref), a step
+of a [`Sequential`](@ref), an outcome delay of a [`Competing`](@ref), or an
+alternative of a [`Select`](@ref)); multiple `Symbol`s, or a single dotted-path
+`Symbol` (`:admit_path.admit_death`, as in [`params_table`](@ref)'s `edge`
+column), descend the tree one name per step. Throws a `KeyError` if a name along
+the path is not a child at that level.
 
 # Arguments
-- `d`: the composed distribution to descend into.
+- `d`: the composed distribution to look up a child of (or descend into).
 - `path`: one or more edge/event names (`Symbol`s) from `d` down to the target,
   or a single dotted-path `Symbol`.
 
@@ -772,21 +812,35 @@ using CensoredDistributions, Distributions
 tree = compose((admit_path = compose((onset_admit = Gamma(2.0, 1.0),
         admit_death = LogNormal(0.5, 0.4))),
     onset_recover = Gamma(3.0, 1.0)))
-get_subtree(tree, :admit_path, :admit_death)
+event(tree, :onset_recover)
+event(tree, :admit_path, :admit_death)
 ```
 
 # See also
-- [`get_event`](@ref): fetch a direct child by name.
-- [`event_names`](@ref): list a node's child names.
+- [`event_names`](@ref): list a node's flat event names
+- [`event_tree`](@ref): the nested tree of event names
 "
-function get_subtree(d, path::Vararg{Symbol})
-    isempty(path) && throw(ArgumentError("get_subtree needs at least one name"))
-    # A single dotted-path Symbol (`:a.b`) is split into its name steps; plain
-    # names descend one level each.
-    names = length(path) == 1 ? _split_edge(path[1]) : path
+function event(d)
+    # No name is an error: `event` needs at least one name to fetch.
+    throw(ArgumentError("event needs at least one name"))
+end
+
+# A single name: a dotted `Symbol` (`:a.b`) splits into its steps and descends;
+# a bare name is a single direct-child lookup.
+function event(d, name::Symbol)
+    steps = _split_edge(name)
     node = d
-    for name in names
-        node = get_event(node, name)
+    for step in steps
+        node = _event_child(node, step)
+    end
+    return node
+end
+
+# Two or more names descend the tree one step per name.
+function event(d, name1::Symbol, name2::Symbol, rest::Symbol...)
+    node = _event_child(d, name1)
+    for name in (name2, rest...)
+        node = _event_child(node, name)
     end
     return node
 end

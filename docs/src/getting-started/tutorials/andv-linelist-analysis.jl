@@ -52,7 +52,7 @@
 # sampler budget where the marginal form did not.
 # This page therefore uses the latent form as the primary fit.
 #
-# The two record types are routed by a single [`select_branch`](@ref)
+# The two record types are routed by a single [`selecting`](@ref)
 # disjunction keyed on a `:kind` field: an `:index` case scores its marginal
 # incubation leaf, a `:sourced` case scores a latent two-edge chain whose middle
 # infection event is sampled. One table carries both kinds, and the model loops
@@ -145,7 +145,7 @@ end
 # infection to the case's onset. The chain is wrapped in `latent`, so the middle
 # infection event is sampled and the two delays are scored directly with no
 # convolution.
-# `select_branch` routes a record to the branch its `:kind` names, so both kinds
+# `selecting` routes a record to the branch its `:kind` names, so both kinds
 # share one `inc` and one `delta` and are scored through a single object.
 
 pwindow = 1.0
@@ -169,7 +169,7 @@ end
 
 # The routed delay model: one `select` over the two branches, keyed on `:kind`.
 function delay_model(inc, delta)
-    select_branch(:index => index_branch(inc),
+    selecting(:index => index_branch(inc),
         :sourced => sourced_branch(inc, delta))
 end
 
@@ -299,8 +299,8 @@ fig
 # `update`, so the post-fit delay object comes from the composer rather than
 # from hand-built distributions.
 # A `Sequential` template of the two delays is updated from the posterior means
-# keyed by step name, then `edge_means` reads both per-edge delay means off the
-# fitted object in one call.
+# keyed by step name, then the per-event [`mean`](@ref)`(latent(posted))` Vector
+# reads both delay means off the fitted object in one call.
 
 template = Sequential(Normal(0.0, 1.0), LogNormal(1.0, 0.5))
 posted = update(template,
@@ -308,7 +308,7 @@ posted = update(template,
             sigma = mean(vec(chain[:sigma_delta]))),
         step_2 = (mu = mean(vec(chain[:mu_inc])),
             sigma = mean(vec(chain[:sigma_inc])))))
-fitted_edges = edge_means(posted)
+fitted_edges = mean(latent(posted))
 
 # Posterior mean incubation period (in days) and its 95% credible interval,
 # read from the per-draw LogNormal means.

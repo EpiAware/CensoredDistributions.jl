@@ -180,7 +180,7 @@ function _collect_branch!(specs, bname, c::Competing, prefix, ops, counter)
     return nothing
 end
 
-# All event specs of a stack, in tree order (names mirror `tree_event_names`).
+# All event specs of a stack, in tree order (names mirror `event_names`).
 function _event_specs(stack::Union{Sequential, Parallel})
     specs = _EventSpec[]
     counter = Ref(0)
@@ -229,7 +229,7 @@ observes only some of them:
 - `nothing` (default): the stack's END-POINT event; returns a bare `Vector`.
 - a single event name (`Symbol`): that event's series; returns a bare `Vector`.
   An INTERIM event of a [`Sequential`](@ref) chain (a step's target event, see
-  [`tree_event_names`](@ref)) uses the cumulative delay to that event.
+  [`_flat_event_names`](@ref)) uses the cumulative delay to that event.
 - a tuple of event names: returns a `NamedTuple` keyed by the requested events.
 
 Only the requested events are discretised and convolved, so an unobserved prefix
@@ -274,7 +274,7 @@ endpoint = convolve_distributions(stack, series)
 
 # See also
 - [`convolve_distributions`](@ref): the distribution-level convolution
-- [`tree_event_names`](@ref): the named events a chain can produce
+- [`_flat_event_names`](@ref): the named events a chain can produce
 "
 function convolve_distributions(stack, series::AbstractVector{<:Real};
         events = nothing, interval = 1.0)

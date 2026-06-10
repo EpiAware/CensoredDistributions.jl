@@ -39,8 +39,11 @@ using Optimization: OptimizationFunction, OptimizationProblem, solve, ReturnCode
 
 using OptimizationOptimJL: NelderMead
 
-# Exported censoring functions
-export primary_censored, interval_censored, double_interval_censored
+# Exported censoring functions. `double_censored` is a short, clear alias for
+# `double_interval_censored` (NOT `dic`, which clashes with the Deviance
+# Information Criterion).
+export primary_censored, interval_censored, double_interval_censored,
+       double_censored
 
 # Exported latent representation
 export latent, PrimaryConditional, primary_conditional_logpdf
@@ -61,12 +64,14 @@ export Affine, affine
 export convolve_distributions
 
 # Exported generic composers and front-end constructor
-export Sequential, Parallel, Competing, competing_branch, compose, as_mixture
+export Sequential, Parallel, Competing, competing, compose, as_mixture
 
 # Exported composed-distribution introspection: the flat prior table and
-# name introspection. Nested name-keyed values come from the extended
+# name introspection. `event_names` is the FLAT per-event name tuple (the data-
+# row key space); `event_tree` is the NESTED tree of event names; `event` fetches
+# a child or descends a path. Nested name-keyed values come from the extended
 # `Distributions.params`.
-export params_table, event_names, get_event, get_subtree, update, build_priors,
+export params_table, event_names, event_tree, event, update, build_priors,
        default_prior
 
 # Exported structural interventions on a composed tree: replace a named node,
@@ -74,9 +79,12 @@ export params_table, event_names, get_event, get_subtree, update, build_priors,
 # before/after step. Node-to-node edits reusing the `update` reconstruction.
 export intervene, swap_child, cut_branch, splice
 
-# Exported per-edge delay moments: all edge means / variances of a composed
-# distribution at once, keyed by edge name (sees through censored leaves).
-export edge_means, edge_vars
+# Per-event moments come through the standard `Distributions.mean`/`var`/`std`
+# interface on the composed tree (a Multivariate distribution), returning a
+# Vector in the same per-event layout as `rand(d)` (label with `event_names(d)`).
+# `endpoint` collapses a chain to its terminal scalar (an alias for
+# `observed_distribution`).
+export endpoint
 
 # Exported chain reader: read a fitted Turing chain into the
 # nested NamedTuple `update` consumes. No method until DynamicPPL (or Turing) is
@@ -84,8 +92,8 @@ export edge_means, edge_vars
 export chain_to_params
 
 # Exported data-selected disjunction node (the case selector over independent
-# alternatives). `Select` is the type; `select_branch` the friendly constructor.
-export Select, select_branch
+# alternatives). `Select` is the type; `selecting` the friendly constructor.
+export Select, selecting
 
 # Exported shared-parameter tag: tie a leaf across branches by name so the
 # prior/params interface treats its occurrences as one free parameter. `Shared`
@@ -180,7 +188,7 @@ include("utils/forward_transform.jl")
 
 # Renewal layer: convolve a timeseries through a composed delay stack. After the
 # composers/wrap (uses `observed_distribution`, `_observed_leaves`) and
-# tree_events (`tree_event_names`).
+# tree_events (`_flat_event_names`).
 include("utils/convolve_with_vector.jl")
 
 # Censored specialisations of the generic composers: included last
@@ -201,6 +209,10 @@ include("turing_models.jl")
 # event paths from a latent/composed distribution. The fitted-model
 # `predict_events(chain, model)` method lives in the DynamicPPL extension.
 include("utils/predict_events.jl")
+
+# Public interface-conformance harness (a public submodule). Included last so it
+# can reference the whole public surface; uses `Test` only inside its functions.
+include("TestUtils.jl")
 
 # Public API - functions that are part of public interface but not exported
 @static if VERSION >= v"1.11"

@@ -47,7 +47,7 @@ end
 
 # --- flat EVENT-name layout for a tree --------------------------------------
 #
-# `tree_event_names(d)` returns the tuple of event names matching the flat event
+# `_flat_event_names(d)` returns the tuple of event names matching the flat event
 # vector `[E_0, E_1, ..., E_k]`: entry 1 is the root origin, then one name per
 # LEAF event in depth-first order, exactly the layout `_tree_score` /
 # `_event_vector` consume. Built by appending into a `Symbol[]` and freezing to a
@@ -55,36 +55,18 @@ end
 # PARENT composer's `names` field (a leaf edge does not store its own name), so
 # each child is visited paired with its edge name.
 
-@doc "
-
-The flat EVENT names of a composed distribution.
-
-Returns the tuple of event names matching the scored event vector
-`[E_0, E_1, ..., E_k]`: the root origin event followed by one target event per
-edge in depth-first order. Event names are DERIVED from the composer's edge
-names (an edge `:onset_admit` gives origin `:onset` and target `:admit`); an
-edge with a positional default name (`:step_i` / `:branch_i`) contributes the
-positional event name `:event_i` instead.
-
-These EVENT names key a data ROW (a linelist column is an event time), distinct
-from the EDGE names returned by [`event_names`](@ref) that key the parameter
-inventory. A row passed to `composed_distribution_model` is matched to the event
-vector BY these names, so field order does not matter.
-
-# Examples
-```@example
-using CensoredDistributions, Distributions
-
-oa = primary_censored(LogNormal(1.5, 0.4), Uniform(0, 1))
-ad = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
-tree = compose((onset_admit = [oa, ad],))
-CensoredDistributions.tree_event_names(tree)
-```
-
-# See also
-- [`event_names`](@ref): the EDGE names (parameter inventory)
-"
-function tree_event_names(d::Union{Sequential, Parallel})
+# `_flat_event_names(d)` is the internal worker behind the public
+# [`event_names`](@ref) (flat) accessor: the tuple of event names matching the
+# scored event vector `[E_0, E_1, ..., E_k]`, the root origin event followed by
+# one target event per edge in depth-first order. Event names are DERIVED from
+# the composer's edge names (an edge `:onset_admit` gives origin `:onset` and
+# target `:admit`); an edge with a positional default name (`:step_i` /
+# `:branch_i`) contributes the positional event name `:event_i` instead. These
+# EVENT names key a data ROW (a linelist column is an event time), distinct from
+# the EDGE names ([`component_names`](@ref) / the parameter inventory). A row
+# passed to `composed_distribution_model` is matched to the event vector BY these
+# names, so field order does not matter.
+function _flat_event_names(d::Union{Sequential, Parallel})
     names = Symbol[]
     counter = Ref(0)
     origin = _root_origin_name(d, counter)
@@ -96,7 +78,7 @@ end
 # A standalone `Competing` node has only a positional origin; its OUTCOME event
 # names anchor at the parent event when nested (see `_walk_edge!` below), so on
 # its own it exposes the origin plus one slot per outcome named by its outcomes.
-tree_event_names(c::Competing) = (:event_1, c.names...)
+_flat_event_names(c::Competing) = (:event_1, c.names...)
 
 # The root origin event name E_0: derived from the FIRST edge's name split, else
 # positional. For a `Sequential` the first edge is `components[1]`; for a
@@ -187,7 +169,7 @@ end
 
 # A nested `Select` edge contributes the event name(s) of its DEFAULT (first)
 # alternative: the alternatives share one event-slot width, so the slot layout is
-# the same whichever routes, and the default names the slot for `tree_event_names`
+# the same whichever routes, and the default names the slot for `event_names`
 # / `rand`. A leaf alternative pushes the split target of the EDGE name (so a
 # `:admit_death` Select edge still names its slot `:death`); a composer
 # alternative recurses through its own walk.
@@ -249,7 +231,7 @@ end
 # reserved field is excluded. When the tree's event names are all positional
 # defaults (`:event_i`), the row is matched POSITIONALLY (the fallback).
 function _row_event_vector(d::Union{Sequential, Parallel}, row::NamedTuple)
-    enames = tree_event_names(d)
+    enames = _flat_event_names(d)
     _all_positional_event_names(enames) && return _row_event_vector(row)
     return _row_event_vector_by_name(enames, row)
 end

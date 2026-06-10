@@ -101,7 +101,7 @@ using CensoredDistributions, Distributions
 tree = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
 tree2 = intervene(tree, :admit_death => Gamma(3.0, 1.5))
-get_event(tree2, :admit_death)
+event(tree2, :admit_death)
 ```
 
 # See also
@@ -139,7 +139,7 @@ using CensoredDistributions, Distributions
 tree = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
 tree2 = swap_child(tree, (), :onset_admit => Gamma(4.0, 1.0))
-get_event(tree2, :onset_admit)
+event(tree2, :onset_admit)
 ```
 
 # See also
@@ -174,12 +174,12 @@ scores and `rand`s.
 ```@example
 using CensoredDistributions, Distributions
 
-node = competing_branch(:death => (Gamma(1.5, 1.0), 0.3),
+node = competing(:death => (Gamma(1.5, 1.0), 0.3),
     :disch => (Gamma(2.0, 1.5), 0.5),
     :transfer => (Gamma(1.0, 1.0), 0.2))
 tree = compose((resolution = node, onset = Gamma(1.0, 1.0)))
 tree2 = cut_branch(tree, (:resolution, :transfer))
-event_names(get_event(tree2, :resolution))
+event_names(event(tree2, :resolution))
 ```
 
 # See also
@@ -269,7 +269,7 @@ using CensoredDistributions, Distributions
 tree = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
 tree2 = splice(tree, :admit_death; after = :death_report => Gamma(1.0, 2.0))
-event_names(get_event(tree2, :admit_death))
+event_names(event(tree2, :admit_death))
 ```
 
 # See also

@@ -1195,7 +1195,7 @@ end
         (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
             primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
         (:onset_admit, :admit_death))
-    @test CensoredDistributions.tree_event_names(seq) ==
+    @test event_names(seq) ==
           (:onset, :admit, :death)
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
@@ -1264,7 +1264,7 @@ end
 
     # Events: onset (E_0), admit (E_1), death (E_2), discharge (E_3), the inner
     # parallel sharing the admit event as its origin.
-    @test CensoredDistributions.tree_event_names(seq) ==
+    @test event_names(seq) ==
           (:onset, :admit, :death, :discharge)
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
@@ -1286,7 +1286,7 @@ end
     seq = Sequential(
         primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
         primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
-    @test CensoredDistributions.tree_event_names(seq) ==
+    @test event_names(seq) ==
           (:event_1, :event_2, :event_3)
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
@@ -1484,7 +1484,7 @@ end
     # delay), selected by the row's `:kind` field (#356).
     idx = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     src = primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))
-    d = select_branch(:index => idx, :sourced => src)
+    d = selecting(:index => idx, :sourced => src)
 
     @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
 
@@ -1510,7 +1510,7 @@ end
         primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
         primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
     leaf = primary_censored(Gamma(3.0, 1.0), Uniform(0, 1))
-    d = select_branch(:sourced => chain, :index => leaf)
+    d = selecting(:sourced => chain, :index => leaf)
 
     @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
 
@@ -1536,7 +1536,7 @@ end
     sourced_rec = Sequential(
         primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         primary_censored(Gamma(3.0, 1.0), Uniform(0, 1)))
-    d = select_branch(:index => index_rec, :sourced => sourced_rec)
+    d = selecting(:index => index_rec, :sourced => sourced_rec)
 
     @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
 
@@ -1560,7 +1560,7 @@ end
     # A custom selector name, and the selector field must hold a Symbol.
     idx = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     src = primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))
-    d = select_branch(:index => idx, :sourced => src; selector = :case)
+    d = selecting(:index => idx, :sourced => src; selector = :case)
 
     @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
 

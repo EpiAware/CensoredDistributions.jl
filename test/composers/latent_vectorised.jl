@@ -89,7 +89,7 @@ end
                                  latent_observed_logpdf
 
     # An index case scored marginally, a sourced case scored latent.
-    d = select_branch(
+    d = selecting(
         :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         :sourced => latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))))
 
@@ -208,7 +208,7 @@ end
     # two-edge latent chain. Each row routes by `:kind` to its alternative.
     e1 = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     e2 = primary_censored(Gamma(3.0, 1.5), Uniform(0, 1))
-    d = select_branch(
+    d = selecting(
         :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         :sourced => latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))),
         :chain => latent(Sequential((e1, e2), (:onset_admit, :admit_death))))

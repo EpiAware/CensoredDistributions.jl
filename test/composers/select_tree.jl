@@ -14,7 +14,7 @@
     using CensoredDistributions, Distributions
     using CensoredDistributions: _nested_trait, _Nested
 
-    inner = select_branch(:a => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+    inner = selecting(:a => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         :b => primary_censored(Gamma(5.0, 1.0), Uniform(0, 1)))
     seq = Sequential(
         (primary_censored(Gamma(3.0, 1.0), Uniform(0, 1)), inner),
@@ -33,7 +33,7 @@ end
     e1 = primary_censored(Gamma(3.0, 1.0), Uniform(0, 1))
     a = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     b = primary_censored(Gamma(5.0, 1.0), Uniform(0, 1))
-    inner = select_branch(:a => a, :b => b)
+    inner = selecting(:a => a, :b => b)
     seq = Sequential((e1, inner), (:onset_admit, :admit_death))
 
     # Two records routing to DIFFERENT alternatives. The chain is
@@ -61,7 +61,7 @@ end
     e1 = primary_censored(Gamma(3.0, 1.0), shared)
     a = primary_censored(Gamma(2.0, 1.0), shared)
     b = primary_censored(Gamma(5.0, 1.0), shared)
-    inner = select_branch(:a => a, :b => b)
+    inner = selecting(:a => a, :b => b)
     # Two branches off a shared origin: a fixed branch and a Select branch.
     par = Parallel((e1, inner), (:onset_admit, :onset_death))
 
@@ -90,7 +90,7 @@ end
     e1 = primary_censored(Gamma(3.0, 1.0), Uniform(0, 1))
     a = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     b = primary_censored(Gamma(5.0, 1.0), Uniform(0, 1))
-    inner = select_branch(:a => a, :b => b)
+    inner = selecting(:a => a, :b => b)
     seq = Sequential((e1, inner), (:onset_admit, :admit_death))
 
     # The data-free EVENT-vector logpdf (no selector available) commits to the
@@ -113,7 +113,7 @@ end
     using CensoredDistributions, Distributions
 
     e1 = primary_censored(Gamma(3.0, 1.0), Uniform(0, 1))
-    inner = select_branch(:a => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+    inner = selecting(:a => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         :b => primary_censored(Gamma(5.0, 1.0), Uniform(0, 1)))
     seq = Sequential((e1, inner), (:onset_admit, :admit_death))
 

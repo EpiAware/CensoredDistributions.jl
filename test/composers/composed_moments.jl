@@ -1,4 +1,75 @@
-@testitem "edge_means / edge_vars report free-leaf delay moments" begin
+@testitem "mean/var/std collapse a Sequential to its overall scalar" begin
+    using CensoredDistributions, Distributions
+
+    # mean(seq) is the OVERALL observed-delay moment (a scalar): the moment of
+    # observed_distribution(seq), i.e. the convolved total. For independent
+    # steps this is the sum of the step means / variances.
+    seq = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    @test mean(seq) isa Real
+    @test mean(seq) ≈ mean(Gamma(2.0, 1.0)) + mean(LogNormal(0.5, 0.4))
+    @test mean(seq) ≈ mean(observed_distribution(seq))
+    @test var(seq) isa Real
+    @test var(seq) ≈ var(Gamma(2.0, 1.0)) + var(LogNormal(0.5, 0.4))
+    @test std(seq) ≈ sqrt(var(seq))
+end
+
+@testitem "mean(latent(seq)) is the full per-event vector" begin
+    using CensoredDistributions, Distributions
+
+    dic(d) = double_interval_censored(
+        d; primary_event = Uniform(0, 1), interval = 1.0)
+
+    # A censored chain's latent view exposes the full per-event vector matching
+    # rand(latent(d)) / event_names(d): the origin event then one free-delay
+    # moment per leaf edge (censoring seen through).
+    seq = Sequential((dic(Gamma(1.2, 3.0)), dic(Gamma(2.0, 3.5))),
+        (:onset_admit, :admit_death))
+    lat = latent(seq)
+    m = mean(lat)
+    @test m isa Vector
+    @test length(m) == length(rand(lat)) == length(event_names(seq))
+    em = NamedTuple{event_names(seq)}(Tuple(m))
+    @test em.onset ≈ mean(Uniform(0, 1))
+    @test em.admit ≈ mean(Gamma(1.2, 3.0))
+    @test em.death ≈ mean(Gamma(2.0, 3.5)) ≈ 7.0
+
+    ev = NamedTuple{event_names(seq)}(Tuple(var(latent(seq))))
+    @test ev.admit ≈ var(Gamma(1.2, 3.0))
+    @test ev.death ≈ var(Gamma(2.0, 3.5))
+    @test std(latent(seq)) ≈ sqrt.(var(latent(seq)))
+end
+
+@testitem "mean(par) is the per-endpoint vector, latent the full path" begin
+    using CensoredDistributions, Distributions
+
+    dic(d) = double_interval_censored(
+        d; primary_event = Uniform(0, 1), interval = 1.0)
+
+    # A Parallel is genuinely multivariate: mean(par) is the per-ENDPOINT vector
+    # (one overall moment per branch endpoint, NOT the origin), seeing through
+    # censoring.
+    par = Parallel(dic(Gamma(2.0, 1.0)), dic(Gamma(1.5, 2.0)))
+    m = mean(par)
+    @test m isa Vector
+    @test length(m) == length(par.components)
+    @test m[1] ≈ mean(Gamma(2.0, 1.0))
+    @test m[2] ≈ mean(Gamma(1.5, 2.0))
+
+    v = var(par)
+    @test v[1] ≈ var(Gamma(2.0, 1.0))
+    @test v[2] ≈ var(Gamma(1.5, 2.0))
+    @test std(par) ≈ sqrt.(var(par))
+
+    # latent(par) is the FULL per-event vector incl. the shared origin.
+    lat = latent(par)
+    lm = mean(lat)
+    @test length(lm) == length(rand(lat)) == length(event_names(par))
+    @test lm[1] ≈ mean(Uniform(0, 1))   # origin slot
+    @test lm[2] ≈ mean(Gamma(2.0, 1.0))
+    @test lm[3] ≈ mean(Gamma(1.5, 2.0))
+end
+
+@testitem "latent per-event vector sees through censored leaves" begin
     using CensoredDistributions, Distributions
 
     dic(d) = double_interval_censored(
@@ -12,125 +83,94 @@
     tree = compose((admit_path = admit_path,
         onset_notif = dic(Gamma(0.7, 20.0))))
 
-    em = edge_means(tree)
-    # Each edge reports its inner FREE delay's mean (censoring is seen through),
-    # so the Gamma(2, 3.5) death edge reports 7.0, not the censored mean.
-    @test em.admit_path.onset_admit ≈ mean(Gamma(1.2, 3.0))
-    @test em.admit_path.admit_resolution.death ≈ mean(Gamma(2.0, 3.5)) ≈ 7.0
-    @test em.admit_path.admit_resolution.discharge ≈ mean(Gamma(1.0, 8.0))
-    @test em.onset_notif ≈ mean(Gamma(0.7, 20.0))
-    # The Competing node also reports the branch-prob-weighted mixture mean.
-    @test em.admit_path.admit_resolution.mixture ≈
-          0.4 * mean(Gamma(2.0, 3.5)) + 0.6 * mean(Gamma(1.0, 8.0))
+    lat = latent(tree)
+    m = mean(lat)
+    @test length(m) == length(rand(lat)) == length(event_names(tree))
+    em = NamedTuple{event_names(tree)}(Tuple(m))
+    @test em.onset ≈ mean(Uniform(0, 1))
+    @test em.admit ≈ mean(Gamma(1.2, 3.0))
+    @test em.death ≈ mean(Gamma(2.0, 3.5)) ≈ 7.0
+    @test em.discharge ≈ mean(Gamma(1.0, 8.0))
+    @test em.notif ≈ mean(Gamma(0.7, 20.0))
 
-    ev = edge_vars(tree)
-    @test ev.admit_path.onset_admit ≈ var(Gamma(1.2, 3.0))
-    @test ev.admit_path.admit_resolution.death ≈ var(Gamma(2.0, 3.5))
-    # Mixture variance: Σ p_i (σ_i² + μ_i²) − (Σ p_i μ_i)².
-    m1, m2 = mean(Gamma(2.0, 3.5)), mean(Gamma(1.0, 8.0))
-    v1, v2 = var(Gamma(2.0, 3.5)), var(Gamma(1.0, 8.0))
-    mm = 0.4 * m1 + 0.6 * m2
-    @test ev.admit_path.admit_resolution.mixture ≈
-          0.4 * (v1 + m1^2) + 0.6 * (v2 + m2^2) - mm^2
+    ev = NamedTuple{event_names(tree)}(Tuple(var(lat)))
+    @test ev.death ≈ var(Gamma(2.0, 3.5))
+    @test ev.discharge ≈ var(Gamma(1.0, 8.0))
 end
 
-@testitem "edge_means / edge_vars handle a nested-Competing outcome" begin
-    using CensoredDistributions, Distributions
-
-    # A Competing whose outcome is ITSELF a (univariate, legal) Competing: the
-    # nested outcome's moment is a NamedTuple, so the mixture aggregate must use
-    # its scalar marginal mean/var rather than broadcasting over the NamedTuple.
-    inner = Competing(:fast => (Gamma(1.0, 1.0), 0.5),
-        :slow => (Gamma(2.0, 2.0), 0.5))
-    outer = Competing(:simple => (Gamma(2.0, 3.5), 0.4),
-        :nested => (inner, 0.6))
-
-    em = edge_means(outer)
-    # Per-outcome entries: the simple outcome is scalar, the nested one is a
-    # NamedTuple carrying its own per-outcome + mixture means.
-    @test em.simple ≈ mean(Gamma(2.0, 3.5))
-    @test em.nested.fast ≈ mean(Gamma(1.0, 1.0))
-    @test em.nested.slow ≈ mean(Gamma(2.0, 2.0))
-    @test em.nested.mixture ≈
-          0.5 * mean(Gamma(1.0, 1.0)) + 0.5 * mean(Gamma(2.0, 2.0))
-
-    # The outer mixture mean uses each outcome's SCALAR marginal mean.
-    inner_mean = 0.5 * mean(Gamma(1.0, 1.0)) + 0.5 * mean(Gamma(2.0, 2.0))
-    @test em.mixture ≈ 0.4 * mean(Gamma(2.0, 3.5)) + 0.6 * inner_mean
-
-    ev = edge_vars(outer)
-    @test ev.simple ≈ var(Gamma(2.0, 3.5))
-    @test ev.nested.fast ≈ var(Gamma(1.0, 1.0))
-    # Outer mixture variance via law of total variance over the SCALAR marginal
-    # moments, where the nested outcome contributes its own free mixture moments.
-    inner_var = 0.5 * (var(Gamma(1.0, 1.0)) + mean(Gamma(1.0, 1.0))^2) +
-                0.5 * (var(Gamma(2.0, 2.0)) + mean(Gamma(2.0, 2.0))^2) -
-                inner_mean^2
-    om = 0.4 * mean(Gamma(2.0, 3.5)) + 0.6 * inner_mean
-    @test ev.mixture ≈
-          0.4 * (var(Gamma(2.0, 3.5)) + mean(Gamma(2.0, 3.5))^2) +
-          0.6 * (inner_var + inner_mean^2) - om^2
-end
-
-@testitem "nested-Competing mixture aggregate sees through censored leaves" begin
+@testitem "Competing mixture moment sees through censored leaves" begin
     using CensoredDistributions, Distributions
 
     dic(d) = double_interval_censored(
         d; primary_event = Uniform(0, 1), interval = 1.0)
 
-    # The nested outcome's inner leaves are CENSORED: the outer mixture aggregate
-    # must still report the FREE (peeled) delay moments, matching the documented
-    # free-leaf transparency, NOT the censored mean(Competing)/var(Competing).
+    # A nested Competing inside a chain: the latent per-event vector exposes each
+    # outcome slot, while the Competing node's own scalar mixture moment is built
+    # from the FREE per-outcome moments.
     inner = Competing(:fast => (dic(Gamma(1.0, 1.0)), 0.5),
         :slow => (dic(Gamma(2.0, 2.0)), 0.5))
-    outer = Competing(:simple => (dic(Gamma(2.0, 3.5)), 0.4),
-        :nested => (inner, 0.6))
+    chain = Sequential((dic(Gamma(1.2, 3.0)), inner),
+        (:onset_admit, :admit_resolution))
 
-    inner_mean = 0.5 * mean(Gamma(1.0, 1.0)) + 0.5 * mean(Gamma(2.0, 2.0))
-    em = edge_means(outer)
-    @test em.nested.mixture ≈ inner_mean
-    @test em.mixture ≈ 0.4 * mean(Gamma(2.0, 3.5)) + 0.6 * inner_mean
+    em = NamedTuple{event_names(chain)}(Tuple(mean(latent(chain))))
+    @test em.fast ≈ mean(Gamma(1.0, 1.0))
+    @test em.slow ≈ mean(Gamma(2.0, 2.0))
 
-    inner_var = 0.5 * (var(Gamma(1.0, 1.0)) + mean(Gamma(1.0, 1.0))^2) +
-                0.5 * (var(Gamma(2.0, 2.0)) + mean(Gamma(2.0, 2.0))^2) -
-                inner_mean^2
-    om = 0.4 * mean(Gamma(2.0, 3.5)) + 0.6 * inner_mean
-    ev = edge_vars(outer)
-    @test ev.mixture ≈
-          0.4 * (var(Gamma(2.0, 3.5)) + mean(Gamma(2.0, 3.5))^2) +
-          0.6 * (inner_var + inner_mean^2) - om^2
+    # The Competing's own scalar mixture mean (free-leaf transparent), used when
+    # a Competing is a value child rather than its own event slots.
+    mix = 0.5 * mean(Gamma(1.0, 1.0)) + 0.5 * mean(Gamma(2.0, 2.0))
+    @test CensoredDistributions._competing_mix_mean(inner) ≈ mix
 end
 
-@testitem "edge_means walks Select, Latent, Convolved and bare leaves" begin
+@testitem "mean(latent(d)) handles a plain (uncensored) tree per-step layout" begin
+    using CensoredDistributions, Distributions
+
+    # A plain (uncensored) Sequential collapses to the overall scalar.
+    seq = Sequential((Gamma(2.0, 1.0), LogNormal(0.5, 0.4)), (:a, :b))
+    @test mean(seq) isa Real
+    @test mean(seq) ≈ mean(Gamma(2.0, 1.0)) + mean(LogNormal(0.5, 0.4))
+
+    # Its latent view is the per-step value vector (no censored origin event).
+    m = mean(latent(seq))
+    @test length(m) == length(rand(latent(seq)))
+    @test m[1] ≈ mean(Gamma(2.0, 1.0))
+    @test m[2] ≈ mean(LogNormal(0.5, 0.4))
+
+    v = var(latent(seq))
+    @test v[1] ≈ var(Gamma(2.0, 1.0))
+    @test v[2] ≈ var(LogNormal(0.5, 0.4))
+end
+
+@testitem "latent walks Convolved and weighted leaves through free-leaf" begin
     using CensoredDistributions, Distributions
 
     dic(d) = double_interval_censored(
         d; primary_event = Uniform(0, 1), interval = 1.0)
 
-    # An andv-shaped Select: an index branch versus a sourced two-step chain.
-    sel = select_branch(:index => dic(Gamma(2.0, 1.0)),
-        :sourced => Sequential(
-            (dic(Gamma(4.0, 1.5)), dic(Gamma(1.0, 2.0))), (:a, :b)))
-    sm = edge_means(sel)
-    @test sm.index ≈ mean(Gamma(2.0, 1.0))
-    @test sm.sourced.a ≈ mean(Gamma(4.0, 1.5))
-    @test sm.sourced.b ≈ mean(Gamma(1.0, 2.0))
-
-    # A Latent of a composer reports the wrapped composer's edge means.
-    tree = compose((onset_admit = dic(Gamma(2.0, 3.5)),
-        onset_notif = Gamma(0.7, 20.0)))
-    lt = CensoredDistributions.Latent(tree)
-    @test edge_means(lt) == edge_means(tree)
-    @test edge_vars(lt) == edge_vars(tree)
-
-    # A Convolved edge reuses its additive mean (sum of component means).
+    # A Convolved edge reuses its additive mean (sum of component means). This
+    # tree is PLAIN (uncensored), so the latent view is the per-step value
+    # vector (no censored origin event).
     conv = convolve_distributions(Gamma(2.0, 1.0), Gamma(3.0, 1.0))
     ct = compose((c = conv, n = Gamma(1.0, 1.0)))
-    @test edge_means(ct).c ≈ mean(conv) ≈
-          mean(Gamma(2.0, 1.0)) + mean(Gamma(3.0, 1.0))
+    cm = mean(latent(ct))
+    @test length(cm) == length(rand(latent(ct)))
+    @test cm[1] ≈ mean(conv) ≈ mean(Gamma(2.0, 1.0)) + mean(Gamma(3.0, 1.0))
+    @test cm[2] ≈ mean(Gamma(1.0, 1.0))
 
-    # A bare (possibly censored or weighted) leaf reports its free-delay moment.
-    @test edge_means(dic(Gamma(2.0, 3.5))) ≈ 7.0
-    @test edge_vars(dic(Gamma(2.0, 3.5))) ≈ var(Gamma(2.0, 3.5))
-    @test edge_means(weight(dic(Gamma(2.0, 3.5)), 2.0)) ≈ 7.0
+    # A weighted censored leaf reports its inner free-delay moment.
+    wt = compose((onset_admit = weight(dic(Gamma(2.0, 3.5)), 2.0),
+        onset_notif = Gamma(0.7, 20.0)))
+    wm = NamedTuple{event_names(wt)}(Tuple(mean(latent(wt))))
+    @test wm.admit ≈ 7.0
+end
+
+@testitem "endpoint collapses a chain to its terminal scalar" begin
+    using CensoredDistributions, Distributions
+
+    seq = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    # endpoint is an alias for observed_distribution.
+    @test endpoint(seq) == observed_distribution(seq)
+    @test mean(endpoint(seq)) ≈ mean(observed_distribution(seq))
+    # mean(seq) IS the endpoint mean now (the overall scalar).
+    @test mean(seq) ≈ mean(endpoint(seq))
 end

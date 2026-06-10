@@ -526,7 +526,7 @@ function _bake_branch_probs(d, raw)
         "a `branch_probs` row field needs a Competing node in the tree; none " *
         "found"))
     probs = _coerce_branch_probs(node, raw)
-    return _override_competing_branch_probs(d, probs)
+    return _override_competing_outcome_probs(d, probs)
 end
 
 # The single Competing node of a tree (for coercing a per-record override against

@@ -36,7 +36,7 @@
     function andv_tree()
         index = dic(LogNormal(1.5, 0.4))
         sourced = dic(Sequential(Normal(0.2, 0.6), LogNormal(1.5, 0.4)))
-        return CensoredDistributions.select_branch(:index => index,
+        return CensoredDistributions.selecting(:index => index,
             :sourced => sourced; selector = :kind)
     end
 end
@@ -47,8 +47,8 @@ end
         (:admit_path, :admit_resolution, :death) => dic(Gamma(3.0, 2.0)))
     # Same outer structure, different death arm.
     @test typeof(tree2) == typeof(tree)
-    res = get_event(get_event(tree2, :admit_path), :admit_resolution)
-    @test event_names(res) == (:death, :discharge)
+    res = event(tree2, :admit_path, :admit_resolution)
+    @test keys(event_tree(res)) == (:death, :discharge)
     # Scores and rands.
     v = [2.0, 5.0, 4.0]
     @test isfinite(logpdf(tree2, v))
@@ -61,8 +61,8 @@ end
         admit_death = LogNormal(0.5, 0.4)))
     tree2 = intervene(tree, :onset_admit => Gamma(3.0, 1.5),
         :admit_death => LogNormal(0.8, 0.3))
-    @test get_event(tree2, :onset_admit) == Gamma(3.0, 1.5)
-    @test get_event(tree2, :admit_death) == LogNormal(0.8, 0.3)
+    @test event(tree2, :onset_admit) == Gamma(3.0, 1.5)
+    @test event(tree2, :admit_death) == LogNormal(0.8, 0.3)
     @test isfinite(logpdf(tree2, [1.5, 2.0]))
 end
 
@@ -70,15 +70,15 @@ end
     tree = compose((onset_admit = Gamma(2.0, 1.0),
         admit_death = LogNormal(0.5, 0.4)))
     tree2 = swap_child(tree, (), :onset_admit => Gamma(4.0, 1.0))
-    @test get_event(tree2, :onset_admit) == Gamma(4.0, 1.0)
+    @test event(tree2, :onset_admit) == Gamma(4.0, 1.0)
     @test typeof(tree2) == typeof(tree)
 end
 
 @testitem "cut_branch drops a Competing arm and renormalises probs" setup=[InterveneTrees] begin
     tree = bdbv_three()
     tree2 = cut_branch(tree, (:admit_path, :admit_resolution, :transfer))
-    res = get_event(get_event(tree2, :admit_path), :admit_resolution)
-    @test event_names(res) == (:death, :discharge)
+    res = event(tree2, :admit_path, :admit_resolution)
+    @test keys(event_tree(res)) == (:death, :discharge)
     @test sum(res.branch_probs) ≈ 1.0
     # Original 0.3 / 0.4 renormalise over the kept 0.7 mass.
     @test res.branch_probs[1] ≈ 0.3 / 0.7
@@ -91,7 +91,7 @@ end
     tree = compose((a = Gamma(2.0, 1.0), b = LogNormal(0.5, 0.4),
         c = Normal(0.0, 1.0)))
     tree2 = cut_branch(tree, :b)
-    @test event_names(tree2) == (:a, :c)
+    @test keys(event_tree(tree2)) == (:a, :c)
     @test length(tree2) == 2
     @test isfinite(logpdf(tree2, [1.5, 0.0]))
 end
@@ -100,9 +100,9 @@ end
     tree = bdbv_tree()
     tree2 = splice(tree, :onset_notif;
         after = :notif_report => dic(Gamma(1.0, 2.0)))
-    spliced = get_event(tree2, :onset_notif)
+    spliced = event(tree2, :onset_notif)
     @test spliced isa CensoredDistributions.Sequential
-    @test event_names(spliced) == (:onset_notif, :notif_report)
+    @test keys(event_tree(spliced)) == (:onset_notif, :notif_report)
     # One extra leaf value.
     @test length(tree2) == length(tree) + 1
     @test isfinite(logpdf(tree2, [2.0, 5.0, 4.0, 1.0]))
@@ -121,11 +121,11 @@ end
 
     # Splice a reporting step onto the sourced branch.
     d3 = splice(d, :sourced; after = :report => dic(Gamma(1.0, 1.0)))
-    @test get_event(d3, :sourced) isa CensoredDistributions.Sequential
+    @test event(d3, :sourced) isa CensoredDistributions.Sequential
 end
 
 @testitem "cut_branch on a three-way Select drops an alternative" setup=[InterveneTrees] begin
-    d = CensoredDistributions.select_branch(:a => Gamma(2.0, 1.0),
+    d = CensoredDistributions.selecting(:a => Gamma(2.0, 1.0),
         :b => LogNormal(0.5, 0.4), :c => Normal(0.0, 1.0))
     d2 = cut_branch(d, :b)
     @test event_names(d2) == (:a, :c)

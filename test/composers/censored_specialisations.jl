@@ -465,7 +465,7 @@ end
         :discharge => (Gamma(2.0, 1.0), 0.7))
     # bdbv: onset -> {admit -> Competing(death, discharge), notif}.
     d = Parallel(Sequential(edge(1.4, 0.4), cmp), edge(1.9, 0.5))
-    enames = CensoredDistributions.tree_event_names(d)
+    enames = event_names(d)
     # The Competing contributes one EVENT slot per OUTCOME, not one opaque
     # resolution event: death/discharge appear, anchored after the admit event.
     @test :death in enames
@@ -543,7 +543,7 @@ end
         :transfer => (trans_d, 0.3))
     d = Parallel(Sequential(e_oa, cmp), e_on)
 
-    enames = CensoredDistributions.tree_event_names(d)
+    enames = event_names(d)
     @test :death in enames
     @test :discharge in enames
     @test :transfer in enames
@@ -585,7 +585,7 @@ end
     # share one onset origin. Named edges so the record is semantically keyed.
     seq = Sequential((e_oa, e_ad), (:onset_admit, :admit_x))
     d = Parallel((seq, e_on), (:onset_x_seq, :onset_notif))
-    enames = CensoredDistributions.tree_event_names(d)
+    enames = event_names(d)
 
     r = rand(d)
     @test r isa NamedTuple
@@ -610,7 +610,7 @@ end
     # bdbv: Parallel(Sequential(onset_admit, Competing(death, discharge)), notif)
     seq = Sequential((e_oa, cmp), (:onset_admit, :admit_resolve))
     d = Parallel((seq, e_on), (:onset_notif_seq, :onset_notif))
-    enames = CensoredDistributions.tree_event_names(d)
+    enames = event_names(d)
     @test enames == (:onset, :admit, :death, :discharge, :notif)
 
     r = rand(Xoshiro(7), d)
@@ -661,13 +661,13 @@ end
                 (:onset_admit, :admit_x)),
             edge(1.9, 0.5)),
         (:onset_x_seq, :onset_notif))
-    sel = select_branch(:index => idx, :sourced => src)
+    sel = selecting(:index => idx, :sourced => src)
 
     # With a kind, the selected branch's own draw (a named record for the nested
     # sourced branch, a vector for the flat index branch).
     rs = rand(Xoshiro(3), sel; kind = :sourced)
     @test rs isa NamedTuple
-    @test keys(rs) == CensoredDistributions.tree_event_names(src)
+    @test keys(rs) == event_names(src)
     ri = rand(Xoshiro(3), sel; kind = :index)
     @test ri isa AbstractVector && length(ri) == 3
     # Without a kind (forward simulation), a branch is sampled.

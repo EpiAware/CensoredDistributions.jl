@@ -91,7 +91,7 @@ end
 
     # θ = [index shape, index scale, sourced shape, sourced scale].
     function f(θ)
-        d = select_branch(
+        d = selecting(
             :index => primary_censored(Gamma(θ[1], θ[2]), Uniform(0, 1)),
             :sourced => latent(
                 primary_censored(Gamma(θ[3], θ[4]), Uniform(0, 1))))

@@ -10,7 +10,7 @@
     # A Latent is a Multivariate distribution; it must compose as a Select
     # alternative so the index-vs-sourced split can route a sourced case to its
     # latent chain.
-    d = select_branch(
+    d = selecting(
         :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         :sourced => latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))))
     @test d isa CensoredDistributions.Select
@@ -21,7 +21,7 @@
     chain = Sequential(
         primary_censored(Normal(0.0, 1.0), Uniform(0, 1)),
         primary_censored(LogNormal(3.0, 0.3), Uniform(0, 1)))
-    d2 = select_branch(:index => primary_censored(LogNormal(3.0, 0.3),
+    d2 = selecting(:index => primary_censored(LogNormal(3.0, 0.3),
             Uniform(0, 1)),
         :sourced => latent(chain))
     @test CensoredDistributions._pick(d2, :sourced) isa
@@ -45,7 +45,7 @@ end
     using DynamicPPL: @model, to_submodel, logjoint, VarInfo, condition,
                       @varname
 
-    d = select_branch(
+    d = selecting(
         :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         :sourced => latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))))
 
@@ -195,7 +195,7 @@ end
     chain = Sequential(
         primary_censored(delta, Uniform(0, 1)),
         primary_censored(inc, Uniform(0, 1)))
-    d = select_branch(
+    d = selecting(
         :index => primary_censored(inc, Uniform(0, 1)),
         :sourced => latent(chain))
 

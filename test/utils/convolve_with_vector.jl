@@ -51,7 +51,7 @@ end
 
     # Events of the chain: origin :onset, targets :admit (prefix 1) and
     # :death (prefix 2 = endpoint).
-    @test CensoredDistributions.tree_event_names(seq) ==
+    @test event_names(seq) ==
           (:onset, :admit, :death)
 
     # The interim :admit series uses ONLY the first leaf (prefix-1 delay).
@@ -228,7 +228,7 @@ end
     d_disch = Gamma(2.0, 3.0)
 
     # A real partition: death vs discharge, branch probs sum to one.
-    c = competing_branch(:death => (d_death, 0.7), :discharge => (d_disch, 0.3))
+    c = competing(:death => (d_death, 0.7), :discharge => (d_disch, 0.3))
     out = convolve_distributions(c, series; events = (:death, :discharge))
     @test out.death ≈ 0.7 .* reference_convolution(d_death, series)
     @test out.discharge ≈ 0.3 .* reference_convolution(d_disch, series)

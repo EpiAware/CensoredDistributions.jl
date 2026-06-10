@@ -26,8 +26,8 @@
     @test d isa CensoredDistributions.Parallel
     @test event_names(d) == event_names(template)
     @test keys(params(d)) == keys(params(template))
-    @test get_event(d, :onset_admit) isa Gamma
-    @test get_event(d, :admit_death) isa LogNormal
+    @test event(d, :onset_admit) isa Gamma
+    @test event(d, :admit_death) isa LogNormal
 
     # Sampled parameter varnames carry the edge path (Option A prefixing).
     vns = Set(string.(collect(keys(VarInfo(m)))))
@@ -88,7 +88,7 @@ end
     @test event_names(d) == event_names(template)
     @test keys(params(d)) == keys(params(template))
     # Competing branch probabilities kept fixed from the template by default.
-    @test get_event(d, :resolution).branch_probs == (0.3, 0.7)
+    @test event(d, :resolution).branch_probs == (0.3, 0.7)
 
     vns = Set(string.(collect(keys(VarInfo(m)))))
     @test "d.chain.step_1.shape" in vns
@@ -118,7 +118,7 @@ end
     Random.seed!(104)
     m = pm(template, priors)
     d = m()
-    bp = get_event(d, :resolution).branch_probs
+    bp = event(d, :resolution).branch_probs
     @test length(bp) == 2
     @test all(0 .<= bp .<= 1)
 
@@ -222,14 +222,14 @@ end
 
     Random.seed!(110)
     d = pm(template, priors)()
-    leaf = get_event(d, :obs)
+    leaf = event(d, :obs)
     # The rebuilt leaf is the censored type, not the bare delay.
     @test typeof(leaf) == typeof(cens)
 
     # At the template's parameters the rebuilt leaf scores exactly the original
     # censored leaf logpdf (the fixed censoring carried through).
     exact = update(template, (obs = (shape = 2.0, scale = 1.5),))
-    exact_leaf = get_event(exact, :obs)
+    exact_leaf = event(exact, :obs)
     for x in (1.0, 2.0, 3.0, 5.0)
         @test isapprox(logpdf(exact_leaf, x), logpdf(cens, x); atol = 1e-10)
     end
@@ -291,7 +291,7 @@ end
     # Matches a hand-rebuild from the same chain means.
     sh = Statistics.mean(chain[Prefixed(@varname(onset_admit.shape))])
     sc = Statistics.mean(chain[Prefixed(@varname(onset_admit.scale))])
-    @test get_event(ready, :onset_admit) == Gamma(sh, sc)
+    @test event(ready, :onset_admit) == Gamma(sh, sc)
 
     # A single draw reads that iteration's value.
     one = chain_to_params(template, chain; draw = 5)
@@ -301,6 +301,61 @@ end
     # The reconstructed distribution is ready to sample.
     Random.seed!(113)
     @test length(rand(ready)) == 2
+end
+
+@testitem "chain_to_params: configurable summary and draws subset" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: Prefixed, VNChain
+    import Statistics
+
+    template = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    priors = (
+        onset_admit = (shape = truncated(Normal(2, 0.5); lower = 0),
+            scale = truncated(Normal(1, 0.3); lower = 0)),
+        admit_death = (mu = Normal(0.5, 0.2),
+            sigma = truncated(Normal(0.4, 0.1); lower = 0)))
+
+    @model function fit(t, p, ys)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        for y in ys
+            DynamicPPL.@addlogprob! logpdf(d, y)
+        end
+        return d
+    end
+
+    Random.seed!(112)
+    ys = [[0.5, 2.0], [1.0, 3.0], [0.8, 2.5]]
+    chain = sample(fit(template, priors, ys), NUTS(), 60;
+        chain_type = VNChain, progress = false)
+
+    col = vec(chain[Prefixed(@varname(onset_admit.shape))])
+
+    # A non-mean summary reduces each parameter's draws with the supplied
+    # reduction (here the median).
+    med = chain_to_params(template, chain; summary = Statistics.median)
+    @test isapprox(med.onset_admit.shape, Statistics.median(col); atol = 1e-12)
+    # A custom reduction (a high quantile) works too.
+    q90 = chain_to_params(template, chain;
+        summary = x -> Statistics.quantile(x, 0.9))
+    @test isapprox(q90.onset_admit.shape,
+        Statistics.quantile(col, 0.9); atol = 1e-12)
+
+    # A `draws` subset reduces over only the selected iterations: a range, and a
+    # predicate over the iteration index (a warmup-drop / thinning).
+    sub = chain_to_params(template, chain; draws = 30:60)
+    @test isapprox(sub.onset_admit.shape,
+        Statistics.mean(col[30:60]); atol = 1e-12)
+    keep = chain_to_params(template, chain; draws = i -> i > 30)
+    idx = [i for i in 1:length(col) if i > 30]
+    @test isapprox(keep.onset_admit.shape,
+        Statistics.mean(col[idx]); atol = 1e-12)
+
+    # The `update` chain overload threads the same kwargs.
+    upd = update(template, chain; summary = Statistics.median)
+    @test event(upd, :onset_admit) ==
+          Gamma(Statistics.median(col),
+        Statistics.median(vec(chain[Prefixed(@varname(onset_admit.scale))])))
 end
 
 @testitem "chain_to_params skips latent per-record event vectors" tags=[:turing] begin
@@ -344,7 +399,7 @@ end
     means = chain_to_params(template, chain; prefix = :delays)
     @test Set(keys(means)) == Set(keys(params(template)))
     fit = update(template, chain; prefix = :delays)
-    @test all(>(0), values(edge_means(fit)))
+    @test all(>(0), mean(fit))
     # A single draw works the same.
     @test update(template, chain; prefix = :delays, draw = 5) isa
           CensoredDistributions.Sequential
@@ -415,7 +470,7 @@ end
     # `inc` is shared across the index and sourced branches of a select: one
     # free parameter, sampled once, placed in both occurrences.
     inc = shared(:inc, Gamma(2.0, 1.0))
-    template = select_branch(:index => inc,
+    template = selecting(:index => inc,
         :sourced => compose((delta = LogNormal(0.5, 0.4), inc = inc)))
     priors = (
         inc = (shape = truncated(Normal(2, 0.5); lower = 0),
@@ -435,7 +490,7 @@ end
     idx = CensoredDistributions._pick(d, :index)
     src = CensoredDistributions._pick(d, :sourced)
     # The SAME inc value flows to both occurrences.
-    @test params(get_dist(idx)) == params(get_dist(get_event(src, :inc)))
+    @test params(get_dist(idx)) == params(get_dist(event(src, :inc)))
 
     # The shared group is sampled ONCE (under its tag), not per occurrence; the
     # sourced delta is its own free parameter.
@@ -460,7 +515,7 @@ end
     import Statistics
 
     inc = shared(:inc, Gamma(2.0, 1.0))
-    template = select_branch(:index => inc,
+    template = selecting(:index => inc,
         :sourced => compose((delta = LogNormal(0.5, 0.4), inc = inc)))
     priors = (
         inc = (shape = truncated(Normal(3, 1); lower = 0),
@@ -549,7 +604,7 @@ end
     # Each alternative carries its own free parameters under the select path, so
     # the chain bridge must walk the alternatives like the core
     # `params`/`update`.
-    template = select_branch(:index => Gamma(2.0, 1.0),
+    template = selecting(:index => Gamma(2.0, 1.0),
         :sourced => compose((delta = LogNormal(0.5, 0.4),
             inc = Gamma(2.0, 1.0))))
     priors = (
@@ -596,7 +651,7 @@ end
     src = CensoredDistributions._pick(ready, :sourced)
     dmu = Statistics.mean(chain[Prefixed(@varname(sourced.delta.mu))])
     dsig = Statistics.mean(chain[Prefixed(@varname(sourced.delta.sigma))])
-    @test get_event(src, :delta) == LogNormal(dmu, dsig)
+    @test event(src, :delta) == LogNormal(dmu, dsig)
 
     # A single draw reads that iteration's value.
     one = chain_to_params(template, chain; draw = 5)
@@ -617,7 +672,7 @@ end
     # the deduped `d.inc.shape`/`d.inc.scale`, not the per-occurrence paths, so
     # the bridge must read the tag ONCE and place it in both occurrences.
     inc = shared(:inc, Gamma(2.0, 1.0))
-    template = select_branch(:index => inc,
+    template = selecting(:index => inc,
         :sourced => compose((delta = LogNormal(0.5, 0.4), inc = inc)))
     priors = (
         inc = (shape = truncated(Normal(3, 1); lower = 0),
@@ -660,7 +715,7 @@ end
     idx = CensoredDistributions._pick(ready, :index)
     src = CensoredDistributions._pick(ready, :sourced)
     @test get_dist(idx) == Gamma(sh, sc)
-    @test get_dist(get_event(src, :inc)) == Gamma(sh, sc)
+    @test get_dist(event(src, :inc)) == Gamma(sh, sc)
 
     # The chain overload matches threading chain_to_params by hand.
     @test update(template, chain) ==
