@@ -409,6 +409,44 @@ end
     @test_throws ArgumentError composed_distribution_model(seq, 3)
 end
 
+@testitem "latent batch entry: simulate -> fit roundtrip" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: VNChain
+    import Tables
+
+    # The batch latent model collapses the manual per-record loop into one tilde,
+    # and `predict_events(truth, n)` returns a labelled table that drops straight
+    # into both the marginal and latent batch scoring entries.
+    dic(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
+        interval = 1.0)
+    template = Sequential((dic(Gamma(2.0, 1.5)), dic(Gamma(1.5, 2.0))),
+        (:onset_admit, :admit_death))
+    priors = build_priors(params_table(template))
+
+    @model function latent_fit(t, p, rows)
+        delays ~ to_submodel(composed_parameters_model(t, p))
+        obs ~ to_submodel(composed_distribution_model(latent(delays), rows))
+    end
+
+    truth = update(
+        template, (onset_admit = (shape = 2.0, scale = 1.5),
+            admit_death = (shape = 1.5, scale = 2.0)))
+
+    # The labelled simulation table drops straight into the batch entry.
+    sim = predict_events(truth, 8; rng = MersenneTwister(909))
+    @test Tables.istable(sim)
+    @test Tables.columnnames(sim) ==
+          CensoredDistributions.tree_event_names(truth)
+
+    chain = sample(Xoshiro(1), latent_fit(template, priors, sim),
+        NUTS(0.8), 25; chain_type = VNChain, progress = false)
+
+    # The fit runs and reads back finite, positive edge means via the same
+    # update/edge_means path the per-record loop uses.
+    fit = update(template, chain; prefix = :delays)
+    @test all(>(0), values(edge_means(fit)))
+end
+
 @testitem "composed_parameters_model: shared param sampled once, placed everywhere" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Random
 

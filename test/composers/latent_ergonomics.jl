@@ -178,6 +178,78 @@ end
     @test logjoint(cond, (;)) ≈ manual
 end
 
+@testitem "latent batch model matches the manual per-record loop" begin
+    using CensoredDistributions, Distributions, Random
+    using DynamicPPL: @model, to_submodel, prefix, logjoint, VarInfo, condition,
+                      @varname
+
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+    lseq = latent(seq)
+
+    rows = [(onset = 0.3, admit = missing, death = 5.4),
+        (onset = 1.0, admit = 3.2, death = 6.1),
+        (onset = 0.7, admit = missing, death = 4.9)]
+
+    # The manual per-record loop (#412's row-driven split, hand-prefixed).
+    @model function manual(d, rs)
+        for i in eachindex(rs)
+            obs ~ to_submodel(
+                prefix(composed_distribution_model(d, rs[i]), Symbol(:rec, i)),
+                false)
+        end
+    end
+
+    # The batch entry collapses the loop+prefix into one tilde.
+    @model function batch(d, rs)
+        obs ~ to_submodel(composed_distribution_model(d, rs))
+    end
+
+    # Same VarInfo: one latent per record's missing admit (records 1 and 3),
+    # none for the fully-observed record 2 -> two latents, identically named.
+    vman = VarInfo(manual(lseq, rows))
+    vbat = VarInfo(batch(lseq, rows))
+    @test length(keys(vman)) == 2
+    @test Set(string.(keys(vman))) == Set(string.(keys(vbat)))
+
+    # The batch model's logjoint equals the manual loop on the same conditioned
+    # latents (the two missing admits).
+    a1, a3 = 2.1, 1.9
+    cman = condition(manual(lseq, rows),
+        (@varname(obs.rec1.e[2]) => a1, @varname(obs.rec3.e[2]) => a3))
+    cbat = condition(batch(lseq, rows),
+        (@varname(obs.rec1.e[2]) => a1, @varname(obs.rec3.e[2]) => a3))
+    @test logjoint(cman, (;)) ≈ logjoint(cbat, (;))
+end
+
+@testitem "latent batch model accepts a Tables.jl table" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+    import Tables
+
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+    lseq = latent(seq)
+
+    rows = [(onset = 0.3, admit = 2.1, death = 5.4),
+        (onset = 1.0, admit = 3.2, death = 6.1)]
+    tbl = Tables.columntable(rows)
+    @test Tables.istable(tbl)
+    @test !(tbl isa AbstractVector)
+
+    @model demo_vec(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+    @model demo_tbl(d, t) = obs ~ to_submodel(composed_distribution_model(d, t))
+
+    # All events observed -> no latents, so logjoint is well-defined and the
+    # table path matches the vector path.
+    @test only(logjoint(demo_tbl(lseq, tbl), (;))) ≈
+          only(logjoint(demo_vec(lseq, rows), (;)))
+end
+
 @testitem "latent Select sourced chain conditions onset, samples infection" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, get_primary_event, get_dist
