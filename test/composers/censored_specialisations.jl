@@ -677,6 +677,7 @@ end
 
 @testitem "predict_events matches rand on a nested tree" begin
     using Distributions, Random
+    import Tables
 
     edge(mu,
         sigma) = double_interval_censored(LogNormal(mu, sigma);
@@ -689,9 +690,17 @@ end
     a = predict_events(d; rng = Xoshiro(9))
     b = rand(Xoshiro(9), d)
     @test isequal(a, b)                    # same seeded draw (missing-safe)
-    paths = predict_events(d, 5; rng = Xoshiro(9))
-    @test length(paths) == 5
-    @test all(p -> keys(p) == keys(a), paths)
+
+    # The batch draw returns a Tables.jl column table keyed by the same event
+    # names as the single-draw record; unsampled Competing outcomes stay
+    # `missing`, so the columns admit `Missing`.
+    sim = predict_events(d, 5; rng = Xoshiro(9))
+    @test Tables.istable(sim)
+    @test Tables.columnnames(sim) == keys(a)
+    cols = Tables.columns(sim)
+    for name in keys(a)
+        @test length(Tables.getcolumn(cols, name)) == 5
+    end
 end
 
 @testitem "rand on a nested tree walk is type-stable" begin

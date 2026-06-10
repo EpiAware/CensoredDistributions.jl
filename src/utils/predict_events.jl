@@ -28,8 +28,11 @@ outcome is `missing`), so a whole case-study path is one `predict_events` call.
 # Arguments
 - `d`: A distribution whose `rand` yields a full event-time path (for example a
   [`latent`](@ref)-wrapped node).
-- `n` (optional): Number of independent draws. Without it, one draw is returned;
-  with it, a `Vector` of `n` draws is returned.
+- `n` (optional): Number of independent draws. Without it, one draw is returned.
+  With it, a leaf/`Select` distribution returns a `Vector` of `n` draws, while a
+  composed [`Sequential`](@ref)/[`Parallel`](@ref) tree returns a labelled
+  Tables.jl column table keyed by [`tree_event_names`](@ref) (see the
+  `(d, n)` method below).
 
 # Keyword Arguments
 - `rng`: Random number generator (defaults to the global RNG).
