@@ -61,7 +61,8 @@ end
     # The :death series is the endpoint: the full (two-leaf) convolution.
     endpoint = convolve_distributions(seq, series; events = :death)
     @test endpoint ≈ convolve_distributions(seq, series)
-    @test endpoint ≈ reference_convolution(convolve_distributions(g, ln), series)
+    @test endpoint ≈
+          reference_convolution(convolve_distributions(g, ln), series)
 end
 
 @testitem "events selector: single name vs tuple vs default" setup=[

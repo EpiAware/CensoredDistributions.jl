@@ -9,16 +9,17 @@
 # counts at the same times: the EpiNow2-style latent / renewal observation layer
 # falls out of the composed delay stack automatically.
 #
-# This reuses the existing distribution-level `convolve_distributions(dists...)`:
-# the second positional argument is `AbstractVector{<:Real}` (a numeric series),
-# distinct from the `AbstractVector{<:UnivariateDistribution}` / two-distribution
-# forms, so the renewal method and the distribution-args forms never collide.
+# This reuses the existing distribution-level
+# `convolve_distributions(dists...)`: the second positional argument is
+# `AbstractVector{<:Real}` (a numeric series), distinct from the
+# `AbstractVector{<:UnivariateDistribution}` / two-distribution forms, so the
+# renewal method and the distribution-args forms never collide.
 #
 # Event selectivity. In a fit only SOME events are observed (e.g. only onsets),
 # so the `events` keyword names which event(s) to produce. The default is the
-# END-POINT event; a [`Sequential`](@ref) chain's named INTERIM events map to its
-# PREFIX convolutions. Only the requested events are discretised and convolved,
-# so an unobserved prefix costs nothing.
+# END-POINT event; a [`Sequential`](@ref) chain's named INTERIM events map to
+# its PREFIX convolutions. Only the requested events are discretised and
+# convolved, so an unobserved prefix costs nothing.
 #
 # Efficiency. The stack convolution is composed at the DISTRIBUTION level ONCE:
 # the total delay is `observed_distribution(stack)` (the convolution of the
@@ -149,9 +150,9 @@ delay parameters, so gradients flow under ForwardDiff / ReverseDiff.
 - `series`: the input timeseries (expected events at unit-spaced times from 0).
 
 # Keyword Arguments
-- `events`: the event(s) to produce — `nothing` (the endpoint, default), a single
-  event name, or a tuple of names. For a bare-leaf stack the single endpoint
-  event is named `:event_1`.
+- `events`: the event(s) to produce — `nothing` (the endpoint, default), a
+  single event name, or a tuple of names. For a bare-leaf stack the single
+  endpoint event is named `:event_1`.
 - `interval`: the discretisation grid width, which is also the series time-step.
   The series is unit-spaced and the causal convolution shifts by integer series
   steps, so this must be `1` (the default); any other value is rejected with an
