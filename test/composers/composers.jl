@@ -158,6 +158,23 @@ end
         dist = [Gamma(2.0, 1.0), LogNormal(0.5, 0.4)], chain = [-1, -1]))
 end
 
+@testitem "compose: name/dist distribution vectors are not a column table" begin
+    using Distributions
+    const CD = CensoredDistributions
+
+    # A NamedTuple whose `:name` and `:dist` fields BOTH hold distribution
+    # vectors is two user-named chain branches (a structural NamedTuple), NOT
+    # a (name, dist) column table. The old heuristic misread the `:name`
+    # vector as a row-name column and silently built a wrong 2-branch
+    # Parallel; it must instead lower as named Sequential branches.
+    nt = (name = [Gamma(2.0, 1.0), LogNormal(0.5, 0.4)],
+        dist = [Gamma(1.0, 1.0), Gamma(3.0, 1.0)])
+    target = Parallel(Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)),
+        Sequential(Gamma(1.0, 1.0), Gamma(3.0, 1.0)))
+    @test compose(nt) == target
+    @test CD.component_names(compose(nt)) == (:name, :dist)
+end
+
 @testitem "compose accepts pre-built composer children" begin
     using CensoredDistributions, Distributions
     const CD = CensoredDistributions
