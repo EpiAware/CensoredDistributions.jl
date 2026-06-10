@@ -35,23 +35,23 @@ the marginal-versus-latent duality, and the parameter tooling used here.
 
 The Turing-facing functions ([`composed_distribution_model`](@ref),
 [`composed_parameters_model`](@ref), [`update`](@ref)`(template, chain)`) come
-from package extensions loaded once Turing and FlexiChains are available, so
-the core package stays Turing-free.
+from package extensions loaded once Turing is available, so the core package
+stays Turing-free. Turing returns a FlexiChains chain by default, so no
+`chain_type` keyword is needed.
 
 We sample with non-Enzyme AD: ForwardDiff here (see [Automatic differentiation
 backends](@ref ad-backends) for the support matrix and per-backend benchmarks).
 
 ## Packages used
-We use Turing for probabilistic programming, FlexiChains for the chain output,
-DataFramesMeta for the record table, CairoMakie with PairPlots for the
-posterior overlays, and Random for reproducibility.
+We use Turing for probabilistic programming, DataFramesMeta for the record
+table, CairoMakie with PairPlots for the posterior overlays, and Random for
+reproducibility.
 """
 
 using CensoredDistributions
 using Distributions
 using Turing
 using DynamicPPL: to_submodel, prefix
-using FlexiChains: VNChain
 using DataFramesMeta
 using CairoMakie, PairPlots
 using Random
@@ -182,7 +182,7 @@ marginal_time = @elapsed marginal_chain = sample(
     Xoshiro(1),
     marginal_model(template, priors, data),
     NUTS(0.8; adtype = AutoForwardDiff()), 300;
-    chain_type = VNChain, progress = false)
+    progress = false)
 
 md"""
 ## Fit the latent form
@@ -197,7 +197,7 @@ latent_time = @elapsed latent_chain = sample(
     Xoshiro(1),
     latent_model(template, priors, sim_rows),
     NUTS(0.8; adtype = AutoForwardDiff()), 300;
-    chain_type = VNChain, progress = false)
+    progress = false)
 
 md"""
 ## Compare runtime and recovery

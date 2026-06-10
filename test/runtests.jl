@@ -16,7 +16,7 @@ using TestItemRunner
 # *this* package's own `test/` directory.
 # Trailing separator guards against sibling dirs that share a string
 # prefix (e.g. a `test-extra/` next to `test/`).
-const TEST_ROOT = normpath(@__DIR__) * "/"
+const TEST_ROOT = normpath(@__DIR__) * Base.Filesystem.path_separator
 
 in_this_package(ti) = startswith(normpath(ti.filename), TEST_ROOT)
 
