@@ -125,8 +125,9 @@ end
     series = [0.0, 1.0, 3.0, 6.0, 8.0]
     leaf = Gamma(2.0, 1.0)
 
-    # A bare leaf has a single target event, its endpoint, named :event_1.
-    @test CensoredDistributions._stack_target_names(leaf) == (:event_1,)
+    # A bare leaf has a single event, its endpoint, named :event_1.
+    @test [s.name for s in CensoredDistributions._event_specs(leaf)] ==
+          [:event_1]
 
     # Selecting that endpoint by name must match the default (endpoint) and the
     # reference, not error as if no events were available.
