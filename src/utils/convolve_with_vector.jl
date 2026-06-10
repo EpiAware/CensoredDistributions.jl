@@ -92,12 +92,8 @@ struct _EventSpec{L <: Tuple, O <: Tuple}
     ops::O
 end
 
-# A bare numeric forward factor (e.g. a Competing branch probability), read by
-# the convolve layer the same way a `Scaled` op is.
-struct _Factor{T <: Real}
-    factor::T
-end
-_forward_apply(op::_Factor, series) = op.factor .* series
+# A Competing branch probability is just a thinning factor, read by the convolve
+# layer through the same forward-op path as `thin`.
 
 # Collect the specs a (sub)stack produces, given the shared `prefix` leaves and
 # `ops` above it. A Sequential threads the prefix; a Parallel hangs each branch
@@ -161,7 +157,7 @@ function _chain_inner!(specs, edge_name, c::Competing, prefix, ops, counter)
     for i in eachindex(c.names)
         delay, fops = _peel_forward(c.delays[i])
         _collect_branch!(specs, c.names[i], delay, prefix,
-            (ops..., fops..., _Factor(c.branch_probs[i])), counter)
+            (ops..., fops..., ThinOp(c.branch_probs[i])), counter)
     end
     return prefix, ops
 end

@@ -105,11 +105,11 @@ export weight, get_dist, get_dist_recursive, get_primary_event
 # Turing-free and distributions-led.
 export completeness_probability, thin_by_completeness
 
-# Exported forward-transform leaves: deterministic ops applied to the count
-# series `convolve_distributions` produces (transparent to `logpdf`). `thin`
-# scales by a probability; `cumulative` accumulates. `Scaled`/`Cumulative` are
-# the types.
-export Scaled, Cumulative, thin, cumulative
+# Exported forward-transform leaves: a deterministic op applied to the count
+# series `convolve_distributions` produces (transparent to `logpdf`). `transform`
+# is the generic verb; `thin` (scale by a probability) and `cumulative`
+# (accumulate) are specialised constructors. `Transformed` is the type.
+export Transformed, transform, thin, cumulative
 
 # Exported DynamicPPL submodel constructors. These have no methods until
 # DynamicPPL (or Turing) is loaded; the methods live in the package extension so

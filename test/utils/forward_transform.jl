@@ -2,23 +2,30 @@
     using CensoredDistributions, Distributions
 
     d = thin(LogNormal(1.5, 0.5), 0.3)
-    @test d isa CensoredDistributions.Scaled
-    @test d.factor == 0.3
+    @test d isa CensoredDistributions.Transformed
+    @test d.op isa CensoredDistributions.ThinOp
+    @test d.op.factor == 0.3
     @test CensoredDistributions.get_dist(d) === LogNormal(1.5, 0.5)
 
     # thin probability must be in [0, 1].
     @test_throws ArgumentError thin(Normal(0.0, 1.0), -0.1)
     @test_throws ArgumentError thin(Normal(0.0, 1.0), 1.5)
-    @test thin(Normal(0.0, 1.0), 0.0).factor == 0.0
-    @test thin(Normal(0.0, 1.0), 1.0).factor == 1.0
+    @test thin(Normal(0.0, 1.0), 0.0).op.factor == 0.0
+    @test thin(Normal(0.0, 1.0), 1.0).op.factor == 1.0
 
     # nothing threads through unchanged.
     base = Gamma(2.0, 1.0)
     @test thin(base, nothing) === base
 
     c = cumulative(Gamma(2.0, 1.0))
-    @test c isa CensoredDistributions.Cumulative
+    @test c isa CensoredDistributions.Transformed
+    @test c.op isa CensoredDistributions.CumulativeOp
     @test CensoredDistributions.get_dist(c) === Gamma(2.0, 1.0)
+
+    # thin and cumulative are specialisations of the generic transform.
+    g = transform(Gamma(2.0, 1.0), s -> 2.0 .* s)
+    @test g isa CensoredDistributions.Transformed
+    @test logpdf(g, 2.0) == logpdf(Gamma(2.0, 1.0), 2.0)
 end
 
 @testitem "forward transforms are transparent to logpdf/cdf" begin
@@ -49,8 +56,8 @@ end
     # rewrap restores the forward op + censoring around a new inner delay.
     new_inner = Gamma(3.0, 0.5)
     rebuilt = CensoredDistributions.rewrap_leaf(d, new_inner)
-    @test rebuilt isa CensoredDistributions.Scaled
-    @test rebuilt.factor == 0.3
+    @test rebuilt isa CensoredDistributions.Transformed
+    @test rebuilt.op.factor == 0.3
     @test CensoredDistributions.free_leaf(rebuilt) === new_inner
 end
 
