@@ -1,23 +1,32 @@
 # ============================================================================
-# Per-event moments of a composed distribution via the standard interface
+# Moments of a composed distribution: overall vs per-event (latent) views
 # ============================================================================
 #
-# A composed tree is a `Multivariate` distribution: `rand(d)` returns the full
-# per-event realisation. The standard `Distributions.mean`/`var`/`std` are
-# defined here to return the per-event moments in the SAME flat layout, a
-# `Vector` matching `rand(d)`/[`event_names`](@ref). There is NO separate wrapper
-# type: the multivariate `mean`/`var`/`std` IS the per-event view (pair it with
-# `event_names(d)` for a labelled NamedTuple).
+# A composed tree exposes its moments at two levels:
+#
+#   1. The OVERALL observed-level moment, via the standard `Distributions.mean`/
+#      `var`/`std` on the composer itself. `mean(d)` behaves like a normal delay
+#      distribution's mean:
+#        - a univariate-collapsible composer (a `Sequential` chain, a `Convolved`,
+#          a `Competing`, a censored leaf) returns the SCALAR moment of its
+#          overall observed delay — the moment of `observed_distribution(d)`
+#          (the convolved total for a chain, the marginal time-to-resolution for
+#          a `Competing`);
+#        - a genuinely multivariate composer (a `Parallel`, several independent
+#          observed endpoints) returns the per-ENDPOINT `Vector`, one overall
+#          moment per branch endpoint (NOT the latent origin / intermediates).
+#
+#   2. The FULL per-event moment, via `mean(latent(d))`/`var(latent(d))`/
+#      `std(latent(d))`. This is the "get the events" view: a `Vector` in the
+#      SAME flat layout as `rand(latent(d))`/[`event_names`](@ref) — for a
+#      censored tree the origin event then one moment per leaf edge, for a plain
+#      (uncensored) tree the per-step value moments.
 #
 # Each event slot's moment is that of its underlying FREE delay: `free_leaf`
 # peels the fixed censoring (double_interval_censored / Truncated / Weighted) off
 # to the inner delay, so a `double_interval_censored(Gamma(2, 3.5))` edge reports
 # the Gamma's mean (7.0), not the censored mean. The origin slot of a censored
 # tree reports the primary (origin) event's moment.
-#
-# For a univariate node (a `Competing` mixture, a bare leaf) the standard scalar
-# moment is kept (defined on `Competing` in `Competing.jl`, on leaves by
-# Distributions.jl).
 
 # --- per-leaf moment (free-delay transparent) ------------------------------
 
@@ -32,71 +41,82 @@ free_leaf(d::Weighted) = free_leaf(d.dist)
 _leaf_mean(leaf) = mean(free_leaf(leaf))
 _leaf_var(leaf) = var(free_leaf(leaf))
 
-# --- standard moments on the composed tree (per-event Vector) ---------------
+# ============================================================================
+# 1. Overall observed-level moments on the composer itself
+# ============================================================================
 
 @doc "
 
-Per-event means of a composed distribution, as a `Vector`.
+Overall mean of a composed distribution (the simple \"mean delay\").
 
-`mean(d)` on a composed tree (a `Multivariate` distribution) returns the
-per-event means in the SAME flat layout as `rand(d)` and [`event_names`](@ref):
-for a censored tree the origin event's mean followed by one mean per leaf edge;
-for a plain (uncensored) tree the per-step value means. Each edge's mean is that
-of its underlying FREE delay, so a censored leaf (e.g.
-`double_interval_censored(Gamma(2, 3.5))`) reports the inner delay mean (`7.0`).
-Pair with [`event_names`](@ref) for a labelled NamedTuple.
+`mean(d)` behaves like a normal delay distribution's mean. For a
+univariate-collapsible composer (a [`Sequential`](@ref) chain, a
+[`Convolved`](@ref), a [`Competing`](@ref)) it returns the SCALAR mean of the
+overall observed delay — the mean of [`observed_distribution`](@ref)`(d)` (the
+convolved total for a chain, the marginal time-to-resolution for a `Competing`).
+For a genuinely multivariate [`Parallel`](@ref) (several independent observed
+endpoints) it returns the per-ENDPOINT `Vector`, one overall mean per branch
+endpoint, NOT the latent origin / intermediate events. Censoring is seen through
+to the free delay.
+
+For the FULL per-event breakdown (the origin and every event), take the moment of
+the [`latent`](@ref) form: `mean(latent(d))` returns the per-event `Vector`
+matching `rand(latent(d))`/[`event_names`](@ref).
 
 # Examples
 ```@example
 using CensoredDistributions, Distributions
 
-tree = compose((onset_admit = double_interval_censored(Gamma(2.0, 3.5);
-        primary_event = Uniform(0, 1), interval = 1.0),
-    onset_notif = Gamma(0.7, 20.0)))
-NamedTuple{event_names(tree)}(Tuple(mean(tree)))
+seq = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+mean(seq)                 # overall mean delay (a scalar)
+mean(latent(seq))         # the per-event mean Vector
 ```
 
 # See also
-- [`var`](@ref), [`std`](@ref): the matching per-event variance / std
+- [`var`](@ref), [`std`](@ref): the matching overall variance / std
+- [`latent`](@ref): the per-event view
 - [`event_names`](@ref): the flat per-event labels
 - [`endpoint`](@ref): collapse a chain to its terminal scalar
 "
-mean(d::Union{Sequential, Parallel}) = _event_moment_vector(d, _leaf_mean)
+mean(d::Sequential) = _overall_moment(d, _leaf_mean)
 
 @doc "
 
-Per-event variances of a composed distribution, as a `Vector`.
+Overall variance of a composed distribution.
 
-`var(d)` mirrors [`mean`](@ref), returning the variance of each event's
-underlying FREE delay in the same flat per-event layout as `rand(d)` /
-[`event_names`](@ref).
-
-# Examples
-```@example
-using CensoredDistributions, Distributions
-
-tree = compose((onset_admit = double_interval_censored(Gamma(2.0, 3.5);
-        primary_event = Uniform(0, 1), interval = 1.0),
-    onset_notif = Gamma(0.7, 20.0)))
-NamedTuple{event_names(tree)}(Tuple(var(tree)))
-```
+`var(d)` mirrors [`mean`](@ref): the scalar variance of the overall observed
+delay for a univariate-collapsible composer (the variance of
+[`observed_distribution`](@ref)`(d)`), or the per-ENDPOINT `Vector` for a
+[`Parallel`](@ref). Take `var(latent(d))` for the FULL per-event variance Vector.
 
 # See also
-- [`mean`](@ref), [`std`](@ref)
+- [`mean`](@ref), [`std`](@ref), [`latent`](@ref)
 "
-var(d::Union{Sequential, Parallel}) = _event_moment_vector(d, _leaf_var)
+var(d::Sequential) = _overall_moment(d, _leaf_var)
 
 @doc "
 
-Per-event standard deviations of a composed distribution, as a `Vector`.
+Overall standard deviation of a composed distribution.
 
-`std(d)` is the elementwise square root of [`var`](@ref), in the same flat
-per-event layout as `rand(d)` / [`event_names`](@ref).
+`std(d)` is `sqrt(var(d))` (or its elementwise form for a [`Parallel`](@ref)).
+Take `std(latent(d))` for the FULL per-event std Vector.
 
 # See also
-- [`mean`](@ref), [`var`](@ref)
+- [`mean`](@ref), [`var`](@ref), [`latent`](@ref)
 "
-std(d::Union{Sequential, Parallel}) = sqrt.(var(d))
+std(d::Sequential) = sqrt(var(d))
+
+# A `Parallel` is genuinely multivariate: its overall moment is the per-ENDPOINT
+# Vector, one overall moment per branch endpoint (a nested `Parallel` flattens
+# its own endpoints in). The origin / intermediate events are NOT included; take
+# `latent(d)` for the full per-event vector.
+mean(d::Parallel) = _endpoint_moment_vector(d, _leaf_mean)
+var(d::Parallel) = _endpoint_moment_vector(d, _leaf_var)
+std(d::Parallel) = sqrt.(var(d))
+
+# `Competing` already defines the scalar univariate moment (the marginal
+# time-to-resolution, `mean(as_mixture(c))`) in `Competing.jl`, matching the
+# overall semantics; no override needed here.
 
 # A `Select` has no single layout (the active alternative is data-selected), so a
 # whole-tree moment is ill-defined; direct the caller to the chosen alternative.
@@ -116,16 +136,142 @@ function std(::Select)
         "alternative, e.g. `std(event(d, :index))`"))
 end
 
+# --- the overall scalar moment of a univariate-collapsible node -------------
+#
+# `_overall_moment(d, f)` is the scalar overall moment of a node that collapses
+# to a single observed univariate quantity. For independent steps the mean of the
+# sum is the sum of means and the variance of the sum is the sum of variances, so
+# a `Sequential` is the additive total over its free-delay leaf steps (the moment
+# of `observed_distribution(d)`, computed free-delay-transparently). `f` is
+# `_leaf_mean` or `_leaf_var`.
+function _overall_moment(d::Sequential, f::F) where {F}
+    sum(_overall_moment(c, f) for c in d.components)
+end
+_overall_moment(c::Competing, ::typeof(_leaf_mean)) = _competing_mix_mean(c)
+_overall_moment(c::Competing, ::typeof(_leaf_var)) = _competing_mix_var(c)
+# A `Parallel` step inside a chain has several independent endpoints, so the chain
+# has no single observed scalar to collapse to (mirroring `observed_distribution`,
+# which rejects a `Sequential` whose step is a `Parallel`).
+function _overall_moment(::Parallel, ::F) where {F}
+    throw(ArgumentError(
+        "cannot collapse a composer with a Parallel branch to a single overall " *
+        "moment; take `mean(latent(d))` for the per-event vector, or the moment " *
+        "of each `event(d, name)` branch"))
+end
+_overall_moment(leaf, f::F) where {F} = float(f(leaf))
+
+# The per-ENDPOINT moment Vector of a `Parallel`: one overall scalar moment per
+# branch endpoint, in branch order. A nested `Parallel` branch contributes each
+# of its own endpoints (flattened), so the vector length matches the number of
+# independent observed endpoints. A `Sequential`/`Competing`/leaf branch collapses
+# to its single overall scalar via `_overall_moment`.
+function _endpoint_moment_vector(d::Parallel, f::F) where {F}
+    out = Float64[]
+    for branch in d.components
+        _append_endpoint_moments!(out, branch, f)
+    end
+    return out
+end
+
+function _append_endpoint_moments!(out, branch::Parallel, f::F) where {F}
+    (for b in branch.components
+            _append_endpoint_moments!(out, b, f)
+        end; out)
+end
+function _append_endpoint_moments!(out, branch, f::F) where {F}
+    push!(out, _overall_moment(branch, f))
+end
+
+# ============================================================================
+# 2. Per-event (latent) moments via the `latent` wrapper
+# ============================================================================
+#
+# `latent(d)` over a composed tree is the per-event view: `rand(latent(d))` and
+# its moments are the FULL flat per-event Vector. The wrapper delegates the
+# realisation / scoring to the wrapped composer (whose own `rand`/`logpdf` ARE the
+# per-event layout) and exposes the per-event moment Vector via `mean`/`var`/`std`.
+
+# `latent(d)` over a composer wraps it in the `Latent` per-event view. (The
+# leaf-level `latent(primary_censored(...))` keeps its own `[primary, observed]`
+# methods in `Latent.jl`.)
+const _ComposerLatent = Latent{<:Union{Sequential, Parallel}}
+
+Base.length(d::_ComposerLatent) = length(rand(d))
+Base.eltype(::Type{<:_ComposerLatent}) = Float64
+
+# The per-event realisation / score IS the wrapped composer's own multivariate
+# `rand`/`logpdf`.
+Base.rand(rng::AbstractRNG, d::_ComposerLatent) = rand(rng, d.dist)
+logpdf(d::_ComposerLatent, x::AbstractVector) = logpdf(d.dist, x)
+
+# Flat per-event names of a latent composer view: those of the wrapped composer.
+event_names(d::_ComposerLatent) = event_names(d.dist)
+
+@doc "
+
+Per-event means of a composed distribution, as a `Vector`.
+
+`mean(latent(d))` returns the per-event means of a composed tree in the SAME flat
+layout as `rand(latent(d))` and [`event_names`](@ref): for a censored tree the
+origin event's mean followed by one mean per leaf edge; for a plain (uncensored)
+tree the per-step value means. Each edge's mean is that of its underlying FREE
+delay, so a censored leaf (e.g. `double_interval_censored(Gamma(2, 3.5))`)
+reports the inner delay mean (`7.0`). Pair with [`event_names`](@ref) for a
+labelled NamedTuple. For the overall (scalar) mean delay use [`mean`](@ref)`(d)`
+on the bare composer instead.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+tree = compose((onset_admit = double_interval_censored(Gamma(2.0, 3.5);
+        primary_event = Uniform(0, 1), interval = 1.0),
+    onset_notif = Gamma(0.7, 20.0)))
+NamedTuple{event_names(tree)}(Tuple(mean(latent(tree))))
+```
+
+# See also
+- [`mean`](@ref): the overall (scalar / per-endpoint) moment of the bare composer
+- [`var`](@ref), [`std`](@ref): the matching per-event variance / std
+- [`event_names`](@ref): the flat per-event labels
+"
+mean(d::_ComposerLatent) = _event_moment_vector(d.dist, _leaf_mean)
+
+@doc "
+
+Per-event variances of a composed distribution, as a `Vector`.
+
+`var(latent(d))` mirrors `mean(latent(d))`, returning the variance of each
+event's underlying FREE delay in the same flat per-event layout as
+`rand(latent(d))` / [`event_names`](@ref).
+
+# See also
+- `mean(latent(d))`, `std(latent(d))`, [`var`](@ref)
+"
+var(d::_ComposerLatent) = _event_moment_vector(d.dist, _leaf_var)
+
+@doc "
+
+Per-event standard deviations of a composed distribution, as a `Vector`.
+
+`std(latent(d))` is the elementwise square root of `var(latent(d))`, in the same
+flat per-event layout as `rand(latent(d))` / [`event_names`](@ref).
+
+# See also
+- `mean(latent(d))`, `var(latent(d))`, [`std`](@ref)
+"
+std(d::_ComposerLatent) = sqrt.(var(d))
+
 # --- flat per-event moment vector -------------------------------------------
 #
 # `_event_moment_vector(d, f)` builds the per-event moment `Vector` matching the
-# layout of `rand(d)`. A CENSORED tree's `rand` is the flat event path
-# `[origin, target_1, ...]` keyed by `_flat_event_names`, so the moment vector is
-# `[f(primary), f(edge_1), ...]` (the origin slot the primary event's moment,
-# each later slot the free-delay moment of its leaf edge, `Competing` outcomes
-# each their own slot). A PLAIN tree's `rand` is the per-step value vector, so
-# the moment vector is the per-value free-delay moments. `f` is `_leaf_mean` or
-# `_leaf_var`.
+# layout of `rand(d)` for the wrapped composer. A CENSORED tree's `rand` is the
+# flat event path `[origin, target_1, ...]` keyed by `_flat_event_names`, so the
+# moment vector is `[f(primary), f(edge_1), ...]` (the origin slot the primary
+# event's moment, each later slot the free-delay moment of its leaf edge,
+# `Competing` outcomes each their own slot). A PLAIN tree's `rand` is the per-step
+# value vector, so the moment vector is the per-value free-delay moments. `f` is
+# `_leaf_mean` or `_leaf_var`.
 
 function _event_moment_vector(d::Union{Sequential, Parallel}, f::F) where {F}
     primary = _tree_primary_event(d)
@@ -238,8 +384,9 @@ Collapse a composed chain to its terminal scalar distribution.
 `endpoint(d)` is an alias for [`observed_distribution`](@ref): it lowers a
 composed distribution to the single univariate quantity a censoring wrapper would
 observe (a [`Sequential`](@ref) chain's total elapsed time, a univariate node
-itself). `mean(endpoint(seq))` then gives the endpoint (total-delay) mean,
-distinct from the per-event [`mean`](@ref) Vector.
+itself). `mean(endpoint(seq))` gives the endpoint (total-delay) mean, the same
+value [`mean`](@ref)`(seq)` returns; use [`latent`](@ref) for the per-event
+breakdown.
 
 # Examples
 ```@example
@@ -251,6 +398,7 @@ mean(endpoint(seq))
 
 # See also
 - [`observed_distribution`](@ref): the underlying lowering
-- [`mean`](@ref): the per-event moment Vector
+- [`mean`](@ref): the overall (scalar / per-endpoint) moment
+- [`latent`](@ref): the per-event moment Vector
 "
 endpoint(d) = observed_distribution(d)

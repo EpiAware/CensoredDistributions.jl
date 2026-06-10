@@ -686,8 +686,9 @@ end
 The FLAT event names of a composed distribution.
 
 `event_names(d)` returns the tuple of event names in the SAME flat depth-first
-layout as a `rand(d)` draw and the per-event [`mean`](@ref)/[`var`](@ref)/
-[`std`](@ref): the root origin event followed by one target event per leaf edge.
+layout as a `rand(latent(d))` draw and the per-event
+[`mean`](@ref)`(latent(d))`/`var(latent(d))`/`std(latent(d))`: the root origin
+event followed by one target event per leaf edge.
 An inner composer's events are exposed, so `compose((path = [a, b],))` lists the
 inner `(:onset, ...)` events rather than just the `(:path,)` edge. Event names
 are derived from the edge names (an edge `:onset_admit` gives origin `:onset` and
