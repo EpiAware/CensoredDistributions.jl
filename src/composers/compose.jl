@@ -78,6 +78,22 @@ function compose(nt::NamedTuple)
     return Parallel(children, keys(nt))
 end
 
+# --- shared-origin front-end ----------------------------------------------
+# `compose(origin; branch = ...)` shares `origin` across the named branches: the
+# branches fan out from one origin, so the result is a Sequential whose last step
+# is a Parallel of the branch tails. Convolving the stack returns one series per
+# branch, each delayed by `origin` convolved with the branch tail (e.g. a shared
+# incubation, then a reporting branch and a death branch).
+function compose(origin::Union{UnivariateDistribution, Sequential, Parallel,
+            Select};
+        branches...)
+    isempty(branches) &&
+        throw(ArgumentError("compose(origin; branches...) needs ≥1 branch"))
+    nt = NamedTuple(branches)
+    tails = map(_compose_child, Tuple(nt))
+    return Sequential((_compose_child(origin), Parallel(tails, keys(nt))))
+end
+
 # A NamedTuple is treated as a column table when it has `name` and `dist`
 # fields that are both vectors (the column-table shape), AND those vectors
 # carry the column ROLES of a real table: the `:dist` column holds
