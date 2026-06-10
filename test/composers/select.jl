@@ -80,6 +80,25 @@ end
     @test d.selector == :case
 end
 
+@testitem "Select rejects a latent-wrapped alternative (#391)" begin
+    using CensoredDistributions, Distributions
+
+    # A `latent`-wrapped (multivariate) node is not yet supported as a Select
+    # alternative; construction rejects it with a clear, tracked error (#391)
+    # rather than a later bare MethodError in the record-distribution path.
+    lat = latent(primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    @test_throws ArgumentError select_branch(
+        :obs => Gamma(2.0, 1.0), :lat => lat)
+    err = try
+        select_branch(:obs => Gamma(2.0, 1.0), :lat => lat)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("391", err.msg)
+end
+
 @testitem "Select holds a composer alternative and compares structurally" begin
     using CensoredDistributions, Distributions
 

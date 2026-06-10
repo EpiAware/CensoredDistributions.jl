@@ -53,6 +53,7 @@ struct Parallel{C <: Tuple, N <: Tuple} <:
     function Parallel(components::C, names::N) where {C <: Tuple, N <: Tuple}
         length(components) >= 1 ||
             throw(ArgumentError("Parallel needs at least one branch"))
+        _reject_select_child!(components)
         all(_is_composable, components) ||
             throw(ArgumentError(
                 "every Parallel branch must be a UnivariateDistribution or " *

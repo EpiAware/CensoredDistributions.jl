@@ -88,12 +88,16 @@ end
 # Lower a single front-end value to a composer child. A nested NamedTuple
 # recurses (carrying its own keys); a bare vector/tuple of composables becomes a
 # Sequential with default `:step_i` names (a plain vector has no names to carry).
-# A pre-built composer value (Sequential/Parallel/Select) drops in unchanged, so
-# a `compose(...)`/`select_branch(...)` result nests as a child and a
-# `Sequential((...), names)` value keeps readable step names. A `Competing` is a
-# UnivariateDistribution leaf and is covered by the first method.
+# A pre-built composer value (Sequential/Parallel) drops in unchanged, so a
+# `compose(...)` result nests as a child and a `Sequential((...), names)` value
+# keeps readable step names. A `Competing` is a UnivariateDistribution leaf and is
+# covered by the first method. A `Select` is NOT a valid composer child (no fixed
+# contribution length) and is rejected by `_reject_select_child!` in the
+# downstream `Parallel`/`Sequential` constructor; the composer-inside-Select
+# direction is built through `select_branch`, not `compose`.
 _compose_child(d::UnivariateDistribution) = d
-_compose_child(c::Union{Sequential, Parallel, Select}) = c
+_compose_child(c::Union{Sequential, Parallel}) = c
+_compose_child(s::Select) = (_reject_select_child!((s,)); s)
 _compose_child(nt::NamedTuple) = compose(nt)
 function _compose_child(v::Union{AbstractVector, Tuple})
     all(_is_composable, v) ||

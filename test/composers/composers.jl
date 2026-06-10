@@ -169,10 +169,11 @@ end
     @test outer == CD.Parallel(
         CD.Parallel(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)), Normal(0.0, 1.0))
 
-    # A select result nests as a compose child.
+    # A Select is NOT a valid compose child (no fixed contribution length); it is
+    # rejected cleanly rather than constructing and later MethodError-ing. The
+    # supported direction is a composer INSIDE a Select (see issue #413).
     sel = select_branch(:s1 => Gamma(2.0, 1.0), :s2 => Gamma(5.0, 1.0))
-    withsel = compose((k = sel, m = Normal(0.0, 1.0)))
-    @test withsel == CD.Parallel(sel, Normal(0.0, 1.0))
+    @test_throws ArgumentError compose((k = sel, m = Normal(0.0, 1.0)))
 
     # A composer is allowed inside a Vector chain step (no longer leaf-only).
     chained = compose((leg = [Gamma(2.0, 1.0),

@@ -7,11 +7,32 @@
 
 # A composable child is any univariate distribution (a leaf or a `Competing`) or
 # a nested `Sequential` / `Parallel` / `Select`. Used to validate composer
-# components and `Select` alternatives.
+# components and `Select` alternatives. A `Select` is composable as a `Select`
+# ALTERNATIVE (a composer/select INSIDE a Select) but NOT as a composer CHILD; the
+# child-only rejection is `_reject_select_child!` below, called from the
+# `Sequential`/`Parallel`/`compose` paths.
 _is_composable(::UnivariateDistribution) = true
 _is_composable(::Union{Sequential, Parallel}) = true
 _is_composable(::Select) = true
 _is_composable(::Any) = false
+
+# Reject a `Select` used as a composer CHILD (inside `Sequential` / `Parallel` /
+# `compose`). A `Select`'s realisation length is the SELECTED alternative's, so it
+# has no fixed contribution length and cannot occupy a fixed flat slice of a
+# composer's value/event vector; constructing one would only MethodError later on
+# `length`/`logpdf`/`rand`. Full nesting is deferred (see issue #413). The
+# supported direction — a composer/select INSIDE a `Select` alternative — is
+# unaffected, since `Select` validates its alternatives via `_is_composable`.
+function _reject_select_child!(components::Tuple)
+    any(c -> c isa Select, components) && throw(ArgumentError(
+        "a Select cannot be nested inside a Sequential/Parallel/compose " *
+        "composer: a Select has no fixed contribution length (its realisation " *
+        "length is the selected alternative's). Put the composer inside the " *
+        "Select's alternatives instead (`select_branch(:name => compose(...), " *
+        "...)`). Full Select-in-composer nesting is deferred; see " *
+        "https://github.com/EpiAware/CensoredDistributions.jl/issues/413."))
+    return nothing
+end
 
 # Default positional names for a composer node, used when the front-end (or a
 # positional constructor) supplies none. `_default_names(:step, 3)` is

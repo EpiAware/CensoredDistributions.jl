@@ -43,7 +43,10 @@ so inference of the hot-path `logpdf` is preserved.
 
 An alternative may itself be any distribution or a nested composer
 ([`Sequential`](@ref), [`Parallel`](@ref), [`Competing`](@ref), or another
-`Select`), so a data-selected split nests inside a tree like any other node.
+`Select`), so a composed tree nests INSIDE a data-selected split. The reverse — a
+`Select` as a child of a `Sequential` / `Parallel` / `compose` composer — is not
+currently supported (a `Select` has no fixed contribution length) and is rejected;
+see the deferred-work issue #413.
 
 # Fields
 - `names`: tuple of the alternative names (`Symbol`s).
@@ -74,6 +77,14 @@ struct Select{N, K <: NTuple{N, Symbol}, A <: Tuple} <:
                 "$(length(alternatives)) alternatives"))
         allunique(names) ||
             throw(ArgumentError("Select alternative names must be unique"))
+        # A `latent`-wrapped (multivariate) alternative is not yet supported and
+        # would otherwise be rejected by the generic check below with a message
+        # that does not name the cause; flag it clearly and point at the tracking
+        # issue (#391).
+        any(a -> a isa Latent, alternatives) && throw(ArgumentError(
+            "a `latent`-wrapped (multivariate) node is not yet supported as a " *
+            "Select alternative; see " *
+            "https://github.com/EpiAware/CensoredDistributions.jl/issues/391."))
         all(_is_composable, alternatives) ||
             throw(ArgumentError(
                 "every Select alternative must be a UnivariateDistribution " *

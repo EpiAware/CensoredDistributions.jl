@@ -487,22 +487,3 @@ end
     recs = CensoredDistributions.record_distributions(d, homog)
     @test length(recs) == 2
 end
-
-@testitem "vectorised Select rejects a Latent alternative (#391)" begin
-    using CensoredDistributions, Distributions
-
-    # A Select alternative that is a `Latent` (multivariate) hits no dispatch in
-    # the vectorised `_alternative_record` and would fail with a bare MethodError.
-    # It is not yet supported (see issue #391); a clear `ArgumentError` is raised.
-    lat = latent(primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
-    d = select_branch(:obs => Gamma(2.0, 1.0), :lat => lat)
-    rows = [(kind = :lat, primary = 0.0, observed = 2.0)]
-    err = try
-        CensoredDistributions.record_distributions(d, rows)
-        nothing
-    catch e
-        e
-    end
-    @test err isa ArgumentError
-    @test occursin("391", err.msg)
-end
