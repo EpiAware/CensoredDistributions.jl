@@ -539,3 +539,130 @@ end
     @test all(isfinite.(shape))
     @test all(sigma .> 0)
 end
+
+@testitem "chain_to_params + update reconstruct a Select template" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: Prefixed, VNChain
+    import Statistics
+
+    # A `Select` with one leaf alternative and one nested-composer alternative.
+    # Each alternative carries its own free parameters under the select path, so
+    # the chain bridge must walk the alternatives like the core
+    # `params`/`update`.
+    template = select_branch(:index => Gamma(2.0, 1.0),
+        :sourced => compose((delta = LogNormal(0.5, 0.4),
+            inc = Gamma(2.0, 1.0))))
+    priors = (
+        index = (shape = truncated(Normal(2, 0.5); lower = 0),
+            scale = truncated(Normal(1, 0.3); lower = 0)),
+        sourced = (
+            delta = (mu = Normal(0.5, 0.2),
+                sigma = truncated(Normal(0.4, 0.1); lower = 0)),
+            inc = (shape = truncated(Normal(2, 0.5); lower = 0),
+                scale = truncated(Normal(1, 0.3); lower = 0))))
+
+    @model function fit(t, p, idx_obs, src_obs)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        idx = CensoredDistributions._pick(d, :index)
+        src = CensoredDistributions._pick(d, :sourced)
+        for y in idx_obs
+            DynamicPPL.@addlogprob! logpdf(idx, y)
+        end
+        for y in src_obs
+            DynamicPPL.@addlogprob! logpdf(src, y)
+        end
+        return d
+    end
+
+    Random.seed!(130)
+    idx_obs = rand(Gamma(2.0, 1.0), 30)
+    src_obs = [[rand(LogNormal(0.5, 0.4)), rand(Gamma(2.0, 1.0))]
+               for _ in 1:30]
+    chain = sample(fit(template, priors, idx_obs, src_obs), NUTS(), 60;
+        chain_type = VNChain, progress = false)
+
+    # Posterior means read into the nested NamedTuple `update` consumes; the
+    # keys mirror `params(template)` (every alternative walked).
+    means = chain_to_params(template, chain)
+    @test Set(keys(means)) == Set(event_names(template))
+    @test Set(keys(means.sourced)) == Set((:delta, :inc))
+
+    ready = update(template, means)
+    @test ready isa CensoredDistributions.Select
+    # Each alternative's leaf matches a hand-rebuild from the same chain means.
+    ish = Statistics.mean(chain[Prefixed(@varname(index.shape))])
+    isc = Statistics.mean(chain[Prefixed(@varname(index.scale))])
+    @test CensoredDistributions._pick(ready, :index) == Gamma(ish, isc)
+    src = CensoredDistributions._pick(ready, :sourced)
+    dmu = Statistics.mean(chain[Prefixed(@varname(sourced.delta.mu))])
+    dsig = Statistics.mean(chain[Prefixed(@varname(sourced.delta.sigma))])
+    @test get_event(src, :delta) == LogNormal(dmu, dsig)
+
+    # A single draw reads that iteration's value.
+    one = chain_to_params(template, chain; draw = 5)
+    @test isapprox(one.index.shape,
+        chain[Prefixed(@varname(index.shape))][5]; atol = 1e-12)
+
+    # The chain overload matches threading chain_to_params by hand.
+    @test update(template, chain) ==
+          update(template, chain_to_params(template, chain))
+end
+
+@testitem "chain_to_params + update reconstruct a shared-tagged template" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: Prefixed, VNChain
+    import Statistics
+
+    # `inc` is shared across the index and sourced branches: the chain carries
+    # the deduped `d.inc.shape`/`d.inc.scale`, not the per-occurrence paths, so
+    # the bridge must read the tag ONCE and place it in both occurrences.
+    inc = shared(:inc, Gamma(2.0, 1.0))
+    template = select_branch(:index => inc,
+        :sourced => compose((delta = LogNormal(0.5, 0.4), inc = inc)))
+    priors = (
+        inc = (shape = truncated(Normal(3, 1); lower = 0),
+            scale = truncated(Normal(1.5, 0.5); lower = 0)),
+        sourced = (delta = (mu = Normal(0.7, 0.3),
+            sigma = truncated(Normal(0.5, 0.2); lower = 0)),))
+
+    @model function fit(t, p, idx_obs, src_obs)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        idx = CensoredDistributions._pick(d, :index)
+        src = CensoredDistributions._pick(d, :sourced)
+        for y in idx_obs
+            DynamicPPL.@addlogprob! logpdf(idx, y)
+        end
+        for y in src_obs
+            DynamicPPL.@addlogprob! logpdf(src, y)
+        end
+        return d
+    end
+
+    Random.seed!(131)
+    idx_obs = rand(Gamma(3.0, 1.5), 30)
+    src_obs = [[rand(LogNormal(0.7, 0.5)), rand(Gamma(3.0, 1.5))]
+               for _ in 1:30]
+    chain = sample(fit(template, priors, idx_obs, src_obs), NUTS(), 60;
+        chain_type = VNChain, progress = false)
+
+    # The shared tag is inventoried ONCE under its tag, so the nested NamedTuple
+    # carries a top-level `inc` entry (matching `params_table`'s tag edge), not
+    # a per-occurrence entry under `index`/`sourced`.
+    means = chain_to_params(template, chain)
+    @test haskey(means, :inc)
+    @test Set(keys(means.inc)) == Set((:shape, :scale))
+
+    ready = update(template, means)
+    @test ready isa CensoredDistributions.Select
+    # The SAME inc value flows to both occurrences, read from `d.inc.*`.
+    sh = Statistics.mean(chain[Prefixed(@varname(inc.shape))])
+    sc = Statistics.mean(chain[Prefixed(@varname(inc.scale))])
+    idx = CensoredDistributions._pick(ready, :index)
+    src = CensoredDistributions._pick(ready, :sourced)
+    @test get_dist(idx) == Gamma(sh, sc)
+    @test get_dist(get_event(src, :inc)) == Gamma(sh, sc)
+
+    # The chain overload matches threading chain_to_params by hand.
+    @test update(template, chain) ==
+          update(template, chain_to_params(template, chain))
+end

@@ -562,7 +562,23 @@ function record_distributions(d::Select, rows)
     rowvec = collect(Tables.rows(rows))
     isempty(rowvec) && throw(ArgumentError(
         "record_distributions needs at least one record; got an empty table"))
-    return [_select_record(d, _row_namedtuple(row)) for row in rowvec]
+    recs = [_select_record(d, _row_namedtuple(row)) for row in rowvec]
+    # The records are scored together via `product_distribution`, which requires a
+    # rectangular event matrix: every record must have the SAME number of event
+    # slots. Different alternatives may have different event-slot counts (a leaf is
+    # one, a composer several), so a table whose rows select differing-length
+    # alternatives has no rectangular layout. Distributions.jl would otherwise
+    # throw an opaque "all distributions must be of the same size"; raise a clear
+    # error naming the cause instead.
+    n1 = length(first(recs))
+    all(r -> length(r) == n1, recs) || throw(ArgumentError(
+        "vectorised record_distributions over a Select needs every selected " *
+        "alternative to have the same number of event slots; the rows select " *
+        "alternatives of differing length (e.g. a leaf vs a multi-event " *
+        "composer). Score each fixed-length subset of rows separately. Full " *
+        "Select-in-composer nesting is deferred; see " *
+        "https://github.com/EpiAware/CensoredDistributions.jl/issues/413."))
+    return recs
 end
 
 # Build one Select record: read the selector, pick the alternative, and build
@@ -632,18 +648,18 @@ end
 # `latent_primary_priors` returns the STACKED priors of every latent row's latent
 # values, FLATTENED in row order: a leaf row contributes one prior (its origin
 # primary), a `k`-edge chain row contributes `k` priors (the origin primary then
-# the first `k - 1` edge cores). `primaries` carries the matching draws in the
+# the first `k - 1` DECLARED edges). `primaries` carries the matching draws in the
 # same flat order, so a chain row reads a CONTIGUOUS `k`-slot block.
 # `latent_observed_logpdf` scores the WHOLE table given those sampled latents:
 # a leaf row conditions its observed event on its matched primary through the
 # delay at the implied gap; a chain row reconstructs its event times (E_0 = the
 # origin draw, E_i = E_{i-1} + gap_i) and conditions the terminal event on the
-# last edge core at the final gap; a MARGINAL row (an index alternative in a
+# last DECLARED edge at the final gap; a MARGINAL row (an index alternative in a
 # mixed Select table) scores through its marginal record `logpdf`, so one
 # `@addlogprob!` covers the mixed table. This is a VECTORISED form (a broadcast
 # over the rows), not a per-record submodel loop, so it differentiates under
 # ForwardDiff and Mooncake reverse. The chain's INTERMEDIATE gaps are sampled
-# INDEPENDENTLY (each off its own edge core) so they ride one
+# INDEPENDENTLY (each off its own DECLARED edge) so they ride one
 # `product_distribution`; the chaining (the running sum) is pure arithmetic in
 # the conditional, and the shift Jacobian is 1, so the joint equals the
 # per-record latent chain model exactly.
@@ -658,10 +674,16 @@ event; for a latent CHAIN (`latent(Sequential(...))` with `k` edges) it carries
 edge). `latent_primary_priors(d, rows)` returns the vector of those priors,
 FLATTENED in row order and restricted to the LATENT rows: a leaf row contributes
 one prior, a `k`-edge chain row contributes `k` priors (the origin primary then
-the first `k - 1` edge cores), and a marginal row (an `index` alternative in a
+the first `k - 1` declared edges), and a marginal row (an `index` alternative in a
 mixed [`Select`](@ref) table) contributes none. The result is the input to a
 single `primaries ~ product_distribution(latent_primary_priors(d, rows))`,
 sampling every latent value at once.
+
+An all-marginal table (no latent rows, e.g. every record an `index` alternative)
+returns an EMPTY prior vector. `product_distribution` of an empty vector is a
+degenerate product that throws on `rand`, so guard the empty case at the call
+site (skip the `primaries ~ ...` statement when `latent_primary_priors(d, rows)`
+is empty: there is nothing latent to sample).
 
 # Arguments
 - `d`: a latent leaf or latent chain, or a [`Select`](@ref) with latent
@@ -696,14 +718,17 @@ end
 
 # The latent priors of one latent row's alternative, flattened. A latent LEAF
 # contributes its single origin primary; a latent CHAIN contributes the origin
-# primary then the first `k - 1` edge cores (the intermediate gap priors), so a
-# `k`-edge chain row stacks `k` priors.
+# primary then the first `k - 1` DECLARED edges (the intermediate gap priors), so a
+# `k`-edge chain row stacks `k` priors. The intermediate gap `E_i - E_{i-1}` is
+# distributed as the DECLARED edge from `E_{i-1}` to `E_i`, matching the per-record
+# chain submodel (which samples `E_i ~ _ShiftedDelay(declared_edge, E_{i-1})`) and
+# the marginal (which conditions each observed edge on its declared censoring).
 _latent_row_priors(alt::Latent) = _latent_row_priors(alt.dist)
 _latent_row_priors(alt::UnivariateDistribution) = (get_primary_event(alt),)
 function _latent_row_priors(chain::Sequential)
     origin = _origin_primary_event(_first_origin_node(chain))
-    cores = map(_marginal_core, Base.front(chain.components))
-    return (origin, cores...)
+    edges = Base.front(chain.components)
+    return (origin, edges...)
 end
 
 # The number of latent values one latent row's alternative carries (the size of
@@ -721,7 +746,7 @@ contribution: a latent LEAF row conditions its observed event on the matched
 sampled primary through the delay at the implied gap (`logpdf(get_dist(alt),
 y - p)`); a latent CHAIN row reconstructs its event times from its contiguous
 block of `primaries` (`E_0` = the origin draw, `E_i = E_{i-1} + gap_i`) and
-conditions the terminal event on the last edge core at the final gap; and a
+conditions the terminal event on the last declared edge at the final gap; and a
 MARGINAL row (an `index` alternative in a mixed [`Select`](@ref) table) scores
 through its marginal record `logpdf`. The `primaries` are the draws from
 `product_distribution(`[`latent_primary_priors`](@ref)`(d, rows))`, flattened in
@@ -780,7 +805,7 @@ end
 # A latent LEAF conditions its single observed value `y` on its primary `p`
 # through the delay gap `y - p`. A latent CHAIN reconstructs the event times from
 # the origin draw and the intermediate gaps, then conditions the terminal
-# observed event on the last edge core at the final gap.
+# observed event on the last declared edge at the final gap.
 function _latent_row_observed_logpdf(alt::Latent, events, block)
     _latent_row_observed_logpdf(alt.dist, events, block)
 end
@@ -792,15 +817,16 @@ function _latent_row_observed_logpdf(chain::Sequential, events, block)
     # `events` is the chain's flat event vector `[E_0, ..., E_k]`; only the
     # terminal is observed for the endpoint-observed chain. Reconstruct the
     # latent event times from the origin draw and the intermediate gaps, then
-    # condition the terminal on the last edge core.
-    cores = map(_marginal_core, chain.components)
-    k = length(cores)
+    # condition the terminal on the last DECLARED edge (matching the per-record
+    # chain submodel and the marginal, which keep the edge's declared censoring).
+    edges = chain.components
+    k = length(edges)
     prev = block[1]
     @inbounds for i in 2:k
         prev += block[i]
     end
     terminal = _the_terminal_observed(events)
-    return logpdf(cores[k], terminal - prev)
+    return logpdf(edges[k], terminal - prev)
 end
 
 # The terminal (last) observed value of a chain's flat event vector. The

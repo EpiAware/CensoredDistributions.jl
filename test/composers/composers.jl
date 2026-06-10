@@ -158,6 +158,23 @@ end
         dist = [Gamma(2.0, 1.0), LogNormal(0.5, 0.4)], chain = [-1, -1]))
 end
 
+@testitem "compose: name/dist distribution vectors are not a column table" begin
+    using Distributions
+    const CD = CensoredDistributions
+
+    # A NamedTuple whose `:name` and `:dist` fields BOTH hold distribution
+    # vectors is two user-named chain branches (a structural NamedTuple), NOT
+    # a (name, dist) column table. The old heuristic misread the `:name`
+    # vector as a row-name column and silently built a wrong 2-branch
+    # Parallel; it must instead lower as named Sequential branches.
+    nt = (name = [Gamma(2.0, 1.0), LogNormal(0.5, 0.4)],
+        dist = [Gamma(1.0, 1.0), Gamma(3.0, 1.0)])
+    target = Parallel(Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)),
+        Sequential(Gamma(1.0, 1.0), Gamma(3.0, 1.0)))
+    @test compose(nt) == target
+    @test CD.component_names(compose(nt)) == (:name, :dist)
+end
+
 @testitem "compose accepts pre-built composer children" begin
     using CensoredDistributions, Distributions
     const CD = CensoredDistributions
@@ -169,10 +186,14 @@ end
     @test outer == CD.Parallel(
         CD.Parallel(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)), Normal(0.0, 1.0))
 
-    # A select result nests as a compose child.
+    # A Select with equal-width alternatives IS a valid compose child (it occupies
+    # a fixed flat slot); the flat path commits to its first alternative (see
+    # issue #413). The supported direction also includes a composer INSIDE a Select.
     sel = select_branch(:s1 => Gamma(2.0, 1.0), :s2 => Gamma(5.0, 1.0))
     withsel = compose((k = sel, m = Normal(0.0, 1.0)))
-    @test withsel == CD.Parallel(sel, Normal(0.0, 1.0))
+    @test withsel isa CD.Parallel
+    @test logpdf(withsel, [1.0, 0.5]) ≈
+          logpdf(Gamma(2.0, 1.0), 1.0) + logpdf(Normal(0.0, 1.0), 0.5)
 
     # A composer is allowed inside a Vector chain step (no longer leaf-only).
     chained = compose((leg = [Gamma(2.0, 1.0),
@@ -509,13 +530,56 @@ end
     @test nested.admit_death.mu isa Normal
     @test nested.admit_death.sigma isa Truncated
 
-    # default_prior is the per-row default and reads the support directly.
+    # default_prior is the per-row default and classifies by the parameter.
     @test default_prior((; edge = :e, param = :p, value = 0.5,
         support = (0.0, 1.0))) == Uniform(0, 1)
     @test default_prior((; edge = :e, param = :scale, value = 2.0,
         support = (0.0, Inf))) isa Truncated
     @test default_prior((; edge = :e, param = :mu, value = -1.0,
         support = (0.0, Inf))) isa Normal
+end
+
+@testitem "default_prior classifies by parameter, not variate support" begin
+    using Distributions
+
+    # A location-family delay (Normal) has unbounded variate support, but its
+    # scale parameter still lives on the positive half-line: its default prior
+    # must be positively constrained, not an unconstrained Normal that puts mass
+    # on negative scale.
+    tree = compose((onset = Normal(1.0, 2.0),))
+    tbl = params_table(tree)
+    nested = build_priors(tbl)
+    @test nested.onset.mu isa Normal
+    @test minimum(nested.onset.sigma) >= 0
+    @test nested.onset.sigma isa Truncated
+
+    # Same when the leaf is wrapped in an Affine (still a location family with
+    # unbounded support); the inner sigma must stay positively constrained.
+    atree = compose((onset = affine(Normal(1.0, 2.0); scale = 2.0,
+        shift = 0.5),))
+    anested = build_priors(params_table(atree))
+    @test anested.onset.mu isa Normal
+    @test minimum(anested.onset.sigma) >= 0
+
+    # Scale/shape parameters are positive regardless of the variate support.
+    @test minimum(default_prior((; edge = :e, param = :sigma, value = 2.0,
+        support = (-Inf, Inf)))) >= 0
+    @test minimum(default_prior((; edge = :e, param = :scale, value = 2.0,
+        support = (-Inf, Inf)))) >= 0
+    @test minimum(default_prior((; edge = :e, param = :shape, value = 2.0,
+        support = (-Inf, Inf)))) >= 0
+    @test minimum(default_prior((; edge = :e, param = :rate, value = 2.0,
+        support = (-Inf, Inf)))) >= 0
+
+    # Location parameters stay unbounded.
+    @test default_prior((; edge = :e, param = :mu, value = -1.0,
+        support = (-Inf, Inf))) isa Normal
+    @test default_prior((; edge = :e, param = :location, value = -1.0,
+        support = (-Inf, Inf))) isa Normal
+
+    # A [0, 1] probability parameter is Uniform(0, 1).
+    @test default_prior((; edge = :e, param = :p, value = 0.3,
+        support = (0.0, 1.0))) == Uniform(0, 1)
 end
 
 @testitem "build_priors takes a nested-NamedTuple partial override" begin

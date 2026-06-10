@@ -2,6 +2,19 @@
 
 ### Bug fixes
 
+- `compose` no longer misclassifies a structural `NamedTuple` whose
+  user-chosen branch keys are `:name`/`:dist` and carry distribution
+  vectors (e.g. `(name = [d1, d2], dist = [d3, d4])`) as a `(name, dist)`
+  column table. The column-table heuristic now also requires the `:dist`
+  column to hold distributions and the `:name` column to hold
+  non-distribution row labels, so such a NamedTuple builds the intended
+  named `Parallel` of `Sequential` chains instead of a silently-wrong
+  2-branch `Parallel`.
+- `Convolved` `mean`/`var`/`std` docstrings no longer promise a PMF-weighting
+  fallback for components without an analytic moment. That fallback was
+  unreachable dead code (nothing opted in), so it has been removed; the
+  docstrings now state that each component must provide an analytic
+  `mean`/`var` or the call errors.
 - Skip the CDF-saturation early-return in the numeric
   `primarycensored_cdf` path when the lower bound is at the distribution
   boundary (`lower == minimum(dist)`). Evaluating `cdf(dist, lower)`

@@ -130,11 +130,11 @@ end
 @testitem "latent_primary_priors stacks one prior per latent edge" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, latent_primary_priors,
-                                 get_primary_event, get_dist_recursive
+                                 get_primary_event
 
     # A two-edge latent chain: each row's latent variables are the origin draw
     # E_0 and the first gap (E_1 - E_0); the terminal E_2 conditions. So each
-    # chain row stacks TWO priors: the origin prior and the first edge core.
+    # chain row stacks TWO priors: the origin prior and the first DECLARED edge.
     e1 = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     e2 = primary_censored(Gamma(3.0, 1.5), Uniform(0, 1))
     chain = latent(Sequential((e1, e2), (:onset_admit, :admit_death)))
@@ -145,9 +145,10 @@ end
     # Two rows, two latent values each, so four stacked priors.
     @test length(priors) == 4
     # The origin prior is the first edge's primary event; the second latent value
-    # is the first edge's continuous core (the intermediate gap prior).
+    # is the first DECLARED edge (the intermediate gap prior), matching the
+    # per-record chain submodel and the marginal.
     @test priors[1] == get_primary_event(e1)
-    @test priors[2] == get_dist_recursive(e1)
+    @test priors[2] == e1
     @test product_distribution(priors) isa Distribution
 end
 

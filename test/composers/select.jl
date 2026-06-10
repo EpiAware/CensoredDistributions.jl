@@ -80,16 +80,14 @@ end
     @test d.selector == :case
 end
 
-@testitem "Select nests as a composer child and compares structurally" begin
+@testitem "Select holds a composer alternative and compares structurally" begin
     using CensoredDistributions, Distributions
 
-    # A Select alternative may itself be a composer, and a Select nests inside a
-    # Sequential/Parallel like any other node.
+    # A Select alternative may itself be a composer (the supported nesting
+    # direction: a composer INSIDE a Select).
     inner = select_branch(:a => Gamma(2.0, 1.0),
         :b => Sequential(Gamma(1.0, 1.0), LogNormal(0.5, 0.4)))
     @test inner isa CensoredDistributions.Select
-    par = Parallel(Gamma(2.0, 1.0), inner)
-    @test par isa CensoredDistributions.Parallel
 
     # Structural equality and hashing over names, alternatives, and selector.
     a = select_branch(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0))
@@ -115,10 +113,43 @@ end
     s2 = select_branch(:nested => inner, :flat => Gamma(1.0, 1.0))
     @test s2 == CD.Select((:nested, :flat), (inner, Gamma(1.0, 1.0)), :kind)
 
-    # A select nested inside a compose, and scoring routes to the chosen branch.
-    outer = compose((pick = inner, side = Normal(0.0, 1.0)))
-    @test outer == CD.Parallel(inner, Normal(0.0, 1.0))
+    # The supported direction (a composer/select INSIDE a Select) scores fine.
     @test logpdf(inner, 3.0; kind = :short) ≈ logpdf(Gamma(2.0, 1.0), 3.0)
+end
+
+@testitem "Select nests inside a Sequential/Parallel/compose" begin
+    using CensoredDistributions, Distributions
+    const CD = CensoredDistributions
+
+    # A Select with equal-width alternatives occupies a fixed flat slot, so it is a
+    # valid composer child (#413): the constructors and `compose` accept it and the
+    # flat path commits to the first alternative.
+    inner = select_branch(:a => Gamma(2.0, 1.0), :b => Gamma(5.0, 1.0))
+    @test Parallel(Gamma(2.0, 1.0), inner) isa CD.Parallel
+    @test Parallel(inner, Gamma(2.0, 1.0)) isa CD.Parallel
+    @test Sequential(Gamma(2.0, 1.0), inner) isa CD.Sequential
+    @test compose((pick = inner, side = Normal(0.0, 1.0))) isa CD.Parallel
+    # The flat (data-free) value path scores the first alternative.
+    p = Parallel(Gamma(2.0, 1.0), inner)
+    @test logpdf(p, [1.0, 2.0]) ≈
+          logpdf(Gamma(2.0, 1.0), 1.0) + logpdf(Gamma(2.0, 1.0), 2.0)
+
+    # Alternatives with differing leaf counts cannot share one flat slot: the
+    # mismatch surfaces when the flat layout is needed (length / logpdf / rand).
+    ragged = select_branch(:a => Gamma(2.0, 1.0),
+        :b => compose((x = Gamma(2.0, 1.0), y = Gamma(2.0, 1.0))))
+    rp = Parallel(Gamma(2.0, 1.0), ragged)
+    @test_throws ArgumentError length(rp)
+
+    # The supported direction (a composer INSIDE a Select) still constructs AND is
+    # operable: logpdf / rand run on the selected alternative.
+    tree = compose((a = Gamma(2.0, 1.0), b = LogNormal(0.5, 0.4)))
+    s = select_branch(:joint => tree, :leaf => Gamma(3.0, 1.0))
+    @test s isa CD.Select
+    @test logpdf(s, [1.0, 2.0]; kind = :joint) ≈ logpdf(tree, [1.0, 2.0])
+    @test logpdf(s, 1.5; kind = :leaf) ≈ logpdf(Gamma(3.0, 1.0), 1.5)
+    @test rand(s; kind = :leaf) isa Real
+    @test rand(s; kind = :joint) isa AbstractVector
 end
 
 @testitem "nested select_branch scores and samples via model entry" begin

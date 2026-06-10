@@ -83,6 +83,70 @@ end
     @test logpdf(dm, ev) ≈ logpdf(compose((a = cmp, b = d_notif)), ev)
 end
 
+@testitem "Competing inner constructor validates every path" begin
+    using Distributions
+
+    d1, d2 = Gamma(1.5, 1.0), Gamma(2.0, 1.5)
+
+    # Direct struct construction (the form used by equality round-trips,
+    # update and intervene) validates the structural invariants: bounds, the
+    # outcome count, and equal-length tuples.
+    @test_throws ArgumentError CensoredDistributions.Competing(
+        (:a, :b), (d1, d2), (-0.1, 1.1))           # negative branch prob
+    @test_throws ArgumentError CensoredDistributions.Competing(
+        (:a,), (d1,), (1.0,))                       # fewer than two outcomes
+    @test_throws ArgumentError CensoredDistributions.Competing(
+        (:a, :b), (d1, d2), (0.5,))                 # length mismatch
+    @test_throws ArgumentError CensoredDistributions.Competing(
+        (:a, :b, :c), (d1, d2), (0.5, 0.5))         # names vs delays mismatch
+
+    # The sum-to-one requirement is enforced at the USER-facing `Pair...`
+    # constructor (and at `as_mixture`), not the inner struct constructor: the
+    # DynamicPPL extension legitimately rebuilds a Competing from branch probs
+    # sampled independently from priors that need not sum to one.
+    @test_throws ArgumentError Competing(
+        :a => (d1, 0.3), :b => (d2, 0.3))          # user path: sum 0.6 errors
+    unnorm = CensoredDistributions.Competing((:a, :b), (d1, d2), (0.3, 0.3))
+    @test unnorm isa CensoredDistributions.Competing  # struct path: allowed
+    # `as_mixture` (and the moments routed through it) needs a normalised set,
+    # so it rejects the unnormalised node with a clear error.
+    @test_throws ArgumentError CensoredDistributions.as_mixture(unnorm)
+
+    # A valid direct construction still builds and round-trips through ==.
+    c = CensoredDistributions.Competing((:a, :b), (d1, d2), (0.4, 0.6))
+    @test c == Competing(:a => (d1, 0.4), :b => (d2, 0.6))
+
+    # AD `Dual` branch probabilities pass validation (no AD stripping).
+    using ForwardDiff: Dual
+    p = Dual(0.4, 1.0)
+    cad = CensoredDistributions.Competing((:a, :b), (d1, d2), (p, 1 - p))
+    @test cad isa CensoredDistributions.Competing
+end
+
+@testitem "Competing.logpdf differentiates branch probs (AD)" begin
+    using Distributions
+    using ForwardDiff: derivative
+
+    d1, d2 = Gamma(1.5, 1.0), Gamma(2.0, 1.5)
+    x = 1.7
+
+    # logpdf w.r.t. the first branch probability must carry a non-zero,
+    # correct gradient. The marginal is log(p f1(x) + (1-p) f2(x)); its
+    # derivative w.r.t. p is (f1(x) - f2(x)) / (p f1(x) + (1-p) f2(x)).
+    f(p) = logpdf(
+        CensoredDistributions.Competing((:a, :b), (d1, d2), (p, 1 - p)), x)
+    g = derivative(f, 0.3)
+    f1, f2 = pdf(d1, x), pdf(d2, x)
+    expected = (f1 - f2) / (0.3 * f1 + 0.7 * f2)
+    @test g ≈ expected
+    @test g != 0
+
+    # pdf gradient is exp(logpdf) * logpdf-gradient.
+    fp(p) = pdf(
+        CensoredDistributions.Competing((:a, :b), (d1, d2), (p, 1 - p)), x)
+    @test derivative(fp, 0.3) ≈ exp(f(0.3)) * expected
+end
+
 @testitem "competing_branch sugar mirrors the Competing constructor" begin
     using Distributions
 

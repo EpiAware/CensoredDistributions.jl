@@ -56,7 +56,7 @@ Statistics for reproducibility and summaries.
 using CensoredDistributions
 using Distributions
 using Turing
-using FlexiChains: VNChain, Parameter
+using FlexiChains: Parameter
 using CairoMakie
 using Random
 using Statistics
@@ -249,7 +249,7 @@ recover the block-level Rt, the ascertainment and the IFR at this size.
 model = rt_renewal(cases_obs, deaths_obs, g, case_delay, death_delay, I0)
 
 chain = sample(Xoshiro(1), model, NUTS(0.8; adtype = AutoForwardDiff()), 400;
-    chain_type = VNChain, progress = false)
+    progress = false)
 
 md"""
 ## Recovery

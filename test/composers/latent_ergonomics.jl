@@ -90,9 +90,11 @@ end
     # admit to pin its value and compare against the hand-written decomposition.
     e1 = 2.1
     cond = condition(demo(lseq, row), (@varname(obs.e[2]) => e1,))
+    # Each observed edge conditions on its DECLARED censoring (the marginal density),
+    # not the stripped continuous core, so the latent form equals the marginal.
     manual = logpdf(get_primary_event(seq.components[1]), o) +
-             logpdf(get_dist(seq.components[1]), e1 - o) +
-             logpdf(get_dist(seq.components[2]), dd - e1)
+             logpdf(seq.components[1], e1 - o) +
+             logpdf(seq.components[2], dd - e1)
     @test logjoint(cond, (;)) ≈ manual
 end
 
@@ -116,9 +118,10 @@ end
     @test length(keys(vi)) == 0
 
     lp = only(logjoint(demo(lseq, row), (;)))
+    # Observed edges condition on their DECLARED censoring (marginal == latent).
     manual = logpdf(get_primary_event(seq.components[1]), o) +
-             logpdf(get_dist(seq.components[1]), a - o) +
-             logpdf(get_dist(seq.components[2]), dd - a)
+             logpdf(seq.components[1], a - o) +
+             logpdf(seq.components[2], dd - a)
     @test lp ≈ manual
 end
 
@@ -211,8 +214,10 @@ end
 
     inf = 5.0
     cond = condition(demo(d, row), (@varname(obs.obs.e[2]) => inf,))
+    # The sourced branch is a latent CHAIN (Sequential): each observed edge
+    # conditions on its DECLARED censoring, matching the marginal.
     manual = logpdf(get_primary_event(chain.components[1]), src_onset) +
-             logpdf(get_dist(chain.components[1]), inf - src_onset) +
-             logpdf(get_dist(chain.components[2]), case_onset - inf)
+             logpdf(chain.components[1], inf - src_onset) +
+             logpdf(chain.components[2], case_onset - inf)
     @test logjoint(cond, (;)) ≈ manual
 end

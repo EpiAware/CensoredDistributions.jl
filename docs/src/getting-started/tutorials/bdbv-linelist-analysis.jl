@@ -67,7 +67,7 @@ using CSV, DataFramesMeta, Dates
 using CensoredDistributions, Distributions
 using Turing, Random, Statistics
 using DynamicPPL: to_submodel, @varname
-using FlexiChains: VNChain, Parameter
+using FlexiChains: Parameter
 using ADTypes: AutoForwardDiff
 using PairPlots, CairoMakie
 
@@ -274,7 +274,7 @@ adbackend = AutoForwardDiff()
 
 sim_chain = sample(Xoshiro(1), bdbv(template, priors, sim_rows),
     NUTS(0.8; adtype = adbackend), MCMCThreads(), 600, 2;
-    chain_type = VNChain, progress = false)
+    progress = false)
 
 sim_fit = update(template, sim_chain; prefix = :delays)
 
@@ -461,7 +461,7 @@ The same model and priors fit the real records.
 
 real_chain = sample(Xoshiro(20260609), bdbv(template, priors, real_rows),
     NUTS(0.8; adtype = adbackend), MCMCThreads(), 800, 2;
-    chain_type = VNChain, progress = false)
+    progress = false)
 
 real_fit = update(template, real_chain; prefix = :delays)
 
@@ -477,7 +477,7 @@ the shrinkage from prior to posterior is read directly.
 """
 
 prior_chain = sample(Xoshiro(3), bdbv(template, priors, real_rows),
-    Prior(), MCMCThreads(), 1000, 2; chain_type = VNChain, progress = false)
+    Prior(), MCMCThreads(), 1000, 2; progress = false)
 
 prior_means = delay_mean_draws(prior_chain)
 

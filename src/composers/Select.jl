@@ -43,7 +43,9 @@ so inference of the hot-path `logpdf` is preserved.
 
 An alternative may itself be any distribution or a nested composer
 ([`Sequential`](@ref), [`Parallel`](@ref), [`Competing`](@ref), or another
-`Select`), so a data-selected split nests inside a tree like any other node.
+`Select`), so a composed tree nests INSIDE a data-selected split. The reverse — a
+`Select` as a child of a `Sequential` / `Parallel` / `compose` composer — is not
+currently supported (a `Select` has no fixed contribution length) and is rejected.
 
 # Fields
 - `names`: tuple of the alternative names (`Symbol`s).

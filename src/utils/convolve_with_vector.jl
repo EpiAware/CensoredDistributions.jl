@@ -9,16 +9,17 @@
 # counts at the same times: the EpiNow2-style latent / renewal observation layer
 # falls out of the composed delay stack automatically.
 #
-# This reuses the existing distribution-level `convolve_distributions(dists...)`:
-# the second positional argument is `AbstractVector{<:Real}` (a numeric series),
-# distinct from the `AbstractVector{<:UnivariateDistribution}` / two-distribution
-# forms, so the renewal method and the distribution-args forms never collide.
+# This reuses the existing distribution-level
+# `convolve_distributions(dists...)`: the second positional argument is
+# `AbstractVector{<:Real}` (a numeric series), distinct from the
+# `AbstractVector{<:UnivariateDistribution}` / two-distribution forms, so the
+# renewal method and the distribution-args forms never collide.
 #
 # Event selectivity. In a fit only SOME events are observed (e.g. only onsets),
 # so the `events` keyword names which event(s) to produce. The default is the
-# END-POINT event; a [`Sequential`](@ref) chain's named INTERIM events map to its
-# PREFIX convolutions. Only the requested events are discretised and convolved,
-# so an unobserved prefix costs nothing.
+# END-POINT event; a [`Sequential`](@ref) chain's named INTERIM events map to
+# its PREFIX convolutions. Only the requested events are discretised and
+# convolved, so an unobserved prefix costs nothing.
 #
 # Efficiency. The stack convolution is composed at the DISTRIBUTION level ONCE:
 # the total delay is `observed_distribution(stack)` (the convolution of the
@@ -85,15 +86,15 @@ end
 
 # --- event-name -> prefix-index map ----------------------------------------
 #
-# The flat event names of a stack are `[origin, target_1, ..., target_k]`; the
-# i-th prefix delay (first `i` leaves) ends at target event `target_i`, i.e.
-# event name index `i + 1`. A bare leaf has one target, its endpoint.
-
-_stack_event_names(d::Sequential) = tree_event_names(d)
-_stack_event_names(d::UnivariateDistribution) = (:event_1,)
-
-# The target event names of a stack (one per leaf/prefix), in order.
-_stack_target_names(d) = _stack_event_names(d)[2:end]
+# The i-th prefix delay (first `i` leaves) ends at target event `target_i`, so
+# the target names index the prefixes one-to-one. A `Sequential` exposes
+# `[origin, target_1, ..., target_k]`, so its targets are everything after the
+# origin. A bare leaf has a single target event, its endpoint, conventionally
+# named `:event_1` (there is no separate origin to strip), so its target list is
+# `(:event_1,)` directly — selecting that name must reach the single prefix, not
+# an empty target set.
+_stack_target_names(d::Sequential) = tree_event_names(d)[2:end]
+_stack_target_names(::UnivariateDistribution) = (:event_1,)
 
 # The prefix index of a requested event name, erroring clearly otherwise.
 function _event_prefix_index(targets, name::Symbol)
@@ -127,9 +128,17 @@ observes only some of them:
 - a tuple of event names: returns a `NamedTuple` keyed by the requested events.
 
 Only the requested events are discretised and convolved, so an unobserved prefix
-costs nothing. This is the same `convolve_distributions` as the
-distribution-level convolution; the numeric-vector second argument selects this
-renewal method, leaving the `convolve_distributions(dists...)` forms unaffected.
+costs nothing.
+
+This method does a DIFFERENT operation from the distribution-level
+`convolve_distributions(dists...)`. That form convolves DISTRIBUTIONS together
+to produce a single `Convolved` distribution (the sum of independent delays).
+This form convolves a NUMERIC SERIES through a delay PMF to produce a count
+series (or a `NamedTuple` of them). They share the name but never collide: the
+numeric-vector second argument (`AbstractVector{<:Real}`) selects this renewal
+method, distinct from the `AbstractVector{<:UnivariateDistribution}` / tuple /
+two-distribution forms, so the `convolve_distributions(dists...)` forms are
+unaffected.
 
 The stack convolution is composed at the distribution level once per requested
 event; the cost is the vector convolution. The PMF depends differentiably on the
@@ -141,9 +150,13 @@ delay parameters, so gradients flow under ForwardDiff / ReverseDiff.
 - `series`: the input timeseries (expected events at unit-spaced times from 0).
 
 # Keyword Arguments
-- `events`: the event(s) to produce — `nothing` (the endpoint, default), a single
-  event name, or a tuple of names.
-- `interval`: the discretisation interval width (default: `1.0`).
+- `events`: the event(s) to produce — `nothing` (the endpoint, default), a
+  single event name, or a tuple of names. For a bare-leaf stack the single
+  endpoint event is named `:event_1`.
+- `interval`: the discretisation grid width, which is also the series time-step.
+  The series is unit-spaced and the causal convolution shifts by integer series
+  steps, so this must be `1` (the default); any other value is rejected with an
+  `ArgumentError` to avoid conflating the grid width with the series step.
 
 # Examples
 ```@example
@@ -160,6 +173,16 @@ endpoint = convolve_distributions(stack, series)
 "
 function convolve_distributions(stack, series::AbstractVector{<:Real};
         events = nothing, interval = 1.0)
+    # The causal convolution shifts the series by integer SERIES steps, so the
+    # PMF bin width must equal the series time-step. `series` is unit-spaced
+    # (see the docstring), so only `interval == 1` keeps the discretisation grid
+    # aligned with the shift; any other width conflates the two and silently
+    # mis-aligns the result. Reject it rather than return a wrong answer.
+    isone(interval) || throw(ArgumentError(
+        "interval must be 1: the series is unit-spaced and the causal " *
+        "convolution shifts by integer series steps, so a PMF grid width " *
+        "other than 1 conflates the discretisation width with the series " *
+        "time-step. Got interval = $(interval)."))
     leaves = _stack_leaves(stack)
     targets = _stack_target_names(stack)
     maxlag = length(series) - 1
