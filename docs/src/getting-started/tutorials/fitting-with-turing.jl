@@ -50,7 +50,7 @@ posterior overlays, and Random for reproducibility.
 using CensoredDistributions
 using Distributions
 using Turing
-using DynamicPPL: to_submodel, prefix
+using DynamicPPL: to_submodel
 using FlexiChains: VNChain
 using DataFramesMeta
 using CairoMakie, PairPlots
@@ -120,21 +120,17 @@ straight in.
 end
 
 md"""
-The **latent** model wraps the same object in [`latent`](@ref) and scores one
-record at a time, sampling the intermediate admission as a `~` variable per
-record. The latent composer model takes one row, so we loop and `prefix` each
-record's latents to keep the chain readable. The parameter block is identical,
-so both models target the same posterior over `delays`.
+The **latent** model wraps the same object in [`latent`](@ref) and scores the
+records event-based, sampling each intermediate admission as a `~` variable. The
+batch [`composed_distribution_model`](@ref)`(latent(delays), rows)` entry runs
+the per-record loop and `:recN` prefixing inside the package, so the latent fit
+collapses to one `~` just like the marginal fit. The parameter block is
+identical, so both models target the same posterior over `delays`.
 """
 
 @model function latent_model(template, priors, rows)
     delays ~ to_submodel(composed_parameters_model(template, priors))
-    ld = latent(delays)
-    for i in eachindex(rows)
-        obs ~ to_submodel(
-            prefix(composed_distribution_model(ld, rows[i]), Symbol(:rec, i)),
-            false)
-    end
+    obs ~ to_submodel(composed_distribution_model(latent(delays), rows))
 end
 
 md"""
@@ -142,8 +138,9 @@ md"""
 
 We simulate from the model with known true parameters, so recovery can be
 checked. [`update`](@ref) sets the truth on the composed object, then
-[`predict_events`](@ref) walks it to draw a full event path
-`[onset, admit, death]`; we keep all three events as an observed record.
+[`predict_events`](@ref)`(truth, n)` walks it to draw `n` full event paths and
+returns them as a labelled Tables.jl column table keyed by the event names
+`onset`, `admit`, `death`; the labelled table drops straight into both fits.
 """
 
 true_params = (onset_admit = (shape = 2.0, scale = 1.5),
@@ -153,20 +150,14 @@ truth = update(template, true_params)
 
 n = 20;
 
-sim_rows = let rng = MersenneTwister(20260609)
-    map(1:n) do _
-        s = predict_events(truth; rng = rng)
-        (onset = s[1], admit = s[2], death = s[3])
-    end
-end;
+sim = predict_events(truth, n; rng = MersenneTwister(20260609))
 
 md"""
-We also collect the records into a `DataFrame` for the marginal fit; the
-vectorised [`composed_distribution_model`](@ref) consumes any Tables.jl source,
-so the table passes straight in.
+We collect the same records into a `DataFrame` for display; both the marginal
+and latent fits consume any Tables.jl source, so `sim` passes straight in.
 """
 
-data = DataFrame(sim_rows)
+data = DataFrame(sim)
 
 first(data, 5)
 
@@ -195,7 +186,7 @@ than a stiff marginal. We give it the same budget and time it too.
 
 latent_time = @elapsed latent_chain = sample(
     Xoshiro(1),
-    latent_model(template, priors, sim_rows),
+    latent_model(template, priors, sim),
     NUTS(0.8; adtype = AutoForwardDiff()), 300;
     chain_type = VNChain, progress = false)
 
