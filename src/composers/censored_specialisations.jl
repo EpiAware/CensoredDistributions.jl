@@ -43,6 +43,11 @@ _origin_primary_event(::UnivariateDistribution) = nothing
 # surfaces no origin primary event (the censored treatment is resolved within
 # the child). `Competing` is univariate and already hits the fallback above.
 _origin_primary_event(::Union{Sequential, Parallel}) = nothing
+# A nested `Select` resolves censoring within the committed alternative (the first
+# on the flat path); a `Latent` resolves it within its wrapped node. Neither
+# surfaces a flat origin primary event.
+_origin_primary_event(::Select) = nothing
+_origin_primary_event(d::Latent) = _origin_primary_event(d.dist)
 
 # The continuous delay core of a (possibly censored) node, for marginalisation:
 # strip every censoring layer so a marginalised run convolves only continuous

@@ -40,6 +40,21 @@ end
 # its own leaf count for a nested composer.
 _child_nleaves(::UnivariateDistribution) = 1
 _child_nleaves(c::Union{Sequential, Parallel}) = length(c)
+# A nested `Select` swaps in ONE alternative of fixed width, so it occupies a
+# fixed flat slot only when every alternative has the same leaf count. The common
+# width is the nested Select's leaf count; disagreeing widths cannot share one
+# flat slot and error (a `length(::Select)` has no single answer either).
+function _child_nleaves(c::Select)
+    n = _child_nleaves(first(c.alternatives))
+    all(a -> _child_nleaves(a) == n, c.alternatives) || throw(ArgumentError(
+        "a nested Select needs every alternative to have the same leaf count " *
+        "to occupy a fixed flat slot; got $(map(_child_nleaves, c.alternatives))"))
+    return n
+end
+# A latent alternative scores `[primary, observed]` (two slots); the flat
+# value-vector layout collapses it to its marginal leaf count, since a nested
+# Select's flat slot carries observed values, not the latent primary.
+_child_nleaves(c::Latent) = _child_nleaves(c.dist)
 
 # Total leaf count over a tuple of children.
 _nleaves(components::Tuple) = sum(_child_nleaves, components)
@@ -81,6 +96,21 @@ _child_logpdf(c::UnivariateDistribution, x, offset, ::Int) = logpdf(c, x[offset 
 function _child_logpdf(c::Union{Sequential, Parallel}, x, offset, n::Int)
     logpdf(c, @view x[(offset + 1):(offset + n)])
 end
+# A nested `Select` in the data-free flat value-vector path commits to its FIRST
+# alternative (a deterministic default so flat `logpdf`/`rand` round-trip); the
+# selector-driven choice lives in the row/record path, not the flat path.
+function _child_logpdf(c::Select, x, offset, n::Int)
+    return _child_logpdf(_flat_select_alternative(c), x, offset, n)
+end
+# A latent alternative on the flat path scores through its marginal node (the
+# flat slot carries observed values, the latent primary is integrated out there).
+function _child_logpdf(c::Latent, x, offset, n::Int)
+    return _child_logpdf(c.dist, x, offset, n)
+end
+
+# The alternative a nested Select commits to on the data-free flat path: the
+# first. The row/record path overrides this by the row's selector value.
+_flat_select_alternative(c::Select) = first(c.alternatives)
 
 # Concatenate the per-child draws into one flat vector of element type `T`.
 function _composite_rand(rng::AbstractRNG, components::Tuple, ::Type{T}) where {T}
@@ -105,6 +135,16 @@ function _child_rand!(
         out[offset + k] = sub[k]
     end
     return nothing
+end
+# A nested `Select` samples its FIRST alternative on the flat path, matching the
+# committed alternative the flat `_child_logpdf` scores.
+function _child_rand!(out, offset, rng::AbstractRNG, c::Select)
+    return _child_rand!(out, offset, rng, _flat_select_alternative(c))
+end
+# A latent alternative samples its observed value through its marginal node on the
+# flat path (the latent primary is not part of the flat slot).
+function _child_rand!(out, offset, rng::AbstractRNG, c::Latent)
+    return _child_rand!(out, offset, rng, c.dist)
 end
 
 # The recursive indented-tree printing and the `params`/`params_table` traversal
