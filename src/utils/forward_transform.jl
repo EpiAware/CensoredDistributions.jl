@@ -169,7 +169,7 @@ rewrap_leaf(d::Cumulative, inner) = Cumulative(rewrap_leaf(d.dist, inner))
 # returning `(delay, ops)` where `ops` is the ordered tuple of forward
 # transforms to apply to the branch's convolved series. A non-transform leaf has
 # no ops.
-_peel_forward(d::UnivariateDistribution) = (d, ())
+_peel_forward(d) = (d, ())
 function _peel_forward(d::Scaled)
     inner, ops = _peel_forward(d.dist)
     return inner, (ops..., d)

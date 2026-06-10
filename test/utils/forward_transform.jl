@@ -1,5 +1,5 @@
 @testitem "thin / cumulative construction and validation" begin
-    using Distributions
+    using CensoredDistributions, Distributions
 
     d = thin(LogNormal(1.5, 0.5), 0.3)
     @test d isa CensoredDistributions.Scaled
@@ -22,7 +22,7 @@
 end
 
 @testitem "forward transforms are transparent to logpdf/cdf" begin
-    using Distributions
+    using CensoredDistributions, Distributions
 
     inner = LogNormal(1.5, 0.5)
     for d in (thin(inner, 0.3), cumulative(inner))
@@ -40,7 +40,7 @@ end
 end
 
 @testitem "forward transforms peel via free_leaf and rewrap" begin
-    using Distributions
+    using CensoredDistributions, Distributions
 
     base = Gamma(2.0, 1.0)
     d = thin(interval_censored(base, 1.0), 0.3)
@@ -55,7 +55,7 @@ end
 end
 
 @testitem "forward ops apply to a series via _apply_forward_ops" begin
-    using Distributions
+    using CensoredDistributions, Distributions
 
     series = [1.0, 2.0, 3.0, 4.0]
 
@@ -75,7 +75,7 @@ end
 end
 
 @testitem "forward transforms nest in composers" begin
-    using Distributions
+    using CensoredDistributions, Distributions
 
     # thin/cumulative are UnivariateDistributions, so they compose as leaves.
     p = compose((cases = thin(Gamma(1.5, 1.0), 0.3),
