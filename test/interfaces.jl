@@ -21,8 +21,11 @@ end
     using CensoredDistributions, Distributions
     using CensoredDistributions.TestUtils: test_interface
 
-    # The keyword-driven entry point, as a downstream author would call it.
+    # The keyword-driven entry point, as a downstream author would call it. A
+    # NamedTuple `compose` is a Parallel: the overall moment is a per-endpoint
+    # Vector and the full per-event vector is via `latent`.
     d = compose((onset_admit = Gamma(2.0, 1.0), admit_death = LogNormal(0.5, 0.4)))
     test_interface(d; name = "user chain", draw = rand(d),
-        path = (:onset_admit,))
+        path = (:onset_admit,), overall = :vector, latent_moments = true,
+        has_endpoint = false)
 end

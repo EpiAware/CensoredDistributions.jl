@@ -32,8 +32,8 @@ export test_interface, example_fixtures, test_rejects_invalid
 # A fixture is the distribution plus the metadata the checklist needs that is not
 # recoverable from the object alone: a known event-name `path` to round-trip
 # through `event`, an in-support `draw` to score, a `kind` selector for a
-# `Select`, and whether the node is univariate (a scalar moment) or multivariate
-# (a per-event Vector moment).
+# `Select`, the shape of the OVERALL `mean(d)` moment, and whether the per-event
+# `mean(latent(d))` view applies.
 
 Base.@kwdef struct InterfaceFixture{D}
     name::String
@@ -45,11 +45,18 @@ Base.@kwdef struct InterfaceFixture{D}
     path::Union{Nothing, Tuple} = nothing
     "The `kind` keyword for a `Select` fixture, or `nothing`."
     kind::Union{Nothing, Symbol} = nothing
-    "Whether the node is univariate (scalar moment) vs multivariate (Vector)."
+    "Whether the node's `rand` is a univariate scalar (a leaf / `Competing`)."
     univariate::Bool = false
-    "Whether `mean`/`var`/`std` are defined for this node (a raw `latent`-wrapped
-    leaf, scored event-by-event, has no summary moment)."
-    check_moments::Bool = true
+    "The shape of the OVERALL `mean(d)`/`var(d)`/`std(d)` moment: `:scalar` for a
+    univariate-collapsible node (a leaf, `Sequential`, `Competing`), `:vector`
+    for a genuinely multivariate `Parallel` (a per-endpoint Vector), or `:none`
+    to skip the overall-moment check (a `Select`, or a node with no closed-form
+    moment)."
+    overall::Symbol = :scalar
+    "Whether the per-event `mean(latent(d))` view applies: a full per-event Vector
+    matching `rand(latent(d))`. True for the composers (`Sequential`/`Parallel`
+    and trees rooted in them), false for a bare leaf / `Select` / `Competing`."
+    latent_moments::Bool = false
     "Whether the node collapses to a univariate endpoint via
     `observed_distribution` (a chain / univariate)."
     has_endpoint::Bool = true
@@ -69,8 +76,11 @@ The checklist asserts, where applicable to the node's shape:
 
 - `length` is defined (multivariate) and a `rand(d)` realisation has matching
   length;
-- `mean` / `var` / `std` are defined and shaped to match `rand` (a Vector for a
-  multivariate node, a scalar for a univariate one);
+- the OVERALL `mean` / `var` / `std` are shaped as the fixture's `overall`
+  declares (a scalar for a univariate-collapsible node, a per-endpoint Vector for
+  a `Parallel`), and where `latent_moments` is set the per-event
+  `mean(latent(d))` / `var(latent(d))` / `std(latent(d))` are a full Vector
+  matching `rand(latent(d))`;
 - `logpdf` is finite on the supplied in-support `draw`;
 - a univariate `cdf` is monotone and in `[0, 1]`;
 - `params` works and `params_table` is a Tables.jl table
@@ -81,8 +91,8 @@ The checklist asserts, where applicable to the node's shape:
 
 Pass the fixture metadata (an [`example_fixtures`](@ref) entry, or the keyword
 arguments directly) so the harness knows the in-support `draw`, a known `event`
-`path`, a `Select` `kind`, and whether the node is univariate. Returns the
-`@testset` object.
+`path`, a `Select` `kind`, the `overall` moment shape, and whether the per-event
+`latent_moments` view applies. Returns the `@testset` object.
 
 # Examples
 ```julia
@@ -90,17 +100,19 @@ using CensoredDistributions, Distributions
 using CensoredDistributions.TestUtils: test_interface
 
 d = compose((onset_admit = Gamma(2.0, 1.0), admit_death = LogNormal(0.5, 0.4)))
-test_interface(d; draw = rand(d), path = (:onset_admit,))
+test_interface(d; draw = rand(d), path = (:onset_admit,),
+    overall = :vector, latent_moments = true, has_endpoint = false)
 ```
 """ function test_interface end
 
 function test_interface(d; name::AbstractString = string(nameof(typeof(d))),
         draw = nothing, path::Union{Nothing, Tuple} = nothing,
         kind::Union{Nothing, Symbol} = nothing, univariate::Bool = false,
-        check_moments::Bool = true, has_endpoint::Bool = true)
+        overall::Symbol = :scalar, latent_moments::Bool = false,
+        has_endpoint::Bool = true)
     fix = InterfaceFixture(; name = name, dist = d, draw = draw, path = path,
-        kind = kind, univariate = univariate, check_moments = check_moments,
-        has_endpoint = has_endpoint)
+        kind = kind, univariate = univariate, overall = overall,
+        latent_moments = latent_moments, has_endpoint = has_endpoint)
     return test_interface(fix)
 end
 
@@ -135,31 +147,42 @@ function _check_select(d::Select, fix)
 end
 _check_select(::Any, fix) = nothing
 
-# `mean`/`var`/`std` defined and shaped to match `rand`: a Vector for a
-# multivariate node, a scalar for a univariate one. For a multivariate node the
-# moment / rand lengths must agree.
+# The moments have two tiers: the OVERALL `mean(d)` (a scalar for a
+# univariate-collapsible node, a per-endpoint Vector for a `Parallel`) and the
+# per-event `mean(latent(d))` (a Vector matching `rand(latent(d))`). The harness
+# exercises `rand(d)` and asserts each tier the fixture declares applicable.
 function _check_moments_and_rand(d, fix)
     _is_select(d) && return nothing
     @testset "moments and rand" begin
         r = rand(d)
-        if !fix.check_moments
-            # Still exercise rand; the node has no summary moment.
-            @test r isa Union{Real, AbstractVector, NamedTuple}
-        elseif fix.univariate
-            @test r isa Real
+        @test r isa Union{Real, AbstractVector, NamedTuple}
+        # Overall moment shape.
+        if fix.overall === :scalar
             @test mean(d) isa Real
             @test var(d) isa Real
             @test std(d) isa Real
-        else
+        elseif fix.overall === :vector
             m = mean(d)
             v = var(d)
             s = std(d)
             @test m isa AbstractVector
             @test v isa AbstractVector
             @test s isa AbstractVector
-            @test length(m) == length(r)
-            @test length(v) == length(r)
-            @test length(s) == length(r)
+            @test length(m) == length(v) == length(s)
+        end
+        # Per-event (latent) moment: a full Vector matching rand(latent(d)).
+        if fix.latent_moments
+            ld = latent(d)
+            lr = rand(ld)
+            lm = mean(ld)
+            lv = var(ld)
+            ls = std(ld)
+            @test lm isa AbstractVector
+            @test lv isa AbstractVector
+            @test ls isa AbstractVector
+            @test length(lm) == length(lr)
+            @test length(lv) == length(lr)
+            @test length(ls) == length(lr)
         end
     end
     return nothing
@@ -320,31 +343,41 @@ function example_fixtures()
     lat = latent(primary_censored(G(2.0, 1.0), Distributions.Uniform(0, 1)))
 
     return InterfaceFixture[
-        # A plain leaf has the full univariate interface (scalar moments + cdf).
+        # A plain leaf has the full univariate interface (scalar moment + cdf),
+        # no latent per-event view.
         InterfaceFixture(; name = "bare plain leaf", dist = G(2.0, 1.0),
-            draw = 3.0, univariate = true),
+            draw = 3.0, univariate = true, overall = :scalar),
         # A bare CENSORED leaf scores and has a monotone cdf, but no analytic
-        # summary moment (censoring has no closed-form mean), so moments are
-        # skipped here.
+        # summary moment (censoring has no closed-form mean), so the overall
+        # moment check is skipped here.
         InterfaceFixture(; name = "bare censored leaf", dist = leaf,
-            draw = 3.0, univariate = true, check_moments = false),
+            draw = 3.0, univariate = true, overall = :none),
+        # A Sequential collapses to its overall scalar moment (the convolved
+        # total), with the full per-event vector via `latent`.
         InterfaceFixture(; name = "Sequential", dist = seq,
-            draw = rand(seq), path = (:onset_admit,)),
-        # A Parallel has several independent endpoints and so no single observed
-        # scalar; `observed_distribution` is not defined for it.
+            draw = rand(seq), path = (:onset_admit,), overall = :scalar,
+            latent_moments = true),
+        # A Parallel is genuinely multivariate: the overall moment is a
+        # per-endpoint Vector, with the full per-event vector via `latent`. It has
+        # several independent endpoints and so no single observed scalar;
+        # `observed_distribution` is not defined for it.
         InterfaceFixture(; name = "Parallel", dist = par, draw = rand(par),
-            has_endpoint = false),
+            overall = :vector, latent_moments = true, has_endpoint = false),
         InterfaceFixture(; name = "Competing", dist = comp, draw = 4.0,
-            path = (:death,), univariate = true),
+            path = (:death,), univariate = true, overall = :scalar),
         InterfaceFixture(; name = "selecting", dist = sel, draw = 3.0,
-            kind = :index, path = (:index,), has_endpoint = false),
+            kind = :index, path = (:index,), overall = :none,
+            has_endpoint = false),
         # A nested tree branches off a shared origin (a Parallel at its root), so
-        # likewise has no single collapsed endpoint.
+        # its overall moment is a per-endpoint Vector and it has no single
+        # collapsed endpoint; the full per-event vector is via `latent`.
         InterfaceFixture(; name = "nested mix", dist = nested,
             draw = rand(nested), path = (:admit_path, :admit_resolution),
-            has_endpoint = false),
+            overall = :vector, latent_moments = true, has_endpoint = false),
+        # `latent` over a single primary-censored leaf is scored event-by-event
+        # with no summary moment.
         InterfaceFixture(; name = "latent-wrapped", dist = lat,
-            draw = rand(lat), check_moments = false, has_endpoint = false)
+            draw = rand(lat), overall = :none, has_endpoint = false)
     ]
 end
 
