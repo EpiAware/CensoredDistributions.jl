@@ -494,13 +494,30 @@ function _freeze_tree(d::Dict{Symbol})
     return NamedTuple{ks}(map(k -> _freeze_tree(d[k]), ks))
 end
 
-# --- support-derived default priors (brms-style family defaults) ------------
+# --- parameter-derived default priors (brms-style family defaults) ----------
+#
+# The default prior is classified from the PARAMETER's own natural domain, not
+# the leaf's variate support: a location-family delay (`Normal`, `Affine(Normal)`)
+# has unbounded variate support, but its scale parameter still lives on the
+# positive half-line, so a `minimum(dist)`/`maximum(dist)` rule would wrongly
+# give it an unconstrained prior with mass on negative scale.
 
-# Location parameters are unconstrained even for a positive-support delay (a
-# LogNormal/Normal `mu` lives on the whole line), so they get an unconstrained
-# default; scale/shape parameters are positive. Anything unmapped falls back to
-# the variate-support rule.
-_is_location_param(p::Symbol) = p === :mu || p === :lower || p === :upper
+# Location parameters live on the whole line (a `Normal`/`LogNormal` `mu`, a
+# `Uniform` bound), so they get an unconstrained default.
+function _is_location_param(p::Symbol)
+    p === :mu || p === :location || p === :loc || p === :lower || p === :upper
+end
+
+# Scale/shape/rate-type parameters are positive by construction (the `sigma` of a
+# `Normal`/`LogNormal`, the `shape`/`scale` of a `Gamma`/`Weibull`, the `scale`
+# of an `Exponential`, and the common positive parameter names of related
+# families), so they get a positive-truncated default regardless of the leaf's
+# variate support.
+function _is_positive_param(p::Symbol)
+    p === :sigma || p === :scale || p === :rate || p === :shape ||
+        p === :alpha || p === :beta || p === :theta || p === :nu ||
+        p === :k || p === :df
+end
 
 @doc "
 
@@ -509,15 +526,20 @@ Pick a default prior for a parameter row, brms-style.
 `default_prior(row)` is the per-row default [`build_priors`](@ref) uses for rows
 the user does not override. `row` is a `(; edge, param, value, support)`
 NamedTuple (a [`params_table`](@ref) row); the prior family follows the
-parameter's name and its `support` bounds:
+parameter's own natural domain (classified by name), not the leaf's variate
+support:
 
-- a `branch_probs` row, support `[0, 1]` -> `Uniform(0, 1)`.
-- a location parameter (`:mu` of a `Normal`/`LogNormal`) -> an unconstrained
-  `Normal(value, scale)`, since the location lives on the whole line even for a
-  positive-support delay.
-- otherwise, a non-negative variate support (a positive-support delay's
-  scale/shape) -> `truncated(Normal(value, scale); lower = 0)`.
-- otherwise (unconstrained variate) -> `Normal(value, scale)`.
+- a probability parameter, support `[0, 1]` (a `branch_probs` row) ->
+  `Uniform(0, 1)`.
+- a scale/shape/rate-type parameter (`:sigma`, `:scale`, `:shape`, `:rate`, ...)
+  -> `truncated(Normal(value, scale); lower = 0)`, positive by construction even
+  for a location-family delay (a `Normal`/`Affine(Normal)` `sigma`).
+- a location parameter (`:mu`, `:location`, a `Uniform` bound) ->
+  `Normal(value, scale)`, unconstrained since the location lives on the whole
+  line even for a positive-support delay.
+- otherwise, an unmapped name falls back to the variate support: a non-negative
+  support -> `truncated(Normal(value, scale); lower = 0)`, else
+  `Normal(value, scale)`.
 
 The spread `scale` defaults to `max(abs(value), 1)`, a weakly-informative width
 that scales with the parameter's magnitude.
@@ -529,7 +551,7 @@ that scales with the parameter's magnitude.
 ```@example
 using CensoredDistributions, Distributions
 
-# A positive-support scale parameter -> a positive-truncated default.
+# A positive scale parameter -> a positive-truncated default.
 default_prior((; edge = :onset_admit, param = :scale,
     value = 1.0, support = (0.0, Inf)))
 ```
@@ -543,6 +565,9 @@ function default_prior(row)
     scale = max(abs(float(row.value)), one(float(row.value)))
     if lo == 0 && hi == 1
         return Distributions.Uniform(0, 1)
+    elseif _is_positive_param(row.param)
+        return Distributions.truncated(
+            Distributions.Normal(row.value, scale); lower = 0)
     elseif _is_location_param(row.param)
         return Distributions.Normal(row.value, scale)
     elseif lo >= 0 && isinf(hi)
