@@ -459,3 +459,50 @@ end
     lp_loop = only(logjoint(per_record(d, rows), (;)))
     @test lp_vec ≈ lp_loop
 end
+
+@testitem "vectorised Select rejects heterogeneous-length alternatives" begin
+    using CensoredDistributions, Distributions
+
+    # A leaf alternative is one event slot; a composer alternative is several. A
+    # table that mixes rows selecting alternatives of DIFFERENT event-slot counts
+    # has no rectangular event matrix. The records are heterogeneous-length, so
+    # `product_distribution` would throw Distributions.jl's opaque "all
+    # distributions must be of the same size". `record_distributions` raises a
+    # clear `ArgumentError` instead.
+    d = select_branch(
+        :leaf => Gamma(2.0, 1.0),
+        :pair => Sequential(Gamma(1.0, 1.0), LogNormal(0.5, 0.4)))
+    rows = [(kind = :leaf, value = 2.0),
+        (kind = :pair, onset = 0.0, admit = 3.0)]
+    err = try
+        CensoredDistributions.record_distributions(d, rows)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("same number", err.msg)
+    # A homogeneous table (all rows pick the same-length alternative) is fine.
+    homog = [(kind = :leaf, value = 2.0), (kind = :leaf, value = 3.0)]
+    recs = CensoredDistributions.record_distributions(d, homog)
+    @test length(recs) == 2
+end
+
+@testitem "vectorised Select rejects a Latent alternative (#391)" begin
+    using CensoredDistributions, Distributions
+
+    # A Select alternative that is a `Latent` (multivariate) hits no dispatch in
+    # the vectorised `_alternative_record` and would fail with a bare MethodError.
+    # It is not yet supported (see issue #391); a clear `ArgumentError` is raised.
+    lat = latent(primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    d = select_branch(:obs => Gamma(2.0, 1.0), :lat => lat)
+    rows = [(kind = :lat, primary = 0.0, observed = 2.0)]
+    err = try
+        CensoredDistributions.record_distributions(d, rows)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("391", err.msg)
+end

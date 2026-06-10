@@ -80,16 +80,14 @@ end
     @test d.selector == :case
 end
 
-@testitem "Select nests as a composer child and compares structurally" begin
+@testitem "Select holds a composer alternative and compares structurally" begin
     using CensoredDistributions, Distributions
 
-    # A Select alternative may itself be a composer, and a Select nests inside a
-    # Sequential/Parallel like any other node.
+    # A Select alternative may itself be a composer (the supported nesting
+    # direction: a composer INSIDE a Select).
     inner = select_branch(:a => Gamma(2.0, 1.0),
         :b => Sequential(Gamma(1.0, 1.0), LogNormal(0.5, 0.4)))
     @test inner isa CensoredDistributions.Select
-    par = Parallel(Gamma(2.0, 1.0), inner)
-    @test par isa CensoredDistributions.Parallel
 
     # Structural equality and hashing over names, alternatives, and selector.
     a = select_branch(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0))
@@ -115,10 +113,43 @@ end
     s2 = select_branch(:nested => inner, :flat => Gamma(1.0, 1.0))
     @test s2 == CD.Select((:nested, :flat), (inner, Gamma(1.0, 1.0)), :kind)
 
-    # A select nested inside a compose, and scoring routes to the chosen branch.
-    outer = compose((pick = inner, side = Normal(0.0, 1.0)))
-    @test outer == CD.Parallel(inner, Normal(0.0, 1.0))
+    # The supported direction (a composer/select INSIDE a Select) scores fine.
     @test logpdf(inner, 3.0; kind = :short) ≈ logpdf(Gamma(2.0, 1.0), 3.0)
+end
+
+@testitem "Select cannot be nested inside a Sequential/Parallel/compose" begin
+    using CensoredDistributions, Distributions
+    const CD = CensoredDistributions
+
+    inner = select_branch(:a => Gamma(2.0, 1.0), :b => Gamma(5.0, 1.0))
+
+    # A Select has no fixed contribution length, so it cannot be a composer child:
+    # the constructors and `compose` reject it cleanly (see issue #413) rather than
+    # constructing and then MethodError-ing on length/logpdf/rand.
+    @test_throws ArgumentError Parallel(Gamma(2.0, 1.0), inner)
+    @test_throws ArgumentError Parallel(inner, Gamma(2.0, 1.0))
+    @test_throws ArgumentError Sequential(Gamma(2.0, 1.0), inner)
+    @test_throws ArgumentError compose((pick = inner, side = Normal(0.0, 1.0)))
+    @test_throws ArgumentError compose([inner Gamma(2.0, 1.0)])
+    # The error message points at the supported alternative.
+    err = try
+        Parallel(Gamma(2.0, 1.0), inner)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("Select", err.msg)
+
+    # The supported direction (a composer INSIDE a Select) still constructs AND is
+    # operable: logpdf / rand run on the selected alternative.
+    tree = compose((a = Gamma(2.0, 1.0), b = LogNormal(0.5, 0.4)))
+    s = select_branch(:joint => tree, :leaf => Gamma(3.0, 1.0))
+    @test s isa CD.Select
+    @test logpdf(s, [1.0, 2.0]; kind = :joint) ≈ logpdf(tree, [1.0, 2.0])
+    @test logpdf(s, 1.5; kind = :leaf) ≈ logpdf(Gamma(3.0, 1.0), 1.5)
+    @test rand(s; kind = :leaf) isa Real
+    @test rand(s; kind = :joint) isa AbstractVector
 end
 
 @testitem "nested select_branch scores and samples via model entry" begin
