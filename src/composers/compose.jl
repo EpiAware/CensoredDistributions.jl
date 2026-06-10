@@ -79,10 +79,17 @@ function compose(nt::NamedTuple)
 end
 
 # A NamedTuple is treated as a column table when it has `name` and `dist` fields
-# that are both vectors (the column-table shape), not nested branch values.
+# that are both vectors (the column-table shape), AND those vectors carry the
+# column ROLES of a real table: the `:dist` column holds distributions and the
+# `:name` column holds row LABELS (not distributions). This disambiguates a
+# genuine `(name, dist)` table from a structural NamedTuple whose user-chosen
+# branch keys happen to be `:name`/`:dist` carrying distribution vectors, e.g.
+# `(name = [d1, d2], dist = [d3, d4])` — two named chain branches, not a table.
 function _is_column_table(nt::NamedTuple)
     haskey(nt, :name) && haskey(nt, :dist) &&
-        nt.name isa AbstractVector && nt.dist isa AbstractVector
+        nt.name isa AbstractVector && nt.dist isa AbstractVector &&
+        all(d -> d isa UnivariateDistribution, nt.dist) &&
+        !any(n -> n isa UnivariateDistribution, nt.name)
 end
 
 # Lower a single front-end value to a composer child. A nested NamedTuple
