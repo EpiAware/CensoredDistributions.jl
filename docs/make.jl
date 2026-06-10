@@ -169,6 +169,110 @@ else
     println("NEWS.md not found in project root")
 end
 
+# Generate the API reference pages (lib/public.md, lib/internals.md) from the
+# module's documented bindings. `@autodocs` splices ONE docstring block per
+# documented METHOD SIGNATURE, so a function with several `@doc`-annotated
+# methods (e.g. `primary_censored`) appears many times in both the rendered API
+# and the `@index` (issue #184). Instead, each binding is listed ONCE in a
+# `@docs` block: Documenter then combines all of a binding's method docstrings
+# under a single heading with a single `@index` entry, while still showing every
+# docstring. The binding list is derived from the module at build time, so it
+# composes with whatever names happen to be exported.
+
+# Whether `sym` is part of `mod`'s public API, matching how Documenter's
+# `@autodocs` partitions `Public`/`Private` (`Base.ispublic` on >= 1.11, else
+# exported). Note the check is against `mod`, not the binding's defining module,
+# so a docstring CensoredDistributions attaches to an extended foreign function
+# (e.g. `Base.show`, `Distributions.logpdf`) is internal unless re-exported.
+function _is_public(mod::Module, sym::Symbol)
+    return @static if isdefined(Base, :ispublic)
+        Base.ispublic(mod, sym)
+    else
+        Base.isexported(mod, sym)
+    end
+end
+
+function api_bindings(mod::Module)
+    # The keys of `Docs.meta(mod)` are every binding `mod` attaches a docstring
+    # to, including extended functions owned by other modules. This is the same
+    # set `@autodocs Modules = [mod]` walks, so listing each binding once here
+    # (rather than once per method signature) keeps every docstring while
+    # collapsing the index to one entry per function. Derived from the module at
+    # build time, so it composes with whatever names are exported.
+    meta = Base.Docs.meta(mod)
+    vars = sort!([b.var for b in keys(meta)]; by = string)
+    public = Symbol[]
+    private = Symbol[]
+    for v in vars
+        v === nameof(mod) && continue  # skip the module's own docstring
+        push!(_is_public(mod, v) ? public : private, v)
+    end
+    return public, private
+end
+
+function write_api_page(path, title, anchor, page, intro, api_heading, mod, names)
+    open(path, "w") do io
+        if anchor === nothing
+            println(io, "# $title")
+        else
+            println(io, "# [$title](@id $anchor)")
+        end
+        println(io)
+        println(io, intro)
+        println(io)
+        println(io, "## Contents")
+        println(io)
+        println(io, "```@contents")
+        println(io, "Pages = [\"$page\"]")
+        println(io, "Depth = 2:2")
+        println(io, "```")
+        println(io)
+        println(io, "## Index")
+        println(io)
+        println(io, "```@index")
+        println(io, "Pages = [\"$page\"]")
+        println(io, "```")
+        println(io)
+        # Section heading is a stable `@ref` target for other pages, so keep
+        # the original "Public API" / "Internal API" titles.
+        println(io, "## $api_heading")
+        println(io)
+        println(io, "```@docs")
+        for name in names
+            # Qualify through the package, not the binding's defining module:
+            # extended foreign functions (`logpdf`, `params`, `show`, ...) are
+            # imported into `mod`, so `mod.name` resolves on the docs page while
+            # `Distributions.logpdf` etc. would not (those modules are not in
+            # the page's scope). Documenter still splices every method docstring
+            # registered for the binding.
+            println(io, string(mod, ".", name))
+        end
+        println(io, "```")
+    end
+end
+
+let (public, private) = api_bindings(CensoredDistributions)
+    lib_dir = joinpath(@__DIR__, "src", "lib")
+    write_api_page(
+        joinpath(lib_dir, "public.md"),
+        "Public Documentation", "public-api", "public.md",
+        "Documentation for `CensoredDistributions.jl`'s public interface.\n\n" *
+        "See the Internals section of the manual for internal package docs " *
+        "covering all submodules.",
+        "Public API", CensoredDistributions, public
+    )
+    write_api_page(
+        joinpath(lib_dir, "internals.md"),
+        "Internal Documentation", nothing, "internals.md",
+        "Documentation for `CensoredDistributions.jl`'s internal interface.",
+        "Internal API", CensoredDistributions, private
+    )
+    println(
+        "Generated API pages: $(length(public)) public, " *
+        "$(length(private)) internal bindings"
+    )
+end
+
 DocMeta.setdocmeta!(CensoredDistributions, :DocTestSetup,
     :(using CensoredDistributions); recursive = true)
 
