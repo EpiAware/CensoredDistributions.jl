@@ -21,7 +21,8 @@ using Statistics: mean
 # vector-valued per-record event VarNames (e.g. `rec1.e`) whose draws are
 # `Vector`s and whose mean the summary keys element-wise, not under the bare
 # name; the template walk never requests them. Filtering on the column element
-# type keeps the scalars and skips the vector params, so reading the mean is safe.
+# type keeps the scalars and skips the vector params, so the mean is safe to
+# read.
 function _value_lookup(chain, draw)
     vns = [vn for vn in FlexiChains.parameters(chain)
            if eltype(chain[vn]) <: Real]
@@ -67,8 +68,9 @@ function _node_params(c::Competing, lookup, prefix, path)
     return merge(base, (; branch_probs = NamedTuple{c.names}(Tuple(bp))))
 end
 
-# A `Select` walks its alternatives by name (mirroring the core `params`/`update`
-# traversal), so a posterior reads back onto a Select template. The nested
+# A `Select` walks its alternatives by name (mirroring the core
+# `params`/`update` traversal), so a posterior reads back onto a Select
+# template. The nested
 # NamedTuple is keyed by the alternative names; a shared-tagged leaf inside an
 # alternative reads its values from the top level under its tag (see the leaf
 # method), so a tie across alternatives maps to the one chain entry.
@@ -85,11 +87,11 @@ end
 # error rather than build a NamedTuple with a `nothing` value.
 #
 # A SHARED-tagged leaf (`shared(:inc, ...)`) is deduped in the chain: it is
-# sampled ONCE under its tag (`<prefix>.<tag>.<param>`, e.g. `d.inc.shape`), not
-# per occurrence, matching `params_table`'s tag edge and `_collect_shared`. So an
-# occurrence reads its values at the bare TAG (ignoring its branch path); every
-# occurrence then maps to the one chain entry, and the nested NamedTuple keys the
-# group ONCE at the top level under its tag (which `update` reads back).
+# sampled ONCE under its tag (`<prefix>.<tag>.<param>`, e.g. `d.inc.shape`),
+# not per occurrence, matching `params_table`'s tag edge and `_collect_shared`.
+# So an occurrence reads its values at the bare TAG (ignoring its branch path);
+# every occurrence then maps to the one chain entry, and the nested NamedTuple
+# keys the group ONCE at the top level under its tag (read back by `update`).
 function _node_params(leaf, lookup, prefix, path)
     tag = CensoredDistributions._shared_tag(leaf)
     keypath = tag === nothing ? path : (tag,)
@@ -107,8 +109,9 @@ end
 # Read every shared group ONCE from the chain into a top-level `tag => values`
 # NamedTuple, mirroring how `composed_parameters_model` samples each group under
 # its tag (`<prefix>.<tag>.<param>`) and how the core `update` reads a shared
-# leaf from the top-level tag entry. `_collect_shared` gives the first-occurrence
-# leaf per tag (its inner family fixes the parameter names), deduped in pre-order.
+# leaf from the top-level tag entry. `_collect_shared` gives the
+# first-occurrence leaf per tag (its inner family fixes the parameter names),
+# deduped in pre-order.
 function _shared_params(template, lookup, prefix)
     groups = CensoredDistributions._collect_shared(template)
     isempty(groups) && return NamedTuple()
@@ -122,15 +125,15 @@ function chain_to_params(template, chain; prefix::Symbol = :d, draw = nothing)
     lookup = _value_lookup(chain, draw)
     tree = _node_params(template, lookup, prefix, ())
     # A shared-tagged leaf is sampled once under its tag, so add a top-level
-    # `tag` entry for each shared group; the core `update` reads every occurrence
-    # from it (the per-occurrence entries in `tree` are tolerated and ignored).
+    # `tag` entry for each shared group; the core `update` reads each
+    # occurrence from it (per-occurrence entries in `tree` are tolerated).
     return merge(tree, _shared_params(template, lookup, prefix))
 end
 
 # Update a composed distribution directly from a fitted chain, so docs call
 # `update(template, chain)` rather than threading `chain_to_params` by hand.
-# Reads the chain into the nested NamedTuple (posterior means, or a single `draw`)
-# at the submodel `prefix`, then reconstructs through the core `update`.
+# Reads the chain into the nested NamedTuple (posterior means, or a single
+# `draw`) at the submodel `prefix`, then reconstructs through the core `update`.
 @doc "
 
 Update a composed distribution's parameters straight from a fitted chain.
@@ -139,8 +142,8 @@ Update a composed distribution's parameters straight from a fitted chain.
 [`composed_parameters_model`](@ref)) into the nested NamedTuple and rebuilds
 `template` with those values, so the workflow is one call instead of
 `update(template, chain_to_params(template, chain))`. By default it applies
-posterior means; pass `draw=i` for a single iteration. The `prefix` keyword names
-the submodel variable the parameters were sampled under (default `:d`).
+posterior means; pass `draw=i` for a single iteration. The `prefix` keyword
+names the submodel variable the parameters were sampled under (default `:d`).
 
 This method is available only when both `DynamicPPL` and `FlexiChains` are
 loaded.

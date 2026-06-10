@@ -547,7 +547,8 @@ end
 
     # A `Select` with one leaf alternative and one nested-composer alternative.
     # Each alternative carries its own free parameters under the select path, so
-    # the chain bridge must walk the alternatives like the core `params`/`update`.
+    # the chain bridge must walk the alternatives like the core
+    # `params`/`update`.
     template = select_branch(:index => Gamma(2.0, 1.0),
         :sourced => compose((delta = LogNormal(0.5, 0.4),
             inc = Gamma(2.0, 1.0))))
@@ -580,8 +581,8 @@ end
     chain = sample(fit(template, priors, idx_obs, src_obs), NUTS(), 60;
         chain_type = VNChain, progress = false)
 
-    # Posterior means read into the nested NamedTuple `update` consumes; the keys
-    # mirror `params(template)` (every alternative walked).
+    # Posterior means read into the nested NamedTuple `update` consumes; the
+    # keys mirror `params(template)` (every alternative walked).
     means = chain_to_params(template, chain)
     @test Set(keys(means)) == Set(event_names(template))
     @test Set(keys(means.sourced)) == Set((:delta, :inc))
@@ -645,8 +646,8 @@ end
         chain_type = VNChain, progress = false)
 
     # The shared tag is inventoried ONCE under its tag, so the nested NamedTuple
-    # carries a top-level `inc` entry (matching `params_table`'s tag edge), not a
-    # per-occurrence entry under `index`/`sourced`.
+    # carries a top-level `inc` entry (matching `params_table`'s tag edge), not
+    # a per-occurrence entry under `index`/`sourced`.
     means = chain_to_params(template, chain)
     @test haskey(means, :inc)
     @test Set(keys(means.inc)) == Set((:shape, :scale))
