@@ -60,7 +60,7 @@ using CensoredDistributions
 using Distributions
 using Turing
 using Mooncake
-using FlexiChains: VNChain, Parameter
+using FlexiChains: VNChain
 using AlgebraOfGraphics
 using CairoMakie
 using DataFramesMeta
@@ -338,17 +338,17 @@ md"""
 ## Recovery
 
 We pull the posterior parameters from the chain with FlexiChains.
-A single [`Parameter`](https://github.com/TuringLang/FlexiChains.jl) access per
-name returns every draw across all chains; we collect the three model
-parameters into one NamedTuple of draw vectors and summarise each by its mean,
-so there is no per-element chain indexing.
+Indexing the chain by a parameter name returns every draw across all chains in
+one access; we collect the three model parameters into a single NamedTuple of
+draw vectors and summarise each by its mean, so there is no per-element chain
+indexing.
 The block-level Rt is a vector parameter, so its draws are vectors that we stack
 into a matrix and average over draws per block.
 """
 
 param_names = (:R_block, :alpha, :rho)
 
-draws = (; (p => vec(chain[Parameter(p)]) for p in param_names)...)
+draws = (; (p => vec(chain[p]) for p in param_names)...)
 
 post_R = vec(mean(reduce(hcat, draws.R_block); dims = 2))
 
