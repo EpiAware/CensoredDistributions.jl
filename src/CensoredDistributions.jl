@@ -14,7 +14,7 @@ import Distributions: params, insupport, pdf, logpdf, cdf, logcdf,
 import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
 using Distributions: Distributions, UnivariateDistribution, Distribution,
-                     Continuous, Multivariate, MixtureModel,
+                     Continuous, Multivariate, NamedTupleVariate, MixtureModel,
                      ValueSupport, Truncated, Product, Censored, truncated,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
                      Weibull, Normal, shape, scale, meanlogx, stdlogx,
@@ -181,6 +181,13 @@ include("composers/censored_specialisations.jl")
 # the censored specialisations (`event_logpdf`, `_sequential_segment`,
 # `_composer_rand`) and the row-parsing helpers in `tree_events.jl`.
 include("composers/record_dists.jl")
+
+# PROOF OF CONCEPT (RFC / do-not-merge): a NamedTuple-valued composed variate.
+# Depends on `tree_event_names` (tree_events.jl), `event_logpdf`
+# (censored_specialisations.jl) and `edge_means` (composed_moments.jl). Adds a
+# wrapper alongside the existing multivariate-Vector variate; it does not touch
+# the existing types. Exists only to inform the variate-representation decision.
+include("distributions/NamedTupleVariate.jl")
 
 # Turing-free `primary_censored_model` function stub. Has no methods
 # until DynamicPPL is loaded; the methods live in the package extension.
