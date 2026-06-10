@@ -269,15 +269,58 @@ end
 # integration component when clamping an infinite quadrature window.
 const _CONVOLVED_TAIL = 1e-8
 
+# Strip any AD wrapper (ForwardDiff `Dual`, ReverseDiff `TrackedReal`,
+# Enzyme/Mooncake duals) from a scalar, returning its underlying primal
+# value. The generic method is the identity on a plain real (so a
+# non-AD call keeps the component's own float type, e.g. `Float32`); the
+# per-backend extensions (`...ForwardDiffExt`, `...ReverseDiffExt`) add
+# unwrapping methods, and `...ChainRulesCoreExt` / `...EnzymeExt` register
+# it as non-differentiable so reverse and Enzyme modes do not trace it.
+# This is what keeps the quadrature window (a non-differentiable
+# hyperparameter — just *where* to integrate) off `quantile`'s AD path.
+_primal(x::Real) = x
+
+# Quantile used only to pick a finite quadrature endpoint. Reconstructing
+# the component from primal (AD-stripped) params means `quantile` — and so
+# `gamma_inc_inv` for a `Gamma` integration component — only ever sees
+# plain `Float64`s. No AD backend differentiates through it, which is
+# correct: the window choice carries no gradient (it is a fixed
+# hyperparameter of the quadrature, like the node count). Previously the
+# live `Dual`/`TrackedReal` params flowed into `quantile`, and Enzyme
+# cannot push duals through `SpecialFunctions.gamma_inc_inv_qsmall`
+# (issue #314: `IllegalTypeAnalysisException`).
+# `@noinline` so the call survives as a call site for the per-backend AD
+# rules (the Enzyme `EnzymeRules` rule and the ChainRules
+# `@non_differentiable` mark) to attach to; if it inlined, Enzyme would
+# type-analyse `quantile`/`gamma_inc_inv` directly and abort (#314).
+@noinline function _window_quantile(comp::UnivariateDistribution, p::Real)
+    primal = _primal_distribution(comp)
+    return quantile(primal, p)
+end
+
+# Rebuild a distribution with its parameters stripped to primal `Float64`s
+# via the type's positional constructor (`params` round-trips through the
+# constructor for the Distributions.jl families used here). The
+# `check_args = false` keyword is intentionally NOT passed: the original
+# distribution already validated its parameters, and the primal copy uses
+# the identical (now plain-`Float64`) values.
+function _primal_distribution(d::UnivariateDistribution)
+    D = Base.typename(typeof(d)).wrapper
+    return D(map(_primal, params(d))...)
+end
+
 # Clamp an integration window to a finite range. Both the integrand's
 # `f_C(t)` factor and (for the CDF) the transition of `F_R(x - t)` are
 # negligible outside the integration component's effective support, so an
 # infinite endpoint is replaced by an extreme quantile of `last_comp`.
 # This lets the numeric path handle components unbounded on either side
-# (e.g. Normal+Normal under `force_numeric`).
+# (e.g. Normal+Normal under `force_numeric`). The endpoint quantile is
+# computed on AD-stripped params (`_window_quantile`) so the window stays
+# a non-differentiated constant across every AD backend (issue #314).
 function _finite_window(last_comp, lower::Real, upper::Real)
-    lo = isfinite(lower) ? lower : quantile(last_comp, _CONVOLVED_TAIL)
-    hi = isfinite(upper) ? upper : quantile(last_comp, 1 - _CONVOLVED_TAIL)
+    lo = isfinite(lower) ? lower : _window_quantile(last_comp, _CONVOLVED_TAIL)
+    hi = isfinite(upper) ? upper :
+         _window_quantile(last_comp, 1 - _CONVOLVED_TAIL)
     return lo, hi
 end
 
