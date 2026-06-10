@@ -125,7 +125,7 @@ end
     tree = compose((a = affine(Gamma(2.0, 1.0); scale = 1.5, shift = 0.5),))
     upd = update(tree, (a = (shape = 3.0, scale = 2.0),))
 
-    leaf = get_event(upd, :a)
+    leaf = event(upd, :a)
     @test leaf isa CensoredDistributions.Affine
     @test leaf.scale == 1.5
     @test leaf.shift == 0.5

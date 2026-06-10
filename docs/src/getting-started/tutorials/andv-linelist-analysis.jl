@@ -279,8 +279,8 @@ fig
 # `update`, so the post-fit delay object comes from the composer rather than
 # from hand-built distributions.
 # A `Sequential` template of the two delays is updated from the posterior means
-# keyed by step name, then `edge_means` reads both per-edge delay means off the
-# fitted object in one call.
+# keyed by step name, then the per-event [`mean`](@ref) Vector reads both delay
+# means off the fitted object in one call.
 
 template = Sequential(Normal(0.0, 1.0), LogNormal(1.0, 0.5))
 posted = update(template,
@@ -288,7 +288,7 @@ posted = update(template,
             sigma = mean(vec(chain[:sigma_delta]))),
         step_2 = (mu = mean(vec(chain[:mu_inc])),
             sigma = mean(vec(chain[:sigma_inc])))))
-fitted_edges = edge_means(posted)
+fitted_edges = mean(posted)
 
 # Posterior mean incubation period (in days) and its 95% credible interval,
 # read from the per-draw LogNormal means.

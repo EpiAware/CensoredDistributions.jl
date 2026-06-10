@@ -1,21 +1,23 @@
 # ============================================================================
-# Per-edge delay moments of a composed distribution
+# Per-event moments of a composed distribution via the standard interface
 # ============================================================================
 #
-# `edge_means(d)` / `edge_vars(d)` walk a composed distribution and return ALL
-# per-edge delay moments at once, keyed by edge name, mirroring the tree. Each
-# edge's moment is that of its underlying FREE delay: `free_leaf` peels the fixed
-# censoring (double_interval_censored / Truncated / Weighted) off to the inner
-# delay, so a `double_interval_censored(Gamma(2, 3.5))` edge reports the Gamma's
-# mean (7.0), not the censored mean.
+# A composed tree is a `Multivariate` distribution: `rand(d)` returns the full
+# per-event realisation. The standard `Distributions.mean`/`var`/`std` are
+# defined here to return the per-event moments in the SAME flat layout, a
+# `Vector` matching `rand(d)`/[`event_names`](@ref). There is NO separate wrapper
+# type: the multivariate `mean`/`var`/`std` IS the per-event view (pair it with
+# `event_names(d)` for a labelled NamedTuple).
 #
-# Recursion mirrors `params`: a `Sequential`/`Parallel` returns a NamedTuple of
-# per-edge moments keyed by component names; a `Competing` returns per-outcome
-# moments plus the mixture moment; a `Select` returns per-branch moments keyed by
-# branch name; a `Latent` of a composer delegates to the wrapped composer. A
-# `Convolved` already has a `mean`/`var` (sum over components), reused directly.
-# Hand-rolled type-stable recursion over the component tuples, like the rest of
-# the introspection layer.
+# Each event slot's moment is that of its underlying FREE delay: `free_leaf`
+# peels the fixed censoring (double_interval_censored / Truncated / Weighted) off
+# to the inner delay, so a `double_interval_censored(Gamma(2, 3.5))` edge reports
+# the Gamma's mean (7.0), not the censored mean. The origin slot of a censored
+# tree reports the primary (origin) event's moment.
+#
+# For a univariate node (a `Competing` mixture, a bare leaf) the standard scalar
+# moment is kept (defined on `Competing` in `Competing.jl`, on leaves by
+# Distributions.jl).
 
 # --- per-leaf moment (free-delay transparent) ------------------------------
 
@@ -27,31 +29,22 @@ free_leaf(d::Weighted) = free_leaf(d.dist)
 # Mean / variance of a (possibly censored) leaf: that of its inner free delay.
 # A plain leaf is its own free leaf; a `Convolved` free-leafs to itself and so
 # reuses its additive `mean`/`var`.
-_edge_mean(leaf) = mean(free_leaf(leaf))
-_edge_var(leaf) = var(free_leaf(leaf))
+_leaf_mean(leaf) = mean(free_leaf(leaf))
+_leaf_var(leaf) = var(free_leaf(leaf))
 
-# --- recursion over the composer tree --------------------------------------
+# --- standard moments on the composed tree (per-event Vector) ---------------
 
 @doc "
 
-All per-edge delay means of a composed distribution, keyed by edge name.
+Per-event means of a composed distribution, as a `Vector`.
 
-`edge_means(d)` walks the composed distribution and returns every edge's delay
-mean at once, mirroring the tree. A [`Sequential`](@ref)/[`Parallel`](@ref)
-returns a `NamedTuple` keyed by its component names; a [`Competing`](@ref)
-returns its per-outcome means plus a `mixture` entry (the marginal
-time-to-resolution mean); a [`Select`](@ref) returns its per-branch means keyed
-by branch name; a `Latent` of a composer returns the wrapped composer's edge
-means. Each edge's mean is that of its underlying FREE delay, so a censored leaf
-(e.g. `double_interval_censored(Gamma(2, 3.5))`) reports the inner delay mean
-(`7.0`); a [`Convolved`](@ref) edge reuses its additive mean.
-
-Pair with [`update`](@ref) and [`chain_to_params`](@ref) to read all posterior
-delay means off a fitted composed object in one call,
-`edge_means(update(template, means))`, rather than extracting each by hand.
-
-# Arguments
-- `d`: the composed distribution (or bare leaf) to read edge means from.
+`mean(d)` on a composed tree (a `Multivariate` distribution) returns the
+per-event means in the SAME flat layout as `rand(d)` and [`event_names`](@ref):
+for a censored tree the origin event's mean followed by one mean per leaf edge;
+for a plain (uncensored) tree the per-step value means. Each edge's mean is that
+of its underlying FREE delay, so a censored leaf (e.g.
+`double_interval_censored(Gamma(2, 3.5))`) reports the inner delay mean (`7.0`).
+Pair with [`event_names`](@ref) for a labelled NamedTuple.
 
 # Examples
 ```@example
@@ -60,25 +53,23 @@ using CensoredDistributions, Distributions
 tree = compose((onset_admit = double_interval_censored(Gamma(2.0, 3.5);
         primary_event = Uniform(0, 1), interval = 1.0),
     onset_notif = Gamma(0.7, 20.0)))
-edge_means(tree)
+NamedTuple{event_names(tree)}(Tuple(mean(tree)))
 ```
 
 # See also
-- [`edge_vars`](@ref): the matching per-edge variances
-- [`event_names`](@ref), [`get_event`](@ref): name introspection
-- [`update`](@ref): set posterior parameters before reading means
+- [`var`](@ref), [`std`](@ref): the matching per-event variance / std
+- [`event_names`](@ref): the flat per-event labels
+- [`endpoint`](@ref): collapse a chain to its terminal scalar
 "
-edge_means(d::Union{Sequential, Parallel}) = _edge_moments(d, _edge_mean)
+mean(d::Union{Sequential, Parallel}) = _event_moment_vector(d, _leaf_mean)
 
 @doc "
 
-All per-edge delay variances of a composed distribution, keyed by edge name.
+Per-event variances of a composed distribution, as a `Vector`.
 
-`edge_vars(d)` mirrors [`edge_means`](@ref), returning the variance of each
-edge's underlying FREE delay in the same nested shape.
-
-# Arguments
-- `d`: the composed distribution (or bare leaf) to read edge variances from.
+`var(d)` mirrors [`mean`](@ref), returning the variance of each event's
+underlying FREE delay in the same flat per-event layout as `rand(d)` /
+[`event_names`](@ref).
 
 # Examples
 ```@example
@@ -87,92 +78,179 @@ using CensoredDistributions, Distributions
 tree = compose((onset_admit = double_interval_censored(Gamma(2.0, 3.5);
         primary_event = Uniform(0, 1), interval = 1.0),
     onset_notif = Gamma(0.7, 20.0)))
-edge_vars(tree)
+NamedTuple{event_names(tree)}(Tuple(var(tree)))
 ```
 
 # See also
-- [`edge_means`](@ref): the matching per-edge means
+- [`mean`](@ref), [`std`](@ref)
 "
-edge_vars(d::Union{Sequential, Parallel}) = _edge_moments(d, _edge_var)
+var(d::Union{Sequential, Parallel}) = _event_moment_vector(d, _leaf_var)
 
-edge_means(c::Competing) = _competing_means(c)
-edge_vars(c::Competing) = _competing_vars(c)
+@doc "
 
-edge_means(d::Select) = _select_moments(d, _edge_mean)
-edge_vars(d::Select) = _select_moments(d, _edge_var)
+Per-event standard deviations of a composed distribution, as a `Vector`.
 
-# A Latent of a composer reports the wrapped composer's edge moments.
-edge_means(d::Latent) = edge_means(d.dist)
-edge_vars(d::Latent) = edge_vars(d.dist)
+`std(d)` is the elementwise square root of [`var`](@ref), in the same flat
+per-event layout as `rand(d)` / [`event_names`](@ref).
 
-# A bare (possibly censored) leaf reports its single free-delay moment.
-edge_means(leaf) = _edge_mean(leaf)
-edge_vars(leaf) = _edge_var(leaf)
+# See also
+- [`mean`](@ref), [`var`](@ref)
+"
+std(d::Union{Sequential, Parallel}) = sqrt.(var(d))
 
-# Per-component NamedTuple keyed by edge names; a composer child recurses, a leaf
-# reports its free-delay moment. `f` is `_edge_mean` or `_edge_var`.
-function _edge_moments(d::Union{Sequential, Parallel}, f::F) where {F}
-    names = component_names(d)
-    vals = map(c -> _child_moment(c, f), d.components)
-    return NamedTuple{names}(vals)
+# A `Select` has no single layout (the active alternative is data-selected), so a
+# whole-tree moment is ill-defined; direct the caller to the chosen alternative.
+function mean(::Select)
+    throw(ArgumentError(
+        "mean(::Select) needs a selection; take the moment of the chosen " *
+        "alternative, e.g. `mean(event(d, :index))`"))
+end
+function var(::Select)
+    throw(ArgumentError(
+        "var(::Select) needs a selection; take the moment of the chosen " *
+        "alternative, e.g. `var(event(d, :index))`"))
+end
+function std(::Select)
+    throw(ArgumentError(
+        "std(::Select) needs a selection; take the moment of the chosen " *
+        "alternative, e.g. `std(event(d, :index))`"))
 end
 
-_child_moment(c::Union{Sequential, Parallel}, f::F) where {F} = _edge_moments(c, f)
-_child_moment(c::Competing, ::typeof(_edge_mean)) = _competing_means(c)
-_child_moment(c::Competing, ::typeof(_edge_var)) = _competing_vars(c)
-_child_moment(c::Select, f::F) where {F} = _select_moments(c, f)
-_child_moment(c::Latent, f::F) where {F} = _child_moment(c.dist, f)
-_child_moment(leaf, f::F) where {F} = f(leaf)
-
-# SCALAR marginal moment of a single outcome, used ONLY for the `mixture`
-# aggregate. A leaf's marginal mean/var is its free-delay moment; a nested
-# composer outcome (a univariate, legal `Competing`) reports a NamedTuple from
-# `_child_moment`, so the aggregate instead takes its scalar marginal
-# mean/var (the marginal time-to-resolution), not the NamedTuple. This keeps
-# the per-outcome entries (which DO recurse to NamedTuples) intact while the
-# branch-prob-weighted aggregate stays a scalar.
+# --- flat per-event moment vector -------------------------------------------
 #
-# A nested `Competing` reuses its OWN free `mixture` moment (`_competing_means`/
-# `_competing_vars`), which is built from the free per-outcome moments, NOT the
-# censored `mean(c)`/`var(c)` (which lower through `as_mixture` and so report the
-# censored marginal — and have no analytic moment for a censored leaf). This
-# keeps the free-leaf transparency through arbitrarily nested Competing nodes.
-_outcome_scalar_mean(leaf) = _edge_mean(leaf)
-_outcome_scalar_mean(c::Competing) = _competing_means(c).mixture
-_outcome_scalar_mean(d::Latent) = _outcome_scalar_mean(d.dist)
-_outcome_scalar_var(leaf) = _edge_var(leaf)
-_outcome_scalar_var(c::Competing) = _competing_vars(c).mixture
-_outcome_scalar_var(d::Latent) = _outcome_scalar_var(d.dist)
+# `_event_moment_vector(d, f)` builds the per-event moment `Vector` matching the
+# layout of `rand(d)`. A CENSORED tree's `rand` is the flat event path
+# `[origin, target_1, ...]` keyed by `_flat_event_names`, so the moment vector is
+# `[f(primary), f(edge_1), ...]` (the origin slot the primary event's moment,
+# each later slot the free-delay moment of its leaf edge, `Competing` outcomes
+# each their own slot). A PLAIN tree's `rand` is the per-step value vector, so
+# the moment vector is the per-value free-delay moments. `f` is `_leaf_mean` or
+# `_leaf_var`.
 
-# Competing: per-outcome free-delay means keyed by outcome name plus a `mixture`
-# entry, the branch-prob-weighted mean of the outcomes. The per-outcome entries
-# recurse (a nested composer outcome reports its own NamedTuple); the mixture
-# uses each outcome's SCALAR marginal mean so it stays a scalar even when an
-# outcome is itself a composer. Built from the free per-outcome means (not the
-# censored `mean(Competing)`) so it sees through censored leaves.
-function _competing_means(c::Competing)
-    outcome_vals = map(d -> _child_moment(d, _edge_mean), c.delays)
-    outcomes = NamedTuple{c.names}(outcome_vals)
-    scalar_means = map(_outcome_scalar_mean, c.delays)
-    mixture = sum(c.branch_probs .* scalar_means)
-    return merge(outcomes, (; mixture = mixture))
+function _event_moment_vector(d::Union{Sequential, Parallel}, f::F) where {F}
+    primary = _tree_primary_event(d)
+    primary === nothing && return _value_moment_vector(d, f)
+    out = Vector{Float64}(undef, _event_nleaves(d.components) + 1)
+    out[1] = float(f(primary))
+    _event_moment_targets!(out, d, f, 2)
+    return out
 end
 
-# Competing: per-outcome free-delay variances plus the mixture variance,
-# `Σ p_i (σ_i² + μ_i²) − (Σ p_i μ_i)²`, from the per-outcome SCALAR marginal
-# moments so the aggregate is a scalar even for a nested-composer outcome.
-function _competing_vars(c::Competing)
-    outcome_vars = map(d -> _child_moment(d, _edge_var), c.delays)
-    outcomes = NamedTuple{c.names}(outcome_vars)
-    scalar_means = map(_outcome_scalar_mean, c.delays)
-    scalar_vars = map(_outcome_scalar_var, c.delays)
+# Fill the target-event moment slots of composer `d` from flat index `start`.
+# Returns the next free index. Mirrors the `_flat_event_names` / `_tree_rand!`
+# depth-first walk: a `Sequential` threads step to step, a `Parallel` hangs each
+# branch off the shared origin, both filling one slot per leaf edge.
+function _event_moment_targets!(out, d::Union{Sequential, Parallel}, f::F,
+        start::Int) where {F}
+    idx = start
+    for child in d.components
+        idx = _event_moment_step!(out, child, f, idx)
+    end
+    return idx
+end
+
+function _event_moment_step!(out, child::Union{Sequential, Parallel}, f::F,
+        idx::Int) where {F}
+    return _event_moment_targets!(out, child, f, idx)
+end
+
+# A `Competing` step: one slot per outcome, each the outcome's free-delay moment
+# (a nested-composer outcome uses its scalar marginal moment so the slot stays a
+# scalar, mirroring the per-outcome event layout).
+function _event_moment_step!(out, child::Competing, f::F, idx::Int) where {F}
+    for i in eachindex(child.delays)
+        out[idx + i - 1] = float(_outcome_scalar_moment(child.delays[i], f))
+    end
+    return idx + _n_branches(child)
+end
+
+function _event_moment_step!(out, child, f::F, idx::Int) where {F}
+    out[idx] = float(f(child))
+    return idx + 1
+end
+
+# The per-VALUE moment vector for a plain (uncensored) tree: one slot per leaf
+# value in `_child_nleaves` order, each a free-delay moment, matching the generic
+# `_composite_rand` value layout.
+function _value_moment_vector(d::Union{Sequential, Parallel}, f::F) where {F}
+    out = Vector{Float64}(undef, _nleaves(d.components))
+    _value_moment_fill!(out, d.components, f, 1)
+    return out
+end
+
+function _value_moment_fill!(out, components::Tuple, f::F, start::Int) where {F}
+    idx = start
+    for c in components
+        idx = _value_moment_child!(out, c, f, idx)
+    end
+    return idx
+end
+
+function _value_moment_child!(out, c::Union{Sequential, Parallel}, f::F,
+        idx::Int) where {F}
+    return _value_moment_fill!(out, c.components, f, idx)
+end
+
+function _value_moment_child!(out, c, f::F, idx::Int) where {F}
+    out[idx] = float(_outcome_scalar_moment(c, f))
+    return idx + 1
+end
+
+# The SCALAR marginal moment of an outcome / value child: a leaf's free-delay
+# moment; a `Competing`'s branch-prob-weighted mixture moment (over its free
+# per-outcome moments, seeing through censored leaves, NOT the censored
+# `mean`/`var(Competing)`); a `Latent` delegates to its wrapped distribution.
+_outcome_scalar_moment(leaf, ::typeof(_leaf_mean)) = _leaf_mean(leaf)
+_outcome_scalar_moment(leaf, ::typeof(_leaf_var)) = _leaf_var(leaf)
+function _outcome_scalar_moment(c::Competing, ::typeof(_leaf_mean))
+    return _competing_mix_mean(c)
+end
+function _outcome_scalar_moment(c::Competing, ::typeof(_leaf_var))
+    return _competing_mix_var(c)
+end
+function _outcome_scalar_moment(d::Latent, f::F) where {F}
+    return _outcome_scalar_moment(d.dist, f)
+end
+
+# A `Competing`'s branch-prob-weighted mixture mean / variance, built from the
+# FREE per-outcome moments so it sees through censored leaves (NOT the censored
+# `mean(Competing)`/`var(Competing)`, which lower through `as_mixture` and have
+# no analytic moment for a censored leaf).
+function _competing_mix_mean(c::Competing)
+    scalar_means = map(d -> _outcome_scalar_moment(d, _leaf_mean), c.delays)
+    return sum(c.branch_probs .* scalar_means)
+end
+
+function _competing_mix_var(c::Competing)
+    scalar_means = map(d -> _outcome_scalar_moment(d, _leaf_mean), c.delays)
+    scalar_vars = map(d -> _outcome_scalar_moment(d, _leaf_var), c.delays)
     mix_mean = sum(c.branch_probs .* scalar_means)
     second = sum(c.branch_probs .* (scalar_vars .+ scalar_means .^ 2))
-    return merge(outcomes, (; mixture = second - mix_mean^2))
+    return second - mix_mean^2
 end
 
-# Select: per-branch moments keyed by branch name (each branch may itself nest).
-function _select_moments(d::Select, f::F) where {F}
-    vals = map(a -> _child_moment(a, f), d.alternatives)
-    return NamedTuple{d.names}(vals)
-end
+# --- endpoint: the terminal scalar of a chain -------------------------------
+
+@doc "
+
+Collapse a composed chain to its terminal scalar distribution.
+
+`endpoint(d)` is an alias for [`observed_distribution`](@ref): it lowers a
+composed distribution to the single univariate quantity a censoring wrapper would
+observe (a [`Sequential`](@ref) chain's total elapsed time, a univariate node
+itself). `mean(endpoint(seq))` then gives the endpoint (total-delay) mean,
+distinct from the per-event [`mean`](@ref) Vector.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+seq = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+mean(endpoint(seq))
+```
+
+# See also
+- [`observed_distribution`](@ref): the underlying lowering
+- [`mean`](@ref): the per-event moment Vector
+"
+endpoint(d) = observed_distribution(d)

@@ -14,24 +14,47 @@ using Statistics: mean
 # matches each template parameter by its dotted name instead of rebuilding a
 # `VarName` optic per parameter. The chain keys ARE the submodel-prefixed
 # `VarName`s (e.g. `d.onset_admit.shape`); their `string` is the dotted path the
-# walk forms. For posterior means we read `mean(chain)` once (every parameter
-# mean, keyed by `VarName`); for a single draw we index that parameter's column.
+# walk forms.
+#
+# The reduction is configurable: `summary` is any `AbstractVector -> scalar`
+# (default `mean`, so `median`, `mode`, `x -> quantile(x, 0.9)` all work), applied
+# to each parameter's draws. `draw` keeps the single-iteration shortcut (an exact
+# index). `draws` selects a SUBSET of iterations to reduce over: a range / index
+# vector (positional), or a predicate `i -> Bool` over the iteration index (e.g.
+# warmup drop / thinning); `nothing` uses every draw.
 #
 # Only scalar parameters belong in the lookup. A latent fit also carries
 # vector-valued per-record event VarNames (e.g. `rec1.e`) whose draws are
-# `Vector`s and whose mean the summary keys element-wise, not under the bare
-# name; the template walk never requests them. Filtering on the column element
-# type keeps the scalars and skips the vector params, so the mean is safe to
-# read.
-function _value_lookup(chain, draw)
+# `Vector`s; the template walk never requests them. Filtering on the column
+# element type keeps the scalars and skips the vector params, so the reduction is
+# safe to read.
+function _value_lookup(chain, draw, draws, summary)
     vns = [vn for vn in FlexiChains.parameters(chain)
            if eltype(chain[vn]) <: Real]
-    if draw === nothing
-        means = mean(chain)
-        return Dict(string(vn) => means[vn] for vn in vns)
+    if draw !== nothing
+        return Dict(string(vn) => vec(chain[vn])[draw] for vn in vns)
     end
-    return Dict(string(vn) => vec(chain[vn])[draw] for vn in vns)
+    sel = _draw_indices(chain, draws)
+    return Dict(string(vn) => summary(_select_draws(chain[vn], sel))
+                for vn in vns)
 end
+
+# The iteration indices a `draws` selector picks out. `nothing` is every
+# iteration; a predicate filters the index range; anything else (a range / index
+# vector) is taken as the indices directly.
+function _draw_indices(chain, draws::Nothing)
+    return Colon()
+end
+function _draw_indices(chain, draws)
+    if draws isa Function
+        n = length(vec(chain[first(FlexiChains.parameters(chain))]))
+        return [i for i in 1:n if draws(i)]
+    end
+    return collect(draws)
+end
+
+_select_draws(col, ::Colon) = vec(col)
+_select_draws(col, sel) = vec(col)[sel]
 
 # Look up one parameter by its dotted name (`prefix.path...`); `nothing` if
 # absent (e.g. a `Competing`'s branch probabilities kept fixed in the template).
@@ -121,8 +144,9 @@ function _shared_params(template, lookup, prefix)
     return NamedTuple(entries)
 end
 
-function chain_to_params(template, chain; prefix::Symbol = :d, draw = nothing)
-    lookup = _value_lookup(chain, draw)
+function chain_to_params(template, chain; prefix::Symbol = :d, draw = nothing,
+        draws = nothing, summary = mean)
+    lookup = _value_lookup(chain, draw, draws, summary)
     tree = _node_params(template, lookup, prefix, ())
     # A shared-tagged leaf is sampled once under its tag, so add a top-level
     # `tag` entry for each shared group; the core `update` reads each
@@ -141,8 +165,10 @@ Update a composed distribution's parameters straight from a fitted chain.
 `update(template, chain)` reads `chain` (sampled through
 [`composed_parameters_model`](@ref)) into the nested NamedTuple and rebuilds
 `template` with those values, so the workflow is one call instead of
-`update(template, chain_to_params(template, chain))`. By default it applies
-posterior means; pass `draw=i` for a single iteration. The `prefix` keyword
+`update(template, chain_to_params(template, chain))`. By default it reduces each
+parameter's draws with `mean`; pass any `summary` reduction, restrict to a
+subset of draws with `draws` (a range / index vector, or a predicate over the
+iteration index), or pass `draw=i` for a single iteration. The `prefix` keyword
 names the submodel variable the parameters were sampled under (default `:d`).
 
 This method is available only when both `DynamicPPL` and `FlexiChains` are
@@ -156,16 +182,20 @@ loaded.
 # Keyword Arguments
 - `prefix`: the submodel variable name the parameters were sampled under
   (default `:d`).
-- `draw`: a single iteration index to read, or `nothing` for posterior means
-  (default `nothing`).
+- `summary`: the reduction `AbstractVector -> scalar` applied to each
+  parameter's draws (default `mean`).
+- `draws`: a subset of iterations to reduce over (a range / index vector, or a
+  predicate over the iteration index); `nothing` uses every draw.
+- `draw`: a single iteration index to read (overrides `summary`/`draws`).
 
 # See also
 - [`chain_to_params`](@ref): the nested NamedTuple this reads.
 - [`update`](@ref): the NamedTuple-keyed reconstruction this delegates to.
 "
 function update(template, chain::FlexiChains.FlexiChain;
-        prefix::Symbol = :d, draw = nothing)
-    params = chain_to_params(template, chain; prefix = prefix, draw = draw)
+        prefix::Symbol = :d, draw = nothing, draws = nothing, summary = mean)
+    params = chain_to_params(template, chain; prefix = prefix, draw = draw,
+        draws = draws, summary = summary)
     return update(template, params)
 end
 

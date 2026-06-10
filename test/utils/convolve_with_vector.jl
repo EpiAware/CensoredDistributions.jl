@@ -51,7 +51,7 @@ end
 
     # Events of the chain: origin :onset, targets :admit (prefix 1) and
     # :death (prefix 2 = endpoint).
-    @test CensoredDistributions.tree_event_names(seq) ==
+    @test event_names(seq) ==
           (:onset, :admit, :death)
 
     # The interim :admit series uses ONLY the first leaf (prefix-1 delay).

@@ -102,7 +102,7 @@ end
 # covered by the first method. A `Select` is NOT a valid composer child (no fixed
 # contribution length) and is rejected by `_reject_select_child!` in the
 # downstream `Parallel`/`Sequential` constructor; the composer-inside-Select
-# direction is built through `select_branch`, not `compose`.
+# direction is built through `selecting`, not `compose`.
 _compose_child(d::UnivariateDistribution) = d
 _compose_child(c::Union{Sequential, Parallel}) = c
 _compose_child(s::Select) = (_reject_select_child!((s,)); s)

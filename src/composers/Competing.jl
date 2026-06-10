@@ -131,7 +131,7 @@ a thin wrapper over the [`Competing`](@ref) struct constructor. Each outcome is
 using CensoredDistributions, Distributions
 
 cfr = 0.3
-node = competing_branch(:death => (Gamma(1.5, 1.0), cfr),
+node = competing(:death => (Gamma(1.5, 1.0), cfr),
     :disch => (Gamma(2.0, 1.5), 1 - cfr))
 mean(node)
 ```
@@ -142,7 +142,7 @@ mean(node)
 - [`compose`](@ref): the front-end that nests a `Competing` as a branch
 - [`Sequential`](@ref), [`Parallel`](@ref): the sibling composers
 "
-competing_branch(outcomes::Pair...) = Competing(outcomes...)
+competing(outcomes::Pair...) = Competing(outcomes...)
 
 function _competing_delay(payload::Tuple{<:UnivariateDistribution, <:Real})
     return payload[1]

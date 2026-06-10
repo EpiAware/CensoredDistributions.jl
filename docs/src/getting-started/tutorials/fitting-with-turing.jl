@@ -24,7 +24,7 @@ We cover:
    [`composed_distribution_model`](@ref) (a DataFrame scored in one `~`).
 5. Fitting the latent form of the same object, sampling the intermediate event.
 6. Comparing runtime and recovery, and reading the fitted delays back with
-   [`update`](@ref) and [`edge_means`](@ref).
+   [`update`](@ref) and [`mean`](@ref).
 
 ### What might I need to know before starting
 
@@ -73,10 +73,11 @@ The tree's event names are `onset, admit, death`, exactly the columns each data
 row supplies.
 """
 
-dic(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
+double_censored_delay(d) = double_censored(d; primary_event = Uniform(0, 1),
     interval = 1.0)
 
-template = Sequential((dic(Gamma(2.0, 1.5)), dic(Gamma(1.5, 2.0))),
+template = Sequential(
+    (double_censored_delay(Gamma(2.0, 1.5)), double_censored_delay(Gamma(1.5, 2.0))),
     (:onset_admit, :admit_death))
 
 md"""
@@ -84,7 +85,7 @@ The flat event names are the row columns; a missing column drives whether that
 delay is conditioned on or marginalised for that record.
 """
 
-CensoredDistributions.tree_event_names(template)
+event_names(template)
 
 md"""
 ## Priors
@@ -203,10 +204,17 @@ md"""
 ## Compare runtime and recovery
 
 We read the fitted delays off each chain with
-[`update`](@ref)`(template, chain)` and [`edge_means`](@ref), which sees through
-each censored leaf to its inner free delay mean. The true edge means are the
-means of the underlying Gammas.
+[`update`](@ref)`(template, chain)` and the per-event [`mean`](@ref) Vector,
+which sees through each censored leaf to its inner free delay mean. `edge_means`
+labels that Vector with [`event_names`](@ref) and returns the two delay means by
+their target-event names (`onset_admit` lands at `:admit`, `admit_death` at
+`:death`). The true edge means are the means of the underlying Gammas.
 """
+
+edge_means(d) =
+    let em = NamedTuple{event_names(d)}(Tuple(mean(d)))
+        (onset_admit = em.admit, admit_death = em.death)
+    end
 
 true_means = edge_means(truth)
 
@@ -250,7 +258,7 @@ md"""
 We summarise each posterior by its two edge means, the quantity reported for a
 delay distribution, rather than by raw shape/scale samples. `mean_draws` reads
 the edge means off every posterior draw through repeated
-[`update`](@ref)`(template, chain; draw = i)` and [`edge_means`](@ref), with no
+[`update`](@ref)`(template, chain; draw = i)` and [`mean`](@ref), with no
 manual chain indexing.
 """
 
@@ -298,6 +306,6 @@ md"""
 - The marginal form is the cheap default; the latent form costs an extra
   sampled event per record but suits small counts or impractical marginal
   integrals.
-- [`update`](@ref)`(template, chain)` and [`edge_means`](@ref) read the fitted
+- [`update`](@ref)`(template, chain)` and [`mean`](@ref) read the fitted
   delays back onto the composed object with no manual chain indexing.
 """

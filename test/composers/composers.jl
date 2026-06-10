@@ -189,7 +189,7 @@ end
     # A Select is NOT a valid compose child (no fixed contribution length); it is
     # rejected cleanly rather than constructing and later MethodError-ing. The
     # supported direction is a composer INSIDE a Select (see issue #413).
-    sel = select_branch(:s1 => Gamma(2.0, 1.0), :s2 => Gamma(5.0, 1.0))
+    sel = selecting(:s1 => Gamma(2.0, 1.0), :s2 => Gamma(5.0, 1.0))
     @test_throws ArgumentError compose((k = sel, m = Normal(0.0, 1.0)))
 
     # A composer is allowed inside a Vector chain step (no longer leaf-only).
@@ -395,20 +395,32 @@ end
     @test ct.value[bp] == [0.3, 0.7]
 end
 
-@testitem "name introspection: event_names and get_event (#351)" begin
+@testitem "name introspection: event_names, event_tree and event (#351)" begin
     using Distributions
 
     tree = compose((onset_admit = LogNormal(1.5, 0.4),
         admit_death = Gamma(2.0, 1.0)))
-    @test event_names(tree) == (:onset_admit, :admit_death)
-    @test get_event(tree, :admit_death) == Gamma(2.0, 1.0)
-    @test_throws KeyError get_event(tree, :missing_edge)
+    # event_names is the FLAT per-event tuple (origin + one per leaf edge).
+    @test event_names(tree) == (:onset, :admit, :death)
+    # event_tree keys are the top-level child names.
+    @test keys(event_tree(tree)) == (:onset_admit, :admit_death)
+    @test event(tree, :admit_death) == Gamma(2.0, 1.0)
+    @test event(tree, :onset_admit) == LogNormal(1.5, 0.4)
+    @test_throws KeyError event(tree, :missing_edge)
 
-    # Competing: outcome names and delays by name.
+    # A nested path round-trips by multiple names and by a dotted Symbol.
+    nested = compose((
+        admit_path = compose((onset_admit = Gamma(2.0, 1.0),
+            admit_death = LogNormal(0.5, 0.4))),
+        onset_recover = Gamma(3.0, 1.0)))
+    @test event(nested, :admit_path, :admit_death) == LogNormal(0.5, 0.4)
+    @test event(nested, Symbol("admit_path.admit_death")) == LogNormal(0.5, 0.4)
+
+    # Competing: outcome names via event_tree, delays by name via event.
     c = Competing(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7))
-    @test event_names(c) == (:death, :disch)
-    @test get_event(c, :death) == Gamma(1.5, 1.0)
+    @test keys(event_tree(c)) == (:death, :disch)
+    @test event(c, :death) == Gamma(1.5, 1.0)
 end
 
 @testitem "params_table is transparent to a censored leaf" begin
@@ -440,8 +452,8 @@ end
         admit_death = (mu = 0.7, sigma = 0.5)))
 
     @test event_names(upd) == event_names(tpl)
-    @test get_event(upd, :onset_admit) == Gamma(3.0, 1.5)
-    @test get_event(upd, :admit_death) == LogNormal(0.7, 0.5)
+    @test event(upd, :onset_admit) == Gamma(3.0, 1.5)
+    @test event(upd, :admit_death) == LogNormal(0.7, 0.5)
 
     # Equivalent to a hand-rebuilt distribution.
     hand = compose((onset_admit = Gamma(3.0, 1.5),
@@ -453,8 +465,8 @@ end
     cens = double_interval_censored(Gamma(2.0, 1.5); upper = 10.0, interval = 1.0)
     ct = compose((obs = cens,))
     cu = update(ct, (obs = (shape = 2.0, scale = 1.5),))
-    @test typeof(get_event(cu, :obs)) == typeof(cens)
-    @test logpdf(get_event(cu, :obs), 3.0) == logpdf(cens, 3.0)
+    @test typeof(event(cu, :obs)) == typeof(cens)
+    @test logpdf(event(cu, :obs), 3.0) == logpdf(cens, 3.0)
 
     # Missing / extra keys error.
     @test_throws ArgumentError update(tpl,
@@ -474,14 +486,14 @@ end
     # branch_probs omitted: the template's fixed probabilities are kept.
     keep = update(tree, (res = (death = (shape = 1.0, scale = 1.0),
         disch = (shape = 2.0, scale = 2.0)),))
-    @test get_event(keep, :res).branch_probs == (0.3, 0.7)
+    @test event(keep, :res).branch_probs == (0.3, 0.7)
 
     # branch_probs supplied: each outcome's probability is replaced.
     set = update(tree,
         (res = (death = (shape = 1.0, scale = 1.0),
             disch = (shape = 2.0, scale = 2.0),
             branch_probs = (death = 0.4, disch = 0.6)),))
-    @test get_event(set, :res).branch_probs == (0.4, 0.6)
+    @test event(set, :res).branch_probs == (0.4, 0.6)
 end
 
 @testitem "build_priors assembles nested priors from the params table" begin
@@ -594,7 +606,7 @@ end
     @test nested.admit_death.mu isa Normal
 end
 
-@testitem "get_subtree pulls a named subtree from a composed dist" begin
+@testitem "event pulls a named subtree from a composed dist" begin
     using Distributions
 
     tree = compose((
@@ -602,16 +614,16 @@ end
             admit_death = LogNormal(0.5, 0.4))),
         onset_recover = Gamma(3.0, 1.0)))
 
-    # A single name matches get_event.
-    @test get_subtree(tree, :admit_path) === get_event(tree, :admit_path)
-    @test get_subtree(tree, :onset_recover) == Gamma(3.0, 1.0)
+    # A single name matches event.
+    @test event(tree, :admit_path) === event(tree, :admit_path)
+    @test event(tree, :onset_recover) == Gamma(3.0, 1.0)
     # A multi-name path descends to the leaf.
-    @test get_subtree(tree, :admit_path, :admit_death) == LogNormal(0.5, 0.4)
+    @test event(tree, :admit_path, :admit_death) == LogNormal(0.5, 0.4)
     # A dotted-path Symbol (as in params_table's edge column) is equivalent.
-    @test get_subtree(tree, Symbol("admit_path.onset_admit")) == Gamma(2.0, 1.0)
+    @test event(tree, Symbol("admit_path.onset_admit")) == Gamma(2.0, 1.0)
     # A bad name throws.
-    @test_throws KeyError get_subtree(tree, :admit_path, :missing_edge)
-    @test_throws ArgumentError get_subtree(tree)
+    @test_throws KeyError event(tree, :admit_path, :missing_edge)
+    @test_throws ArgumentError event(tree)
 end
 
 @testitem "shared tags a leaf and is transparent to scoring" begin
@@ -641,7 +653,7 @@ end
     inc = shared(:inc, Gamma(2.0, 1.0))
     delta = LogNormal(0.5, 0.4)
     # `inc` appears in BOTH the index and sourced branches of a select.
-    tree = select_branch(:index => inc,
+    tree = selecting(:index => inc,
         :sourced => compose((delta = delta, inc = inc)))
     tbl = params_table(tree)
 
@@ -657,7 +669,7 @@ end
 
     inc = shared(:inc, Gamma(2.0, 1.0))
     delta = LogNormal(0.5, 0.4)
-    tree = select_branch(:index => inc,
+    tree = selecting(:index => inc,
         :sourced => compose((delta = delta, inc = inc)))
 
     # One top-level `inc` entry updates both occurrences.
@@ -666,8 +678,8 @@ end
     idx = CensoredDistributions._pick(upd, :index)
     src = CensoredDistributions._pick(upd, :sourced)
     @test get_dist(idx) == Gamma(3.0, 1.5)
-    @test get_dist(get_event(src, :inc)) == Gamma(3.0, 1.5)
-    @test get_event(src, :delta) == LogNormal(0.7, 0.5)
+    @test get_dist(event(src, :inc)) == Gamma(3.0, 1.5)
+    @test event(src, :delta) == LogNormal(0.7, 0.5)
 
     # A missing shared entry errors clearly.
     @test_throws ArgumentError update(tree,

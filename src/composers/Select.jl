@@ -53,7 +53,7 @@ currently supported (a `Select` has no fixed contribution length) and is rejecte
 - `selector`: the row field name (`Symbol`) whose value selects an alternative.
 
 # See also
-- [`select_branch`](@ref): friendly constructor over `name => dist` pairs
+- [`selecting`](@ref): friendly constructor over `name => dist` pairs
 - [`Competing`](@ref): exactly one of several shared-origin outcomes (mixture)
 - [`Parallel`](@ref): independent shared-origin branches (product)
 "
@@ -108,7 +108,7 @@ using CensoredDistributions, Distributions
 
 # An index case (its own origin) vs a sourced case (a longer coupled delay),
 # selected by the row's `:kind` field.
-d = select_branch(:index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+d = selecting(:index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
     :sourced => primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
 
 # Score the alternative the data names.
@@ -118,10 +118,10 @@ logpdf(d, 3.0; kind = :index)
 # See also
 - [`Select`](@ref): the disjunction type
 "
-function select_branch(alternatives::Pair...; selector::Symbol = :kind)
+function selecting(alternatives::Pair...; selector::Symbol = :kind)
     length(alternatives) >= 2 ||
         throw(ArgumentError(
-            "select_branch needs at least two alternatives"))
+            "selecting needs at least two alternatives"))
     names = Tuple(a.first for a in alternatives)
     all(n -> n isa Symbol, names) ||
         throw(ArgumentError("each Select alternative name must be a Symbol"))
@@ -177,7 +177,7 @@ is type-stable and the score is the selected alternative's own `logpdf`.
 ```@example
 using CensoredDistributions, Distributions
 
-d = select_branch(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0))
+d = selecting(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0))
 logpdf(d, 3.0; kind = :short)
 ```
 

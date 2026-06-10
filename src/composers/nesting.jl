@@ -28,7 +28,7 @@ function _reject_select_child!(components::Tuple)
         "a Select cannot be nested inside a Sequential/Parallel/compose " *
         "composer: a Select has no fixed contribution length (its realisation " *
         "length is the selected alternative's). Put the composer inside the " *
-        "Select's alternatives instead (`select_branch(:name => compose(...), " *
+        "Select's alternatives instead (`selecting(:name => compose(...), " *
         "...)`). Full Select-in-composer nesting is deferred; see " *
         "https://github.com/EpiAware/CensoredDistributions.jl/issues/413."))
     return nothing

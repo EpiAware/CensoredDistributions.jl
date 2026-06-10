@@ -235,7 +235,7 @@ _row_horizon(row::NamedTuple) = CensoredDistributions._row_horizon_field(row)
 # log-density equals the direct `logpdf`.
 #
 # A NESTED `Competing` node is scored by the same path: its outcome
-# columns occupy one event slot each (`tree_event_names`), so the observed
+# columns occupy one event slot each (`_flat_event_names`), so the observed
 # outcome is identified positionally and `_tree_step(::Competing)` conditions on
 # that branch. A per-record `branch_probs` field OVERRIDES the (single) nested
 # Competing's stored probabilities by rebuilding the tree for the record, so a

@@ -1,7 +1,7 @@
 @testitem "Select scores the data-selected alternative" begin
     using CensoredDistributions, Distributions
 
-    d = select_branch(:index => Gamma(2.0, 1.0), :sourced => Gamma(5.0, 1.0))
+    d = selecting(:index => Gamma(2.0, 1.0), :sourced => Gamma(5.0, 1.0))
     @test d isa CensoredDistributions.Select
     @test d.selector == :kind
     @test CensoredDistributions._n_alternatives(d) == 2
@@ -18,7 +18,7 @@ end
     using CensoredDistributions, Distributions
     using Random: Xoshiro
 
-    d = select_branch(:a => Gamma(2.0, 1.0), :b => Gamma(5.0, 1.0))
+    d = selecting(:a => Gamma(2.0, 1.0), :b => Gamma(5.0, 1.0))
     # No default selection for scoring: a Select has no single distribution to
     # score without a kind.
     @test_throws ArgumentError logpdf(d, 3.0)
@@ -37,7 +37,7 @@ end
     using CensoredDistributions, Distributions
     using Random: Xoshiro
 
-    d = select_branch(:short => Gamma(2.0, 0.5), :long => Gamma(20.0, 1.0))
+    d = selecting(:short => Gamma(2.0, 0.5), :long => Gamma(20.0, 1.0))
     n = 4000
     short = [rand(Xoshiro(i), d; kind = :short) for i in 1:n]
     long = [rand(Xoshiro(i), d; kind = :long) for i in 1:n]
@@ -54,7 +54,7 @@ end
 
     # Heterogeneous alternatives (different concrete types) still infer, because
     # the selection barriers into the chosen alternative's concrete type.
-    d = select_branch(:index => Gamma(2.0, 1.0),
+    d = selecting(:index => Gamma(2.0, 1.0),
         :sourced => LogNormal(1.0, 0.5))
     score_idx(dd, x) = logpdf(dd, x; kind = :index)
     score_src(dd, x) = logpdf(dd, x; kind = :sourced)
@@ -70,12 +70,12 @@ end
     using CensoredDistributions, Distributions
 
     # At least two alternatives.
-    @test_throws ArgumentError select_branch(:only => Gamma(1.0, 1.0))
+    @test_throws ArgumentError selecting(:only => Gamma(1.0, 1.0))
     # Unique names.
-    @test_throws ArgumentError select_branch(
+    @test_throws ArgumentError selecting(
         :a => Gamma(1.0, 1.0), :a => Gamma(2.0, 1.0))
     # A custom selector field name is honoured.
-    d = select_branch(:a => Gamma(1.0, 1.0), :b => Gamma(2.0, 1.0);
+    d = selecting(:a => Gamma(1.0, 1.0), :b => Gamma(2.0, 1.0);
         selector = :case)
     @test d.selector == :case
 end
@@ -85,32 +85,32 @@ end
 
     # A Select alternative may itself be a composer (the supported nesting
     # direction: a composer INSIDE a Select).
-    inner = select_branch(:a => Gamma(2.0, 1.0),
+    inner = selecting(:a => Gamma(2.0, 1.0),
         :b => Sequential(Gamma(1.0, 1.0), LogNormal(0.5, 0.4)))
     @test inner isa CensoredDistributions.Select
 
     # Structural equality and hashing over names, alternatives, and selector.
-    a = select_branch(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0))
-    b = select_branch(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0))
+    a = selecting(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0))
+    b = selecting(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0))
     @test a == b
     @test hash(a) == hash(b)
-    c = select_branch(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0);
+    c = selecting(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0);
         selector = :case)
     @test a != c
 end
 
-@testitem "select_branch nests on select_branch and compose results" begin
+@testitem "selecting nests on selecting and compose results" begin
     using CensoredDistributions, Distributions
     const CD = CensoredDistributions
 
     # compose-in-select: an alternative is a compose result.
     tree = compose((a = Gamma(2.0, 1.0), b = LogNormal(0.5, 0.4)))
-    s1 = select_branch(:joint => tree, :leaf => Gamma(3.0, 1.0))
+    s1 = selecting(:joint => tree, :leaf => Gamma(3.0, 1.0))
     @test s1 == CD.Select((:joint, :leaf), (tree, Gamma(3.0, 1.0)), :kind)
 
     # select-in-select: an alternative is itself a select.
-    inner = select_branch(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0))
-    s2 = select_branch(:nested => inner, :flat => Gamma(1.0, 1.0))
+    inner = selecting(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0))
+    s2 = selecting(:nested => inner, :flat => Gamma(1.0, 1.0))
     @test s2 == CD.Select((:nested, :flat), (inner, Gamma(1.0, 1.0)), :kind)
 
     # The supported direction (a composer/select INSIDE a Select) scores fine.
@@ -121,7 +121,7 @@ end
     using CensoredDistributions, Distributions
     const CD = CensoredDistributions
 
-    inner = select_branch(:a => Gamma(2.0, 1.0), :b => Gamma(5.0, 1.0))
+    inner = selecting(:a => Gamma(2.0, 1.0), :b => Gamma(5.0, 1.0))
 
     # A Select has no fixed contribution length, so it cannot be a composer child:
     # the constructors and `compose` reject it cleanly rather than constructing and
@@ -149,7 +149,7 @@ end
     # The supported direction (a composer INSIDE a Select) still constructs AND is
     # operable: logpdf / rand run on the selected alternative.
     tree = compose((a = Gamma(2.0, 1.0), b = LogNormal(0.5, 0.4)))
-    s = select_branch(:joint => tree, :leaf => Gamma(3.0, 1.0))
+    s = selecting(:joint => tree, :leaf => Gamma(3.0, 1.0))
     @test s isa CD.Select
     @test logpdf(s, [1.0, 2.0]; kind = :joint) ≈ logpdf(tree, [1.0, 2.0])
     @test logpdf(s, 1.5; kind = :leaf) ≈ logpdf(Gamma(3.0, 1.0), 1.5)
@@ -157,15 +157,15 @@ end
     @test rand(s; kind = :joint) isa AbstractVector
 end
 
-@testitem "nested select_branch scores and samples via model entry" begin
+@testitem "nested selecting scores and samples via model entry" begin
     using CensoredDistributions, Distributions, Random
     using DynamicPPL: @model, to_submodel, logjoint
 
     # A select alternative that is itself a select: the model entry reads the
     # selector, picks the alternative, and delegates to its own model.
-    inner = select_branch(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0);
+    inner = selecting(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0);
         selector = :sub)
-    d = select_branch(:nested => inner, :flat => Gamma(3.0, 1.0))
+    d = selecting(:nested => inner, :flat => Gamma(3.0, 1.0))
 
     @model gen(dist, row) = obs ~ to_submodel(
         composed_distribution_model(dist, row))
