@@ -303,6 +303,61 @@ end
     @test length(rand(ready)) == 2
 end
 
+@testitem "chain_to_params: configurable summary and draws subset" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: Prefixed, VNChain
+    import Statistics
+
+    template = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    priors = (
+        onset_admit = (shape = truncated(Normal(2, 0.5); lower = 0),
+            scale = truncated(Normal(1, 0.3); lower = 0)),
+        admit_death = (mu = Normal(0.5, 0.2),
+            sigma = truncated(Normal(0.4, 0.1); lower = 0)))
+
+    @model function fit(t, p, ys)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        for y in ys
+            DynamicPPL.@addlogprob! logpdf(d, y)
+        end
+        return d
+    end
+
+    Random.seed!(112)
+    ys = [[0.5, 2.0], [1.0, 3.0], [0.8, 2.5]]
+    chain = sample(fit(template, priors, ys), NUTS(), 60;
+        chain_type = VNChain, progress = false)
+
+    col = vec(chain[Prefixed(@varname(onset_admit.shape))])
+
+    # A non-mean summary reduces each parameter's draws with the supplied
+    # reduction (here the median).
+    med = chain_to_params(template, chain; summary = Statistics.median)
+    @test isapprox(med.onset_admit.shape, Statistics.median(col); atol = 1e-12)
+    # A custom reduction (a high quantile) works too.
+    q90 = chain_to_params(template, chain;
+        summary = x -> Statistics.quantile(x, 0.9))
+    @test isapprox(q90.onset_admit.shape,
+        Statistics.quantile(col, 0.9); atol = 1e-12)
+
+    # A `draws` subset reduces over only the selected iterations: a range, and a
+    # predicate over the iteration index (a warmup-drop / thinning).
+    sub = chain_to_params(template, chain; draws = 30:60)
+    @test isapprox(sub.onset_admit.shape,
+        Statistics.mean(col[30:60]); atol = 1e-12)
+    keep = chain_to_params(template, chain; draws = i -> i > 30)
+    idx = [i for i in 1:length(col) if i > 30]
+    @test isapprox(keep.onset_admit.shape,
+        Statistics.mean(col[idx]); atol = 1e-12)
+
+    # The `update` chain overload threads the same kwargs.
+    upd = update(template, chain; summary = Statistics.median)
+    @test event(upd, :onset_admit) ==
+          Gamma(Statistics.median(col),
+        Statistics.median(vec(chain[Prefixed(@varname(onset_admit.scale))])))
+end
+
 @testitem "chain_to_params skips latent per-record event vectors" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
     using FlexiChains: VNChain
