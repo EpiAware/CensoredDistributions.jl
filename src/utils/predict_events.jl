@@ -63,6 +63,65 @@ end
 
 @doc "
 
+Simulate `n` event-based records from a composed distribution as a labelled
+column table.
+
+`predict_events(d, n; rng)` for a [`Sequential`](@ref)/[`Parallel`](@ref) tree
+draws `n` full event paths and returns a Tables.jl COLUMN table: a `NamedTuple`
+of equal-length vectors keyed by the tree's flat event names
+([`tree_event_names`](@ref)). The labelled table drops straight into the batch
+scoring entry `composed_distribution_model(d, table)` (marginal) or
+`composed_distribution_model(latent(d), table)` (latent), so a whole simulated
+line list is one call with no hand-mapping or re-keying.
+
+# Arguments
+- `d`: A composed [`Sequential`](@ref)/[`Parallel`](@ref) distribution.
+- `n`: Number of independent records to simulate.
+
+# Keyword Arguments
+- `rng`: Random number generator (defaults to the global RNG).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, Random
+
+seq = Sequential((primary_censored(Gamma(2.0, 1.5), Uniform(0, 1)),
+        primary_censored(Gamma(1.5, 2.0), Uniform(0, 1))),
+    (:onset_admit, :admit_death))
+sim = predict_events(seq, 100; rng = MersenneTwister(1))
+```
+
+# See also
+- [`tree_event_names`](@ref): the event names keying the columns.
+- [`composed_distribution_model`](@ref): the batch scoring entry the table
+  feeds.
+"
+function predict_events(d::Union{Sequential, Parallel}, n::Integer;
+        rng::AbstractRNG = default_rng())
+    enames = tree_event_names(d)
+    records = [_event_value_tuple(enames, rand(rng, d)) for _ in 1:n]
+    cols = ntuple(length(enames)) do j
+        [rec[j] for rec in records]
+    end
+    return NamedTuple{enames}(cols)
+end
+
+# Normalise a single `rand` record to a value tuple in `enames` order: a flat
+# censored chain/set draws a `Vector` already in that order; a nested tree draws
+# a `NamedTuple` keyed by the event names, read back in `enames` order.
+function _event_value_tuple(enames::Tuple, rec::AbstractVector)
+    length(rec) == length(enames) || throw(DimensionMismatch(
+        "predict_events drew $(length(rec)) events but the tree has " *
+        "$(length(enames)) ($(collect(enames)))"))
+    return Tuple(rec)
+end
+
+function _event_value_tuple(enames::Tuple, rec::NamedTuple)
+    return map(name -> rec[name], enames)
+end
+
+@doc "
+
 Simulate event-based draws from a [`Select`](@ref) disjunction.
 
 `kind` names the active alternative (the selector value); the draw is that

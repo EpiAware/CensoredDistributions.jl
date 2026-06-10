@@ -56,6 +56,57 @@ end
     @test all(p -> 0 <= p[1] <= 1 && p[2] > p[1], paths)
 end
 
+@testitem "predict_events: composer n draws give a labelled column table" begin
+    using CensoredDistributions, Distributions, Random
+    import Tables
+
+    # A censored chain `[onset, admit, death]`; the batch draw labels each event
+    # by `tree_event_names` so the result drops straight into the batch scoring
+    # entry as a Tables.jl source.
+    seq = Sequential(
+        (primary_censored(Gamma(2.0, 1.5), Uniform(0, 1)),
+            primary_censored(Gamma(1.5, 2.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+
+    n = 25
+    sim = predict_events(seq, n; rng = MersenneTwister(20260610))
+
+    # The result is a Tables.jl COLUMN table: a NamedTuple of equal-length
+    # vectors keyed by the event names.
+    @test Tables.istable(sim)
+    @test !(sim isa AbstractVector)
+    @test Tables.columnnames(sim) ==
+          CensoredDistributions.tree_event_names(seq)
+    @test sim isa NamedTuple
+    cols = Tables.columns(sim)
+    for name in Tables.columnnames(sim)
+        @test length(Tables.getcolumn(cols, name)) == n
+    end
+
+    # Each record is a valid event path: onset >= 0, admit >= onset,
+    # death >= admit.
+    onset = Tables.getcolumn(cols, :onset)
+    admit = Tables.getcolumn(cols, :admit)
+    death = Tables.getcolumn(cols, :death)
+    @test all(onset .>= 0)
+    @test all(admit .>= onset)
+    @test all(death .>= admit)
+end
+
+@testitem "predict_events: composer table is reproducible under a seeded rng" begin
+    using CensoredDistributions, Distributions, Random
+    import Tables
+
+    seq = Sequential(
+        (primary_censored(Gamma(2.0, 1.5), Uniform(0, 1)),
+            primary_censored(Gamma(1.5, 2.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+
+    a = predict_events(seq, 30; rng = MersenneTwister(7))
+    b = predict_events(seq, 30; rng = MersenneTwister(7))
+    @test Tables.columntable(a) == Tables.columntable(b)
+end
+
 # ===========================================================================
 # Fitted-model path (extension): observed-record latent recovery
 # ===========================================================================
