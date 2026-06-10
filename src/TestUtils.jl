@@ -226,6 +226,87 @@ function _missing_vec(xs)
     return out
 end
 
+# --- deterministic in-support event draw ------------------------------------
+#
+# A raw `rand(d)` is not a sound in-support draw for the "logpdf finite" check:
+# a censored `Parallel` (and the nested `Competing` tree) floors each branch gap
+# to its interval, so a random draw can land a gap on (or before) the
+# continuous core's support edge, where the marginal-core density is zero and
+# `logpdf(d, draw)` is `-Inf`. The check then fails intermittently. This builds a
+# DETERMINISTIC event vector that is guaranteed in-support: it walks the same
+# tree shape the scorer consumes (mirroring `_composer_rand` / `_tree_rand!`),
+# but places each leaf event at `origin + round(mean(core)) + 1`, a strictly
+# positive gap clear of every continuous core's lower edge. The shared origin is
+# `0.0` (in the `Uniform`/primary support, density positive). A `Competing` node
+# observes its FIRST outcome and leaves the others `missing`, the same one-
+# observed-outcome record `rand` produces, so the unobserved-outcome `missing`
+# slot is exercised. The result feeds straight into `_score` like any draw.
+
+# A strictly-positive in-support gap for a (possibly censored) edge: round the
+# continuous core's mean up by one so the gap clears the core's lower support
+# edge even after the scorer floors it to the leaf interval.
+function _insupport_gap(d)
+    core = CensoredDistributions._marginal_core(d)
+    return round(Float64(mean(core))) + 1.0
+end
+
+# A deterministic in-support event vector for a censored composer, or the
+# `_insupport_gap` scalar for a univariate node. Mirrors the layout `_score`
+# scores: `[origin, leaf events...]` in depth-first order, an unobserved
+# `Competing` outcome left `missing`. The shared origin is fixed at `0.0`.
+function _insupport_event_draw(d::Union{Sequential, Parallel})
+    out = Vector{Union{Missing, Float64}}(
+        missing, CensoredDistributions._event_nleaves(d.components) + 1)
+    out[1] = 0.0
+    _fill_insupport!(out, d, 0.0, 2)
+    return out
+end
+_insupport_event_draw(d::UnivariateDistribution) = _insupport_gap(d)
+
+# Fill the event slots of composer `d` hanging off absolute time `origin` from
+# `event_start`, returning the next free index. A `Sequential` threads its
+# terminal time step to step; a `Parallel` hangs every branch off the shared
+# origin (matching `_tree_rand!`).
+function _fill_insupport!(out, d::Sequential, origin, event_start)
+    idx = event_start
+    o = origin
+    for step in d.components
+        idx, term = _fill_insupport_step!(out, step, o, idx)
+        o = term
+    end
+    return idx
+end
+function _fill_insupport!(out, d::Parallel, origin, event_start)
+    idx = event_start
+    for branch in d.components
+        idx, _ = _fill_insupport_step!(out, branch, origin, idx)
+    end
+    return idx
+end
+
+# One step/branch hanging off `origin`, returning `(next_idx, terminal_time)`
+# (the time a following chain step hangs off): its own event for a leaf, the
+# shared origin for a `Parallel`/`Competing`, the last step for a `Sequential`.
+function _fill_insupport_step!(
+        out, step::Union{Sequential, Parallel}, origin, idx)
+    next = _fill_insupport!(out, step, origin, idx)
+    term = step isa Parallel ? origin :
+           out[idx + CensoredDistributions._terminal_offset(step)]
+    return next, term
+end
+function _fill_insupport_step!(out, step::Competing, origin, idx)
+    # Observe the FIRST outcome (a positive in-support gap off the anchor) and
+    # leave the others missing, the one-observed-outcome record the scorer
+    # expects; the unobserved slots exercise the `missing` path.
+    out[idx] = origin + _insupport_gap(step.delays[1])
+    return idx + CensoredDistributions._n_branches(step), origin
+end
+function _fill_insupport_step!(out, step::UnivariateDistribution, origin, idx)
+    y = origin + _insupport_gap(step)
+    out[idx] = y
+    return idx + 1, y
+end
+
 # A univariate node's cdf is monotone and lives in [0, 1].
 function _check_cdf(d, fix)
     fix.univariate || return nothing
@@ -360,8 +441,12 @@ function example_fixtures()
         # A Parallel is genuinely multivariate: the overall moment is a
         # per-endpoint Vector, with the full per-event vector via `latent`. It has
         # several independent endpoints and so no single observed scalar;
-        # `observed_distribution` is not defined for it.
-        InterfaceFixture(; name = "Parallel", dist = par, draw = rand(par),
+        # `observed_distribution` is not defined for it. The `draw` is a
+        # DETERMINISTIC in-support event vector (not `rand(par)`): a random
+        # censored-branch draw can floor a gap onto the core's support edge and
+        # score `-Inf`, so the "logpdf finite" check would fail intermittently.
+        InterfaceFixture(; name = "Parallel", dist = par,
+            draw = _insupport_event_draw(par),
             overall = :vector, latent_moments = true, has_endpoint = false),
         InterfaceFixture(; name = "Competing", dist = comp, draw = 4.0,
             path = (:death,), univariate = true, overall = :scalar),
@@ -370,9 +455,14 @@ function example_fixtures()
             has_endpoint = false),
         # A nested tree branches off a shared origin (a Parallel at its root), so
         # its overall moment is a per-endpoint Vector and it has no single
-        # collapsed endpoint; the full per-event vector is via `latent`.
+        # collapsed endpoint; the full per-event vector is via `latent`. The
+        # `draw` is a DETERMINISTIC in-support event vector (not `rand(nested)`):
+        # its nested `Competing` observes one outcome and leaves the other
+        # `missing`, the one-observed-outcome record the scorer expects, with
+        # every gap clear of its core's support edge so `logpdf` is finite.
         InterfaceFixture(; name = "nested mix", dist = nested,
-            draw = rand(nested), path = (:admit_path, :admit_resolution),
+            draw = _insupport_event_draw(nested),
+            path = (:admit_path, :admit_resolution),
             overall = :vector, latent_moments = true, has_endpoint = false),
         # `latent` over a single primary-censored leaf is scored event-by-event
         # with no summary moment.
