@@ -69,40 +69,145 @@ function _causal_convolve(series::AbstractVector, pmf::AbstractVector)
     return out
 end
 
-# --- the cumulative delays of a stack --------------------------------------
+# --- the cumulative delay of an ordered leaf tuple -------------------------
 
-# The flat ordered leaves whose running convolution gives the cumulative delays
-# of a chain. A bare leaf has a single trivial prefix (itself); a Sequential
-# flattens to its observed leaves (`_observed_leaves`).
-_stack_leaves(d::UnivariateDistribution) = (d,)
-_stack_leaves(d::Sequential) = Tuple(_observed_leaves(d.components))
-
-# The cumulative (prefix) delay distribution to event index `i`: the convolution
-# of the first `i` leaves. `i == length(leaves)` is the total delay. Composed at
-# the distribution level only; no vector work here.
-function _prefix_delay(leaves::Tuple, i::Integer)
-    return i == 1 ? leaves[1] : convolve_distributions(leaves[1:i])
+# The cumulative delay distribution of an ordered leaf tuple: the convolution of
+# all its leaves (their total delay). A single leaf is itself. Composed at the
+# distribution level only; no vector work here.
+function _cumulative_delay(leaves::Tuple)
+    return length(leaves) == 1 ? leaves[1] : convolve_distributions(leaves)
 end
 
-# --- event-name -> prefix-index map ----------------------------------------
+# --- event specs: (name, cumulative-delay leaves, forward ops) --------------
 #
-# The i-th prefix delay (first `i` leaves) ends at target event `target_i`, so
-# the target names index the prefixes one-to-one. A `Sequential` exposes
-# `[origin, target_1, ..., target_k]`, so its targets are everything after the
-# origin. A bare leaf has a single target event, its endpoint, conventionally
-# named `:event_1` (there is no separate origin to strip), so its target list is
-# `(:event_1,)` directly — selecting that name must reach the single prefix, not
-# an empty target set.
-_stack_target_names(d::Sequential) = tree_event_names(d)[2:end]
-_stack_target_names(::UnivariateDistribution) = (:event_1,)
+# Every event a stack produces, in tree order, carrying the ordered delay leaves
+# whose convolution is the cumulative delay to the event and the forward ops
+# (thin/cumulative, Competing branch probabilities) applied to its series. A
+# Sequential threads the running prefix step to step (its interim events are the
+# split target names, e.g. `:admit`, `:death`); a Parallel/Competing edge fans
+# an event out per branch/outcome, keyed by the user's branch/outcome name.
 
-# The prefix index of a requested event name, erroring clearly otherwise.
-function _event_prefix_index(targets, name::Symbol)
-    idx = findfirst(==(name), targets)
+struct _EventSpec{L <: Tuple, O <: Tuple}
+    name::Symbol
+    leaves::L
+    ops::O
+end
+
+# A Competing branch probability is just a thinning factor, read by the convolve
+# layer through the same forward-op path as `thin`.
+
+# Collect the specs a (sub)stack produces, given the shared `prefix` leaves and
+# `ops` above it. A Sequential threads the prefix; a Parallel hangs each branch
+# off it.
+function _collect_specs!(specs, d::Sequential, prefix, ops, counter)
+    enames = component_names(d)
+    cur, curops = prefix, ops
+    for i in eachindex(d.components)
+        cur,
+        curops = _collect_chain_edge!(specs, enames[i], d.components[i],
+            cur, curops, counter)
+    end
+    return nothing
+end
+
+function _collect_specs!(specs, d::Parallel, prefix, ops, counter)
+    enames = component_names(d)
+    for i in eachindex(d.components)
+        delay, fops = _peel_forward(d.components[i])
+        _collect_branch!(specs, enames[i], delay, prefix, (ops..., fops...),
+            counter)
+    end
+    return nothing
+end
+
+# One Sequential chain edge: push its (split) target spec and return the
+# (leaves, ops) the next step continues from. Peels forward wrappers first.
+function _collect_chain_edge!(specs, edge_name, child, prefix, ops, counter)
+    delay, fops = _peel_forward(child)
+    return _chain_inner!(specs, edge_name, delay, prefix, (ops..., fops...),
+        counter)
+end
+
+# A leaf chain edge: one target (split name or positional), prefix extended.
+function _chain_inner!(specs, edge_name, child::UnivariateDistribution,
+        prefix, ops, counter)
+    split = _split_edge_name(edge_name)
+    target = split === nothing ? _next_event_name(counter) : split[2]
+    leaves = (prefix..., child)
+    push!(specs, _EventSpec(target, leaves, ops))
+    return leaves, ops
+end
+
+# A nested chain edge: recurse and continue from its terminal (last spec).
+function _chain_inner!(specs, edge_name, child::Sequential, prefix, ops, counter)
+    _collect_specs!(specs, child, prefix, ops, counter)
+    last = specs[end]
+    return last.leaves, last.ops
+end
+
+# A nested Parallel chain edge: fan out the branches; the chain is terminal here
+# (continues from the shared prefix, mirroring `_nested_terminal_name`).
+function _chain_inner!(specs, edge_name, child::Parallel, prefix, ops, counter)
+    _collect_specs!(specs, child, prefix, ops, counter)
+    return prefix, ops
+end
+
+# A Competing chain edge: one event per outcome, each thinned by its branch
+# probability; terminal (continues from the shared prefix).
+function _chain_inner!(specs, edge_name, c::Competing, prefix, ops, counter)
+    for i in eachindex(c.names)
+        delay, fops = _peel_forward(c.delays[i])
+        _collect_branch!(specs, c.names[i], delay, prefix,
+            (ops..., fops..., ThinOp(c.branch_probs[i])), counter)
+    end
+    return prefix, ops
+end
+
+# A Parallel/Competing branch keyed by the user's branch/outcome name: a leaf
+# branch is one event; a nested composer keeps its own sub-event names.
+function _collect_branch!(specs, bname, delay::UnivariateDistribution, prefix,
+        ops, counter)
+    push!(specs, _EventSpec(bname, (prefix..., delay), ops))
+    return nothing
+end
+function _collect_branch!(specs, bname, delay::Union{Sequential, Parallel},
+        prefix, ops, counter)
+    _collect_specs!(specs, delay, prefix, ops, counter)
+    return nothing
+end
+function _collect_branch!(specs, bname, c::Competing, prefix, ops, counter)
+    _chain_inner!(specs, bname, c, prefix, ops, counter)
+    return nothing
+end
+
+# All event specs of a stack, in tree order (names mirror `tree_event_names`).
+function _event_specs(stack::Union{Sequential, Parallel})
+    specs = _EventSpec[]
+    counter = Ref(0)
+    _root_origin_name(stack, counter)
+    _collect_specs!(specs, stack, (), (), counter)
+    return specs
+end
+function _event_specs(stack::UnivariateDistribution)
+    delay, ops = _peel_forward(stack)
+    return _EventSpec[_EventSpec(:event_1, (delay,), ops)]
+end
+
+# A standalone Competing fans an event out per outcome (each thinned by its
+# branch probability), the renewal layer's per-outcome partition.
+function _event_specs(c::Competing)
+    specs = _EventSpec[]
+    _chain_inner!(specs, :competing, c, (), (), Ref(0))
+    return specs
+end
+
+# Find a requested event spec by name, erroring clearly otherwise.
+function _find_spec(specs, name::Symbol)
+    idx = findfirst(s -> s.name == name, specs)
     idx === nothing && throw(ArgumentError(
         "event $(repr(name)) is not produced by this stack; available events " *
-        "are $(collect(targets))"))
-    return idx
+        "are $([s.name for s in specs])"))
+    return specs[idx]
 end
 
 # --- public API: a convolve_distributions renewal method -------------------
@@ -183,38 +288,33 @@ function convolve_distributions(stack, series::AbstractVector{<:Real};
         "convolution shifts by integer series steps, so a PMF grid width " *
         "other than 1 conflates the discretisation width with the series " *
         "time-step. Got interval = $(interval)."))
-    leaves = _stack_leaves(stack)
-    targets = _stack_target_names(stack)
+    specs = _event_specs(stack)
     maxlag = length(series) - 1
-    return _convolve_events(stack, leaves, targets, series, events, maxlag,
-        interval)
+    return _select_specs(specs, events, series, maxlag, interval)
 end
 
-# One causal convolution of `series` through the cumulative delay to prefix `i`.
-function _convolve_prefix(leaves::Tuple, i::Integer, series, maxlag, interval)
-    pmf = _delay_pmf(_prefix_delay(leaves, i), maxlag, interval)
-    return _causal_convolve(series, pmf)
+# Convolve one event spec: causal convolution of `series` with the cumulative
+# delay PMF, then the spec's forward ops (thin/cumulative/branch-prob factor).
+function _convolve_spec(spec, series, maxlag, interval)
+    pmf = _delay_pmf(_cumulative_delay(spec.leaves), maxlag, interval)
+    return _apply_forward_ops(_causal_convolve(series, pmf), spec.ops)
 end
 
-# `events = nothing`: the endpoint (last prefix), bare vector.
-function _convolve_events(stack, leaves, targets, series, ::Nothing, maxlag,
-        interval)
-    return _convolve_prefix(leaves, length(leaves), series, maxlag, interval)
+# `events = nothing`: the endpoint (last spec), bare vector. For a branched stack
+# pass `events` explicitly; the default is the last terminal in tree order.
+function _select_specs(specs, ::Nothing, series, maxlag, interval)
+    return _convolve_spec(specs[end], series, maxlag, interval)
 end
 
 # `events = :name`: a single requested event, bare vector.
-function _convolve_events(stack, leaves, targets, series, name::Symbol, maxlag,
-        interval)
-    i = _event_prefix_index(targets, name)
-    return _convolve_prefix(leaves, i, series, maxlag, interval)
+function _select_specs(specs, name::Symbol, series, maxlag, interval)
+    return _convolve_spec(_find_spec(specs, name), series, maxlag, interval)
 end
 
 # `events = (:a, :b, ...)`: a NamedTuple keyed by the requested events.
-function _convolve_events(stack, leaves, targets, series, names::Tuple, maxlag,
-        interval)
-    vals = map(names) do name
-        i = _event_prefix_index(targets, name)
-        _convolve_prefix(leaves, i, series, maxlag, interval)
-    end
+function _select_specs(specs, names::Tuple, series, maxlag, interval)
+    vals = map(
+        n -> _convolve_spec(_find_spec(specs, n), series, maxlag, interval),
+        names)
     return NamedTuple{names}(vals)
 end
