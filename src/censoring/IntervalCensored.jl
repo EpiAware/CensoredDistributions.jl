@@ -270,6 +270,31 @@ function _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector{<:Rea
 end
 
 """
+    _interval_cdf_eltype(d::IntervalCensored, x::AbstractVector)
+
+Element type for the cached interval CDF values and the `0`/`1` boundary
+seeds in the batched PDF path.
+
+This must follow the underlying DISTRIBUTION's parameter type, not just the
+evaluation points (#403). When the distribution carries AD `Dual`/tracked
+parameters but `x` and the boundaries are plain `Float64`, a type derived
+from the eval points alone (e.g. `Float64`) would strip the AD numbers and
+break gradients on the batched path. `eltype(d)` reports the support type
+(e.g. `Float64` for `Gamma` regardless of its parameter type), so it is not
+enough; we promote in the actual CDF result type from `_cdf_ad_safe`.
+"""
+function _interval_cdf_eltype(d::IntervalCensored, x::AbstractVector{<:Real})
+    # A representative differentiable CDF evaluation carries the promoted
+    # parameter type (e.g. a ForwardDiff `Dual`) even when the argument is a
+    # plain `Float64` boundary, mirroring the AD-safe seeding used elsewhere.
+    # Seed at the distribution minimum so the probe is always in-support and
+    # never depends on `x` being non-empty.
+    probe = float(minimum(get_dist(d)))
+    cdf_t = typeof(_cdf_ad_safe(get_dist(d), probe))
+    return promote_type(eltype(x), eltype(d.boundaries), cdf_t)
+end
+
+"""
     _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector, cdf_lookup::Dict)
 
 Compute PDFs efficiently using cached CDF values.
@@ -281,21 +306,23 @@ function _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector{<:Real}
     dist_min = minimum(get_dist(d))
     dist_max = maximum(get_dist(d))
 
+    # Boundary `0`/`1` seeds must carry the distribution's (possibly AD)
+    # parameter type so gradients flow through the batched path (#403).
+    T = _interval_cdf_eltype(d, x)
+
     return map(x) do xi
         lower, upper = get_interval_bounds(d, xi)
 
         if isnan(lower) || isnan(upper)
-            return zero(promote_type(eltype(x), eltype(d)))
+            return zero(T)
         end
 
         # Handle boundary cases for distributions with bounded support
         # For lower bound at or below distribution minimum, CDF is 0
-        cdf_lower = lower <= dist_min ? zero(promote_type(eltype(x), eltype(d))) :
-                    cdf_lookup[lower]
+        cdf_lower = lower <= dist_min ? zero(T) : cdf_lookup[lower]
 
         # For upper bound at or above distribution maximum, CDF is 1
-        cdf_upper = upper >= dist_max ? one(promote_type(eltype(x), eltype(d))) :
-                    cdf_lookup[upper]
+        cdf_upper = upper >= dist_max ? one(T) : cdf_lookup[upper]
 
         return max(cdf_upper - cdf_lower, zero(cdf_upper))
     end
@@ -314,16 +341,20 @@ function pdf(d::IntervalCensored, x::AbstractVector{<:Real})
     # Collect all unique boundaries needed
     boundaries = _collect_unique_boundaries(d, x)
 
-    # Handle empty boundaries case (all x values outside intervals)
-    T = promote_type(eltype(x), eltype(d.boundaries))
+    # Element type for the CDF VALUES follows the distribution's parameter
+    # type so AD `Dual`/tracked numbers flow through the batched path (#403);
+    # the dictionary KEYS stay at the (non-AD) evaluation/boundary type so
+    # lookups by `get_interval_bounds` values still hit.
+    Tval = _interval_cdf_eltype(d, x)
     if isempty(boundaries)
-        return fill(zero(T), length(x))
+        return fill(zero(Tval), length(x))
     end
 
     # Compute CDFs once for all unique boundaries using functional approach.
-    # `_cdf_ad_safe` keeps the `Gamma` path differentiable.
+    # `_cdf_ad_safe` keeps the `Gamma` path differentiable; converting to the
+    # promoted value type preserves any AD numbers rather than stripping them.
     cdf_lookup = Dict(
-        boundary => T(_cdf_ad_safe(get_dist(d), boundary))
+        boundary => convert(Tval, _cdf_ad_safe(get_dist(d), boundary))
     for boundary in boundaries)
 
     # Use cached values to compute PDFs efficiently
@@ -340,7 +371,10 @@ function logpdf(d::IntervalCensored, x::AbstractVector{<:Real})
     # Use vectorised PDF computation then handle logs with proper error handling
     pdf_vals = pdf(d, x)
 
-    T = promote_type(eltype(x), eltype(d))
+    # Follow the PDF value type (which carries any AD `Dual`/tracked parameter
+    # type, #403) rather than the eval points, so `log`/`-Inf` conversions do
+    # not strip gradients on the batched path.
+    T = promote_type(eltype(x), eltype(pdf_vals))
 
     return map(zip(x, pdf_vals)) do (xi, pdf_val)
         if !insupport(d, xi)
