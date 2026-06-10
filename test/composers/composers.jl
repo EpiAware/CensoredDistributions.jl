@@ -509,13 +509,56 @@ end
     @test nested.admit_death.mu isa Normal
     @test nested.admit_death.sigma isa Truncated
 
-    # default_prior is the per-row default and reads the support directly.
+    # default_prior is the per-row default and classifies by the parameter.
     @test default_prior((; edge = :e, param = :p, value = 0.5,
         support = (0.0, 1.0))) == Uniform(0, 1)
     @test default_prior((; edge = :e, param = :scale, value = 2.0,
         support = (0.0, Inf))) isa Truncated
     @test default_prior((; edge = :e, param = :mu, value = -1.0,
         support = (0.0, Inf))) isa Normal
+end
+
+@testitem "default_prior classifies by parameter, not variate support" begin
+    using Distributions
+
+    # A location-family delay (Normal) has unbounded variate support, but its
+    # scale parameter still lives on the positive half-line: its default prior
+    # must be positively constrained, not an unconstrained Normal that puts mass
+    # on negative scale.
+    tree = compose((onset = Normal(1.0, 2.0),))
+    tbl = params_table(tree)
+    nested = build_priors(tbl)
+    @test nested.onset.mu isa Normal
+    @test minimum(nested.onset.sigma) >= 0
+    @test nested.onset.sigma isa Truncated
+
+    # Same when the leaf is wrapped in an Affine (still a location family with
+    # unbounded support); the inner sigma must stay positively constrained.
+    atree = compose((onset = affine(Normal(1.0, 2.0); scale = 2.0,
+        shift = 0.5),))
+    anested = build_priors(params_table(atree))
+    @test anested.onset.mu isa Normal
+    @test minimum(anested.onset.sigma) >= 0
+
+    # Scale/shape parameters are positive regardless of the variate support.
+    @test minimum(default_prior((; edge = :e, param = :sigma, value = 2.0,
+        support = (-Inf, Inf)))) >= 0
+    @test minimum(default_prior((; edge = :e, param = :scale, value = 2.0,
+        support = (-Inf, Inf)))) >= 0
+    @test minimum(default_prior((; edge = :e, param = :shape, value = 2.0,
+        support = (-Inf, Inf)))) >= 0
+    @test minimum(default_prior((; edge = :e, param = :rate, value = 2.0,
+        support = (-Inf, Inf)))) >= 0
+
+    # Location parameters stay unbounded.
+    @test default_prior((; edge = :e, param = :mu, value = -1.0,
+        support = (-Inf, Inf))) isa Normal
+    @test default_prior((; edge = :e, param = :location, value = -1.0,
+        support = (-Inf, Inf))) isa Normal
+
+    # A [0, 1] probability parameter is Uniform(0, 1).
+    @test default_prior((; edge = :e, param = :p, value = 0.3,
+        support = (0.0, 1.0))) == Uniform(0, 1)
 end
 
 @testitem "build_priors takes a nested-NamedTuple partial override" begin
