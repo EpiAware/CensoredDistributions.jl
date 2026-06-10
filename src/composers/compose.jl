@@ -132,6 +132,18 @@ function compose(m::AbstractMatrix{<:UnivariateDistribution};
     return Parallel(branches, branch_names)
 end
 
+# A matrix whose element type is a non-univariate distribution (e.g. one holding
+# a `Select`) does not match the `UnivariateDistribution` matrix method above and
+# would otherwise fall through to the generic table method's opaque "expects a
+# NamedTuple/table/Matrix" error. Route a `Select` entry through the child check
+# so the matrix front-end reports the same Select-specific guidance as the others.
+function compose(m::AbstractMatrix{<:Distribution})
+    _reject_select_child!(Tuple(m))
+    throw(ArgumentError(
+        "every matrix entry must be a UnivariateDistribution; got an entry of " *
+        "type $(eltype(m))"))
+end
+
 # --- Tables.jl table front-end ---------------------------------------------
 # A table with `name` and `dist` columns maps to a Parallel over its rows, the
 # column-table equivalent of a flat NamedTuple of leaves. An optional `chain`

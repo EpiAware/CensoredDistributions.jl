@@ -20,7 +20,7 @@ _is_composable(::Any) = false
 # `compose`). A `Select`'s realisation length is the SELECTED alternative's, so it
 # has no fixed contribution length and cannot occupy a fixed flat slice of a
 # composer's value/event vector; constructing one would only MethodError later on
-# `length`/`logpdf`/`rand`. Full nesting is deferred (see issue #413). The
+# `length`/`logpdf`/`rand`. Full nesting is deferred. The
 # supported direction — a composer/select INSIDE a `Select` alternative — is
 # unaffected, since `Select` validates its alternatives via `_is_composable`.
 function _reject_select_child!(components::Tuple)

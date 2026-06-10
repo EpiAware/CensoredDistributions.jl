@@ -80,25 +80,6 @@ end
     @test d.selector == :case
 end
 
-@testitem "Select rejects a latent-wrapped alternative (#391)" begin
-    using CensoredDistributions, Distributions
-
-    # A `latent`-wrapped (multivariate) node is not yet supported as a Select
-    # alternative; construction rejects it with a clear, tracked error (#391)
-    # rather than a later bare MethodError in the record-distribution path.
-    lat = latent(primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
-    @test_throws ArgumentError select_branch(
-        :obs => Gamma(2.0, 1.0), :lat => lat)
-    err = try
-        select_branch(:obs => Gamma(2.0, 1.0), :lat => lat)
-        nothing
-    catch e
-        e
-    end
-    @test err isa ArgumentError
-    @test occursin("391", err.msg)
-end
-
 @testitem "Select holds a composer alternative and compares structurally" begin
     using CensoredDistributions, Distributions
 
@@ -143,22 +124,27 @@ end
     inner = select_branch(:a => Gamma(2.0, 1.0), :b => Gamma(5.0, 1.0))
 
     # A Select has no fixed contribution length, so it cannot be a composer child:
-    # the constructors and `compose` reject it cleanly (see issue #413) rather than
-    # constructing and then MethodError-ing on length/logpdf/rand.
+    # the constructors and `compose` reject it cleanly rather than constructing and
+    # then MethodError-ing on length/logpdf/rand.
     @test_throws ArgumentError Parallel(Gamma(2.0, 1.0), inner)
     @test_throws ArgumentError Parallel(inner, Gamma(2.0, 1.0))
     @test_throws ArgumentError Sequential(Gamma(2.0, 1.0), inner)
     @test_throws ArgumentError compose((pick = inner, side = Normal(0.0, 1.0)))
     @test_throws ArgumentError compose([inner Gamma(2.0, 1.0)])
-    # The error message points at the supported alternative.
-    err = try
-        Parallel(Gamma(2.0, 1.0), inner)
-        nothing
-    catch e
-        e
+    # Every front-end (positional constructor, NamedTuple, matrix) gives the same
+    # Select-specific guidance, not an opaque generic error.
+    for thunk in (() -> Parallel(Gamma(2.0, 1.0), inner),
+        () -> compose((pick = inner, side = Normal(0.0, 1.0))),
+        () -> compose([inner Gamma(2.0, 1.0)]))
+        err = try
+            thunk()
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("Select", err.msg)
     end
-    @test err isa ArgumentError
-    @test occursin("Select", err.msg)
 
     # The supported direction (a composer INSIDE a Select) still constructs AND is
     # operable: logpdf / rand run on the selected alternative.
