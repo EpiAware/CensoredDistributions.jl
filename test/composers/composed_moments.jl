@@ -34,6 +34,73 @@
           0.4 * (v1 + m1^2) + 0.6 * (v2 + m2^2) - mm^2
 end
 
+@testitem "edge_means / edge_vars handle a nested-Competing outcome" begin
+    using CensoredDistributions, Distributions
+
+    # A Competing whose outcome is ITSELF a (univariate, legal) Competing: the
+    # nested outcome's moment is a NamedTuple, so the mixture aggregate must use
+    # its scalar marginal mean/var rather than broadcasting over the NamedTuple.
+    inner = Competing(:fast => (Gamma(1.0, 1.0), 0.5),
+        :slow => (Gamma(2.0, 2.0), 0.5))
+    outer = Competing(:simple => (Gamma(2.0, 3.5), 0.4),
+        :nested => (inner, 0.6))
+
+    em = edge_means(outer)
+    # Per-outcome entries: the simple outcome is scalar, the nested one is a
+    # NamedTuple carrying its own per-outcome + mixture means.
+    @test em.simple ≈ mean(Gamma(2.0, 3.5))
+    @test em.nested.fast ≈ mean(Gamma(1.0, 1.0))
+    @test em.nested.slow ≈ mean(Gamma(2.0, 2.0))
+    @test em.nested.mixture ≈
+          0.5 * mean(Gamma(1.0, 1.0)) + 0.5 * mean(Gamma(2.0, 2.0))
+
+    # The outer mixture mean uses each outcome's SCALAR marginal mean.
+    inner_mean = 0.5 * mean(Gamma(1.0, 1.0)) + 0.5 * mean(Gamma(2.0, 2.0))
+    @test em.mixture ≈ 0.4 * mean(Gamma(2.0, 3.5)) + 0.6 * inner_mean
+
+    ev = edge_vars(outer)
+    @test ev.simple ≈ var(Gamma(2.0, 3.5))
+    @test ev.nested.fast ≈ var(Gamma(1.0, 1.0))
+    # Outer mixture variance via law of total variance over the SCALAR marginal
+    # moments, where the nested outcome contributes its own free mixture moments.
+    inner_var = 0.5 * (var(Gamma(1.0, 1.0)) + mean(Gamma(1.0, 1.0))^2) +
+                0.5 * (var(Gamma(2.0, 2.0)) + mean(Gamma(2.0, 2.0))^2) -
+                inner_mean^2
+    om = 0.4 * mean(Gamma(2.0, 3.5)) + 0.6 * inner_mean
+    @test ev.mixture ≈
+          0.4 * (var(Gamma(2.0, 3.5)) + mean(Gamma(2.0, 3.5))^2) +
+          0.6 * (inner_var + inner_mean^2) - om^2
+end
+
+@testitem "nested-Competing mixture aggregate sees through censored leaves" begin
+    using CensoredDistributions, Distributions
+
+    dic(d) = double_interval_censored(
+        d; primary_event = Uniform(0, 1), interval = 1.0)
+
+    # The nested outcome's inner leaves are CENSORED: the outer mixture aggregate
+    # must still report the FREE (peeled) delay moments, matching the documented
+    # free-leaf transparency, NOT the censored mean(Competing)/var(Competing).
+    inner = Competing(:fast => (dic(Gamma(1.0, 1.0)), 0.5),
+        :slow => (dic(Gamma(2.0, 2.0)), 0.5))
+    outer = Competing(:simple => (dic(Gamma(2.0, 3.5)), 0.4),
+        :nested => (inner, 0.6))
+
+    inner_mean = 0.5 * mean(Gamma(1.0, 1.0)) + 0.5 * mean(Gamma(2.0, 2.0))
+    em = edge_means(outer)
+    @test em.nested.mixture ≈ inner_mean
+    @test em.mixture ≈ 0.4 * mean(Gamma(2.0, 3.5)) + 0.6 * inner_mean
+
+    inner_var = 0.5 * (var(Gamma(1.0, 1.0)) + mean(Gamma(1.0, 1.0))^2) +
+                0.5 * (var(Gamma(2.0, 2.0)) + mean(Gamma(2.0, 2.0))^2) -
+                inner_mean^2
+    om = 0.4 * mean(Gamma(2.0, 3.5)) + 0.6 * inner_mean
+    ev = edge_vars(outer)
+    @test ev.mixture ≈
+          0.4 * (var(Gamma(2.0, 3.5)) + mean(Gamma(2.0, 3.5))^2) +
+          0.6 * (inner_var + inner_mean^2) - om^2
+end
+
 @testitem "edge_means walks Select, Latent, Convolved and bare leaves" begin
     using CensoredDistributions, Distributions
 
