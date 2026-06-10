@@ -45,6 +45,33 @@ struct Competing{C <: Tuple, D <: Tuple, P <: Tuple} <:
     delays::D
     "Tuple of the branch probabilities, summing to one."
     branch_probs::P
+
+    # Validate the structural invariants in the INNER constructor so EVERY
+    # construction path (the `Pair...` outer constructor, equality round-trips,
+    # `update`, `intervene` and direct struct calls) is checked, rather than
+    # silently building a malformed node whose failure only surfaces later as a
+    # confusing `DomainError` from `Categorical` inside `as_mixture`.
+    #
+    # The bounds (each prob in `[0, 1]`) and structure (at least two outcomes;
+    # names, delays and branch_probs of equal length) hold on EVERY path,
+    # including the DynamicPPL extension that rebuilds a `Competing` from branch
+    # probabilities sampled INDEPENDENTLY from priors. Those sampled probs are
+    # in `[0, 1]` but need NOT sum to one (the AD-safe `_competing_logmix`
+    # scorer handles an unnormalised weight set), so the sum-to-one requirement
+    # is enforced at the user-facing `Pair...` constructor and at `as_mixture`
+    # (which DOES need a normalised `Categorical`), not here.
+    function Competing(names::C, delays::D, branch_probs::P) where {
+            C <: Tuple, D <: Tuple, P <: Tuple}
+        length(names) >= 2 ||
+            throw(ArgumentError("Competing needs at least two outcomes"))
+        (length(names) == length(delays) == length(branch_probs)) ||
+            throw(ArgumentError(
+                "Competing names, delays and branch_probs must have equal " *
+                "length; got $(length(names)), $(length(delays)), " *
+                "$(length(branch_probs))"))
+        _validate_branch_prob_bounds(branch_probs)
+        return new{C, D, P}(names, delays, branch_probs)
+    end
 end
 
 @doc "
@@ -79,7 +106,9 @@ function Competing(outcomes::Pair...)
         throw(ArgumentError("each competing outcome name must be a Symbol"))
     delays = Tuple(_competing_delay(p) for p in payloads)
     branch_probs = Tuple(_competing_prob(p) for p in payloads)
-    _validate_branch_probs(branch_probs)
+    # The inner constructor validates the bounds and structure; the user-facing
+    # constructor additionally requires the probabilities to sum to one.
+    _validate_branch_probs_sum(branch_probs)
     return Competing(names, delays, branch_probs)
 end
 
@@ -126,14 +155,29 @@ end
 
 _competing_prob(payload::Tuple{<:UnivariateDistribution, <:Real}) = payload[2]
 
-function _validate_branch_probs(branch_probs::Tuple)
+# Each branch probability must lie in `[0, 1]`. The bounds carry a small
+# tolerance so a saturating covariate prob (`logistic(Xβ)` evaluating to a hair
+# past 0 or 1 under AD/sampling) is accepted rather than spuriously rejected.
+# Comparisons are value-based, so an AD `Dual`/tracked `branch_probs` is compared
+# on its value WITHOUT being stripped of its derivative information.
+function _validate_branch_prob_bounds(branch_probs::Tuple)
+    tol = 1e-6
     for p in branch_probs
-        (p >= 0 && p <= 1) ||
+        (p >= -tol && p <= 1 + tol) ||
             throw(ArgumentError(
                 "each branch probability must lie in [0, 1]; got $p"))
     end
+    return nothing
+end
+
+# The branch probabilities must additionally sum to one. Applied on the
+# user-facing `Pair...` constructor and at `as_mixture` (which lowers to a
+# `Categorical` and so needs a normalised weight set), but NOT in the inner
+# constructor, where a prior-sampled (unnormalised) weight set is legitimate.
+# The `isapprox` sum check is value-based, so an AD `Dual` is not stripped.
+function _validate_branch_probs_sum(branch_probs::Tuple)
     total = sum(branch_probs)
-    isapprox(total, 1; atol = 1e-8) ||
+    isapprox(total, 1; atol = 1e-6) ||
         throw(ArgumentError(
             "competing branch probabilities sum to $total, not one"))
     return nothing
@@ -253,6 +297,11 @@ as_mixture(node)
 - [`Competing`](@ref): the composer type
 "
 function as_mixture(c::Competing)
+    # The `Categorical` inside the `MixtureModel` needs a normalised weight set,
+    # so reject an unnormalised `Competing` (e.g. one built directly with
+    # branch probabilities that do not sum to one) with a clear error rather
+    # than the confusing `DomainError` `Categorical` would otherwise throw.
+    _validate_branch_probs_sum(c.branch_probs)
     return MixtureModel(
         collect(c.delays), collect(float.(c.branch_probs)))
 end
@@ -274,25 +323,44 @@ var(c::Competing) = var(as_mixture(c))
 
 Log probability density of the competing-outcome marginal at `x`.
 
+Routed through the AD-safe `_competing_logmix` reduction rather than
+`logpdf(as_mixture(c), x)`: `as_mixture` does `float.(branch_probs)`, which
+strips an AD `Dual`/tracked type from the branch probabilities, breaking the
+gradient w.r.t. a covariate case-fatality term (`logistic(Xβ)`) when a
+`Competing` is scored as a leaf of a plain (non-censored) `compose(...)` tree.
+The explicit log-sum-exp keeps the probabilities' element type, so a `Dual`
+propagates exactly as on the censored-tree scorer.
+
 See also: [`as_mixture`](@ref)
 "
-logpdf(c::Competing, x::Real) = logpdf(as_mixture(c), x)
+logpdf(c::Competing, x::Real) = _competing_logmix(c.branch_probs, c.delays, x)
 
 @doc "
 
 Probability density of the competing-outcome marginal at `x`.
 
+`exp` of the AD-safe [`logpdf`](@ref), so branch-prob gradients survive (see the
+`logpdf` note on why `as_mixture` is avoided on a differentiated path).
+
 See also: [`logpdf`](@ref)
 "
-pdf(c::Competing, x::Real) = pdf(as_mixture(c), x)
+pdf(c::Competing, x::Real) = exp(logpdf(c, x))
 
 @doc "
 
 Cumulative distribution function of the competing-outcome marginal at `x`.
 
+The branch-prob-weighted mixture cdf `Σ_i p_i F_i(x)`, summed directly so the
+probabilities keep their (possibly AD `Dual`) element type rather than being
+stripped by `as_mixture`'s `float.(branch_probs)`. This keeps the cdf AD-safe on
+a differentiated path (e.g. a censored-survival term), matching `logpdf`.
+
 See also: [`as_mixture`](@ref)
 "
-cdf(c::Competing, x::Real) = cdf(as_mixture(c), x)
+function cdf(c::Competing, x::Real)
+    return sum(ntuple(
+        i -> c.branch_probs[i] * cdf(c.delays[i], x), length(c.branch_probs)))
+end
 
 @doc "
 

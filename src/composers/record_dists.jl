@@ -517,7 +517,23 @@ function record_distributions(d::Select, rows)
     rowvec = collect(Tables.rows(rows))
     isempty(rowvec) && throw(ArgumentError(
         "record_distributions needs at least one record; got an empty table"))
-    return [_select_record(d, _row_namedtuple(row)) for row in rowvec]
+    recs = [_select_record(d, _row_namedtuple(row)) for row in rowvec]
+    # The records are scored together via `product_distribution`, which requires a
+    # rectangular event matrix: every record must have the SAME number of event
+    # slots. Different alternatives may have different event-slot counts (a leaf is
+    # one, a composer several), so a table whose rows select differing-length
+    # alternatives has no rectangular layout. Distributions.jl would otherwise
+    # throw an opaque "all distributions must be of the same size"; raise a clear
+    # error naming the cause instead.
+    n1 = length(first(recs))
+    all(r -> length(r) == n1, recs) || throw(ArgumentError(
+        "vectorised record_distributions over a Select needs every selected " *
+        "alternative to have the same number of event slots; the rows select " *
+        "alternatives of differing length (e.g. a leaf vs a multi-event " *
+        "composer). Score each fixed-length subset of rows separately. Full " *
+        "Select-in-composer nesting is deferred; see " *
+        "https://github.com/EpiAware/CensoredDistributions.jl/issues/413."))
+    return recs
 end
 
 # Build one Select record: read the selector, pick the alternative, and build
