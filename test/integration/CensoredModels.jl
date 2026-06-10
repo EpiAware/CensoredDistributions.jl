@@ -826,14 +826,15 @@ end
     @test all(vn -> occursin("e", string(vn)), keys(vi))
 
     # Conditioning on every event time, the log-density decomposes into the
-    # origin primary prior plus each edge's conditional at the realised gap.
+    # origin primary prior plus each edge's conditional at the realised gap, scored
+    # on the edge's DECLARED censoring (matching the marginal chain).
     o, a, dd = 0.3, 2.1, 5.4
     cond = condition(demo(lseq, (onset = o, admit = a, death = dd)),
         (@varname(obs.e[1]) => o, @varname(obs.e[2]) => a,
             @varname(obs.e[3]) => dd))
     manual = logpdf(get_primary_event(seq.components[1]), o) +
-             logpdf(get_dist(seq.components[1]), a - o) +
-             logpdf(get_dist(seq.components[2]), dd - a)
+             logpdf(seq.components[1], a - o) +
+             logpdf(seq.components[2], dd - a)
     @test logjoint(cond, (;)) ≈ manual
 end
 
@@ -919,10 +920,94 @@ end
         (@varname(obs.e[1]) => e0, @varname(obs.e[2]) => e1,
             @varname(obs.e[3]) => e2, @varname(obs.e[4]) => e3))
     manual = logpdf(get_primary_event(oa), e0) +
-             logpdf(get_dist(oa), e1 - e0) +
-             logpdf(get_dist(b1), e2 - e1) +
-             logpdf(get_dist(b2), e3 - e1)
+             logpdf(oa, e1 - e0) +
+             logpdf(b1, e2 - e1) +
+             logpdf(b2, e3 - e1)
     @test logjoint(cond, (;)) ≈ manual
+
+    # The conditioned latent log-density equals the marginal: a NESTED Parallel
+    # conditions each branch on its declared edge (the marginal `_tree_score`), so
+    # the latent twin keeps the same edges and the two agree even with censoring.
+    row = (a = e0, b = e1, c = e2, d = e3)
+    marg = only(logjoint(demo(seq, row), (;)))
+    @test logjoint(cond, (;)) ≈ marg rtol=1e-10
+end
+
+@testitem "composer model: marginal == latent for interval-censored edges" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint, condition, @varname
+
+    # An observed edge carrying SECONDARY interval censoring must score the same
+    # in the marginal and the latent forms: both condition the observed gap on the
+    # edge's DECLARED censoring. The latent form must not strip the censoring down
+    # to the continuous core (which would silently mis-score the edge).
+    seq = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        double_interval_censored(LogNormal(1.5, 0.75); interval = 1))
+    lseq = latent(seq)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    o, a, dd = 0.3, 2.0, 7.0
+    row = (onset = o, admit = a, death = dd)
+    marg = only(logjoint(demo(seq, row), (;)))
+    cond = condition(demo(lseq, row),
+        (@varname(obs.e[1]) => o, @varname(obs.e[2]) => a,
+            @varname(obs.e[3]) => dd))
+    lat = logjoint(cond, (;))
+    @test marg ≈ lat rtol=1e-10
+
+    # The conditioned latent log-density also equals the explicit decomposition:
+    # origin prior + each edge's DECLARED-censoring logpdf at the realised gap.
+    manual = logpdf(get_primary_event(seq.components[1]), o) +
+             logpdf(seq.components[1], a - o) +
+             logpdf(seq.components[2], dd - a)
+    @test lat ≈ manual rtol=1e-10
+end
+
+@testitem "composer model: marginal == latent for a Parallel interval edge" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, logjoint, condition, @varname
+
+    # The latent Parallel form must likewise score each observed branch on its
+    # DECLARED censoring, matching the marginal Parallel logpdf.
+    par = Parallel(
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+        double_interval_censored(LogNormal(1.0, 0.5); interval = 1))
+    lpar = latent(par)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    o, y1, y2 = 0.3, 2.5, 4.0
+    row = (origin = o, y1 = y1, y2 = y2)
+    marg = only(logjoint(demo(par, row), (;)))
+    cond = condition(demo(lpar, row),
+        (@varname(obs.e[1]) => o, @varname(obs.e[2]) => y1,
+            @varname(obs.e[3]) => y2))
+    lat = logjoint(cond, (;))
+    @test marg ≈ lat rtol=1e-10
+end
+
+@testitem "composer model: latent rejects a per-record obs_time horizon" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, VarInfo
+
+    # An `obs_time` horizon is not supported under the latent form; reject it
+    # clearly rather than silently dropping it.
+    seq = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    lseq = latent(seq)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    row = (onset = 0.3, admit = 2.0, death = 5.0, obs_time = 10.0)
+    @test_throws ArgumentError VarInfo(demo(lseq, row))
+
+    # A latent leaf row carrying an obs_time is likewise rejected.
+    lleaf = latent(primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1)))
+    leaf_row = (delay = 2.0, obs_time = 10.0)
+    @test_throws ArgumentError VarInfo(demo(lleaf, leaf_row))
 end
 
 @testitem "composer model: marginal Sequential short NUTS run" begin
