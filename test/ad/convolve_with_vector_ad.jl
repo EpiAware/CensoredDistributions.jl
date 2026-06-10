@@ -66,3 +66,42 @@ end
     @test isapprox(g_rev[4], 0.0; atol = 1e-8)
     @test any(!iszero, g_rev[1:2])
 end
+
+@testitem "branched convolve gradient flows (Mooncake reverse)" tags=[
+    :ad, :mooncake, :mooncake_reverse] begin
+    # The Rt tutorial's shape: a shared incubation step that fans out into a
+    # thinned `cases` branch and a thinned `deaths` branch, pushed through
+    # `convolve_distributions(stack, infections; events = (:cases, :deaths))`.
+    # Deriving the requested event names runs string ops Mooncake reverse
+    # cannot trace; the zero-adjoint primitives in the Mooncake extension let
+    # the gradient flow without a per-model overlay. The names are constant
+    # w.r.t. the sampled parameters, so the result must match ForwardDiff.
+    using CensoredDistributions, Distributions
+    using ForwardDiff
+    using ADTypes: AutoForwardDiff, AutoMooncake
+    using DifferentiationInterface: gradient
+    import Mooncake
+
+    infections = [0.0, 2.0, 5.0, 9.0, 14.0, 11.0, 7.0, 4.0]
+
+    # theta = (incub shape, incub scale, case shape, case scale, alpha,
+    #          death shape, death scale, rho); the scales enter via `thin`.
+    function objective(theta)
+        incub = Gamma(theta[1], theta[2])
+        stack = compose(incub;
+            cases = thin(Gamma(theta[3], theta[4]), theta[5]),
+            deaths = thin(Gamma(theta[6], theta[7]), theta[8]))
+        streams = convolve_distributions(stack, infections;
+            events = (:cases, :deaths))
+        return sum(streams.cases) + sum(streams.deaths)
+    end
+
+    theta = [1.8, 1.4, 1.5, 1.2, 0.3, 3.0, 4.0, 0.012]
+    g_fwd = gradient(objective, AutoForwardDiff(), theta)
+    g_mnc = gradient(
+        objective, AutoMooncake(; config = nothing), theta)
+
+    @test all(isfinite, g_mnc)
+    @test any(!iszero, g_mnc)
+    @test isapprox(g_mnc, g_fwd; rtol = 1e-5, atol = 1e-8)
+end

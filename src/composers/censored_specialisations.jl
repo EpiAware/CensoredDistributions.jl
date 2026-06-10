@@ -43,6 +43,11 @@ _origin_primary_event(::UnivariateDistribution) = nothing
 # surfaces no origin primary event (the censored treatment is resolved within
 # the child). `Competing` is univariate and already hits the fallback above.
 _origin_primary_event(::Union{Sequential, Parallel}) = nothing
+# A nested `Select` resolves censoring within the committed alternative (the
+# first on the flat path); a `Latent` resolves it within its wrapped node.
+# Neither surfaces a flat origin primary event.
+_origin_primary_event(::Select) = nothing
+_origin_primary_event(d::Latent) = _origin_primary_event(d.dist)
 
 # The continuous delay core of a (possibly censored) node, for marginalisation:
 # strip every censoring layer so a marginalised run convolves only continuous
@@ -129,10 +134,14 @@ struct _Flat end
 _nested_trait(components::C) where {C <: Tuple} = _nested_trait(C)
 @generated function _nested_trait(::Type{C}) where {C <: Tuple}
     # A `Competing` component also forces the tree path: its multi-slot outcome
-    # layout is scored by `_tree_step(::Competing)`, not the flat
-    # segment-grouped scorer.
+    # layout is scored by `_tree_step(::Competing)`, not the flat segment-grouped
+    # scorer. A `Select` component likewise forces the tree path: a nested Select
+    # routes per row to one of its alternatives (scored by `_tree_step(::Select)`),
+    # not by the flat one-level segment scoring that would silently commit to a
+    # single alternative.
     has_nested = any(
-        t -> t <: Sequential || t <: Parallel || t <: Competing, fieldtypes(C))
+        t -> t <: Sequential || t <: Parallel || t <: Competing || t <: Select,
+        fieldtypes(C))
     return has_nested ? :(_Nested()) : :(_Flat())
 end
 
@@ -228,6 +237,11 @@ _terminal_offset(::UnivariateDistribution) = 0
 _terminal_offset(::Competing) = -1
 _terminal_offset(d::Sequential) = _seq_terminal_offset(d.components)
 _terminal_offset(::Parallel) = -1
+# A nested `Select` swaps in ONE alternative per row; the alternatives share one
+# event-slot width (checked by `_event_child_nleaves`), so the Select's terminal
+# offset is that of its (common) alternative. A following chain step hangs off the
+# same terminal regardless of which alternative routes.
+_terminal_offset(d::Select) = _terminal_offset(first(d.alternatives))
 function _seq_terminal_offset(components::Tuple)
     # The last step's terminal, measured from the chain's own first event. Uses
     # the EVENT-slot count (a `Competing` step spans one slot per outcome).
@@ -328,6 +342,23 @@ function _subevent_slice(events, o_idx::Int, ev_idx::Int, n::Int)
     end
     return out
 end
+# A nested `Select` on the tree path routes to ONE alternative and scores it as
+# that edge. The numeric event-vector path carries no row selector (the selector
+# is a Symbol, not an event time), so this DETERMINISTIC default commits to the
+# FIRST alternative -- the data-free value-vector round-trip, where a constructed
+# flat vector must score back through `logpdf` without a selector. The DATA path
+# does NOT reach here: the per-record build resolves the selector into the tree
+# (`_resolve_selects`) before scoring, replacing the Select with the routed
+# alternative, so a real record routes by `row[selector]` and never silently
+# scores alternative 1. The chosen alternative is scored through its own
+# `_tree_step`, so a leaf conditions on its declared censoring and a composer
+# alternative recurses.
+function _tree_step(step::Select, events, o_idx::Int, ev_idx::Int,
+        primary, ::Type{T}) where {T}
+    return _tree_step(first(step.alternatives), events, o_idx, ev_idx,
+        primary, T)
+end
+
 function _tree_step(step::UnivariateDistribution, events, o_idx::Int,
         ev_idx::Int, primary, ::Type{T}) where {T}
     o = events[o_idx]
@@ -413,7 +444,7 @@ end
 # the tree has no Competing node or more than one (the single `branch_probs` row
 # field is then ambiguous). Pure, Turing-free; the new probs keep their
 # element type.
-function _override_competing_branch_probs(d, probs)
+function _override_competing_outcome_probs(d, probs)
     n = _count_competing(d)
     n == 1 || throw(ArgumentError(
         "a per-record `branch_probs` override needs exactly one Competing node " *
@@ -429,6 +460,54 @@ function _replace_competing(d::Sequential, probs)
 end
 function _replace_competing(d::Parallel, probs)
     return Parallel(map(c -> _replace_competing(c, probs), d.components),
+        d.names)
+end
+
+# --- per-record nested-Select routing ---------------------------------------
+#
+# A nested `Select` routes per record by the row's selector field
+# (`row[selector]`). On the DATA path the per-record build RESOLVES every nested
+# Select into the tree, replacing each with its routed alternative for the record,
+# then scores the resolved (Select-free) tree through the normal numeric path. The
+# selector VALUE is data (a Symbol), so resolving it out of the tree before the
+# differentiated scoring keeps the AD path free of the routing control flow and
+# mirrors the per-record `branch_probs` rebuild for a nested Competing. A row
+# missing a needed selector field errors here, so a data record can never silently
+# score alternative 1.
+
+# Count the nested `Select` nodes anywhere in a composed tree, so a tree with no
+# Select skips the resolution rebuild entirely.
+_count_selects(::Select) = 1
+_count_selects(::UnivariateDistribution) = 0
+function _count_selects(d::Union{Sequential, Parallel})
+    return sum(_count_selects, d.components; init = 0)
+end
+
+# Resolve every nested `Select` in `d` to its routed alternative for `row`,
+# returning the rebuilt (Select-free) tree. A row missing a Select's selector
+# field errors clearly (no silent commit to alternative 1). A tree with no nested
+# Select is returned unchanged. The chosen alternative may itself nest a Select,
+# so the rebuild recurses into it.
+_resolve_selects(d, row::NamedTuple) = _resolve_selects_node(d, row)
+
+_resolve_selects_node(d::UnivariateDistribution, ::NamedTuple) = d
+function _resolve_selects_node(d::Select, row::NamedTuple)
+    haskey(row, d.selector) || throw(ArgumentError(
+        "a nested Select needs its selector field $(repr(d.selector)) on the " *
+        "record to route; the row has no such field, so it cannot pick an " *
+        "alternative (it would otherwise silently score the first one)"))
+    kind = row[d.selector]
+    kind isa Symbol || throw(ArgumentError(
+        "the nested Select selector field $(repr(d.selector)) must hold a " *
+        "Symbol naming the alternative; got $(typeof(kind))"))
+    return _resolve_selects_node(_pick(d, kind), row)
+end
+function _resolve_selects_node(d::Sequential, row::NamedTuple)
+    return Sequential(map(c -> _resolve_selects_node(c, row), d.components),
+        d.names)
+end
+function _resolve_selects_node(d::Parallel, row::NamedTuple)
+    return Parallel(map(c -> _resolve_selects_node(c, row), d.components),
         d.names)
 end
 
@@ -1126,6 +1205,11 @@ _tree_core_eltype(d::UnivariateDistribution) = _param_eltype(_marginal_core(d))
 function _tree_core_eltype(d::Union{Sequential, Parallel})
     return promote_type(map(_tree_core_eltype, d.components)...)
 end
+# A nested `Select` promotes over EVERY alternative's core param type, so the
+# sampled-time element type covers whichever alternative routes for a record (the
+# default-alternative `rand` still falls within this promoted type).
+_tree_core_eltype(d::Select) = promote_type(map(_tree_core_eltype,
+    d.alternatives)...)
 
 # Fill the event slots of composer `d` hanging off the absolute `origin` time,
 # starting at flat index `event_start`. Returns the next free index. A
@@ -1194,6 +1278,15 @@ function _tree_rand_step!(out, rng::AbstractRNG, step::UnivariateDistribution,
     return idx + 1, y
 end
 
+# A nested `Select` samples its DEFAULT (first) alternative on the data-free
+# simulation path, matching the deterministic default `_tree_step(::Select)`
+# scores, so a sampled record round-trips through `logpdf`. The data path resolves
+# the Select before sampling, so a routed record samples its chosen alternative.
+function _tree_rand_step!(out, rng::AbstractRNG, step::Select, origin, idx,
+        ::Type{T}) where {T}
+    return _tree_rand_step!(out, rng, first(step.alternatives), origin, idx, T)
+end
+
 # The terminal event time of a nested subtree just filled into `out` from
 # `idx`: the shared origin for a Parallel (every branch hangs off it), the last
 # leaf event for a Sequential. `_terminal_offset` gives that slot relative to the
@@ -1247,4 +1340,10 @@ function _discretise_step!(out, step::UnivariateDistribution, idx::Int)
     out[idx] === missing ||
         (out[idx] = _apply_leaf_interval(out[idx], _leaf_interval(step)))
     return idx + 1
+end
+
+# A nested `Select` discretises its DEFAULT alternative's slot(s), matching the
+# default the simulation walk filled.
+function _discretise_step!(out, step::Select, idx::Int)
+    return _discretise_step!(out, first(step.alternatives), idx)
 end

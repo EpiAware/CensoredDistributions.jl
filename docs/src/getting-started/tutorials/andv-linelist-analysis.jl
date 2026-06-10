@@ -51,7 +51,14 @@
 # wall-clock and far cheaper per gradient, and it converged at the doc-build
 # sampler budget where the marginal form did not.
 # This page therefore uses the latent form as the primary fit.
-# The composer tools used to build the index branch are covered in the
+#
+# The two record types are routed by a single [`selecting`](@ref)
+# disjunction keyed on a `:kind` field: an `:index` case scores its marginal
+# incubation leaf, a `:sourced` case scores a latent two-edge chain whose middle
+# infection event is sampled. One table carries both kinds, and the model loops
+# over its rows letting `select` pick the branch per record, so the
+# split-by-kind is data-driven rather than two hand-maintained tables.
+# The composer tools used to build the branches are covered in the
 # [composer toolkit tutorial](@ref composer-toolkit); here the focus is the
 # delay model and the Bayesian workflow.
 
@@ -68,7 +75,7 @@ using CSV, DataFramesMeta, Dates
 using CensoredDistributions, Distributions
 using CensoredDistributions: latent
 using Turing, Random, Statistics
-using DynamicPPL: prefix, to_submodel, @addlogprob!
+using DynamicPPL: prefix, to_submodel
 using ADTypes: AutoForwardDiff
 using CairoMakie, PairPlots
 
@@ -95,27 +102,32 @@ exp_lo = parse_day.(ll.exposure_lower)
 # Real-time horizon: the analysis date, one week after the last recorded onset.
 horizon = maximum(onset_day) + 7.0
 
-# Each case becomes up to two records, split by kind.
+# Each case becomes up to two records, tagged by a `:kind` field that a single
+# `select` disjunction routes on.
 # An `:index` record measures the incubation period from the case's own recorded
 # exposure to its onset.
 # A `:sourced` record measures onset relative to the source's onset; its own
 # infection time is the latent the model samples.
-# The latent form scores the two branches separately, so the records are kept in
-# two tables rather than one routed table.
-index_rows = NamedTuple[]
-sourced_rows = NamedTuple[]
+# Both kinds live in one `records` table; the model loops over it and `select`
+# picks the matching branch per row from the `:kind` field. A `:sourced` row
+# carries the source onset as its origin event (`srconset`, anchored to zero), a
+# `missing` `infection` event (the sampled latent), and the observed `onset`.
+records = NamedTuple[]
 for i in eachindex(pid)
     if !ismissing(exp_lo[i])
-        push!(index_rows, (delay = onset_day[i] - exp_lo[i],
+        push!(records, (kind = :index, delay = onset_day[i] - exp_lo[i],
             obs_time = horizon - exp_lo[i]))
     end
     src = ll.source_case[i]
     (ismissing(src) || src == "index") && continue
     s = first(split(string(src), "/"))  # first listed candidate source
     haskey(onset_of, s) || continue
-    push!(sourced_rows, (onset = onset_day[i] - onset_of[s],))
+    push!(records,
+        (kind = :sourced, srconset = 0.0, infection = missing,
+            onset = onset_day[i] - onset_of[s]))
 end
-(index = length(index_rows), sourced = length(sourced_rows))
+(index = count(r -> r.kind == :index, records),
+    sourced = count(r -> r.kind == :sourced, records))
 
 # ## The delay model
 #
@@ -127,11 +139,14 @@ end
 # infection, doubly interval censored with a one-day primary window (the
 # day-resolution exposure) and a one-day secondary window (the day-resolution
 # onset).
-# The sourced branch is the latent chain. `seg1` is the transmission-timing edge
-# in its latent representation: the source's onset day is the in-window primary
-# event and the case's own infection is the conditioned observation. Drawing the
-# infection from `seg1`, the case's onset is then scored against `inc` shifted
-# by that infection, so the two delays are scored directly with no convolution.
+# The sourced branch is a latent two-edge chain
+# `srconset -> infection -> onset`: the transmission timing carries the source's
+# onset to the case's own infection, then the incubation period carries that
+# infection to the case's onset. The chain is wrapped in `latent`, so the middle
+# infection event is sampled and the two delays are scored directly with no
+# convolution.
+# `selecting` routes a record to the branch its `:kind` names, so both kinds
+# share one `inc` and one `delta` and are scored through a single object.
 
 pwindow = 1.0
 swindow = 1.0
@@ -142,12 +157,24 @@ function index_branch(inc)
         primary_event = Uniform(0, pwindow), interval = swindow)
 end
 
-# Sourced first edge as a latent primary-censored node (Select cannot yet hold a
-# Latent branch, so the two branches are built separately rather than routed).
-sourced_seg1(delta) = latent(primary_censored(delta, Uniform(0, pwindow)))
+# Sourced branch: the latent transmission -> incubation chain, named so its
+# events read srconset/infection/onset.
+function sourced_branch(inc, delta)
+    chain = Sequential(
+        (primary_censored(delta, Uniform(0, pwindow)),
+            primary_censored(inc, Uniform(0, pwindow))),
+        (:srconset_infection, :infection_onset))
+    return latent(chain)
+end
 
-# The two branches at the upstream posterior means.
-index_branch(LogNormal(3.06, 0.32))
+# The routed delay model: one `select` over the two branches, keyed on `:kind`.
+function delay_model(inc, delta)
+    selecting(:index => index_branch(inc),
+        :sourced => sourced_branch(inc, delta))
+end
+
+# The branches at the upstream posterior means.
+delay_model(LogNormal(3.06, 0.32), Normal(0.17, 0.62))
 
 # ## Priors
 #
@@ -155,13 +182,15 @@ index_branch(LogNormal(3.06, 0.32))
 # rather than one set per branch, so `inc` and `delta` are sampled once inside
 # the model. The priors are those of the upstream model.
 #
-# The model samples the two delay parameter pairs, scores the index records
-# through the composer leaf model, then loops over the sourced records: each
-# draws its own infection time from `seg1` and scores its onset against the
-# shifted incubation period. The same definition fits observed delays and, with
-# a missing first-edge observation, samples the latent infection time.
+# The model samples the two delay parameter pairs, builds one routed delay
+# object, then loops over the combined `records` table. `select` reads each row's
+# `:kind` and delegates to the matching branch: an `:index` row scores its
+# marginal incubation leaf, a `:sourced` row scores the latent chain, sampling
+# its own infection time and conditioning the observed onset on the shifted
+# incubation period. The same definition fits observed delays and, with a missing
+# event, samples the latent infection time.
 
-@model function andv(index_rows, sourced_rows)
+@model function andv(records)
     mu_inc ~ Normal(3.0, 0.5)
     sigma_inc ~ truncated(Normal(0.0, 0.5); lower = 0)
     mu_delta ~ Normal(0.0, 5.0)
@@ -169,24 +198,14 @@ index_branch(LogNormal(3.06, 0.32))
     inc = LogNormal(mu_inc, sigma_inc)
     delta = Normal(mu_delta, sigma_delta)
 
-    ## Index records: the incubation delay scored marginally per record.
-    idx = index_branch(inc)
-    idxobs = Vector{Any}(undef, length(index_rows))
-    for (k, r) in enumerate(index_rows)
-        sub = prefix(composed_distribution_model(idx, r), Symbol("idx_$k"))
-        idxobs[k] ~ to_submodel(sub, false)
+    ## One routed delay object scored per record; `select` picks the branch.
+    d = delay_model(inc, delta)
+    obs = Vector{Any}(undef, length(records))
+    for (k, r) in enumerate(records)
+        sub = prefix(composed_distribution_model(d, r), Symbol("rec_$k"))
+        obs[k] ~ to_submodel(sub, false)
     end
-
-    ## Sourced records: sample each infection time from the latent first edge,
-    ## then score the observed onset against the shifted incubation period.
-    seg1 = sourced_seg1(delta)
-    infections = Vector{Any}(undef, length(sourced_rows))
-    for (k, r) in enumerate(sourced_rows)
-        sub = prefix(primary_censored_model(seg1, missing), Symbol("src_$k"))
-        infections[k] ~ to_submodel(sub, false)
-        @addlogprob! logpdf(inc, r.onset - infections[k])
-    end
-    return (idx, seg1)
+    return d
 end
 
 # ## Simulate, fit, and recover
@@ -200,19 +219,20 @@ inc_true = LogNormal(3.06, 0.32)
 delta_true = Normal(0.17, 0.62)
 
 Random.seed!(20260608)
-sim_index = NamedTuple[]
+sim_records = NamedTuple[]
 for _ in 1:60
     path = predict_events(latent(primary_censored(inc_true,
         Uniform(0, pwindow))))
-    push!(sim_index, (delay = path[2] - path[1], obs_time = 200.0))
+    push!(sim_records, (kind = :index, delay = path[2] - path[1],
+        obs_time = 200.0))
 end
-sim_sourced = NamedTuple[]
 for _ in 1:60
     seg = predict_events(latent(primary_censored(delta_true,
         Uniform(0, pwindow))))
     infection = seg[2]                       # source onset 0, infection latent
     case_onset = infection + rand(inc_true)  # infection -> case onset
-    push!(sim_sourced, (onset = case_onset,))
+    push!(sim_records, (kind = :sourced, srconset = 0.0, infection = missing,
+        onset = case_onset))
 end
 
 # The latent likelihood scores the two delays directly, so each leapfrog step is
@@ -222,7 +242,7 @@ end
 # (Mooncake is the alternative supported backend; Enzyme is not used because it
 # aborts uncatchably on the heterogeneous composer-tree recursion).
 Random.seed!(20260608)
-sim_chain = sample(andv(sim_index, sim_sourced),
+sim_chain = sample(andv(sim_records),
     NUTS(50, 0.9; max_depth = 4, adtype = AutoForwardDiff()),
     MCMCThreads(), 100, 2; progress = false)
 nothing #hide
@@ -241,7 +261,7 @@ sim_summary = DataFrame(
 # The same model is fitted to the real records.
 
 Random.seed!(20260608)
-chain = sample(andv(index_rows, sourced_rows),
+chain = sample(andv(records),
     NUTS(50, 0.9; max_depth = 4, adtype = AutoForwardDiff()),
     MCMCThreads(), 100, 2; progress = false)
 nothing #hide

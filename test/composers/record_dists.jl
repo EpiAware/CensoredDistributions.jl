@@ -309,7 +309,7 @@ end
         total = 0.0
         for row in rows
             scored = haskey(row, :branch_probs) ?
-                     CensoredDistributions._override_competing_branch_probs(d,
+                     CensoredDistributions._override_competing_outcome_probs(d,
                 CensoredDistributions._coerce_branch_probs(
                     CensoredDistributions._the_competing_node(d),
                     row.branch_probs)) : d

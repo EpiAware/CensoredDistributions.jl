@@ -5,34 +5,17 @@
 # tree. These helpers do the flat-slice recursion shared by `Sequential` and
 # `Parallel`. This layer adds NO censored-internal behaviour.
 
-# A composable child is any univariate distribution (a leaf or a `Competing`) or
-# a nested `Sequential` / `Parallel` / `Select`. Used to validate composer
-# components and `Select` alternatives. A `Select` is composable as a `Select`
-# ALTERNATIVE (a composer/select INSIDE a Select) but NOT as a composer CHILD; the
-# child-only rejection is `_reject_select_child!` below, called from the
-# `Sequential`/`Parallel`/`compose` paths.
+# A composable child is any univariate distribution (a leaf or a `Competing`), a
+# nested `Sequential` / `Parallel` / `Select`, or a `latent`-wrapped node. Used to
+# validate composer components and `Select` alternatives. A `Latent` is a
+# Multivariate node over `[primary, observed]`, so it is admitted explicitly here
+# rather than through the univariate clause; this lets a `Select` carry a latent
+# alternative branch (the index-vs-sourced split's sourced chain).
 _is_composable(::UnivariateDistribution) = true
 _is_composable(::Union{Sequential, Parallel}) = true
 _is_composable(::Select) = true
+_is_composable(::Latent) = true
 _is_composable(::Any) = false
-
-# Reject a `Select` used as a composer CHILD (inside `Sequential` / `Parallel` /
-# `compose`). A `Select`'s realisation length is the SELECTED alternative's, so it
-# has no fixed contribution length and cannot occupy a fixed flat slice of a
-# composer's value/event vector; constructing one would only MethodError later on
-# `length`/`logpdf`/`rand`. Full nesting is deferred. The
-# supported direction — a composer/select INSIDE a `Select` alternative — is
-# unaffected, since `Select` validates its alternatives via `_is_composable`.
-function _reject_select_child!(components::Tuple)
-    any(c -> c isa Select, components) && throw(ArgumentError(
-        "a Select cannot be nested inside a Sequential/Parallel/compose " *
-        "composer: a Select has no fixed contribution length (its realisation " *
-        "length is the selected alternative's). Put the composer inside the " *
-        "Select's alternatives instead (`selecting(:name => compose(...), " *
-        "...)`). Full Select-in-composer nesting is deferred; see " *
-        "https://github.com/EpiAware/CensoredDistributions.jl/issues/413."))
-    return nothing
-end
 
 # Default positional names for a composer node, used when the front-end (or a
 # positional constructor) supplies none. `_default_names(:step, 3)` is
@@ -57,6 +40,22 @@ end
 # its own leaf count for a nested composer.
 _child_nleaves(::UnivariateDistribution) = 1
 _child_nleaves(c::Union{Sequential, Parallel}) = length(c)
+# A nested `Select` swaps in ONE alternative of fixed width, so it occupies a
+# fixed flat slot only when every alternative has the same leaf count. The
+# common width is the nested Select's leaf count; disagreeing widths cannot
+# share one flat slot and error (a `length(::Select)` has no single answer).
+function _child_nleaves(c::Select)
+    n = _child_nleaves(first(c.alternatives))
+    widths = map(_child_nleaves, c.alternatives)
+    all(==(n), widths) || throw(ArgumentError(
+        "a nested Select needs every alternative to have the same leaf count " *
+        "to occupy a fixed flat slot; got $(widths)"))
+    return n
+end
+# A latent alternative scores `[primary, observed]` (two slots); the flat
+# value-vector layout collapses it to its marginal leaf count, since a nested
+# Select's flat slot carries observed values, not the latent primary.
+_child_nleaves(c::Latent) = _child_nleaves(c.dist)
 
 # Total leaf count over a tuple of children.
 _nleaves(components::Tuple) = sum(_child_nleaves, components)
@@ -72,6 +71,17 @@ _nleaves(components::Tuple) = sum(_child_nleaves, components)
 _event_child_nleaves(c) = _child_nleaves(c)
 _event_child_nleaves(c::Competing) = _n_branches(c)
 _event_child_nleaves(c::Union{Sequential, Parallel}) = _event_nleaves(c.components)
+# A nested `Select` occupies its (common) alternative's EVENT-slot width: every
+# alternative must expose the same number of event slots to share one flat slot,
+# so the chosen alternative for a row lands in the same slice whichever it is.
+function _event_child_nleaves(c::Select)
+    n = _event_child_nleaves(first(c.alternatives))
+    widths = map(_event_child_nleaves, c.alternatives)
+    all(==(n), widths) || throw(ArgumentError(
+        "a nested Select needs every alternative to expose the same number of " *
+        "event slots to occupy a fixed flat slot; got $(widths)"))
+    return n
+end
 
 # Total EVENT-slot count over a tuple of children (the flat event vector minus
 # its shared origin).
@@ -98,6 +108,21 @@ _child_logpdf(c::UnivariateDistribution, x, offset, ::Int) = logpdf(c, x[offset 
 function _child_logpdf(c::Union{Sequential, Parallel}, x, offset, n::Int)
     logpdf(c, @view x[(offset + 1):(offset + n)])
 end
+# A nested `Select` in the data-free flat value-vector path commits to its FIRST
+# alternative (a deterministic default so flat `logpdf`/`rand` round-trip); the
+# selector-driven choice lives in the row/record path, not the flat path.
+function _child_logpdf(c::Select, x, offset, n::Int)
+    return _child_logpdf(_flat_select_alternative(c), x, offset, n)
+end
+# A latent alternative on the flat path scores through its marginal node (the
+# flat slot carries observed values; the latent primary is integrated out).
+function _child_logpdf(c::Latent, x, offset, n::Int)
+    return _child_logpdf(c.dist, x, offset, n)
+end
+
+# The alternative a nested Select commits to on the data-free flat path: the
+# first. The row/record path overrides this by the row's selector value.
+_flat_select_alternative(c::Select) = first(c.alternatives)
 
 # Concatenate the per-child draws into one flat vector of element type `T`.
 function _composite_rand(rng::AbstractRNG, components::Tuple, ::Type{T}) where {T}
@@ -122,6 +147,16 @@ function _child_rand!(
         out[offset + k] = sub[k]
     end
     return nothing
+end
+# A nested `Select` samples its FIRST alternative on the flat path, matching the
+# committed alternative the flat `_child_logpdf` scores.
+function _child_rand!(out, offset, rng::AbstractRNG, c::Select)
+    return _child_rand!(out, offset, rng, _flat_select_alternative(c))
+end
+# A latent alternative samples its observed value through its marginal node on
+# the flat path (the latent primary is not part of the flat slot).
+function _child_rand!(out, offset, rng::AbstractRNG, c::Latent)
+    return _child_rand!(out, offset, rng, c.dist)
 end
 
 # The recursive indented-tree printing and the `params`/`params_table` traversal

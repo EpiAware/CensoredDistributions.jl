@@ -125,8 +125,9 @@ end
     series = [0.0, 1.0, 3.0, 6.0, 8.0]
     leaf = Gamma(2.0, 1.0)
 
-    # A bare leaf has a single target event, its endpoint, named :event_1.
-    @test CensoredDistributions._stack_target_names(leaf) == (:event_1,)
+    # A bare leaf has a single event, its endpoint, named :event_1.
+    @test [s.name for s in CensoredDistributions._event_specs(leaf)] ==
+          [:event_1]
 
     # Selecting that endpoint by name must match the default (endpoint) and the
     # reference, not error as if no events were available.
@@ -162,4 +163,77 @@ end
     # The unit-spaced default is unchanged.
     @test convolve_distributions(leaf, series; interval = 1.0) ≈
           convolve_distributions(leaf, series)
+end
+
+@testitem "forward thin/cumulative apply on the convolved series" setup=[
+    ConvolveVectorRef] begin
+    using CensoredDistributions, Distributions
+    series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
+    g = Gamma(2.0, 1.0)
+
+    # thin scales the endpoint series by the factor.
+    plain = convolve_distributions(g, series)
+    thinned = convolve_distributions(thin(g, 0.3), series)
+    @test thinned ≈ 0.3 .* plain
+
+    # cumulative accumulates the endpoint series.
+    cumd = convolve_distributions(cumulative(g), series)
+    @test cumd ≈ cumsum(plain)
+end
+
+@testitem "convolve over a Parallel branched stack returns per-branch series" setup=[
+    ConvolveVectorRef] begin
+    using CensoredDistributions, Distributions
+    series = [0.0, 2.0, 4.0, 7.0, 9.0, 6.0, 3.0]
+    dc = Gamma(1.8, 1.4)
+    dd = Gamma(3.0, 4.0)
+
+    # Two independent thinned streams sharing the renewal origin.
+    p = compose((cases = thin(dc, 0.3), deaths = thin(dd, 0.012)))
+    out = convolve_distributions(p, series; events = (:cases, :deaths))
+    @test out isa NamedTuple
+    @test keys(out) == (:cases, :deaths)
+    @test out.cases ≈ 0.3 .* reference_convolution(dc, series)
+    @test out.deaths ≈ 0.012 .* reference_convolution(dd, series)
+end
+
+@testitem "convolve branches on a shared incubation prefix" setup=[
+    ConvolveVectorRef] begin
+    using CensoredDistributions, Distributions
+    series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
+    incub = Gamma(2.5, 1.3)
+    onset_report = Gamma(1.5, 1.2)
+    onset_death = Gamma(3.0, 4.0)
+
+    # Shared incubation, then branch: Sequential ending in a Parallel.
+    stack = Sequential((incub,
+        Parallel((thin(onset_report, 0.3), thin(onset_death, 0.012)),
+            (:cases, :deaths))))
+    out = convolve_distributions(stack, series; events = (:cases, :deaths))
+
+    # Each branch's delay is incubation convolved with the branch tail.
+    @test out.cases ≈
+          0.3 .* reference_convolution(
+        convolve_distributions(incub, onset_report), series)
+    @test out.deaths ≈
+          0.012 .* reference_convolution(
+        convolve_distributions(incub, onset_death), series)
+end
+
+@testitem "Competing reduces to per-outcome thinning under convolve" setup=[
+    ConvolveVectorRef] begin
+    using CensoredDistributions, Distributions
+    series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
+    d_death = Gamma(3.0, 4.0)
+    d_disch = Gamma(2.0, 3.0)
+
+    # A real partition: death vs discharge, branch probs sum to one.
+    c = competing(:death => (d_death, 0.7), :discharge => (d_disch, 0.3))
+    out = convolve_distributions(c, series; events = (:death, :discharge))
+    @test out.death ≈ 0.7 .* reference_convolution(d_death, series)
+    @test out.discharge ≈ 0.3 .* reference_convolution(d_disch, series)
+
+    # Partial observation: request only the observed endpoint.
+    just_death = convolve_distributions(c, series; events = :death)
+    @test just_death ≈ 0.7 .* reference_convolution(d_death, series)
 end

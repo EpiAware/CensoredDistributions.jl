@@ -56,7 +56,6 @@ struct Sequential{C <: Tuple, N <: Tuple} <:
     function Sequential(components::C, names::N) where {C <: Tuple, N <: Tuple}
         length(components) >= 1 ||
             throw(ArgumentError("Sequential needs at least one component"))
-        _reject_select_child!(components)
         all(_is_composable, components) ||
             throw(ArgumentError(
                 "every Sequential component must be a UnivariateDistribution " *

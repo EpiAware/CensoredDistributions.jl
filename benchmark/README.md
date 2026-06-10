@@ -76,8 +76,15 @@ Use `force_numeric=true` to force numerical integration.
 ## CI Integration
 
 Benchmarks run automatically on PRs using the
-[AirspeedVelocity GitHub Action](https://github.com/MilesCranmer/AirspeedVelocity.jl).
-Results are posted as PR comments.
+[AirspeedVelocity GitHub Action](https://github.com/MilesCranmer/AirspeedVelocity.jl),
+comparing the PR head against the base branch.
+
+The action's own flat table (every benchmark, including one row per AD
+scenario x backend pair) is written to the job summary rather than posted, as
+it is unreadable once the AD-gradient suite is included.
+`benchmark/comment/comment.jl` reads the same result JSON and posts a single
+PR comment with a "most changed" summary, a compact AD scenario x backend
+ratio matrix, and the full results folded behind a `<details>` block.
 
 ## Direct CLI Usage
 

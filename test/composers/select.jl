@@ -117,34 +117,29 @@ end
     @test logpdf(inner, 3.0; kind = :short) ≈ logpdf(Gamma(2.0, 1.0), 3.0)
 end
 
-@testitem "Select cannot be nested inside a Sequential/Parallel/compose" begin
+@testitem "Select nests inside a Sequential/Parallel/compose" begin
     using CensoredDistributions, Distributions
     const CD = CensoredDistributions
 
+    # A Select with equal-width alternatives occupies a fixed flat slot, so it is a
+    # valid composer child (#413): the constructors and `compose` accept it and the
+    # flat path commits to the first alternative.
     inner = selecting(:a => Gamma(2.0, 1.0), :b => Gamma(5.0, 1.0))
+    @test Parallel(Gamma(2.0, 1.0), inner) isa CD.Parallel
+    @test Parallel(inner, Gamma(2.0, 1.0)) isa CD.Parallel
+    @test Sequential(Gamma(2.0, 1.0), inner) isa CD.Sequential
+    @test compose((pick = inner, side = Normal(0.0, 1.0))) isa CD.Parallel
+    # The flat (data-free) value path scores the first alternative.
+    p = Parallel(Gamma(2.0, 1.0), inner)
+    @test logpdf(p, [1.0, 2.0]) ≈
+          logpdf(Gamma(2.0, 1.0), 1.0) + logpdf(Gamma(2.0, 1.0), 2.0)
 
-    # A Select has no fixed contribution length, so it cannot be a composer child:
-    # the constructors and `compose` reject it cleanly rather than constructing and
-    # then MethodError-ing on length/logpdf/rand.
-    @test_throws ArgumentError Parallel(Gamma(2.0, 1.0), inner)
-    @test_throws ArgumentError Parallel(inner, Gamma(2.0, 1.0))
-    @test_throws ArgumentError Sequential(Gamma(2.0, 1.0), inner)
-    @test_throws ArgumentError compose((pick = inner, side = Normal(0.0, 1.0)))
-    @test_throws ArgumentError compose([inner Gamma(2.0, 1.0)])
-    # Every front-end (positional constructor, NamedTuple, matrix) gives the same
-    # Select-specific guidance, not an opaque generic error.
-    for thunk in (() -> Parallel(Gamma(2.0, 1.0), inner),
-        () -> compose((pick = inner, side = Normal(0.0, 1.0))),
-        () -> compose([inner Gamma(2.0, 1.0)]))
-        err = try
-            thunk()
-            nothing
-        catch e
-            e
-        end
-        @test err isa ArgumentError
-        @test occursin("Select", err.msg)
-    end
+    # Alternatives with differing leaf counts cannot share one flat slot: the
+    # mismatch surfaces when the flat layout is needed (length / logpdf / rand).
+    ragged = selecting(:a => Gamma(2.0, 1.0),
+        :b => compose((x = Gamma(2.0, 1.0), y = Gamma(2.0, 1.0))))
+    rp = Parallel(Gamma(2.0, 1.0), ragged)
+    @test_throws ArgumentError length(rp)
 
     # The supported direction (a composer INSIDE a Select) still constructs AND is
     # operable: logpdf / rand run on the selected alternative.

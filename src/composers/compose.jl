@@ -78,6 +78,22 @@ function compose(nt::NamedTuple)
     return Parallel(children, keys(nt))
 end
 
+# --- shared-origin front-end ----------------------------------------------
+# `compose(origin; branch = ...)` shares `origin` across the named branches: the
+# branches fan out from one origin, so the result is a Sequential whose last step
+# is a Parallel of the branch tails. Convolving the stack returns one series per
+# branch, each delayed by `origin` convolved with the branch tail (e.g. a shared
+# incubation, then a reporting branch and a death branch).
+function compose(origin::Union{UnivariateDistribution, Sequential, Parallel,
+            Select};
+        branches...)
+    isempty(branches) &&
+        throw(ArgumentError("compose(origin; branches...) needs ≥1 branch"))
+    nt = NamedTuple(branches)
+    tails = map(_compose_child, Tuple(nt))
+    return Sequential((_compose_child(origin), Parallel(tails, keys(nt))))
+end
+
 # A NamedTuple is treated as a column table when it has `name` and `dist`
 # fields that are both vectors (the column-table shape), AND those vectors
 # carry the column ROLES of a real table: the `:dist` column holds
@@ -99,13 +115,9 @@ end
 # A pre-built composer value (Sequential/Parallel) drops in unchanged, so a
 # `compose(...)` result nests as a child and a `Sequential((...), names)` value
 # keeps readable step names. A `Competing` is a UnivariateDistribution leaf and is
-# covered by the first method. A `Select` is NOT a valid composer child (no fixed
-# contribution length) and is rejected by `_reject_select_child!` in the
-# downstream `Parallel`/`Sequential` constructor; the composer-inside-Select
-# direction is built through `selecting`, not `compose`.
+# covered by the first method.
 _compose_child(d::UnivariateDistribution) = d
-_compose_child(c::Union{Sequential, Parallel}) = c
-_compose_child(s::Select) = (_reject_select_child!((s,)); s)
+_compose_child(c::Union{Sequential, Parallel, Select}) = c
 _compose_child(nt::NamedTuple) = compose(nt)
 function _compose_child(v::Union{AbstractVector, Tuple})
     all(_is_composable, v) ||
@@ -138,18 +150,6 @@ function compose(m::AbstractMatrix{<:UnivariateDistribution};
         ncols == 1 ? steps[1] : Sequential(steps, col_names)
     end
     return Parallel(branches, branch_names)
-end
-
-# A matrix whose element type is a non-univariate distribution (e.g. one holding
-# a `Select`) does not match the `UnivariateDistribution` matrix method above and
-# would otherwise fall through to the generic table method's opaque "expects a
-# NamedTuple/table/Matrix" error. Route a `Select` entry through the child check
-# so the matrix front-end reports the same Select-specific guidance as the others.
-function compose(m::AbstractMatrix{<:Distribution})
-    _reject_select_child!(Tuple(m))
-    throw(ArgumentError(
-        "every matrix entry must be a UnivariateDistribution; got an entry of " *
-        "type $(eltype(m))"))
 end
 
 # --- Tables.jl table front-end ---------------------------------------------

@@ -570,6 +570,23 @@ function scenarios(; with_reference::Bool = false)
                         Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), x),
                 obs),
             [2.0, 1.0], (Constant(obs),))
+        # Gamma as the INTEGRATION (last) component (#314). The numeric
+        # quadrature clamps the infinite window with a quantile of the last
+        # component; a trailing `Gamma` would route that quantile through
+        # `gamma_inc_inv`, which Enzyme cannot differentiate. The
+        # `_finite_window` fix computes the window endpoint on AD-stripped
+        # (primal) params, so the bound is a non-differentiated constant and
+        # every backend — Enzyme included — differentiates the logpdf. The
+        # differentiated parameters are on the trailing Gamma so the gradient
+        # actually flows through the integration component, not just `rest`.
+        _push!("Convolved LogNormal+Gamma numerical",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    CensoredDistributions.convolve_distributions(
+                        LogNormal(0.5, 0.4), Gamma(θ[1], θ[2])), x),
+                obs),
+            [2.0, 1.0], (Constant(obs),))
         # Convolved analytic moments (#352): mean/var are the sums of the
         # component moments, so the gradient flows through each component's
         # closed-form `mean`/`var` w.r.t. its parameters. The `obs` context is

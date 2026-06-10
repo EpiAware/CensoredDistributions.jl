@@ -20,7 +20,7 @@ using Distributions: Distributions, mean, var, std, logpdf, cdf, params,
 import Tables
 
 using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
-                               Competing, Select, compose, latent,
+                               Competing, Select, Latent, compose, latent,
                                double_interval_censored, primary_censored,
                                event, event_names, event_tree, params_table,
                                observed_distribution, endpoint
@@ -306,6 +306,13 @@ function _fill_insupport_step!(out, step::UnivariateDistribution, origin, idx)
     out[idx] = y
     return idx + 1, y
 end
+# A nested `Select` commits to its FIRST alternative on the flat (data-free) event
+# path, matching `_flat_select_alternative`: the alternatives share one event-slot
+# width, so the committed alternative fills the slot and a following step hangs off
+# its terminal time whichever alternative is chosen.
+function _fill_insupport_step!(out, step::Select, origin, idx)
+    return _fill_insupport_step!(out, first(step.alternatives), origin, idx)
+end
 
 # A univariate node's cdf is monotone and lives in [0, 1].
 function _check_cdf(d, fix)
@@ -333,8 +340,11 @@ end
 # The flat `event_names` and the nested `event_tree` must agree in LEAF count:
 # every `event_tree` leaf (a Competing outcome / a leaf delay) has its own flat
 # slot, plus the flat origin event, so `length(flat) == leaves + 1`. A `Select`
-# has no single flat layout (its `event_names` are the alternative names), so the
-# count check is skipped for it; only that both are non-empty.
+# (standalone or nested as a composer child) shares ONE flat slot across its
+# alternatives, while its `event_tree` carries every alternative name, so the
+# leaf-count equality does not hold; for a Select-containing node the check is
+# that the flat count matches the actual flat EVENT layout and both are
+# non-empty.
 function _check_event_names(d, fix)
     d isa Union{Sequential, Parallel, Competing, Select} || return nothing
     @testset "event_names / event_tree leaf count" begin
@@ -343,12 +353,26 @@ function _check_event_names(d, fix)
         if d isa Select
             @test !isempty(flat)
             @test !isempty(keys(tree))
+        elseif _contains_select(d)
+            # A nested Select collapses its alternatives to one shared flat slot,
+            # so the flat count tracks the event layout, not the tree leaf count.
+            @test length(flat) ==
+                  CensoredDistributions._event_nleaves(d.components) + 1
+            @test !isempty(keys(tree))
         else
             @test length(flat) == _tree_leaf_count(tree) + 1
         end
     end
     return nothing
 end
+
+# Whether a composer tree contains a nested `Select` anywhere (its alternatives
+# share one flat event slot, so the tree-vs-flat leaf-count equality is relaxed).
+_contains_select(::Select) = true
+_contains_select(c::Union{Sequential, Parallel}) = any(_contains_select, c.components)
+_contains_select(c::Competing) = any(_contains_select, c.delays)
+_contains_select(c::Latent) = _contains_select(c.dist)
+_contains_select(::Any) = false
 
 # Count the leaves of an `event_tree` (a nested NamedTuple keyed to leaf names).
 _tree_leaf_count(x::Symbol) = 1
@@ -418,6 +442,13 @@ function example_fixtures()
         onset_notif = dic(G(0.7, 20.0))))
     sel = CensoredDistributions.selecting(:index => dic(G(2.0, 1.0)),
         :sourced => compose((a = dic(G(4.0, 1.5)), b = dic(G(1.0, 2.0)))))
+    # A `Select` with equal-width alternatives nested AS a composer child (#424):
+    # the Parallel admits it and the flat event path commits to its first
+    # alternative. There is no closed-form moment for the Select branch, so the
+    # overall moment and per-event latent view are skipped.
+    sel_child = CensoredDistributions.selecting(:a => dic(G(2.0, 1.0)),
+        :b => dic(G(1.5, 2.0)))
+    sel_in_par = Parallel(dic(G(2.0, 1.0)), sel_child)
     # `latent` over a single primary-censored leaf is the documented use: a
     # multivariate `[primary, observed]` scored event-by-event (no summary moment,
     # no single observed endpoint).
@@ -453,6 +484,11 @@ function example_fixtures()
         InterfaceFixture(; name = "selecting", dist = sel, draw = 3.0,
             kind = :index, path = (:index,), overall = :none,
             has_endpoint = false),
+        # A `Select` nested as a composer child (#424): the Parallel admits it and
+        # the flat event path commits to the Select's first alternative.
+        InterfaceFixture(; name = "Select-in-Parallel", dist = sel_in_par,
+            draw = _insupport_event_draw(sel_in_par), path = (:branch_1,),
+            overall = :none, latent_moments = false, has_endpoint = false),
         # A nested tree branches off a shared origin (a Parallel at its root), so
         # its overall moment is a per-endpoint Vector and it has no single
         # collapsed endpoint; the full per-event vector is via `latent`. The

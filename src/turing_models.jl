@@ -297,7 +297,6 @@ method lives in the package extension so the core stays free of `DynamicPPL`.
 # Examples
 ```@example
 using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
-using FlexiChains: VNChain
 
 template = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
@@ -313,7 +312,7 @@ end
 
 Random.seed!(1)
 chain = sample(fit(template, priors, [[0.5, 2.0], [1.0, 3.0]]), NUTS(), 20;
-    chain_type = VNChain, progress = false)
+    progress = false)
 ready = update(template, chain_to_params(template, chain))
 event(ready, :onset_admit)
 ```

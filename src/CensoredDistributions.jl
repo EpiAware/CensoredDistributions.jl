@@ -113,6 +113,12 @@ export weight, get_dist, get_dist_recursive, get_primary_event
 # Turing-free and distributions-led.
 export completeness_probability, thin_by_completeness
 
+# Exported forward-transform leaves: a deterministic op applied to the count
+# series `convolve_distributions` produces (transparent to `logpdf`). `transform`
+# is the generic verb; `thin` (scale by a probability) and `cumulative`
+# (accumulate) are specialised constructors. `Transformed` is the type.
+export Transformed, transform, thin, cumulative
+
 # Exported DynamicPPL submodel constructors. These have no methods until
 # DynamicPPL (or Turing) is loaded; the methods live in the package extension so
 # the core stays Turing-free.
@@ -174,6 +180,11 @@ include("composers/composed_moments.jl")
 include("utils/get_dist.jl")
 include("utils/quantile_optimization.jl")
 include("utils/thinning.jl")
+
+# Forward-transform leaves (thin / cumulative): after get_dist (extends it) and
+# introspection (extends free_leaf/rewrap_leaf), before the convolve layer that
+# applies them.
+include("utils/forward_transform.jl")
 
 # Renewal layer: convolve a timeseries through a composed delay stack. After the
 # composers/wrap (uses `observed_distribution`, `_observed_leaves`) and

@@ -965,6 +965,89 @@ end
     @test lat ≈ manual rtol=1e-10
 end
 
+@testitem "composer model: latent dic chain initialises in-support (#423)" begin
+    using CensoredDistributions, Distributions, Random
+    using DynamicPPL: @model, to_submodel, logjoint, condition, @varname
+
+    # A `double_interval_censored` chain in LATENT form samples a CONTINUOUS
+    # origin per record, but the observed downstream events are DISCRETISED
+    # (floored to the interval). When a record's first downstream event lands in
+    # the SAME interval as the origin (an observed gap of 0), the origin -> first
+    # event edge must stay in-support for any continuous origin in
+    # `[0, interval)`, so the latent joint is finite and NUTS finds a valid init.
+    # Previously the edge scored `logpdf(edge, admit - origin)` with a continuous
+    # origin, giving a negative gap (out of support, `-Inf`) for any origin above
+    # the floored event.
+    dic(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
+        interval = 1.0)
+    seq = Sequential((dic(Gamma(2.0, 1.5)), dic(Gamma(1.5, 2.0))),
+        (:onset_admit, :admit_death))
+    lseq = latent(seq)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # admit floors into the SAME interval as the (continuous) origin: gap is 0.
+    row = (onset = 0.0, admit = 0.0, death = 5.0)
+
+    # Conditioning the observed events, the joint must be finite for a RANGE of
+    # continuous origins in `[0, 1)`, not only the boundary `origin = 0`.
+    for o in (0.0, 0.25, 0.5, 0.9)
+        cond = condition(demo(lseq, row),
+            (@varname(obs.e[1]) => o, @varname(obs.e[2]) => 0.0,
+                @varname(obs.e[3]) => 5.0))
+        @test isfinite(logjoint(cond, (;)))
+    end
+
+    # The discretised gap matches the marginal with the floored origin observed:
+    # the latent origin's sub-interval position does not change the scored gap.
+    cond = condition(demo(lseq, row),
+        (@varname(obs.e[1]) => 0.4, @varname(obs.e[2]) => 0.0,
+            @varname(obs.e[3]) => 5.0))
+    lat = logjoint(cond, (;))
+    origin = CensoredDistributions._origin_primary_event(seq.components[1])
+    manual = logpdf(origin, 0.4) +
+             logpdf(seq.components[1], 0.0) +
+             logpdf(seq.components[2], 5.0)
+    @test lat ≈ manual rtol = 1e-10
+end
+
+@testitem "composer model: latent dic chain NUTS inits (#423)" tags = [:turing] begin
+    using CensoredDistributions, Distributions, Random
+    using DynamicPPL, Turing
+    using FlexiChains: VNChain
+
+    # End-to-end: a latent fit of a `double_interval_censored` chain whose data
+    # includes a same-interval record must find valid initial parameters and
+    # sample (it failed to initialise under NUTS before #423).
+    dic(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
+        interval = 1.0)
+    template = Sequential((dic(Gamma(2.0, 1.5)), dic(Gamma(1.5, 2.0))),
+        (:onset_admit, :admit_death))
+    priors = build_priors(params_table(template))
+
+    @model function latent_fit(t, p, rows)
+        delays ~ to_submodel(composed_parameters_model(t, p))
+        ld = latent(delays)
+        for i in eachindex(rows)
+            obs ~ to_submodel(
+                DynamicPPL.prefix(
+                    composed_distribution_model(ld, rows[i]), Symbol(:rec, i)),
+                false)
+        end
+    end
+
+    # Include a same-interval record (onset == admit == 0) that triggered the
+    # init failure, plus a few ordinary ones.
+    rows = [(onset = 0.0, admit = 0.0, death = 5.0),
+        (onset = 0.0, admit = 2.0, death = 3.0),
+        (onset = 0.0, admit = 1.0, death = 4.0)]
+
+    chain = sample(Xoshiro(1), latent_fit(template, priors, rows),
+        NUTS(0.8; adtype = AutoForwardDiff()), 20;
+        chain_type = VNChain, progress = false)
+    @test chain isa VNChain
+end
+
 @testitem "composer model: marginal == latent for a Parallel interval edge" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint, condition, @varname
