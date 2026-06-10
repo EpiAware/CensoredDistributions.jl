@@ -722,7 +722,7 @@ end
     # `~` so a missing origin samples it.
     e[1] ~ origin
     for p in plan
-        edge = _ShiftedDelay(p.edge, e[p.shift_idx])
+        edge = _ShiftedDelay(p.edge, _latent_shift(p.edge, e[p.shift_idx]))
         e[p.event_idx] ~ _weight(edge, w)
     end
     return e
@@ -758,7 +758,7 @@ end
     # conditionals, not the prior).
     e[1] ~ shared
     for p in plan
-        edge = _ShiftedDelay(p.edge, e[p.shift_idx])
+        edge = _ShiftedDelay(p.edge, _latent_shift(p.edge, e[p.shift_idx]))
         e[p.event_idx] ~ _weight(edge, w)
     end
     return e
@@ -781,6 +781,25 @@ Distributions.insupport(d::_ShiftedDelay, y::Real) = insupport(d.delay, y - d.sh
 Distributions.logpdf(d::_ShiftedDelay, y::Real) = logpdf(d.delay, y - d.shift)
 Distributions.pdf(d::_ShiftedDelay, y::Real) = exp(logpdf(d, y))
 Base.rand(rng::AbstractRNG, d::_ShiftedDelay) = d.shift + rand(rng, d.delay)
+
+# The predecessor value an interval-censored latent edge is shifted by. The
+# observed downstream events of a chain are DISCRETISED (floored to the
+# secondary interval), but a latent SHIFT (the sampled continuous origin, or a
+# sampled intermediate event) is not. Scoring `logpdf(edge, target - shift)`
+# with a continuous shift compares a floored target against a continuous
+# predecessor, so a target that floors into the SAME interval as its predecessor
+# gives a NEGATIVE gap (out of support, `-Inf`) for any shift above the floored
+# target -- the `double_interval_censored` latent-init failure of #423. Flooring
+# the shift to the edge's interval discretises the predecessor the SAME way the
+# observed events are, so the scored gap is `floor(target) - floor(shift)`
+# (matching the marginal, which scores the floored origin's observed gap) and
+# stays in-support for any continuous shift within its interval. An edge without
+# secondary interval censoring keeps the continuous shift unchanged.
+function _latent_shift(edge, shift)
+    iv = CensoredDistributions._leaf_interval(edge)
+    iv === nothing && return shift
+    return CensoredDistributions._apply_leaf_interval(shift, iv)
+end
 
 # ===========================================================================
 # predict_events: recover observed records' latent event times
