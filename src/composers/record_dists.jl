@@ -569,3 +569,190 @@ function _drop_named_field(row::NamedTuple, field::Symbol)
     ks = filter(!=(field), keys(row))
     return NamedTuple{ks}(map(k -> row[k], ks))
 end
+
+# ---------------------------------------------------------------------------
+# Vectorised LATENT scoring (stacked primary priors + vectorised conditional)
+# ---------------------------------------------------------------------------
+#
+# A `latent`-wrapped leaf (or a `Select` whose selected alternative is latent
+# for a row) carries ONE latent primary per record. A single `~` cannot
+# half-sample (the primaries) and half-condition (the observed events), so the
+# vectorised latent flow is a two-statement pair driven by these helpers:
+#
+#   primaries ~ product_distribution(latent_primary_priors(d, rows))
+#   @addlogprob! latent_observed_logpdf(d, rows, primaries)
+#
+# `latent_primary_priors` returns the STACKED primary priors, one per LATENT
+# row, in row order, ready for a single `product_distribution`.
+# `latent_observed_logpdf` scores the WHOLE table given those sampled primaries:
+# each latent row's observed event conditions on its matched primary through the
+# delay at the implied gap, and a MARGINAL row (an index alternative in a mixed
+# Select table) scores through its marginal record `logpdf` so one
+# `@addlogprob!` covers the mixed table. This is a VECTORISED form (a broadcast
+# over the rows), not a per-record submodel loop, so it differentiates under
+# ForwardDiff and Mooncake reverse.
+
+@doc "
+
+The stacked primary priors of a latent table, one per latent row.
+
+For a [`latent`](@ref)-wrapped leaf (or a [`Select`](@ref) whose selected
+alternative is latent for a row), each latent record carries one latent primary
+event. `latent_primary_priors(d, rows)` returns the vector of those primary
+priors, in row order, restricted to the LATENT rows: a marginal row (an `index`
+alternative in a mixed Select table) carries no latent primary and contributes
+none. The result is the input to a single
+`primaries ~ product_distribution(latent_primary_priors(d, rows))`, sampling all
+latent primaries at once.
+
+# Arguments
+- `d`: a latent leaf, or a [`Select`](@ref) with latent alternative(s).
+- `rows`: a Tables.jl row source of records keyed by event name.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+using CensoredDistributions: latent, latent_primary_priors
+
+d = latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
+priors = latent_primary_priors(d, [(delay = 3.0,), (delay = 5.0,)])
+length(priors)
+```
+
+# See also
+- [`latent_observed_logpdf`](@ref): the matching vectorised observed
+  conditional.
+"
+function latent_primary_priors(d, rows)
+    rowvec = collect(Tables.rows(rows))
+    priors = Any[]
+    for row in rowvec
+        nt = _row_namedtuple(row)
+        alt = _latent_alternative(d, nt)
+        alt === nothing && continue
+        push!(priors, get_primary_event(alt))
+    end
+    return _narrow(priors)
+end
+
+@doc "
+
+The vectorised observed conditional of a latent table given sampled primaries.
+
+`latent_observed_logpdf(d, rows, primaries)` scores the whole table in one
+contribution: each LATENT row conditions its observed event on the matched
+sampled primary through the delay at the implied gap
+(`logpdf(get_dist(alt), y - p)`), and a MARGINAL row (an `index` alternative in
+a mixed [`Select`](@ref) table) scores through its marginal record `logpdf`. The
+`primaries` are the draws from
+`product_distribution(`[`latent_primary_priors`](@ref)`(d, rows))`, in
+latent-row order; a per-record `weight`/`count` scales each row's contribution.
+This is the second statement of the vectorised latent pair, added with
+`@addlogprob!`.
+
+# Arguments
+- `d`: a latent leaf, or a [`Select`](@ref) with latent alternative(s).
+- `rows`: the same Tables.jl row source passed to
+  [`latent_primary_priors`](@ref).
+- `primaries`: the sampled latent primaries, one per latent row, in row order.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+using CensoredDistributions: latent, latent_observed_logpdf
+
+d = latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
+rows = [(delay = 3.0,), (delay = 5.0,)]
+latent_observed_logpdf(d, rows, [0.3, 0.6])
+```
+
+# See also
+- [`latent_primary_priors`](@ref): the matching stacked primary priors.
+"
+function latent_observed_logpdf(d, rows, primaries)
+    rowvec = collect(Tables.rows(rows))
+    total = zero(_latent_acc_type(primaries))
+    k = 0
+    for row in rowvec
+        nt = _row_namedtuple(row)
+        alt = _latent_alternative(d, nt)
+        w = _row_weight_field(nt, nothing)
+        if alt === nothing
+            # A marginal row scores through its marginal record logpdf, so one
+            # contribution covers a mixed Select table.
+            total += _marginal_row_logpdf(d, nt)
+        else
+            k += 1
+            p = primaries[k]
+            y = _latent_observed_value(d, nt)
+            lp = logpdf(get_dist(alt), y - p)
+            total += _weight_lp(lp, w)
+        end
+    end
+    return total
+end
+
+# The latent alternative scoring a row, or `nothing` when the row is marginal. A
+# top-level Latent leaf is latent for every row; a Select reads the row's
+# selector and returns the selected alternative only when it is a Latent.
+_latent_alternative(d::Latent, ::NamedTuple) = d
+_latent_alternative(::UnivariateDistribution, ::NamedTuple) = nothing
+function _latent_alternative(d::Select, row::NamedTuple)
+    chosen = _pick(d, _select_kind(d, row))
+    return chosen isa Latent ? chosen : nothing
+end
+
+# The selector value of a Select row, validated to be a Symbol naming an
+# alternative (mirroring the per-record Select path).
+function _select_kind(d::Select, row::NamedTuple)
+    kind = row[d.selector]
+    kind isa Symbol || throw(ArgumentError(
+        "the Select selector field $(repr(d.selector)) must hold a Symbol " *
+        "naming the alternative; got $(typeof(kind))"))
+    return kind
+end
+
+# The single observed event value of a latent row: the lone non-reserved,
+# non-selector field. A latent leaf carries one observed event.
+_latent_observed_value(d::Latent, row::NamedTuple) = _the_observed_value(row)
+function _latent_observed_value(d::Select, row::NamedTuple)
+    inner = _drop_named_field(row, d.selector)
+    return _the_observed_value(inner)
+end
+
+function _the_observed_value(row::NamedTuple)
+    ev = _row_event_vector(row)
+    length(ev) == 1 || throw(ArgumentError(
+        "a latent leaf record takes one observed event value; got " *
+        "$(length(ev))"))
+    return ev[1]
+end
+
+# The marginal log-density of a non-latent row in a mixed Select table: the
+# selected (marginal) alternative scored at its single observed value, weighted.
+function _marginal_row_logpdf(d::Select, row::NamedTuple)
+    chosen = _pick(d, _select_kind(d, row))
+    inner = _drop_named_field(row, d.selector)
+    rec = _alternative_record(chosen, inner)
+    return logpdf(rec, _record_obs_value(rec))
+end
+
+# The observed value(s) a record scores at, with missing slots zeroed (the
+# marginalising logpdf ignores them), as the `~`-supplied value would be.
+function _record_obs_value(rec)
+    return [e === missing ? 0.0 : Float64(e) for e in rec.events]
+end
+
+# Accumulator element type for the vectorised latent sum: the primaries' element
+# type (carrying any AD `Dual`/tracked type), widened to float.
+_latent_acc_type(primaries) = float(eltype(primaries))
+_latent_acc_type(primaries::AbstractVector{Any}) = Float64
+
+# Narrow an `Any[]` vector of priors to its concrete element type so
+# `product_distribution` builds a typed product (and the draws are concretely
+# typed). An empty list (no latent rows) returns an empty typed vector.
+function _narrow(xs::Vector)
+    isempty(xs) && return Union{}[]
+    T = mapreduce(typeof, promote_type, xs)
+    return collect(T, xs)
+end

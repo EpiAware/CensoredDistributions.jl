@@ -41,14 +41,15 @@ end
 _child_nleaves(::UnivariateDistribution) = 1
 _child_nleaves(c::Union{Sequential, Parallel}) = length(c)
 # A nested `Select` swaps in ONE alternative of fixed width, so it occupies a
-# fixed flat slot only when every alternative has the same leaf count. The common
-# width is the nested Select's leaf count; disagreeing widths cannot share one
-# flat slot and error (a `length(::Select)` has no single answer either).
+# fixed flat slot only when every alternative has the same leaf count. The
+# common width is the nested Select's leaf count; disagreeing widths cannot
+# share one flat slot and error (a `length(::Select)` has no single answer).
 function _child_nleaves(c::Select)
     n = _child_nleaves(first(c.alternatives))
-    all(a -> _child_nleaves(a) == n, c.alternatives) || throw(ArgumentError(
+    widths = map(_child_nleaves, c.alternatives)
+    all(==(n), widths) || throw(ArgumentError(
         "a nested Select needs every alternative to have the same leaf count " *
-        "to occupy a fixed flat slot; got $(map(_child_nleaves, c.alternatives))"))
+        "to occupy a fixed flat slot; got $(widths)"))
     return n
 end
 # A latent alternative scores `[primary, observed]` (two slots); the flat
@@ -103,7 +104,7 @@ function _child_logpdf(c::Select, x, offset, n::Int)
     return _child_logpdf(_flat_select_alternative(c), x, offset, n)
 end
 # A latent alternative on the flat path scores through its marginal node (the
-# flat slot carries observed values, the latent primary is integrated out there).
+# flat slot carries observed values; the latent primary is integrated out).
 function _child_logpdf(c::Latent, x, offset, n::Int)
     return _child_logpdf(c.dist, x, offset, n)
 end
@@ -141,8 +142,8 @@ end
 function _child_rand!(out, offset, rng::AbstractRNG, c::Select)
     return _child_rand!(out, offset, rng, _flat_select_alternative(c))
 end
-# A latent alternative samples its observed value through its marginal node on the
-# flat path (the latent primary is not part of the flat slot).
+# A latent alternative samples its observed value through its marginal node on
+# the flat path (the latent primary is not part of the flat slot).
 function _child_rand!(out, offset, rng::AbstractRNG, c::Latent)
     return _child_rand!(out, offset, rng, c.dist)
 end
