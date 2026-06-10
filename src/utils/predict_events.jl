@@ -11,22 +11,23 @@ Two dispatch paths share one name:
   `n` draws, or one draw per supplied parameter set (rebuilding the distribution
   per draw) are all supported. Lives in core because it is a structured wrapper
   over `rand` on the latent form.
-- **fitted Turing model (extension):** `predict_events(chain, model)` recovers the
-  observed records' integrated-out latent event times by running the latent form
-  of a marginal-fit model over the posterior `chain`. That method needs
+- **fitted Turing model (extension):** `predict_events(chain, model)` recovers
+  the observed records' integrated-out latent event times by running the latent
+  form of a marginal-fit model over the posterior `chain`. That method needs
   `DynamicPPL`/`Turing` and lives in the package extension.
 
 `predict_events(d)` is a thin wrapper over `rand(rng, d)`; it does NOT apply the
-latent representation itself, so the caller must pass a `d` that is ALREADY in its
-latent representation. For a LEAF, wrap it with [`latent`](@ref) first:
+latent representation itself, so the caller must pass a `d` that is ALREADY in
+its latent representation. For a LEAF, wrap it with [`latent`](@ref) first:
 `rand(latent(d))` returns the full `[primary, observed]` path, whereas
 `rand(d)` on the bare marginal leaf returns only the single observed delay. A
 COMPOSED tree (nested [`Sequential`](@ref)/[`Parallel`](@ref), a
 [`Competing`](@ref) outcome, or a [`Select`](@ref) top) already `rand`s a full
-event path natively: `rand` walks the tree sharing the latent origin, samples each
-Competing outcome and the selected branch, and returns a NAMED event record keyed
-by [`tree_event_names`](@ref) (an unsampled Competing outcome is `missing`), so a
-whole case-study path is one `predict_events` call with no extra wrapping.
+event path natively: `rand` walks the tree sharing the latent origin, samples
+each Competing outcome and the selected branch, and returns a NAMED event
+record keyed by [`tree_event_names`](@ref) (an unsampled Competing outcome is
+`missing`), so a whole case-study path is one `predict_events` call with no
+extra wrapping.
 
 # Arguments
 - `d`: A distribution whose `rand` yields a full event-time path (for example a
@@ -103,10 +104,10 @@ Simulate one event-based draw per supplied parameter set.
 `build` maps a parameter set to a latent/composed distribution (for example one
 posterior draw `(; mu, sigma)` to `latent(primary_censored(LogNormal(mu, sigma),
 Uniform(0, 1)))`); `params` is any iterable of such parameter sets. The
-distribution is rebuilt for each parameter set, and one event path is drawn from
-each, returning a `Vector` of draws. This is the Turing-free way to push a set of
-posterior parameter draws through the latent form to get forward-simulated event
-paths.
+distribution is rebuilt for each parameter set, and one event path is drawn
+from each, returning a `Vector` of draws. This is the Turing-free way to push a
+set of posterior parameter draws through the latent form to get
+forward-simulated event paths.
 
 # Arguments
 - `build`: A function mapping one parameter set to a distribution.

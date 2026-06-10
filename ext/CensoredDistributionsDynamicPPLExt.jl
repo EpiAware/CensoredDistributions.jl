@@ -121,9 +121,9 @@ function composed_distribution_model(
 end
 
 # A `Latent{<:PrimaryCensored}` -> the latent primary-censored leaf model. The
-# latent path samples the origin internally, so a per-record `obs_time` horizon is
-# not supported here (truncating a latent twin is out of scope); reject it rather
-# than silently drop it.
+# latent path samples the origin internally, so a per-record `obs_time`
+# horizon is not supported here (truncating a latent twin is out of scope);
+# reject it rather than silently drop it.
 function composed_distribution_model(
         d::Latent{<:PrimaryCensored}, row; weight = nothing)
     _reject_latent_horizon(row)
@@ -138,8 +138,8 @@ end
 _reject_latent_horizon(row) = nothing
 function _reject_latent_horizon(row::NamedTuple)
     _row_horizon(row) === nothing || throw(ArgumentError(
-        "per-record obs_time horizon is not supported under `latent`; use the " *
-        "marginal form"))
+        "per-record obs_time horizon is not supported under `latent`; " *
+        "use the marginal form"))
     return nothing
 end
 
@@ -593,10 +593,10 @@ end
 # a chain, or the shared origin in a parallel set), and the `edge` delay
 # distribution from that predecessor to this event. An OBSERVED event is scored
 # against `edge` shifted by its predecessor, so `edge` MUST match the marginal
-# composer's observed-edge density (see `_latent_edge`): a `Sequential` step and a
-# nested `Parallel` branch keep the edge's DECLARED censoring, while the root flat
-# shared-origin `Parallel` strips to the continuous core. Built by a pure walk over
-# the tree.
+# composer's observed-edge density (see `_latent_edge`): a `Sequential` step
+# and a nested `Parallel` branch keep the edge's DECLARED censoring, while the
+# root flat shared-origin `Parallel` strips to the continuous core. Built by a
+# pure walk over the tree.
 struct _LeafPlan{C}
     event_idx::Int
     shift_idx::Int
@@ -606,18 +606,20 @@ end
 # The edge delay distribution a LEAF event is scored against in the latent form,
 # chosen to match the MARGINAL composer's observed-edge density. `strip` selects
 # the policy:
-#   - `strip = false` KEEPS the edge's declared censoring, so an observed edge with
-#     secondary interval censoring scores its discretised gap through
+#   - `strip = false` KEEPS the edge's declared censoring, so an observed edge
+#     with secondary interval censoring scores its discretised gap through
 #     `logpdf(step, gap)`. This matches the marginal flat/nested `Sequential`
 #     (`_sequential_segment` / `_tree_step`) and the marginal NESTED `Parallel`
-#     (`_tree_score`), which all condition an observed edge on the declared edge.
-#   - `strip = true` strips to the continuous core (`_marginal_core`), matching the
-#     marginal FLAT shared-origin `Parallel` conditional path
-#     (`_parallel_conditional_logpdf`), which conditions each branch on the core.
-# Only the latent ROOT `Parallel` (the flat shared-origin set) strips; every other
-# edge (a `Sequential` step at any depth, or a `Parallel` nested below the root)
-# keeps the declared censoring. Using the wrong policy silently mis-scores an
-# interval-censored observed edge (marginal != latent).
+#     (`_tree_score`), which all condition an observed edge on the declared
+#     edge.
+#   - `strip = true` strips to the continuous core (`_marginal_core`), matching
+#     the marginal FLAT shared-origin `Parallel` conditional path
+#     (`_parallel_conditional_logpdf`), which conditions each branch on the
+#     core.
+# Only the latent ROOT `Parallel` (the flat shared-origin set) strips; every
+# other edge (a `Sequential` step at any depth, or a `Parallel` nested below the
+# root) keeps the declared censoring. Using the wrong policy silently
+# mis-scores an interval-censored observed edge (marginal != latent).
 function _latent_edge(step, strip::Bool)
     return strip ? CensoredDistributions._marginal_core(step) : step
 end
@@ -627,8 +629,8 @@ end
 # Mirrors the marginal `_tree_score` layout (origin shared with the parent, leaf
 # events contiguous), recursing into nested composer steps/branches. Pure integer
 # + structure bookkeeping (no `~`, no sampled values), so it runs once up front.
-# `strip` is the leaf-edge density policy for THIS level (see `_latent_edge`): only
-# the root flat `Parallel` passes `strip = true`; a `Sequential` and any nested
+# `strip` is the leaf-edge density policy for THIS level (see `_latent_edge`):
+# only the root flat `Parallel` passes `strip = true`; a `Sequential` and nested
 # composer pass `strip = false` (declared censoring), matching the marginal.
 function _latent_plan!(plan, d::Sequential, origin_idx::Int, event_start::Int,
         strip::Bool = false)
@@ -674,7 +676,8 @@ end
 # A nested composer step/branch recurses on the same shared event vector: its
 # origin is the parent's event slot `o_idx` and its own leaf events begin at
 # `ev_idx`. A nested composer is below the root, so its leaf edges keep the
-# declared censoring (`strip = false`), matching the marginal nested `_tree_score`.
+# declared censoring (`strip = false`), matching the marginal nested
+# `_tree_score`.
 function _latent_plan_step!(plan, step::Union{Sequential, Parallel},
         o_idx::Int, ev_idx::Int, strip::Bool)
     return _latent_plan!(plan, step, o_idx, ev_idx, false)
@@ -693,12 +696,12 @@ end
 # event layout (origin then one slot per leaf event). The origin `E_0` is the
 # latent primary (`e[1] ~ origin`); each leaf event time is its predecessor plus
 # the edge delay, declared as a shifted `~` (`e[j] ~ _ShiftedDelay(edge, e[s])`,
-# `edge` the chain edge as DECLARED so its censoring is kept), so an observed event
-# scores its gap through the edge's declared censoring exactly as the marginal
-# chain does, and a missing event samples it. A nested composer step recurses
-# through `_latent_plan!`, so an irregular tree samples its full sub-path. Indexed
-# VarNames `e[i]` give each event a distinct name; the likelihood is scaled by the
-# row weight via the `~`.
+# `edge` the chain edge as DECLARED so its censoring is kept), so an observed
+# event scores its gap through the edge's declared censoring exactly as the
+# marginal chain does, and a missing event samples it. A nested composer step
+# recurses through `_latent_plan!`, so an irregular tree samples its full
+# sub-path. Indexed VarNames `e[i]` give each event a distinct name; the
+# likelihood is scaled by the row weight via the `~`.
 @model function composed_distribution_model(
         d::Latent{<:Sequential}, row::NamedTuple; weight = nothing)
     _reject_latent_horizon(row)
@@ -729,10 +732,11 @@ end
 # the flat event layout `[O, leaf events...]`. The shared origin `e[1] ~ shared`
 # is declared once; each leaf event is its predecessor/origin plus the branch
 # delay, declared as a shifted `~`, so an observed branch scores `logpdf(core,
-# y - o)` (the continuous core, matching the marginal shared-origin Parallel) and
-# a missing branch samples its observation. A nested composer branch
-# recurses through `_latent_plan!` so its whole sub-path is sampled off the shared
-# origin. The shared origin couples the branches; likelihood scaled by the weight.
+# y - o)` (the continuous core, matching the marginal shared-origin Parallel)
+# and a missing branch samples its observation. A nested composer branch
+# recurses through `_latent_plan!` so its whole sub-path is sampled off the
+# shared origin. The shared origin couples the branches; likelihood scaled by
+# the weight.
 @model function composed_distribution_model(
         d::Latent{<:Parallel}, row::NamedTuple; weight = nothing)
     _reject_latent_horizon(row)
@@ -746,8 +750,9 @@ end
         "event"))
 
     e = Vector{Union{Missing, Float64}}(obs)
-    # The root flat shared-origin Parallel conditions each branch on the continuous
-    # core (`strip = true`), matching the marginal `_parallel_conditional_logpdf`.
+    # The root flat shared-origin Parallel conditions each branch on the
+    # continuous core (`strip = true`), matching the marginal
+    # `_parallel_conditional_logpdf`.
     plan = _latent_plan!(_LeafPlan[], tree, 1, 2, true)
     # Shared origin prior, declared but NOT weighted (weight scales the observed
     # conditionals, not the prior).
@@ -761,11 +766,11 @@ end
 
 # A location-shifted view of a delay distribution: `logpdf(shifted, y) =
 # logpdf(delay, y - shift)` and `rand = shift + rand(delay)`, generalising
-# [`PrimaryConditional`](@ref) to any edge delay (a continuous core OR a censored
-# edge as declared, per `_latent_edge`). Used to declare each downstream event
-# time as a `~` of its predecessor plus the edge delay, so the latent composer
-# model both scores observed events and samples missing ones. Turing-free
-# arithmetic; `shift` carries any sampled/AD type.
+# [`PrimaryConditional`](@ref) to any edge delay (a continuous core OR a
+# censored edge as declared, per `_latent_edge`). Used to declare each
+# downstream event time as a `~` of its predecessor plus the edge delay, so the
+# latent composer model both scores observed events and samples missing ones.
+# Turing-free arithmetic; `shift` carries any sampled/AD type.
 struct _ShiftedDelay{D, S} <: UnivariateDistribution{Distributions.Continuous}
     delay::D
     shift::S
@@ -786,28 +791,29 @@ Base.rand(rng::AbstractRNG, d::_ShiftedDelay) = d.shift + rand(rng, d.delay)
 Recover the observed records' integrated-out latent event times from a
 marginal-fit posterior.
 
-Fit a model in its efficient MARGINAL form (the primary event integrated out, no
-extra latent dimensions), then call `predict_events(chain, model)` to recover the
-internal event times of the records you fit, by running the LATENT form of the
-same model over the fitted posterior. This works because the marginal and latent
-forms are one family sharing the same parameter names together with the
-marginal-equals-latent equivalence, so the marginal-fit posterior drops
-straight into the latent form. It delegates to `DynamicPPL.predict`: the latent
-`model` is executed conditioned on each parameter draw in `chain`, re-sampling the
-event variables the marginal chain does not carry. The observed events are
-supplied in `model` (the censored observations are fixed), so this re-samples only
-the integrated-out latents — the primary event time and any unobserved
-intermediate events — conditioned on the data and the posterior parameters.
+Fit a model in its efficient MARGINAL form (the primary event integrated out,
+no extra latent dimensions), then call `predict_events(chain, model)` to
+recover the internal event times of the records you fit, by running the LATENT
+form of the same model over the fitted posterior. This works because the
+marginal and latent forms are one family sharing the same parameter names
+together with the marginal-equals-latent equivalence, so the marginal-fit
+posterior drops straight into the latent form. It delegates to
+`DynamicPPL.predict`: the latent `model` is executed conditioned on each
+parameter draw in `chain`, re-sampling the event variables the marginal chain
+does not carry. The observed events are supplied in `model` (the censored
+observations are fixed), so this re-samples only the integrated-out latents —
+the primary event time and any unobserved intermediate events — conditioned on
+the data and the posterior parameters.
 
 For forward-simulating fresh event paths from parameters (no `@model`, no
 conditioning on data), use the Turing-free raw-distribution method
 [`predict_events`](@ref)`(d, ...)` instead.
 
 `chain` is any posterior-draw container `DynamicPPL.predict` accepts: an
-`MCMCChains.Chains` (via DynamicPPL's MCMCChains extension) or a FlexiChains chain
-(via DynamicPPL's FlexiChains extension, which the tests use). Calling
-`DynamicPPL.predict` rather than `Turing.predict` keeps the extension Turing-free
-(DynamicPPL weak-dep only).
+`MCMCChains.Chains` (via DynamicPPL's MCMCChains extension) or a FlexiChains
+chain (via DynamicPPL's FlexiChains extension, which the tests use). Calling
+`DynamicPPL.predict` rather than `Turing.predict` keeps the extension
+Turing-free (DynamicPPL weak-dep only).
 
 # Arguments
 - `chain`: The posterior draws from fitting the MARGINAL model, as an
