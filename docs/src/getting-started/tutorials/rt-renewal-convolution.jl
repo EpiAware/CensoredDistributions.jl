@@ -8,26 +8,28 @@ md"""
 We build a small EpiNow2-style renewal model and fit a time-varying
 reproduction number to two observed streams at once: reported cases and
 deaths.
-Both streams come from the same latent infections, but each is seen through
-its own delay and its own thinning: cases are under-ascertained (only a
-fraction of infections are ever reported), and deaths occur at the infection
-fatality ratio.
+Both streams come from the same latent infections through a shared incubation
+period to symptom onset, after which they branch: onset to report for cases and
+onset to death for deaths.
+Each branch is also thinned, because the two streams disagree about scale.
+Only a fraction of infections is ever reported (the ascertainment), and only a
+small fraction ends in death (the infection fatality ratio).
 
 The renewal recursion itself is user-side; the package's job is the
 *observation layer*.
-We push the latent infection series through a composed delay stack with
-[`convolve_distributions`](@ref)`(stack, series)`, which discretises the
-stack's delay to a PMF and convolves the series with it, returning expected
-event counts at the same times.
+We compose one branched delay stack with shared incubation and two reporting
+branches, then push the latent infection series through it with a SINGLE
+[`convolve_distributions`](@ref) call that returns both event streams at once,
+each already thinned.
 
 We cover:
 
 1. A pure-Julia forward demo: pick a true Rt, ascertainment and IFR, run the
-   renewal step, convolve infections through the case and death delay stacks,
-   thin each stream, and simulate observed cases and deaths.
-2. A Turing fit: the same renewal + [`convolve_distributions`](@ref) +
-   thinning recomputed inside a `@model`, fitting Rt, ascertainment and IFR to
-   the simulated cases and deaths, and recovering the truth.
+   renewal step, and convolve infections through the combined stack to simulate
+   observed cases and deaths.
+2. A Turing fit: the same renewal and combined-stack convolution recomputed
+   inside a `@model`, fitting Rt, ascertainment and IFR to the simulated cases
+   and deaths, and recovering the truth.
 
 ### What might I need to know before starting
 
@@ -37,30 +39,34 @@ CensoredDistributions.jl](@ref getting-started) and the composer reference,
 [`Sequential`](@ref) chains, [`compose`](@ref) and
 [`convolve_distributions`](@ref).
 We do not re-explain the composer basics here; this page is about using a
-convolved delay stack as a renewal observation layer.
+branched, thinned delay stack as a renewal observation layer.
 
-[`convolve_distributions`](@ref) is AD-safe: the discretised delay PMF depends
-differentiably on the delay parameters and the vector convolution is linear,
-so gradients flow through it and it can be called directly inside a `@model`
-with no special wrapper.
-We sample with non-Enzyme AD: ForwardDiff here (see [Automatic
-differentiation backends](@ref ad-backends) for the support matrix).
+[`convolve_distributions`](@ref) is AD-safe: the discretised delay PMFs depend
+differentiably on the delay parameters, the vector convolution is linear, and a
+[`thin`](@ref) factor is carried through as a forward multiplier, so gradients
+flow through the whole stack and it can be called directly inside a `@model`.
+We sample with Mooncake reverse-mode AD (see [Automatic differentiation
+backends](@ref ad-backends) for the support matrix).
 
 ## Packages used
 
-We use Distributions for the delay distributions, Turing for the fit,
-FlexiChains for the chain output, CairoMakie for plots, and Random and
-Statistics for reproducibility and summaries.
+We use Distributions for the delay distributions, Turing and Mooncake for the
+fit, FlexiChains for the chain output, AlgebraOfGraphics with CairoMakie for the
+plots, DataFramesMeta for the plotting tables, and Random and Statistics for
+reproducibility and summaries.
 """
 
 using CensoredDistributions
 using Distributions
 using Turing
+using Mooncake
 using FlexiChains: VNChain, Parameter
+using AlgebraOfGraphics
 using CairoMakie
+using DataFramesMeta
 using Random
 using Statistics
-using ADTypes: AutoForwardDiff
+using ADTypes: AutoMooncake
 
 md"""
 ## The model
@@ -72,20 +78,20 @@ number ``R_t`` and a generation-interval PMF ``g``:
 I_t = R_t \sum_{s \ge 1} g_s \, I_{t-s}.
 ```
 
-Each observed stream is the infection series seen through a reporting delay and
-scaled by a thinning probability.
-For cases the delay runs infection to symptom onset to report, and only a
-fraction ``\alpha`` (the ascertainment) of infections is ever reported.
-For deaths the delay runs infection to death, and the scale is the infection
-fatality ratio ``\rho``:
+Both observed streams share the infection-to-onset incubation period, then
+branch.
+For cases the branch is onset to report and the count is thinned by the
+ascertainment ``\alpha``; for deaths the branch is onset to death and the count
+is thinned by the infection fatality ratio ``\rho``:
 
 ```math
 \text{cases}_t = \alpha \,(I \circledast d_{\text{case}})_t, \qquad
 \text{deaths}_t = \rho \,(I \circledast d_{\text{death}})_t,
 ```
 
-where ``\circledast`` is the causal discrete convolution that
-[`convolve_distributions`](@ref)`(stack, series)` computes.
+where ``\circledast`` is the causal discrete convolution and
+``d_{\text{case}}`` and ``d_{\text{death}}`` are the two branch delays, each the
+shared incubation convolved with its branch tail.
 Thinning matters because the two streams disagree about scale: most infections
 never appear as reported cases, and only a small fraction end in death, so a
 model that ignores ascertainment and IFR cannot match both counts with one
@@ -93,12 +99,14 @@ infection series.
 
 ### The generation interval
 
-The generation interval is a short discrete PMF over positive lags; we
-discretise a Gamma with [`interval_censored`](@ref) and drop the zero lag, so
-an infection can only generate new infections from the next day on.
+The generation interval is a short discrete PMF over positive lags.
+We discretise a Gamma with [`double_interval_censored`](@ref), which applies
+primary-event censoring and truncation before interval censoring, and drop the
+zero lag so an infection can only generate new infections from the next day on.
 """
 
-gen_dist = interval_censored(Gamma(2.5, 1.3), 1.0)
+gen_dist = double_interval_censored(Gamma(2.5, 1.3); upper = 14.0,
+    interval = 1.0)
 
 gi_max = 12
 
@@ -129,33 +137,71 @@ function renewal(Rt, g, I0; seed_days = length(g))
 end
 
 md"""
-### The observation delay stacks
+### The branched observation stack
 
-Each stream's delay is a composed [`Sequential`](@ref) stack.
-The case stack is infection to onset, then onset to report; the death stack is
-the single infection-to-death delay.
-[`convolve_distributions`](@ref)`(stack, infections)` discretises the stack's
-total delay to a PMF and convolves the infection series with it, giving
-expected counts before thinning.
+Each delay stage is a continuous distribution discretised with
+[`double_interval_censored`](@ref), which censors the primary event, truncates,
+and interval-censors to a daily PMF in one call.
+The incubation period is shared; the case and death branches are its tails.
+We build the whole observation layer as ONE composed stack with
+[`compose`](@ref)`(incubation; cases = ..., deaths = ...)`: a shared origin that
+fans out into named branches.
+Each branch is wrapped in [`thin`](@ref) so its convolved count carries the
+branch's scale (ascertainment for cases, IFR for deaths).
+[`thin`](@ref) is transparent to `logpdf` and materialises only under
+convolution, so the same object scores a delay and scales a count series.
 """
 
-case_delay = Sequential((Gamma(1.8, 1.4), Gamma(1.5, 1.2)),
-    (:infection_onset, :onset_report))
+incubation = double_interval_censored(Gamma(1.8, 1.4); upper = 20.0,
+    interval = 1.0)
 
-death_delay = Gamma(3.0, 4.0)
+onset_report = double_interval_censored(Gamma(1.5, 1.2); upper = 20.0,
+    interval = 1.0)
+
+onset_death = double_interval_censored(Gamma(3.0, 4.0); upper = 40.0,
+    interval = 1.0)
+
+md"""
+A small helper builds the combined stack from the three delays and the two
+scales, so the forward demo and the fit construct the observation layer the same
+way.
+The scales enter through [`thin`](@ref), so the helper takes plain numbers in
+the demo and sampled latents in the fit with no change.
+"""
+
+function observation_stack(incubation, onset_report, onset_death, alpha, rho)
+    return compose(incubation;
+        cases = thin(onset_report, alpha),
+        deaths = thin(onset_death, rho))
+end
+
+md"""
+Pushing an infection series through the combined stack with a single
+[`convolve_distributions`](@ref) call and `events = (:cases, :deaths)` returns a
+`NamedTuple` of both streams, each discretised, convolved and thinned in one
+pass.
+Calling the convolution once per stream would rebuild the shared incubation
+twice and lose the shared-origin structure, so we do it once.
+"""
+
+function expected_streams(stack, infections)
+    return convolve_distributions(stack, infections;
+        events = (:cases, :deaths))
+end
 
 md"""
 ## Pure-Julia forward demo
 
-We pick a true Rt path (a short piecewise level that dips below one and
-recovers), a true ascertainment and a true IFR, run the renewal, convolve
-through each delay stack and thin.
+We pick a true Rt path (a piecewise level that rises, dips below one and
+recovers), a true ascertainment and a true IFR, run the renewal, and convolve
+through the combined stack.
 This exercises the full observation machinery with no Turing in sight.
 """
 
-n_days = 60
+n_days = 70
 
-true_Rt = vcat(fill(1.6, 20), fill(0.8, 20), fill(1.2, n_days - 40))
+true_Rt = vcat(fill(1.6, 18), fill(0.7, 17), fill(1.3, 18),
+    fill(1.0, n_days - 53))
 
 true_alpha = 0.3
 
@@ -166,15 +212,18 @@ I0 = 10.0
 infections = renewal(true_Rt, g, I0)
 
 md"""
-Convolve the infection series through each delay stack, then thin by the
-ascertainment and the IFR.
-The convolution returns the stack's end-point event by default, the reported
-case time for the case stack and the death time for the death stack.
+One [`convolve_distributions`](@ref) call over the combined stack returns the
+expected cases and deaths together, each already thinned by its branch scale.
 """
 
-expected_cases = true_alpha .* convolve_distributions(case_delay, infections)
+true_stack = observation_stack(incubation, onset_report, onset_death,
+    true_alpha, true_rho)
 
-expected_deaths = true_rho .* convolve_distributions(death_delay, infections)
+expected = expected_streams(true_stack, infections)
+
+expected_cases = expected.cases
+
+expected_deaths = expected.deaths
 
 md"""
 The expected counts are Poisson means; we draw observed counts to act as the
@@ -183,48 +232,77 @@ data the fit will see.
 
 rng = MersenneTwister(20260610)
 
-cases_obs = rand.(rng, Poisson.(expected_cases))
+cases_obs = rand.(rng, Poisson.(expected_cases .+ 1e-6))
 
-deaths_obs = rand.(rng, Poisson.(expected_deaths))
+deaths_obs = rand.(rng, Poisson.(expected_deaths .+ 1e-6))
 
 md"""
 The simulated streams share the same infection wave but sit at very different
 scales: ascertainment pins the case counts well below infections, and the IFR
 pins deaths far lower still.
 The death stream also lags the case stream, because its delay is longer.
+We assemble a tidy table and draw it with AlgebraOfGraphics, faceting on the
+three series so each sits on its own panel.
 """
 
-let fig = Figure(size = (800, 500))
-    ax1 = Axis(fig[1, 1]; ylabel = "infections", title = "Forward simulation")
-    lines!(ax1, 1:n_days, infections; color = :black)
+forward_df = vcat(
+    DataFrame(day = 1:n_days, value = infections, kind = "infections"),
+    DataFrame(day = 1:n_days, value = expected_cases, kind = "cases (mean)"),
+    DataFrame(day = 1:n_days, value = Float64.(cases_obs),
+        kind = "cases (obs)"),
+    DataFrame(day = 1:n_days, value = expected_deaths, kind = "deaths (mean)"),
+    DataFrame(day = 1:n_days, value = Float64.(deaths_obs),
+        kind = "deaths (obs)"))
 
-    ax2 = Axis(fig[2, 1]; ylabel = "cases")
-    scatter!(ax2, 1:n_days, cases_obs; color = :steelblue, markersize = 6)
-    lines!(ax2, 1:n_days, expected_cases; color = :steelblue)
+forward_means = @subset forward_df endswith.(:kind, "(mean)") .|
+                                   (:kind .== "infections")
 
-    ax3 = Axis(fig[3, 1]; xlabel = "day", ylabel = "deaths")
-    scatter!(ax3, 1:n_days, deaths_obs; color = :firebrick, markersize = 6)
-    lines!(ax3, 1:n_days, expected_deaths; color = :firebrick)
-    fig
-end
+forward_obs = @subset forward_df endswith.(:kind, "(obs)")
+
+forward_plot = (
+    data(forward_means) *
+    mapping(:day, :value, layout = :kind) * visual(Lines) +
+    data(forward_obs) *
+    mapping(:day, :value, layout = :kind) * visual(Scatter, markersize = 5))
+
+draw(forward_plot;
+    facet = (; linkyaxes = :none),
+    figure = (; size = (800, 500)),
+    axis = (; xlabel = "day", ylabel = "count",
+        title = "Forward simulation"))
 
 md"""
 ## The Turing fit
 
 The model puts priors on the reproduction number, the ascertainment and the
-IFR, then recomputes expected cases and deaths with the *same* renewal,
-[`convolve_distributions`](@ref) and thinning used in the forward demo.
-We give Rt a small piecewise level per 20-day block, so the parameter count
-stays low and the subprocess build is fast.
-The convolution runs directly inside the `@model`; it is AD-safe, so ForwardDiff
-differentiates through it with no special handling.
+IFR, then rebuilds the SAME combined stack inside the `@model` with the sampled
+scales threaded through [`thin`](@ref) and recomputes both expected streams with
+the same single [`convolve_distributions`](@ref) call used in the forward demo.
+The sampled `alpha` and `rho` are AD duals; [`thin`](@ref) carries them as
+forward factors and the convolution stays AD-safe, so nothing special is needed.
+We give Rt a small piecewise level per block, so the parameter count stays low
+and the subprocess build is fast.
 """
 
-n_blocks = 3
+n_blocks = 4
 
-block_of(t) = min(n_blocks, fld(t - 1, 20) + 1)
+block_len = ceil(Int, n_days / n_blocks)
 
-@model function rt_renewal(cases, deaths, g, case_delay, death_delay, I0)
+block_of(t) = min(n_blocks, fld(t - 1, block_len) + 1)
+
+md"""
+Mooncake reverse-mode AD differentiates the convolved stack.
+The branched stack derives its event names from constant branch labels, a
+string operation Mooncake cannot trace; a single `@mooncake_overlay` replaces
+that name split with a no-op during differentiation, which is exact here because
+the shared incubation step uses the positional default name.
+"""
+
+Mooncake.@mooncake_overlay CensoredDistributions._split_edge_name(
+    name::Symbol) = nothing
+
+@model function rt_renewal(cases, deaths, g, incubation, onset_report,
+        onset_death, I0)
     n = length(cases)
     R_block ~ filldist(truncated(Normal(1.0, 0.5); lower = 0.1), n_blocks)
     alpha ~ Beta(2, 5)
@@ -232,80 +310,95 @@ block_of(t) = min(n_blocks, fld(t - 1, 20) + 1)
 
     Rt = [R_block[block_of(t)] for t in 1:n]
     infections = renewal(Rt, g, I0)
-    exp_cases = alpha .* convolve_distributions(case_delay, infections)
-    exp_deaths = rho .* convolve_distributions(death_delay, infections)
+    stack = observation_stack(incubation, onset_report, onset_death, alpha, rho)
+    expected = expected_streams(stack, infections)
 
     for t in 1:n
-        cases[t] ~ Poisson(exp_cases[t] + 1e-6)
-        deaths[t] ~ Poisson(exp_deaths[t] + 1e-6)
+        cases[t] ~ Poisson(expected.cases[t] + 1e-6)
+        deaths[t] ~ Poisson(expected.deaths[t] + 1e-6)
     end
 end
 
 md"""
-We fit with NUTS on ForwardDiff and a modest budget, which is enough to
-recover the block-level Rt, the ascertainment and the IFR at this size.
+We fit with NUTS on Mooncake, sampling four chains in parallel with
+[`MCMCThreads`](https://turinglang.org/Turing.jl/stable/) so the run uses the
+available cores.
+The budget is enough to recover the block-level Rt, the ascertainment and the
+IFR at this size.
 """
 
-model = rt_renewal(cases_obs, deaths_obs, g, case_delay, death_delay, I0)
+model = rt_renewal(cases_obs, deaths_obs, g, incubation, onset_report,
+    onset_death, I0)
 
-chain = sample(Xoshiro(1), model, NUTS(0.8; adtype = AutoForwardDiff()), 400;
-    chain_type = VNChain, progress = false)
+chain = sample(Xoshiro(1), model,
+    NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
+    MCMCThreads(), 400, 4; chain_type = VNChain, progress = false)
 
 md"""
 ## Recovery
 
-We read posterior means for the block-level Rt, the ascertainment and the IFR
-and compare them with the truth.
-The true block Rt are the levels we set: 1.6, 0.8 and 1.2.
+We pull the posterior parameters from the chain with FlexiChains.
+A single [`Parameter`](https://github.com/TuringLang/FlexiChains.jl) access per
+name returns every draw across all chains; we collect the three model
+parameters into one NamedTuple of draw vectors and summarise each by its mean,
+so there is no per-element chain indexing.
+The block-level Rt is a vector parameter, so its draws are vectors that we stack
+into a matrix and average over draws per block.
 """
 
-R_draws = vec(chain[Parameter(@varname(R_block))])
+param_names = (:R_block, :alpha, :rho)
 
-post_R = [mean(getindex.(R_draws, b)) for b in 1:n_blocks]
+draws = (; (p => vec(chain[Parameter(p)]) for p in param_names)...)
 
-post_alpha = mean(vec(chain[Parameter(@varname(alpha))]))
+post_R = vec(mean(reduce(hcat, draws.R_block); dims = 2))
 
-post_rho = mean(vec(chain[Parameter(@varname(rho))]))
+post_alpha = mean(draws.alpha)
 
-true_R_block = [true_Rt[1], true_Rt[21], true_Rt[41]]
+post_rho = mean(draws.rho)
+
+true_R_block = [true_Rt[(b - 1) * block_len + 1] for b in 1:n_blocks]
 
 recovery = (
-    R_block = (truth = true_R_block, posterior = post_R),
-    ascertainment = (truth = true_alpha, posterior = post_alpha),
-    ifr = (truth = true_rho, posterior = post_rho))
+    R_block = (truth = true_R_block, posterior = round.(post_R; digits = 3)),
+    ascertainment = (truth = true_alpha,
+        posterior = round(post_alpha; digits = 3)),
+    ifr = (truth = true_rho, posterior = round(post_rho; digits = 4)))
 
 md"""
-The fit recovers all three: the block-level Rt tracks the true dip-and-recover
-path, and the ascertainment and IFR land near their true scales despite never
-being observed directly.
+The fit recovers all three: the block-level Rt tracks the true rise, dip and
+recovery, and the ascertainment and IFR land near their true scales despite
+never being observed directly.
 The two streams together identify the scales that a single stream could not.
+We plot the true Rt path against the posterior-mean block levels with
+AlgebraOfGraphics.
 """
 
-let fig = Figure(size = (800, 350))
-    ax = Axis(fig[1, 1]; xlabel = "day", ylabel = "Rt",
-        title = "Rt recovery")
-    lines!(ax, 1:n_days, true_Rt; color = :black, label = "truth")
-    post_Rt = [post_R[block_of(t)] for t in 1:n_days]
-    lines!(ax, 1:n_days, post_Rt; color = :steelblue, label = "posterior mean")
-    hlines!(ax, [1.0]; color = :grey, linestyle = :dash)
-    axislegend(ax)
-    fig
-end
+rt_df = vcat(
+    DataFrame(day = 1:n_days, Rt = true_Rt, kind = "truth"),
+    DataFrame(day = 1:n_days, Rt = [post_R[block_of(t)] for t in 1:n_days],
+        kind = "posterior mean"))
+
+rt_plot = data(rt_df) *
+          mapping(:day, :Rt, color = :kind => "") *
+          visual(Lines)
+
+draw(rt_plot;
+    figure = (; size = (800, 350)),
+    axis = (; xlabel = "day", ylabel = "Rt", title = "Rt recovery"))
 
 md"""
 ## Summary
 
 - The renewal recursion is user-side; the package supplies the observation
-  layer through [`convolve_distributions`](@ref)`(stack, series)`, which pushes
-  an infection series through a composed delay stack to expected event counts.
-- Two streams come from one infection series: cases through an
-  infection-onset-report [`Sequential`](@ref) stack thinned by ascertainment,
-  and deaths through an infection-death delay thinned by the IFR.
+  layer as ONE branched delay stack built with [`compose`](@ref) and pushed
+  through [`convolve_distributions`](@ref) in a single call that returns every
+  requested event stream.
+- Two streams share one infection series and one incubation period, then branch:
+  onset to report for cases and onset to death for deaths, each scaled by a
+  [`thin`](@ref) factor carried in the stack.
 - Thinning matters because the streams sit at different scales; fitting both at
   once identifies the ascertainment and IFR that a single stream cannot.
-- [`convolve_distributions`](@ref) is AD-safe, so the same renewal, convolution
-  and thinning run inside a Turing `@model` and recover Rt, ascertainment and
-  IFR with ForwardDiff.
-- A dedicated Turing entry point for the convolution observation layer is a
-  separate follow-up; today the convolution is called directly in the model.
+- The combined stack is AD-safe, so the same renewal, single convolution and
+  in-stack thinning run inside a Turing `@model` and recover Rt, ascertainment
+  and IFR with Mooncake reverse-mode AD across parallel chains.
 """
