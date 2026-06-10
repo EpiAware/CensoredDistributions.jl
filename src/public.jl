@@ -37,6 +37,11 @@ public rand_outcome
 # segment construction across records.
 public record_distributions, EventRecord
 
+# Vectorised LATENT scoring (public but not exported): the stacked primary
+# priors and the vectorised observed conditional that express the latent table
+# as a `primaries ~ product_distribution(...)` plus `@addlogprob! ...` pair.
+public latent_primary_priors, latent_observed_logpdf
+
 # Pluggable integration: the default solver, the entry point, and the
 # quadrature helper (public but not exported). `GaussLegendre` stays
 # unexported to avoid clashing with `Integrals.GaussLegendre` when both

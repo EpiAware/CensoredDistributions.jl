@@ -186,11 +186,14 @@ end
     @test outer == CD.Parallel(
         CD.Parallel(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)), Normal(0.0, 1.0))
 
-    # A Select is NOT a valid compose child (no fixed contribution length); it is
-    # rejected cleanly rather than constructing and later MethodError-ing. The
-    # supported direction is a composer INSIDE a Select (see issue #413).
+    # A Select with equal-width alternatives IS a valid compose child (it occupies
+    # a fixed flat slot); the flat path commits to its first alternative (see
+    # issue #413). The supported direction also includes a composer INSIDE a Select.
     sel = select_branch(:s1 => Gamma(2.0, 1.0), :s2 => Gamma(5.0, 1.0))
-    @test_throws ArgumentError compose((k = sel, m = Normal(0.0, 1.0)))
+    withsel = compose((k = sel, m = Normal(0.0, 1.0)))
+    @test withsel isa CD.Parallel
+    @test logpdf(withsel, [1.0, 0.5]) ≈
+          logpdf(Gamma(2.0, 1.0), 1.0) + logpdf(Normal(0.0, 1.0), 0.5)
 
     # A composer is allowed inside a Vector chain step (no longer leaf-only).
     chained = compose((leg = [Gamma(2.0, 1.0),
