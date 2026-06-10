@@ -124,25 +124,44 @@ _child_moment(c::Select, f::F) where {F} = _select_moments(c, f)
 _child_moment(c::Latent, f::F) where {F} = _child_moment(c.dist, f)
 _child_moment(leaf, f::F) where {F} = f(leaf)
 
+# SCALAR marginal moment of a single outcome, used ONLY for the `mixture`
+# aggregate. A leaf's marginal mean/var is its free-delay moment; a nested
+# composer outcome (a univariate, legal `Competing`) reports a NamedTuple from
+# `_child_moment`, so the aggregate instead takes its scalar marginal
+# mean/var (the marginal time-to-resolution), not the NamedTuple. This keeps
+# the per-outcome entries (which DO recurse to NamedTuples) intact while the
+# branch-prob-weighted aggregate stays a scalar.
+_outcome_scalar_mean(leaf) = _edge_mean(leaf)
+_outcome_scalar_mean(c::Competing) = mean(c)
+_outcome_scalar_mean(d::Latent) = _outcome_scalar_mean(d.dist)
+_outcome_scalar_var(leaf) = _edge_var(leaf)
+_outcome_scalar_var(c::Competing) = var(c)
+_outcome_scalar_var(d::Latent) = _outcome_scalar_var(d.dist)
+
 # Competing: per-outcome free-delay means keyed by outcome name plus a `mixture`
-# entry, the branch-prob-weighted mean of the outcomes' free delays. The mixture
-# is built from the free per-outcome means (not the censored `mean(Competing)`)
-# so it sees through censored leaves like the per-outcome entries do.
+# entry, the branch-prob-weighted mean of the outcomes. The per-outcome entries
+# recurse (a nested composer outcome reports its own NamedTuple); the mixture
+# uses each outcome's SCALAR marginal mean so it stays a scalar even when an
+# outcome is itself a composer. Built from the free per-outcome means (not the
+# censored `mean(Competing)`) so it sees through censored leaves.
 function _competing_means(c::Competing)
     outcome_vals = map(d -> _child_moment(d, _edge_mean), c.delays)
     outcomes = NamedTuple{c.names}(outcome_vals)
-    mixture = sum(c.branch_probs .* outcome_vals)
+    scalar_means = map(_outcome_scalar_mean, c.delays)
+    mixture = sum(c.branch_probs .* scalar_means)
     return merge(outcomes, (; mixture = mixture))
 end
 
 # Competing: per-outcome free-delay variances plus the mixture variance,
-# `Σ p_i (σ_i² + μ_i²) − (Σ p_i μ_i)²`, from the free per-outcome moments.
+# `Σ p_i (σ_i² + μ_i²) − (Σ p_i μ_i)²`, from the per-outcome SCALAR marginal
+# moments so the aggregate is a scalar even for a nested-composer outcome.
 function _competing_vars(c::Competing)
-    outcome_means = map(d -> _child_moment(d, _edge_mean), c.delays)
     outcome_vars = map(d -> _child_moment(d, _edge_var), c.delays)
     outcomes = NamedTuple{c.names}(outcome_vars)
-    mix_mean = sum(c.branch_probs .* outcome_means)
-    second = sum(c.branch_probs .* (outcome_vars .+ outcome_means .^ 2))
+    scalar_means = map(_outcome_scalar_mean, c.delays)
+    scalar_vars = map(_outcome_scalar_var, c.delays)
+    mix_mean = sum(c.branch_probs .* scalar_means)
+    second = sum(c.branch_probs .* (scalar_vars .+ scalar_means .^ 2))
     return merge(outcomes, (; mixture = second - mix_mean^2))
 end
 

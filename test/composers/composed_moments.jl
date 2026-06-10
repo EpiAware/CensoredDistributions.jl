@@ -34,6 +34,36 @@
           0.4 * (v1 + m1^2) + 0.6 * (v2 + m2^2) - mm^2
 end
 
+@testitem "edge_means / edge_vars handle a nested-Competing outcome" begin
+    using CensoredDistributions, Distributions
+
+    # A Competing whose outcome is ITSELF a (univariate, legal) Competing: the
+    # nested outcome's moment is a NamedTuple, so the mixture aggregate must use
+    # its scalar marginal mean/var rather than broadcasting over the NamedTuple.
+    inner = Competing(:fast => (Gamma(1.0, 1.0), 0.5),
+        :slow => (Gamma(2.0, 2.0), 0.5))
+    outer = Competing(:simple => (Gamma(2.0, 3.5), 0.4),
+        :nested => (inner, 0.6))
+
+    em = edge_means(outer)
+    # Per-outcome entries: the simple outcome is scalar, the nested one is a
+    # NamedTuple carrying its own per-outcome + mixture means.
+    @test em.simple ≈ mean(Gamma(2.0, 3.5))
+    @test em.nested.fast ≈ mean(Gamma(1.0, 1.0))
+    @test em.nested.slow ≈ mean(Gamma(2.0, 2.0))
+    @test em.nested.mixture ≈
+          0.5 * mean(Gamma(1.0, 1.0)) + 0.5 * mean(Gamma(2.0, 2.0))
+
+    # The outer mixture mean uses each outcome's SCALAR marginal mean.
+    inner_mean = 0.5 * mean(Gamma(1.0, 1.0)) + 0.5 * mean(Gamma(2.0, 2.0))
+    @test em.mixture ≈ 0.4 * mean(Gamma(2.0, 3.5)) + 0.6 * inner_mean
+
+    ev = edge_vars(outer)
+    @test ev.simple ≈ var(Gamma(2.0, 3.5))
+    @test ev.nested.fast ≈ var(Gamma(1.0, 1.0))
+    @test isfinite(ev.mixture)
+end
+
 @testitem "edge_means walks Select, Latent, Convolved and bare leaves" begin
     using CensoredDistributions, Distributions
 
