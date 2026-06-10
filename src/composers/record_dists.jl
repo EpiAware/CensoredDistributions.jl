@@ -574,39 +574,53 @@ end
 # Vectorised LATENT scoring (stacked primary priors + vectorised conditional)
 # ---------------------------------------------------------------------------
 #
-# A `latent`-wrapped leaf (or a `Select` whose selected alternative is latent
-# for a row) carries ONE latent primary per record. A single `~` cannot
-# half-sample (the primaries) and half-condition (the observed events), so the
-# vectorised latent flow is a two-statement pair driven by these helpers:
+# A `latent`-wrapped LEAF carries ONE latent primary per record; a latent CHAIN
+# (`latent(Sequential(...))` with `k` edges) carries `k` latent values per record
+# (the origin draw plus one independent intermediate GAP per non-terminal edge),
+# with the terminal event conditioned on the reconstructed chain. A single `~`
+# cannot half-sample (the latents) and half-condition (the observed events), so
+# the vectorised latent flow is a two-statement pair driven by these helpers:
 #
 #   primaries ~ product_distribution(latent_primary_priors(d, rows))
 #   @addlogprob! latent_observed_logpdf(d, rows, primaries)
 #
-# `latent_primary_priors` returns the STACKED primary priors, one per LATENT
-# row, in row order, ready for a single `product_distribution`.
-# `latent_observed_logpdf` scores the WHOLE table given those sampled primaries:
-# each latent row's observed event conditions on its matched primary through the
-# delay at the implied gap, and a MARGINAL row (an index alternative in a mixed
-# Select table) scores through its marginal record `logpdf` so one
+# `latent_primary_priors` returns the STACKED priors of every latent row's latent
+# values, FLATTENED in row order: a leaf row contributes one prior (its origin
+# primary), a `k`-edge chain row contributes `k` priors (the origin primary then
+# the first `k - 1` edge cores). `primaries` carries the matching draws in the
+# same flat order, so a chain row reads a CONTIGUOUS `k`-slot block.
+# `latent_observed_logpdf` scores the WHOLE table given those sampled latents:
+# a leaf row conditions its observed event on its matched primary through the
+# delay at the implied gap; a chain row reconstructs its event times (E_0 = the
+# origin draw, E_i = E_{i-1} + gap_i) and conditions the terminal event on the
+# last edge core at the final gap; a MARGINAL row (an index alternative in a
+# mixed Select table) scores through its marginal record `logpdf`, so one
 # `@addlogprob!` covers the mixed table. This is a VECTORISED form (a broadcast
 # over the rows), not a per-record submodel loop, so it differentiates under
-# ForwardDiff and Mooncake reverse.
+# ForwardDiff and Mooncake reverse. The chain's INTERMEDIATE gaps are sampled
+# INDEPENDENTLY (each off its own edge core) so they ride one
+# `product_distribution`; the chaining (the running sum) is pure arithmetic in
+# the conditional, and the shift Jacobian is 1, so the joint equals the
+# per-record latent chain model exactly.
 
 @doc "
 
-The stacked primary priors of a latent table, one per latent row.
+The stacked priors of a latent table's latent values, flattened in row order.
 
-For a [`latent`](@ref)-wrapped leaf (or a [`Select`](@ref) whose selected
-alternative is latent for a row), each latent record carries one latent primary
-event. `latent_primary_priors(d, rows)` returns the vector of those primary
-priors, in row order, restricted to the LATENT rows: a marginal row (an `index`
-alternative in a mixed Select table) carries no latent primary and contributes
-none. The result is the input to a single
-`primaries ~ product_distribution(latent_primary_priors(d, rows))`, sampling all
-latent primaries at once.
+For a [`latent`](@ref)-wrapped leaf each latent record carries one latent primary
+event; for a latent CHAIN (`latent(Sequential(...))` with `k` edges) it carries
+`k` latent values (the origin draw plus one intermediate gap per non-terminal
+edge). `latent_primary_priors(d, rows)` returns the vector of those priors,
+FLATTENED in row order and restricted to the LATENT rows: a leaf row contributes
+one prior, a `k`-edge chain row contributes `k` priors (the origin primary then
+the first `k - 1` edge cores), and a marginal row (an `index` alternative in a
+mixed [`Select`](@ref) table) contributes none. The result is the input to a
+single `primaries ~ product_distribution(latent_primary_priors(d, rows))`,
+sampling every latent value at once.
 
 # Arguments
-- `d`: a latent leaf, or a [`Select`](@ref) with latent alternative(s).
+- `d`: a latent leaf or latent chain, or a [`Select`](@ref) with latent
+  alternative(s).
 - `rows`: a Tables.jl row source of records keyed by event name.
 
 # Examples
@@ -630,31 +644,53 @@ function latent_primary_priors(d, rows)
         nt = _row_namedtuple(row)
         alt = _latent_alternative(d, nt)
         alt === nothing && continue
-        push!(priors, get_primary_event(alt))
+        append!(priors, _latent_row_priors(alt))
     end
     return _narrow(priors)
 end
+
+# The latent priors of one latent row's alternative, flattened. A latent LEAF
+# contributes its single origin primary; a latent CHAIN contributes the origin
+# primary then the first `k - 1` edge cores (the intermediate gap priors), so a
+# `k`-edge chain row stacks `k` priors.
+_latent_row_priors(alt::Latent) = _latent_row_priors(alt.dist)
+_latent_row_priors(alt::UnivariateDistribution) = (get_primary_event(alt),)
+function _latent_row_priors(chain::Sequential)
+    origin = _origin_primary_event(_first_origin_node(chain))
+    cores = map(_marginal_core, Base.front(chain.components))
+    return (origin, cores...)
+end
+
+# The number of latent values one latent row's alternative carries (the size of
+# its contiguous block in `primaries`): one for a leaf, `k` for a `k`-edge chain.
+_latent_row_width(alt::Latent) = _latent_row_width(alt.dist)
+_latent_row_width(::UnivariateDistribution) = 1
+_latent_row_width(chain::Sequential) = length(chain.components)
 
 @doc "
 
 The vectorised observed conditional of a latent table given sampled primaries.
 
 `latent_observed_logpdf(d, rows, primaries)` scores the whole table in one
-contribution: each LATENT row conditions its observed event on the matched
-sampled primary through the delay at the implied gap
-(`logpdf(get_dist(alt), y - p)`), and a MARGINAL row (an `index` alternative in
-a mixed [`Select`](@ref) table) scores through its marginal record `logpdf`. The
-`primaries` are the draws from
-`product_distribution(`[`latent_primary_priors`](@ref)`(d, rows))`, in
-latent-row order; a per-record `weight`/`count` scales each row's contribution.
-This is the second statement of the vectorised latent pair, added with
-`@addlogprob!`.
+contribution: a latent LEAF row conditions its observed event on the matched
+sampled primary through the delay at the implied gap (`logpdf(get_dist(alt),
+y - p)`); a latent CHAIN row reconstructs its event times from its contiguous
+block of `primaries` (`E_0` = the origin draw, `E_i = E_{i-1} + gap_i`) and
+conditions the terminal event on the last edge core at the final gap; and a
+MARGINAL row (an `index` alternative in a mixed [`Select`](@ref) table) scores
+through its marginal record `logpdf`. The `primaries` are the draws from
+`product_distribution(`[`latent_primary_priors`](@ref)`(d, rows))`, flattened in
+latent-row order (a leaf row reads one value, a `k`-edge chain row reads a `k`-
+slot block); a per-record `weight`/`count` scales each row's contribution. This
+is the second statement of the vectorised latent pair, added with `@addlogprob!`.
 
 # Arguments
-- `d`: a latent leaf, or a [`Select`](@ref) with latent alternative(s).
+- `d`: a latent leaf or latent chain, or a [`Select`](@ref) with latent
+  alternative(s).
 - `rows`: the same Tables.jl row source passed to
   [`latent_primary_priors`](@ref).
-- `primaries`: the sampled latent primaries, one per latent row, in row order.
+- `primaries`: the sampled latent values, flattened in latent-row order (one per
+  leaf row, `k` per `k`-edge chain row).
 
 # Examples
 ```@example
@@ -682,14 +718,57 @@ function latent_observed_logpdf(d, rows, primaries)
             # contribution covers a mixed Select table.
             total += _marginal_row_logpdf(d, nt)
         else
-            k += 1
-            p = primaries[k]
-            y = _latent_observed_value(d, nt)
-            lp = logpdf(get_dist(alt), y - p)
+            # The row's latent values are a contiguous block of `primaries`; its
+            # width is one for a leaf, `k` for a `k`-edge chain.
+            width = _latent_row_width(alt)
+            block = view(primaries, (k + 1):(k + width))
+            k += width
+            lp = _latent_row_observed_logpdf(alt, _latent_row_events(d, nt),
+                block)
             total += _weight_lp(lp, w)
         end
     end
     return total
+end
+
+# The observed conditional of one latent row given its block of sampled latents.
+# A latent LEAF conditions its single observed value `y` on its primary `p`
+# through the delay gap `y - p`. A latent CHAIN reconstructs the event times from
+# the origin draw and the intermediate gaps, then conditions the terminal
+# observed event on the last edge core at the final gap.
+function _latent_row_observed_logpdf(alt::Latent, events, block)
+    _latent_row_observed_logpdf(alt.dist, events, block)
+end
+function _latent_row_observed_logpdf(alt::UnivariateDistribution, events, block)
+    y = only(events)
+    return logpdf(get_dist(alt), y - block[1])
+end
+function _latent_row_observed_logpdf(chain::Sequential, events, block)
+    # `events` is the chain's flat event vector `[E_0, ..., E_k]`; only the
+    # terminal is observed for the endpoint-observed chain. Reconstruct the
+    # latent event times from the origin draw and the intermediate gaps, then
+    # condition the terminal on the last edge core.
+    cores = map(_marginal_core, chain.components)
+    k = length(cores)
+    prev = block[1]
+    @inbounds for i in 2:k
+        prev += block[i]
+    end
+    terminal = _the_terminal_observed(events)
+    return logpdf(cores[k], terminal - prev)
+end
+
+# The terminal (last) observed value of a chain's flat event vector. The
+# endpoint-observed chain row observes only its terminal event; an intermediate
+# observed event would need the per-segment conditioning of the per-record model,
+# which the vectorised chain path does not cover, so that is rejected.
+function _the_terminal_observed(events)
+    obs = filter(!ismissing, events)
+    length(obs) == 1 || throw(ArgumentError(
+        "the vectorised latent chain path scores the endpoint-observed chain " *
+        "(only the terminal event observed); got $(length(obs)) observed " *
+        "events"))
+    return only(obs)
 end
 
 # The latent alternative scoring a row, or `nothing` when the row is marginal. A
@@ -712,8 +791,30 @@ function _select_kind(d::Select, row::NamedTuple)
     return kind
 end
 
-# The single observed event value of a latent row: the lone non-reserved,
-# non-selector field. A latent leaf carries one observed event.
+# The observed event value(s) of a latent row, matched to the selected
+# alternative. A latent LEAF carries one observed event (a single value); a
+# latent CHAIN carries its flat event vector `[E_0, ..., E_k]` (the terminal
+# observed, intermediates missing). The selector field is stripped first under a
+# Select so the alternative sees only its own events.
+_latent_row_events(d::Latent, row::NamedTuple) = _latent_alt_events(d.dist, row)
+function _latent_row_events(d::Select, row::NamedTuple)
+    inner = _drop_named_field(row, d.selector)
+    alt = _pick(d, _select_kind(d, row))
+    return _latent_alt_events(_unwrap_latent(alt), inner)
+end
+
+# The wrapped node of a (possibly latent) alternative, so the event-vector
+# extraction dispatches on the leaf-vs-chain structure.
+_unwrap_latent(alt::Latent) = alt.dist
+_unwrap_latent(alt) = alt
+
+# A latent leaf alternative's single observed value; a latent chain
+# alternative's flat event vector matched by name.
+_latent_alt_events(::UnivariateDistribution, row::NamedTuple) = (_the_observed_value(row),)
+_latent_alt_events(chain::Sequential, row::NamedTuple) = _row_event_vector(chain, row)
+
+# The single observed event value of a latent leaf row: the lone non-reserved,
+# non-selector field.
 _latent_observed_value(d::Latent, row::NamedTuple) = _the_observed_value(row)
 function _latent_observed_value(d::Select, row::NamedTuple)
     inner = _drop_named_field(row, d.selector)
