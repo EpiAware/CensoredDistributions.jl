@@ -193,13 +193,18 @@ end
         (onset = 1.0, admit = 3.2, death = 6.1),
         (onset = 0.7, admit = missing, death = 4.9)]
 
-    # The manual per-record loop (#412's row-driven split, hand-prefixed).
-    @model function manual(d, rs)
+    # The manual per-record loop (#412's row-driven split, hand-prefixed),
+    # wrapped in one `obs ~ to_submodel(...)` so its varnames carry the same
+    # `obs.` namespace the batch entry adds.
+    @model function manual_loop(d, rs)
         for i in eachindex(rs)
-            obs ~ to_submodel(
+            inner ~ to_submodel(
                 prefix(composed_distribution_model(d, rs[i]), Symbol(:rec, i)),
                 false)
         end
+    end
+    @model function manual(d, rs)
+        obs ~ to_submodel(manual_loop(d, rs))
     end
 
     # The batch entry collapses the loop+prefix into one tilde.

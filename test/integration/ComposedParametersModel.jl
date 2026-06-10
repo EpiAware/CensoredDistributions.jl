@@ -417,12 +417,18 @@ end
     # The batch latent model collapses the manual per-record loop into one tilde,
     # and `predict_events(truth, n)` returns a labelled table that drops straight
     # into both the marginal and latent batch scoring entries.
-    dic(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
-        interval = 1.0)
-    template = Sequential((dic(Gamma(2.0, 1.5)), dic(Gamma(1.5, 2.0))),
+    pc(d) = primary_censored(d, Uniform(0, 1))
+    template = Sequential((pc(Gamma(2.0, 1.5)), pc(Gamma(1.5, 2.0))),
         (:onset_admit, :admit_death))
     priors = build_priors(params_table(template))
 
+    # Marginal batch entry: the whole table in one `~` (the symmetric form).
+    @model function marginal_fit(t, p, rows)
+        delays ~ to_submodel(composed_parameters_model(t, p))
+        obs ~ to_submodel(composed_distribution_model(delays, rows))
+    end
+
+    # Latent batch entry: the same table, the loop+prefix moved into the package.
     @model function latent_fit(t, p, rows)
         delays ~ to_submodel(composed_parameters_model(t, p))
         obs ~ to_submodel(composed_distribution_model(latent(delays), rows))
@@ -432,19 +438,23 @@ end
         template, (onset_admit = (shape = 2.0, scale = 1.5),
             admit_death = (shape = 1.5, scale = 2.0)))
 
-    # The labelled simulation table drops straight into the batch entry.
+    # The labelled simulation table drops straight into both batch entries.
     sim = predict_events(truth, 8; rng = MersenneTwister(909))
     @test Tables.istable(sim)
     @test Tables.columnnames(sim) ==
           CensoredDistributions.tree_event_names(truth)
 
-    chain = sample(Xoshiro(1), latent_fit(template, priors, sim),
+    mchain = sample(Xoshiro(1), marginal_fit(template, priors, sim),
+        NUTS(0.8), 25; chain_type = VNChain, progress = false)
+    lchain = sample(Xoshiro(1), latent_fit(template, priors, sim),
         NUTS(0.8), 25; chain_type = VNChain, progress = false)
 
-    # The fit runs and reads back finite, positive edge means via the same
+    # Both fits run and read back finite, positive edge means via the same
     # update/edge_means path the per-record loop uses.
-    fit = update(template, chain; prefix = :delays)
-    @test all(>(0), values(edge_means(fit)))
+    mfit = update(template, mchain; prefix = :delays)
+    lfit = update(template, lchain; prefix = :delays)
+    @test all(>(0), values(edge_means(mfit)))
+    @test all(>(0), values(edge_means(lfit)))
 end
 
 @testitem "composed_parameters_model: shared param sampled once, placed everywhere" tags=[:turing] begin

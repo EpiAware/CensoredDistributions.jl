@@ -658,6 +658,14 @@ end
 # likelihood is scaled by the row weight via the conditional contribution.
 @model function composed_distribution_model(
         d::Latent{<:Sequential}, row::NamedTuple; weight = nothing)
+    # A column table (a `columntable` NamedTuple) is the whole table, not one
+    # record; route it to the batch latent path. A scalar-valued row NamedTuple
+    # is not a table and scores as one record below.
+    if Tables.istable(row)
+        obs ~ to_submodel(_latent_batch_model(
+            d, _latent_batch_rows(row); weight = weight))
+        return obs
+    end
     chain = d.dist
     obs = _event_vector(chain, row)
     w = _row_weight(row, weight)
@@ -698,6 +706,13 @@ end
 # is scaled by the row weight via the conditional contribution.
 @model function composed_distribution_model(
         d::Latent{<:Parallel}, row::NamedTuple; weight = nothing)
+    # A column table is the whole table, not one record; route it to the batch
+    # latent path (a scalar-valued row NamedTuple scores as one record below).
+    if Tables.istable(row)
+        obs ~ to_submodel(_latent_batch_model(
+            d, _latent_batch_rows(row); weight = weight))
+        return obs
+    end
     tree = d.dist
     obs = _event_vector(tree, row)
     w = _row_weight(row, weight)
@@ -725,6 +740,69 @@ end
         end
     end
     return e
+end
+
+# --- Batch latent entry: a whole table of records in one `~` -----------------
+#
+# The MARGINAL form scores a whole table in one `~` through
+# `product_distribution(record_distributions(d, rows))`, because each marginal
+# record is an independent distribution with no per-record latent. A LATENT
+# record instead SAMPLES its own per-record latents (the origin and any
+# unobserved intermediate event), so it cannot collapse to a single
+# `product_distribution`; the per-record loop must stay. This batch entry moves
+# that loop INTO the package: it is a looping `@model` submodel that delegates
+# each record to the existing per-record latent model
+# (`composed_distribution_model(d, row)`), prefixing record `i` with `:recN`
+# exactly as the manual hand-written loop did. The user model then collapses to
+# one tilde:
+#
+#     delays ~ to_submodel(composed_parameters_model(template, priors))
+#     obs    ~ to_submodel(composed_distribution_model(latent(delays), rows))
+#
+# Mirrors the marginal batch method's signature (a vector of rows AND any
+# Tables.jl table), so the marginal and latent batch entries are symmetric.
+
+# A vector of rows: collect to NamedTuple rows up front (so the per-record
+# delegation is a pure loop in the model body) and build the looping submodel.
+function composed_distribution_model(
+        d::Latent, rows::AbstractVector; weight = nothing)
+    return _latent_batch_model(d, _latent_batch_rows(rows); weight = weight)
+end
+
+# Any Tables.jl table (e.g. a `DataFrame`): a column table is a Tables.jl source,
+# so it passes straight in, mirroring the marginal table entry. A single
+# `NamedTuple` row and a vector of rows keep their own (more specific) methods,
+# so only a non-vector Tables.jl source lands here.
+function composed_distribution_model(d::Latent, table; weight = nothing)
+    Tables.istable(table) || throw(ArgumentError(
+        "composed_distribution_model(latent(d), table) takes a vector of rows " *
+        "or a Tables.jl table; got $(typeof(table))"))
+    return _latent_batch_model(d, _latent_batch_rows(table); weight = weight)
+end
+
+# Normalise any Tables.jl row source to a `Vector` of `NamedTuple` rows, reusing
+# the core row->NamedTuple helper so the batch path matches the per-record path.
+function _latent_batch_rows(rows)
+    rowvec = collect(Tables.rows(rows))
+    isempty(rowvec) && throw(ArgumentError(
+        "the batch latent model needs at least one record; got an empty table"))
+    return [CensoredDistributions._row_namedtuple(r) for r in rowvec]
+end
+
+# The looping latent batch submodel: each record is scored by the existing
+# per-record latent model, prefixed `:recN` so its sampled latents stay readable
+# and groupable, exactly matching the manual loop. The per-record `weight`
+# keyword is forwarded to every record (a per-record weight still rides on the
+# row's reserved `weight`/`count` field).
+@model function _latent_batch_model(d::Latent, rows::AbstractVector; weight = nothing)
+    for i in eachindex(rows)
+        obs ~ to_submodel(
+            DynamicPPL.prefix(
+                composed_distribution_model(d, rows[i]; weight = weight),
+                Symbol(:rec, i)),
+            false)
+    end
+    return nothing
 end
 
 # A location-shifted view of a delay distribution: `logpdf(shifted, y) =
