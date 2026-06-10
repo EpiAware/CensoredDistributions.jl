@@ -293,13 +293,10 @@ block_of(t) = min(n_blocks, fld(t - 1, block_len) + 1)
 md"""
 Mooncake reverse-mode AD differentiates the convolved stack.
 The branched stack derives its event names from constant branch labels, a
-string operation Mooncake cannot trace; a single `@mooncake_overlay` replaces
-that name split with a no-op during differentiation, which is exact here because
-the shared incubation step uses the positional default name.
+string operation Mooncake cannot trace; the package declares those
+name-derivation helpers as zero-adjoint Mooncake rules, so the gradient flows
+through the delay parameters with no per-model intervention.
 """
-
-Mooncake.@mooncake_overlay CensoredDistributions._split_edge_name(
-    name::Symbol) = nothing
 
 @model function rt_renewal(cases, deaths, g, incubation, onset_report,
         onset_death, I0)
