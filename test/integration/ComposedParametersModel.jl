@@ -303,6 +303,53 @@ end
     @test length(rand(ready)) == 2
 end
 
+@testitem "chain_to_params skips latent per-record event vectors" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: VNChain
+
+    # A latent fit also samples per-record event vectors, named `recN.e`. These
+    # are vector-valued varnames the template walk never requests; reading their
+    # mean would error, so `chain_to_params`/`update` must skip them.
+    dic(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
+        interval = 1.0)
+    template = Sequential((dic(Gamma(2.0, 1.5)), dic(Gamma(1.5, 2.0))),
+        (:onset_admit, :admit_death))
+    priors = build_priors(params_table(template))
+
+    @model function latent_fit(t, p, rows)
+        delays ~ to_submodel(composed_parameters_model(t, p))
+        ld = latent(delays)
+        for i in eachindex(rows)
+            obs ~ to_submodel(
+                DynamicPPL.prefix(
+                    composed_distribution_model(ld, rows[i]), Symbol(:rec, i)),
+                false)
+        end
+    end
+
+    truth = update(
+        template, (onset_admit = (shape = 2.0, scale = 1.5),
+            admit_death = (shape = 1.5, scale = 2.0)))
+    rng = MersenneTwister(909)
+    rows = map(1:6) do _
+        s = predict_events(truth; rng = rng)
+        (onset = s[1], admit = s[2], death = s[3])
+    end
+
+    chain = sample(Xoshiro(1), latent_fit(template, priors, rows),
+        NUTS(0.8), 30; chain_type = VNChain, progress = false)
+
+    # The latent event vectors are present in the chain but must not break the
+    # read; only the `delays.*` scalars are reconstructed.
+    means = chain_to_params(template, chain; prefix = :delays)
+    @test Set(keys(means)) == Set(keys(params(template)))
+    fit = update(template, chain; prefix = :delays)
+    @test all(>(0), values(edge_means(fit)))
+    # A single draw works the same.
+    @test update(template, chain; prefix = :delays, draw = 5) isa
+          CensoredDistributions.Sequential
+end
+
 @testitem "update(template, chain) == update via chain_to_params" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
     using FlexiChains: VNChain

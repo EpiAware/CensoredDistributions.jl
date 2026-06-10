@@ -16,8 +16,15 @@ using Statistics: mean
 # `VarName`s (e.g. `d.onset_admit.shape`); their `string` is the dotted path the
 # walk forms. For posterior means we read `mean(chain)` once (every parameter
 # mean, keyed by `VarName`); for a single draw we index that parameter's column.
+#
+# Only scalar parameters belong in the lookup. A latent fit also carries
+# vector-valued per-record event VarNames (e.g. `rec1.e`) whose draws are
+# `Vector`s and whose mean the summary keys element-wise, not under the bare
+# name; the template walk never requests them. Filtering on the column element
+# type keeps the scalars and skips the vector params, so reading the mean is safe.
 function _value_lookup(chain, draw)
-    vns = FlexiChains.parameters(chain)
+    vns = [vn for vn in FlexiChains.parameters(chain)
+           if eltype(chain[vn]) <: Real]
     if draw === nothing
         means = mean(chain)
         return Dict(string(vn) => means[vn] for vn in vns)
