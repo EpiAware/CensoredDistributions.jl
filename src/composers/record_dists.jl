@@ -256,6 +256,10 @@ logpdf(product_distribution(recs), [[0.0, 0.0, 5.0], [1.0, 0.0, 7.0]])
 - [`event_logpdf`](@ref): the per-record log density this reproduces.
 "
 function record_distributions(d::Sequential, rows)
+    # A tree with a nested Select routes per record by the row's selector, so each
+    # record resolves its own (Select-free) tree before parsing (the selector
+    # field is data, not an event).
+    _count_selects(d) > 0 && return _select_resolved_records(d, rows)
     parsed = _parse_rows(d, rows)
     # A nested tree (a nested composer or a Competing step) has no flat
     # collapsed-segment layout; build each record generically (correctness first).
@@ -265,6 +269,7 @@ function record_distributions(d::Sequential, rows)
 end
 
 function record_distributions(d::Parallel, rows)
+    _count_selects(d) > 0 && return _select_resolved_records(d, rows)
     parsed = _parse_rows(d, rows)
     _nested_trait(d.components) isa _Nested && return _generic_records(d, parsed)
     primary = _shared_primary_event(d.components)
@@ -275,6 +280,46 @@ function record_distributions(d::Parallel, rows)
     cores = map(_marginal_core, d.components)
     bundle = _ParSegs(primary, cores)
     return [_par_record(d, p, bundle) for p in parsed]
+end
+
+# Build per-record distributions for a tree that nests a `Select`: each record
+# resolves its OWN (Select-free) tree from the row's selector(s), strips the
+# selector field(s) so they are not matched as events, then parses + builds a
+# generic record over the resolved tree. A record missing a needed selector field
+# errors in `_resolve_selects`, so a data record never silently routes to the
+# first alternative. The resolved tree may itself be flat or nested; either way
+# the generic record scores it through `event_logpdf`, equal to the per-record
+# loop over the resolved trees.
+function _select_resolved_records(d::Union{Sequential, Parallel}, rows)
+    rowvec = collect(Tables.rows(rows))
+    isempty(rowvec) && throw(ArgumentError(
+        "record_distributions needs at least one record; got an empty table"))
+    fields = _select_fields(d)
+    out = map(rowvec) do row
+        nt = _row_namedtuple(row)
+        resolved = _resolve_selects(d, nt)
+        inner = _drop_named_fields(nt, fields)
+        p = _parse_row(resolved, inner)
+        _generic_record(resolved, p)
+    end
+    return out
+end
+
+# The selector field names of every nested `Select` in a tree (each Select's
+# `selector`), so they are stripped from a row before event matching.
+_select_fields(::UnivariateDistribution) = Symbol[]
+function _select_fields(d::Select)
+    vcat([d.selector],
+        reduce(vcat, map(_select_fields, d.alternatives); init = Symbol[]))
+end
+function _select_fields(d::Union{Sequential, Parallel})
+    return reduce(vcat, map(_select_fields, d.components); init = Symbol[])
+end
+
+# Drop several named fields from a NamedTuple, preserving the order of the rest.
+function _drop_named_fields(row::NamedTuple, fields)
+    ks = filter(k -> !(k in fields), keys(row))
+    return NamedTuple{ks}(map(k -> row[k], ks))
 end
 
 # A parsed record: the event vector plus the reserved weight / horizon and the

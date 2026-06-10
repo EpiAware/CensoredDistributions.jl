@@ -71,6 +71,17 @@ _nleaves(components::Tuple) = sum(_child_nleaves, components)
 _event_child_nleaves(c) = _child_nleaves(c)
 _event_child_nleaves(c::Competing) = _n_branches(c)
 _event_child_nleaves(c::Union{Sequential, Parallel}) = _event_nleaves(c.components)
+# A nested `Select` occupies its (common) alternative's EVENT-slot width: every
+# alternative must expose the same number of event slots to share one flat slot,
+# so the chosen alternative for a row lands in the same slice whichever it is.
+function _event_child_nleaves(c::Select)
+    n = _event_child_nleaves(first(c.alternatives))
+    widths = map(_event_child_nleaves, c.alternatives)
+    all(==(n), widths) || throw(ArgumentError(
+        "a nested Select needs every alternative to expose the same number of " *
+        "event slots to occupy a fixed flat slot; got $(widths)"))
+    return n
+end
 
 # Total EVENT-slot count over a tuple of children (the flat event vector minus
 # its shared origin).

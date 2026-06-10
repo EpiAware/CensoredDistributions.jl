@@ -119,6 +119,12 @@ function _edge_origin_pair(
         edge_name::Symbol, child::Union{Sequential, Parallel})
     return _root_origin_name_or_nothing(child)
 end
+# A nested `Select` as a first edge derives its origin from the EDGE name split
+# (a leaf alternative) or its default alternative's own first edge (a composer
+# alternative); the alternatives share the slot layout, so the default names it.
+function _edge_origin_pair(edge_name::Symbol, child::Select)
+    return _edge_origin_pair(edge_name, first(child.alternatives))
+end
 function _root_origin_name_or_nothing(d::Union{Sequential, Parallel})
     name1 = component_names(d)[1]
     return _edge_origin_pair(name1, d.components[1])
@@ -177,6 +183,18 @@ function _walk_edge!(names, edge_name::Symbol, child::Competing,
         push!(names, name)
     end
     return origin
+end
+
+# A nested `Select` edge contributes the event name(s) of its DEFAULT (first)
+# alternative: the alternatives share one event-slot width, so the slot layout is
+# the same whichever routes, and the default names the slot for `tree_event_names`
+# / `rand`. A leaf alternative pushes the split target of the EDGE name (so a
+# `:admit_death` Select edge still names its slot `:death`); a composer
+# alternative recurses through its own walk.
+function _walk_edge!(names, edge_name::Symbol, child::Select,
+        origin::Symbol, counter)
+    return _walk_edge!(names, edge_name, first(child.alternatives), origin,
+        counter)
 end
 
 _nested_terminal_name(::Parallel, names, origin::Symbol) = origin
