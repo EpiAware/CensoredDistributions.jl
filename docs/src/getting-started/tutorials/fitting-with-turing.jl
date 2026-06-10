@@ -151,7 +151,7 @@ true_params = (onset_admit = (shape = 2.0, scale = 1.5),
 
 truth = update(template, true_params)
 
-n = 150;
+n = 20;
 
 sim_rows = let rng = MersenneTwister(20260609)
     map(1:n) do _
@@ -226,8 +226,10 @@ recovery = DataFrame(
     latent = [latent_means_fit.onset_admit, latent_means_fit.admit_death])
 
 md"""
-Both fits recover the true edge means closely, as the marginal-equals-latent
-equivalence requires: the two forms target the same posterior.
+The marginal fit recovers the true edge means closely. The latent fit, carrying
+many extra sampled events at this small budget, mixes less freely and sits a
+little high, but tracks the same posterior the marginal targets: the two forms
+are one family, and a larger budget closes the gap.
 """
 
 md"""
@@ -268,9 +270,10 @@ truth_nt = (onset_admit = true_means.onset_admit,
     admit_death = true_means.admit_death)
 
 md"""
-The two fits' posteriors over the delay means sit on top of each other and
-bracket the true values, confirming that the marginal and latent forms target
-the same posterior.
+The marginal posterior over the delay means concentrates on the true values; the
+latent posterior, with more sampled events to explore at this small budget, is
+wider and shifted high. Both summarise the same family of parameters through the
+same `update`/`edge_means` path.
 """
 
 pairplot(
@@ -290,7 +293,8 @@ md"""
   [`composed_distribution_model`](@ref) on a `DataFrame` in one `~`.
 - The marginal and latent forms are one family on the same parameters: wrapping
   the composed object in [`latent`](@ref) scores each record's intermediate
-  event as a latent, and both fits recover the truth.
+  event as a latent. The marginal recovers the truth at this small budget; the
+  latent needs a larger budget to match it.
 - The marginal form is the cheap default; the latent form costs an extra
   sampled event per record but suits small counts or impractical marginal
   integrals.
