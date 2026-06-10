@@ -1,5 +1,21 @@
 ## Unreleased
 
+### Features
+
+- Batch latent model entry
+  `composed_distribution_model(latent(d), rows)` /
+  `composed_distribution_model(latent(d), table)`: a looping submodel that
+  runs the per-record loop and `:recN` prefixing inside the package, so a
+  latent fit collapses to one `~` (`obs ~ to_submodel(...)`) just like the
+  marginal batch entry. Mirrors the marginal form's vector-of-rows and
+  Tables.jl table signatures, so the two batch forms are symmetric.
+- `predict_events(d, n)` for a composed `Sequential`/`Parallel` returns the
+  `n` simulated records as a labelled Tables.jl column table keyed by
+  `tree_event_names`, so a simulated line list drops straight into the batch
+  scoring entry without hand-mapping and re-keying. The scalar
+  `predict_events(d)` and the leaf-`Latent`/`Select` vector
+  `predict_events(d, n)` paths are unchanged.
+
 ### Bug fixes
 
 - Skip the CDF-saturation early-return in the numeric
