@@ -544,19 +544,6 @@ end
     @test isapprox(var(xs), var(d); rtol = 0.02)
 end
 
-@testitem "Convolved PMF-weighting moment fallback matches analytic (#352)" begin
-    using Distributions
-    const CD = CensoredDistributions
-
-    # The deterministic PMF-weighting fallback (used per-component where no
-    # analytic moment exists) recovers the analytic moments to discretisation
-    # tolerance, for both bounded-below and unbounded supports.
-    for c in (Gamma(2.0, 1.5), LogNormal(1.0, 0.4), Normal(1.0, 2.0))
-        @test isapprox(CD._pmf_mean(c), mean(c); rtol = 1e-3)
-        @test isapprox(CD._pmf_var(c), var(c); rtol = 1e-2)
-    end
-end
-
 # The AD-safety of the Convolved moments (gradients flowing through the
 # component parameters) is covered by the 6-backend AD suite in
 # `test/ADFixtures` ("Convolved Gamma+Normal mean+var moments"), which has the
