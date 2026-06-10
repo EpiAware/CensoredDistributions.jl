@@ -767,6 +767,27 @@ function _event_tree_child(::Symbol, c::Union{Sequential, Parallel, Competing, S
 end
 _event_tree_child(name::Symbol, ::Any) = name
 
+# Direct-child lookup by a single (un-dotted) name. Internal so the public
+# `event` can split a dotted path before descending.
+function _event_child(d::Union{Sequential, Parallel}, name::Symbol)
+    names = component_names(d)
+    idx = findfirst(==(name), names)
+    idx === nothing && throw(KeyError(name))
+    return d.components[idx]
+end
+
+function _event_child(c::Competing, name::Symbol)
+    idx = findfirst(==(name), c.names)
+    idx === nothing && throw(KeyError(name))
+    return c.delays[idx]
+end
+
+function _event_child(d::Select, name::Symbol)
+    idx = findfirst(==(name), d.names)
+    idx === nothing && throw(KeyError(name))
+    return d.alternatives[idx]
+end
+
 @doc "
 
 Fetch a composed distribution's child (event/edge), or descend a name path.
@@ -799,29 +820,8 @@ event(tree, :admit_path, :admit_death)
 - [`event_names`](@ref): list a node's flat event names
 - [`event_tree`](@ref): the nested tree of event names
 "
-# Direct-child lookup by a single (un-dotted) name. Internal so the public
-# `event` can split a dotted path before descending.
-function _event_child(d::Union{Sequential, Parallel}, name::Symbol)
-    names = component_names(d)
-    idx = findfirst(==(name), names)
-    idx === nothing && throw(KeyError(name))
-    return d.components[idx]
-end
-
-function _event_child(c::Competing, name::Symbol)
-    idx = findfirst(==(name), c.names)
-    idx === nothing && throw(KeyError(name))
-    return c.delays[idx]
-end
-
-function _event_child(d::Select, name::Symbol)
-    idx = findfirst(==(name), d.names)
-    idx === nothing && throw(KeyError(name))
-    return d.alternatives[idx]
-end
-
-# No name is an error: `event` needs at least one name to fetch.
 function event(d)
+    # No name is an error: `event` needs at least one name to fetch.
     throw(ArgumentError("event needs at least one name"))
 end
 

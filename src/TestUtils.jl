@@ -12,6 +12,17 @@
 # package's own public surface. It returns the `@testset` result so a caller can
 # assert on it.
 
+"""
+    CensoredDistributions.TestUtils
+
+Public interface-conformance harness for composers and leaves.
+
+`TestUtils.test_interface(d)` runs one interface checklist over a composed
+distribution (or bare leaf), so a downstream author writing a new leaf or
+composer can drop it into their own `@testset` to verify conformance against the
+package's public interface. [`test_interface`](@ref), [`example_fixtures`](@ref),
+and [`test_rejects_invalid`](@ref) are exported from this submodule.
+"""
 module TestUtils
 
 using Test: Test, @testset, @test, @test_nowarn, @test_throws

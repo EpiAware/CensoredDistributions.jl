@@ -357,6 +357,14 @@ end
 function _outcome_scalar_moment(d::Latent, f::F) where {F}
     return _outcome_scalar_moment(d.dist, f)
 end
+# Disambiguate a `Latent` against the typed-`f` leaf methods above: a `Latent`
+# delegates to its wrapped distribution for both the mean and the variance.
+function _outcome_scalar_moment(d::Latent, ::typeof(_leaf_mean))
+    _outcome_scalar_moment(d.dist, _leaf_mean)
+end
+function _outcome_scalar_moment(d::Latent, ::typeof(_leaf_var))
+    _outcome_scalar_moment(d.dist, _leaf_var)
+end
 
 # A `Competing`'s branch-prob-weighted mixture mean / variance, built from the
 # FREE per-outcome moments so it sees through censored leaves (NOT the censored

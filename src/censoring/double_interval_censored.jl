@@ -58,6 +58,9 @@ This function implements the complete workflow for handling censored delay distr
 1. **Primary censoring**: Accounts for uncertainty in the primary event timing
 2. **Truncation**: Handles observation windows and finite study periods
 3. **Secondary censoring**: Models interval censoring effects (e.g., daily reporting)
+
+# See also
+- [`double_censored`](@ref): a shorter alias for this function.
 """
 function double_interval_censored(
         dist::UnivariateDistribution;
