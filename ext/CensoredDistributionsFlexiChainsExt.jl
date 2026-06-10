@@ -5,7 +5,7 @@ module CensoredDistributionsFlexiChainsExt
 # when both DynamicPPL and FlexiChains are available.
 
 using CensoredDistributions: CensoredDistributions, Sequential, Parallel,
-                             Competing, Select, component_names
+                             Competing, component_names
 import CensoredDistributions: chain_to_params, update
 using FlexiChains: FlexiChains
 using Statistics: mean
