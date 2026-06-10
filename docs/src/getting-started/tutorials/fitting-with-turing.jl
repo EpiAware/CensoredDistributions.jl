@@ -200,56 +200,26 @@ latent_time = @elapsed latent_chain = sample(
     chain_type = VNChain, progress = false)
 
 md"""
-## Compare runtime and recovery
+## Read the fitted delays back
 
-We read the fitted delays off each chain with
-[`update`](@ref)`(template, chain)` and [`edge_means`](@ref), which sees through
-each censored leaf to its inner free delay mean. The true edge means are the
-means of the underlying Gammas.
+[`update`](@ref)`(template, chain)` reads a chain's posterior means back onto
+the composed object, giving a ready-to-inspect distribution.
+[`edge_means`](@ref) then reads each edge's delay mean off it, seeing through
+the censored leaf to its inner free Gamma. The true edge means are the means of
+the underlying Gammas.
 """
 
 true_means = edge_means(truth)
 
 marginal_fit = update(template, marginal_chain; prefix = :delays)
 
-latent_fit = update(template, latent_chain; prefix = :delays)
-
-marginal_means_fit = edge_means(marginal_fit)
-
-latent_means_fit = edge_means(latent_fit)
-
-recovery = DataFrame(
-    edge = ["onset_admit", "admit_death"],
-    truth = [true_means.onset_admit, true_means.admit_death],
-    marginal = [marginal_means_fit.onset_admit,
-        marginal_means_fit.admit_death],
-    latent = [latent_means_fit.onset_admit, latent_means_fit.admit_death])
+edge_means(marginal_fit)
 
 md"""
-Both fits recover the true edge means closely, as the marginal-equals-latent
-equivalence requires: the two forms target the same posterior.
-"""
-
-md"""
-At this small budget the latent form is the slower of the two per effective
-sample at scale, since it carries one extra sampled event per record; the
-marginal form is the cheap default. The latent form earns its cost when the
-marginal integral is impractical, or when the augmented geometry mixes better
-than a stiff marginal at small counts.
-"""
-
-runtime = DataFrame(
-    form = ["marginal", "latent"],
-    seconds = [marginal_time, latent_time])
-
-md"""
-## Posterior overlay
-
-We summarise each posterior by its two edge means, the quantity reported for a
-delay distribution, rather than by raw shape/scale samples. `mean_draws` reads
-the edge means off every posterior draw through repeated
-[`update`](@ref)`(template, chain; draw = i)` and [`edge_means`](@ref), with no
-manual chain indexing.
+To compare both fits draw-by-draw we read the edge means off every posterior
+draw through [`update`](@ref)`(template, chain; draw = i)` and
+[`edge_means`](@ref), with no manual chain indexing. `mean_draws` returns the
+posterior of each delay mean for either chain.
 """
 
 function mean_draws(chain)
@@ -264,14 +234,42 @@ marginal_means = mean_draws(marginal_chain)
 
 latent_means = mean_draws(latent_chain)
 
-truth_nt = (onset_admit = true_means.onset_admit,
-    admit_death = true_means.admit_death)
+md"""
+## Compare recovery and runtime
+
+Both forms recover the true edge means closely, as the marginal-equals-latent
+equivalence requires: they target the same posterior.
+"""
+
+recovery = DataFrame(
+    edge = ["onset_admit", "admit_death"],
+    truth = [true_means.onset_admit, true_means.admit_death],
+    marginal = [mean(marginal_means.onset_admit),
+        mean(marginal_means.admit_death)],
+    latent = [mean(latent_means.onset_admit),
+        mean(latent_means.admit_death)])
 
 md"""
-The two fits' posteriors over the delay means sit on top of each other and
-bracket the true values, confirming that the marginal and latent forms target
-the same posterior.
+The latent form carries one extra sampled event per record, so it does more work
+per iteration; the marginal form is the cheap default at scale. The latent form
+earns its cost when the marginal integral is impractical, or when the augmented
+geometry mixes better than a stiff marginal at small counts.
 """
+
+runtime = DataFrame(
+    form = ["marginal", "latent"],
+    seconds = [marginal_time, latent_time])
+
+md"""
+## Posterior overlay
+
+We overlay the two posteriors of the delay means on the true values. They sit on
+top of each other and bracket the truth, confirming that the marginal and latent
+forms target the same posterior.
+"""
+
+truth_nt = (onset_admit = true_means.onset_admit,
+    admit_death = true_means.admit_death)
 
 pairplot(
     PairPlots.Series(marginal_means; label = "marginal",
