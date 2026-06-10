@@ -13,6 +13,9 @@ docs/src/index.md
 # Generated tutorial markdown files from Pluto notebooks
 docs/src/getting-started/tutorials/*.md
 docs/src/release-notes.md
+# Generated API reference pages (one @docs entry per binding, see make.jl)
+docs/src/lib/public.md
+docs/src/lib/internals.md
 dev/
 build/
 # Data
