@@ -61,7 +61,8 @@ end
     # The :death series is the endpoint: the full (two-leaf) convolution.
     endpoint = convolve_distributions(seq, series; events = :death)
     @test endpoint ≈ convolve_distributions(seq, series)
-    @test endpoint ≈ reference_convolution(convolve_distributions(g, ln), series)
+    @test endpoint ≈
+          reference_convolution(convolve_distributions(g, ln), series)
 end
 
 @testitem "events selector: single name vs tuple vs default" setup=[
@@ -118,13 +119,47 @@ end
     @test tup isa CensoredDistributions.Convolved
 end
 
-@testitem "interval width scales the discretisation grid" setup=[
+@testitem "bare-leaf endpoint event is selectable by name" setup=[
     ConvolveVectorRef] begin
     using CensoredDistributions, Distributions
     series = [0.0, 1.0, 3.0, 6.0, 8.0]
     leaf = Gamma(2.0, 1.0)
-    @test convolve_distributions(leaf, series; interval = 0.5) ≈
-          reference_convolution(leaf, series; interval = 0.5)
-    @test convolve_distributions(leaf, series; interval = 2.0) ≈
-          reference_convolution(leaf, series; interval = 2.0)
+
+    # A bare leaf has a single target event, its endpoint, named :event_1.
+    @test CensoredDistributions._stack_target_names(leaf) == (:event_1,)
+
+    # Selecting that endpoint by name must match the default (endpoint) and the
+    # reference, not error as if no events were available.
+    @test convolve_distributions(leaf, series; events = :event_1) ≈
+          convolve_distributions(leaf, series)
+    @test convolve_distributions(leaf, series; events = :event_1) ≈
+          reference_convolution(leaf, series)
+
+    # A tuple selecting the endpoint yields a NamedTuple keyed by it.
+    nt = convolve_distributions(leaf, series; events = (:event_1,))
+    @test nt isa NamedTuple
+    @test keys(nt) == (:event_1,)
+    @test nt.event_1 ≈ convolve_distributions(leaf, series)
+
+    # An unknown name on a bare leaf still errors clearly.
+    @test_throws ArgumentError convolve_distributions(
+        leaf, series; events = :nope)
+end
+
+@testitem "interval != 1 is rejected to avoid grid/series-step conflation" begin
+    using CensoredDistributions, Distributions
+    series = [0.0, 1.0, 3.0, 6.0, 8.0]
+    leaf = Gamma(2.0, 1.0)
+
+    # The causal convolution shifts by integer SERIES steps (unit-spaced), so a
+    # PMF grid step other than 1 conflates the discretisation width with the
+    # series time-step. Reject it rather than silently mis-aligning.
+    @test_throws ArgumentError convolve_distributions(leaf, series;
+        interval = 0.5)
+    @test_throws ArgumentError convolve_distributions(leaf, series;
+        interval = 2.0)
+
+    # The unit-spaced default is unchanged.
+    @test convolve_distributions(leaf, series; interval = 1.0) ≈
+          convolve_distributions(leaf, series)
 end
