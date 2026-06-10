@@ -542,6 +542,13 @@ end
 function _alternative_record(d::UnivariateDistribution, row::NamedTuple)
     return _leaf_record(d, row)
 end
+# A `latent`-wrapped alternative in the VECTORISED `product_distribution` path has
+# no place to sample its latent, so it scores through its MARGINAL equivalent (the
+# wrapped node), which is density-equal to the latent form. A latent leaf scores
+# its single observed value; a latent composer reuses the marginal record build.
+function _alternative_record(d::Latent, row::NamedTuple)
+    return _alternative_record(d.dist, row)
+end
 
 # A univariate-leaf Select alternative as a one-event record: the single observed
 # value, the reserved weight / horizon baked in, scored through the shared

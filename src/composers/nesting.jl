@@ -5,12 +5,16 @@
 # tree. These helpers do the flat-slice recursion shared by `Sequential` and
 # `Parallel`. This layer adds NO censored-internal behaviour.
 
-# A composable child is any univariate distribution (a leaf or a `Competing`) or
-# a nested `Sequential` / `Parallel` / `Select`. Used to validate composer
-# components and `Select` alternatives.
+# A composable child is any univariate distribution (a leaf or a `Competing`), a
+# nested `Sequential` / `Parallel` / `Select`, or a `latent`-wrapped node. Used to
+# validate composer components and `Select` alternatives. A `Latent` is a
+# Multivariate node over `[primary, observed]`, so it is admitted explicitly here
+# rather than through the univariate clause; this lets a `Select` carry a latent
+# alternative branch (the index-vs-sourced split's sourced chain).
 _is_composable(::UnivariateDistribution) = true
 _is_composable(::Union{Sequential, Parallel}) = true
 _is_composable(::Select) = true
+_is_composable(::Latent) = true
 _is_composable(::Any) = false
 
 # Default positional names for a composer node, used when the front-end (or a

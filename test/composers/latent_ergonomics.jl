@@ -75,25 +75,23 @@ end
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
 
-    # Onset + death observed, the intermediate admit unobserved. Only the origin
-    # and the latent admit should be sampled; the observed onset/death CONDITION
-    # on their edge rather than being re-sampled as free latents.
+    # Onset (origin) + death observed, the intermediate admit unobserved. The
+    # observed onset/death CONDITION on their edge rather than being re-sampled as
+    # free latents; only the unobserved admit is a genuine latent.
     o, dd = 0.3, 5.4
     row = (onset = o, admit = missing, death = dd)
     vi = VarInfo(demo(lseq, row))
-    # Two genuine latents: the origin and the unobserved admit.
-    @test length(keys(vi)) == 2
+    # One genuine latent: the unobserved admit (e[2]).
+    @test length(keys(vi)) == 1
 
-    # The row-driven likelihood is already in the joint with no manual
-    # conditioning of the observed events: it equals the origin prior at the
-    # sampled origin plus each observed edge's conditional, with the unobserved
-    # admit marginalised by sampling. Condition on the two sampled latents to
-    # pin the value and compare against the hand-written decomposition.
-    e0, e1 = 0.0, 2.1
-    cond = condition(demo(lseq, row),
-        (@varname(obs.e[1]) => e0, @varname(obs.e[2]) => e1))
-    manual = logpdf(get_primary_event(seq.components[1]), e0) +
-             logpdf(get_dist(seq.components[1]), e1 - e0) +
+    # The row-driven likelihood is in the joint with no manual conditioning of the
+    # observed events: it equals the origin prior at the observed onset plus each
+    # observed edge's conditional at the latent admit. Condition on the sampled
+    # admit to pin its value and compare against the hand-written decomposition.
+    e1 = 2.1
+    cond = condition(demo(lseq, row), (@varname(obs.e[2]) => e1,))
+    manual = logpdf(get_primary_event(seq.components[1]), o) +
+             logpdf(get_dist(seq.components[1]), e1 - o) +
              logpdf(get_dist(seq.components[2]), dd - e1)
     @test logjoint(cond, (;)) ≈ manual
 end

@@ -644,14 +644,18 @@ function _latent_plan_step!(plan, step::UnivariateDistribution,
 end
 
 # A `latent`-wrapped `Sequential` chain spans events `E_0, ..., E_k` over the flat
-# event layout (origin then one slot per leaf event). The origin `E_0` is the
-# latent primary (`e[1] ~ origin`); each leaf event time is its predecessor plus
-# the edge delay, declared as a shifted `~` (`e[j] ~ _ShiftedDelay(core, e[s])`),
-# so an observed event scores its gap through the edge's declared censoring
-# and a missing event samples it. A nested composer step recurses through
-# `_latent_plan!`, so an irregular tree samples its full sub-path. Indexed
-# VarNames `e[i]` give each event a distinct name; the likelihood is scaled by the
-# row weight via the `~`.
+# event layout (origin then one slot per leaf event). The split is DRIVEN BY THE
+# ROW: an OBSERVED event (a non-missing row slot) CONDITIONS on its edge through
+# `@addlogprob!` (its value is data, not a sampled latent), while a genuinely
+# UNOBSERVED event (a missing slot) is SAMPLED with an indexed `~` so it lives in
+# the VarInfo. This mirrors the leaf latent, whose observed `y` (a model argument)
+# conditions while the primary `p` is sampled; declaring a free `~` on an observed
+# slot would instead re-sample it as a latent and silently drop its likelihood.
+# The origin `E_0` is the latent primary; each leaf event time is its predecessor
+# plus the edge delay (a `_ShiftedDelay`), and the predecessor is read off `e`
+# (whether sampled or observed). A nested composer step recurses through
+# `_latent_plan!`, so an irregular tree splits its full sub-path the same way. The
+# likelihood is scaled by the row weight via the conditional contribution.
 @model function composed_distribution_model(
         d::Latent{<:Sequential}, row::NamedTuple; weight = nothing)
     chain = d.dist
@@ -666,24 +670,32 @@ end
 
     e = Vector{Union{Missing, Float64}}(obs)
     plan = _latent_plan!(_LeafPlan[], chain, 1, 2)
-    # Origin E_0: the latent primary prior, declared but NOT weighted (the weight
-    # scales the LIKELIHOOD, the observed conditionals, not the prior). Indexed
-    # `~` so a missing origin samples it.
-    e[1] ~ origin
+    # Origin E_0: the latent primary prior, NOT weighted (the weight scales the
+    # LIKELIHOOD, the observed conditionals, not the prior). A missing origin
+    # samples it; an observed origin conditions through its prior.
+    if e[1] === missing
+        e[1] ~ origin
+    else
+        DynamicPPL.@addlogprob! logpdf(origin, e[1])
+    end
     for p in plan
         edge = _ShiftedDelay(p.core, e[p.shift_idx])
-        e[p.event_idx] ~ _weight(edge, w)
+        if e[p.event_idx] === missing
+            e[p.event_idx] ~ edge
+        else
+            DynamicPPL.@addlogprob! _scale(logpdf(edge, e[p.event_idx]), w)
+        end
     end
     return e
 end
 
 # A `latent`-wrapped `Parallel` shares one latent origin across its branches over
-# the flat event layout `[O, leaf events...]`. The shared origin `e[1] ~ shared`
-# is declared once; each leaf event is its predecessor/origin plus the branch
-# delay, declared as a shifted `~`, so an observed branch scores `logpdf(core,
-# y - o)` and a missing branch samples its observation. A nested composer branch
-# recurses through `_latent_plan!` so its whole sub-path is sampled off the shared
-# origin. The shared origin couples the branches; likelihood scaled by the weight.
+# the flat event layout `[O, leaf events...]`. The split is DRIVEN BY THE ROW like
+# the latent Sequential: an observed branch (or origin) CONDITIONS on its edge
+# through `@addlogprob!`, a missing one is SAMPLED with an indexed `~`. The shared
+# origin couples the branches; each leaf event is the origin plus the branch
+# delay. A nested composer branch recurses through `_latent_plan!`. The likelihood
+# is scaled by the row weight via the conditional contribution.
 @model function composed_distribution_model(
         d::Latent{<:Parallel}, row::NamedTuple; weight = nothing)
     tree = d.dist
@@ -697,12 +709,20 @@ end
 
     e = Vector{Union{Missing, Float64}}(obs)
     plan = _latent_plan!(_LeafPlan[], tree, 1, 2)
-    # Shared origin prior, declared but NOT weighted (weight scales the observed
-    # conditionals, not the prior).
-    e[1] ~ shared
+    # Shared origin prior, NOT weighted (weight scales the observed conditionals,
+    # not the prior).
+    if e[1] === missing
+        e[1] ~ shared
+    else
+        DynamicPPL.@addlogprob! logpdf(shared, e[1])
+    end
     for p in plan
         edge = _ShiftedDelay(p.core, e[p.shift_idx])
-        e[p.event_idx] ~ _weight(edge, w)
+        if e[p.event_idx] === missing
+            e[p.event_idx] ~ edge
+        else
+            DynamicPPL.@addlogprob! _scale(logpdf(edge, e[p.event_idx]), w)
+        end
     end
     return e
 end
