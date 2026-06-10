@@ -16,14 +16,17 @@ Two dispatch paths share one name:
   of a marginal-fit model over the posterior `chain`. That method needs
   `DynamicPPL`/`Turing` and lives in the package extension.
 
-`d` should be in its latent representation so that `rand(d)` returns the full
-event-time path rather than a single marginal delay — for a leaf, wrap with
-[`latent`](@ref); `rand(latent(d))` returns `[primary, observed]`. For a composed
-tree (nested [`Sequential`](@ref)/[`Parallel`](@ref), a [`Competing`](@ref)
-outcome, or a [`Select`](@ref) top) `rand` walks the tree sharing the latent
-origin, samples each Competing outcome and the selected branch, and returns a
-NAMED event record keyed by [`tree_event_names`](@ref) (an unsampled Competing
-outcome is `missing`), so a whole case-study path is one `predict_events` call.
+`predict_events(d)` is a thin wrapper over `rand(rng, d)`; it does NOT apply the
+latent representation itself, so the caller must pass a `d` that is ALREADY in its
+latent representation. For a LEAF, wrap it with [`latent`](@ref) first:
+`rand(latent(d))` returns the full `[primary, observed]` path, whereas
+`rand(d)` on the bare marginal leaf returns only the single observed delay. A
+COMPOSED tree (nested [`Sequential`](@ref)/[`Parallel`](@ref), a
+[`Competing`](@ref) outcome, or a [`Select`](@ref) top) already `rand`s a full
+event path natively: `rand` walks the tree sharing the latent origin, samples each
+Competing outcome and the selected branch, and returns a NAMED event record keyed
+by [`tree_event_names`](@ref) (an unsampled Competing outcome is `missing`), so a
+whole case-study path is one `predict_events` call with no extra wrapping.
 
 # Arguments
 - `d`: A distribution whose `rand` yields a full event-time path (for example a
