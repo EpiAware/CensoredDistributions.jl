@@ -424,16 +424,23 @@ parameters(full_fit)
 md"""
 The composed interface reads the fitted delay back as a distribution.
 [`update`](@ref) rebuilds the object from the posterior, [`event`](@ref) fetches
-the named leaf, and the per-event [`mean`](@ref) Vector reports the delay mean,
-seeing through the censored leaf to its inner free delay (label it with
-[`event_names`](@ref)).
+the named leaf, and the overall [`mean`](@ref) reports the mean delay. For the
+per-event breakdown wrap with [`latent`](@ref): the per-event Vector reports each
+event's mean, seeing through the censored leaf to its inner free delay (label it
+with [`event_names`](@ref)).
 """
 
 fitted = update(full_template, full_fit; prefix = :delays)
 
 fitted_leaf = event(fitted, :onset_report)
 
-NamedTuple{event_names(fitted)}(Tuple(mean(fitted)))
+mean(fitted)
+
+md"""
+The per-event view labels each event with its name.
+"""
+
+NamedTuple{event_names(fitted)}(Tuple(mean(latent(fitted))))
 
 md"""
 FlexiChains also extends Statistics functions over the chain. Here we ask for

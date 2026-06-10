@@ -289,13 +289,15 @@ event_names(reconstructed)
 # returning a distribution of the same structure.
 # After fitting, `update(template, chain)` reads posterior means straight off a
 # fitted chain (via [`chain_to_params`](@ref)), giving a ready-to-`rand` or
-# ready-to-inspect distribution; the per-event [`mean`](@ref) Vector then reads
-# every delay mean off it in one call (label it with [`event_names`](@ref)).
+# ready-to-inspect distribution. The overall [`mean`](@ref) gives the mean delay
+# per branch endpoint (this `Parallel` template has two independent endpoints),
+# and the per-event [`mean`](@ref)`(latent(updated))` Vector reads every event
+# mean off it in one call.
 
 updated = update(template, (onset_admit = (shape = 3.0, scale = 1.5),
     admit_death = (mu = 0.7, sigma = 0.5)));
 
-NamedTuple{event_names(updated)}(Tuple(mean(updated)))
+NamedTuple{keys(event_tree(updated))}(Tuple(mean(updated)))
 
 # ## Summary
 #

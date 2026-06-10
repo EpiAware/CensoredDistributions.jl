@@ -259,9 +259,9 @@ md"""
 
 We fit the synthetic line list and read the posterior back onto the composed
 object with [`update`](@ref), passing the fitted chain directly.
-The per-event [`mean`](@ref) Vector (labelled with [`event_names`](@ref)) then
-reads each delay's mean off the updated distribution, so there is no manual chain
-indexing.
+The per-event [`mean`](@ref)`(latent(fit))` Vector (labelled with
+[`event_names`](@ref)) then reads each delay's mean off the updated distribution,
+so there is no manual chain indexing.
 
 The likelihood is differentiated with forward mode (`AutoForwardDiff`).
 Mooncake reverse mode is the preferred backend for a tree this size, but it
@@ -280,17 +280,17 @@ sim_chain = sample(Xoshiro(1), bdbv(template, priors, sim_rows),
 sim_fit = update(template, sim_chain; prefix = :delays)
 
 md"""
-The per-event [`mean`](@ref) Vector reads every delay mean off any fitted
-composed object at once, in the same flat layout as [`event_names`](@ref) and
-seeing through each censored leaf to its inner free delay. `flat_means` labels
-that Vector and picks the four delays we report, and `delay_mean_draws` applies
-it to every posterior draw, giving the posterior distribution of each delay mean
-through repeated [`update`](@ref) on the chain (one draw at a time) rather than
-any manual chain indexing.
+The per-event [`mean`](@ref)`(latent(fit))` Vector reads every delay mean off any
+fitted composed object at once, in the same flat layout as [`event_names`](@ref)
+and seeing through each censored leaf to its inner free delay. `flat_means`
+labels that Vector and picks the four delays we report, and `delay_mean_draws`
+applies it to every posterior draw, giving the posterior distribution of each
+delay mean through repeated [`update`](@ref) on the chain (one draw at a time)
+rather than any manual chain indexing.
 """
 
 function flat_means(fit)
-    em = NamedTuple{event_names(fit)}(Tuple(mean(fit)))
+    em = NamedTuple{event_names(fit)}(Tuple(mean(latent(fit))))
     return (onset_admit = em.admit, admit_death = em.death,
         admit_discharge = em.discharge, onset_notif = em.notif)
 end
@@ -617,8 +617,8 @@ md"""
   floor(origin)`, fits the real line list, and overlaps the re-estimated study
   delays within uncertainty for all four delays.
 - The posterior is read back with [`update`](@ref) applied to the fitted chain
-  and the per-event [`mean`](@ref) Vector, so delay means and the onset-to-death
-  convolution come straight from the fitted object.
+  and the per-event [`mean`](@ref)`(latent(fit))` Vector, so delay means and the
+  onset-to-death convolution come straight from the fitted object.
 - Recovery is honest about identifiability: onset-to-admission and
   admission-to-death recover well, whereas the heavy-tailed onset-to-notification
   (Gamma shape 0.7) and the small-n admission-to-discharge (n = 11) are weakly
