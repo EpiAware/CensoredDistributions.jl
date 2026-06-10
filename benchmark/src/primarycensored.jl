@@ -19,7 +19,7 @@ let
         $d_analytical, $TEST_XS)
     SUITE["PrimaryCensored"]["Gamma+Uniform"]["analytical"]["rand"] = @benchmarkable rand($d_analytical, 100)
 
-    # Numerical (force_numeric=true)
+    # Numerical (force_numeric=true, deprecated; kept for main baseline)
     d_numeric = primary_censored(delay, primary; force_numeric = true)
     SUITE["PrimaryCensored"]["Gamma+Uniform"]["numerical"] = BenchmarkGroup()
     SUITE["PrimaryCensored"]["Gamma+Uniform"]["numerical"]["cdf"] = @benchmarkable cdf.($d_numeric, $TEST_XS)
@@ -49,7 +49,7 @@ let
     SUITE["PrimaryCensored"]["LogNormal+Uniform"]["analytical"]["rand"] = @benchmarkable rand(
         $d_analytical, 100)
 
-    # Numerical (force_numeric=true)
+    # Numerical (force_numeric=true, deprecated; kept for main baseline)
     d_numeric = primary_censored(delay, primary; force_numeric = true)
     SUITE["PrimaryCensored"]["LogNormal+Uniform"]["numerical"] = BenchmarkGroup()
     SUITE["PrimaryCensored"]["LogNormal+Uniform"]["numerical"]["cdf"] = @benchmarkable cdf.(
@@ -80,7 +80,7 @@ let
         $d_analytical, $TEST_XS)
     SUITE["PrimaryCensored"]["Weibull+Uniform"]["analytical"]["rand"] = @benchmarkable rand($d_analytical, 100)
 
-    # Numerical (force_numeric=true)
+    # Numerical (force_numeric=true, deprecated; kept for main baseline)
     d_numeric = primary_censored(delay, primary; force_numeric = true)
     SUITE["PrimaryCensored"]["Weibull+Uniform"]["numerical"] = BenchmarkGroup()
     SUITE["PrimaryCensored"]["Weibull+Uniform"]["numerical"]["cdf"] = @benchmarkable cdf.($d_numeric, $TEST_XS)

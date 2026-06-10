@@ -2,6 +2,16 @@
 
 ### Bug fixes
 
+- `double_interval_censored` and `primary_censored` now select the
+  analytic-vs-numeric solver by dispatching on the argument types rather
+  than branching on a `Bool` value, so the return type stays concrete
+  when the delay parameters are runtime values (e.g. inside a Turing
+  model). Previously the value-level `force_numeric` branch inferred to a
+  `Union` of the `AnalyticalSolver` and `NumericSolver` specialisations
+  at non-constant-folded call sites, which propagated an abstract element
+  type into downstream `pdf` loops and poisoned reverse-mode AD. Closes
+  [#367](https://github.com/EpiAware/CensoredDistributions.jl/issues/367).
+
 - Skip the CDF-saturation early-return in the numeric
   `primarycensored_cdf` path when the lower bound is at the distribution
   boundary (`lower == minimum(dist)`). Evaluating `cdf(dist, lower)`
@@ -11,6 +21,24 @@
   with NaN. Restores ReverseDiff and Mooncake gradient correctness on
   `PrimaryCensored LogNormal+Uniform numerical`. Closes
   [#249](https://github.com/EpiAware/CensoredDistributions.jl/issues/249).
+
+### Added
+
+- `primary_censored` and `double_interval_censored` accept a `method`
+  keyword taking a solver object, `AnalyticalSolver()` (the default) or
+  `NumericSolver()`, each optionally given a quadrature solver
+  (e.g. `NumericSolver(QuadGKJL())`). `AnalyticalSolver` and
+  `NumericSolver` are now exported. Passing a concrete method object is
+  the type-stable way to choose the CDF backend, and is preferred over
+  the deprecated `force_numeric` flag.
+
+### Deprecated
+
+- The `force_numeric` keyword of `primary_censored` and
+  `double_interval_censored` is deprecated. Pass `method = NumericSolver()`
+  (or `method = AnalyticalSolver()`) instead. `force_numeric` still works
+  but emits a deprecation warning and, being a runtime `Bool`, does not
+  guarantee a concrete return type.
 
 ### Breaking
 

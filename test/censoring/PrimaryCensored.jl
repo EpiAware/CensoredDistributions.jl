@@ -24,17 +24,32 @@ end
     @test d.method.solver isa CensoredDistributions.GaussLegendre
 end
 
-@testitem "Constructor with force_numeric" begin
+@testitem "Constructor with NumericSolver method" begin
     using Distributions
 
     dist = LogNormal(1.5, 0.75)
     primary = Uniform(0.0, 1.0)
-    d = primary_censored(dist, primary; force_numeric = true)
+    d = primary_censored(dist, primary; method = NumericSolver())
 
     @test d.dist === dist
     @test d.primary_event === primary
     @test d.method isa CensoredDistributions.NumericSolver
     @test d.method.solver isa CensoredDistributions.GaussLegendre
+end
+
+@testitem "Deprecated force_numeric still selects the solver" begin
+    using Distributions
+
+    dist = LogNormal(1.5, 0.75)
+    primary = Uniform(0.0, 1.0)
+
+    # `force_numeric` is deprecated in favour of `method`, but must keep
+    # mapping to the matching solver for backward compatibility.
+    d_numeric = primary_censored(dist, primary; force_numeric = true)
+    @test d_numeric.method isa CensoredDistributions.NumericSolver
+
+    d_analytic = primary_censored(dist, primary; force_numeric = false)
+    @test d_analytic.method isa CensoredDistributions.AnalyticalSolver
 end
 
 @testitem "Constructor with custom Integrals.jl solver" begin
@@ -46,7 +61,7 @@ end
     dist = Weibull(2.0, 1.5)
     primary = Uniform(0.0, 1.0)
     custom_solver = HCubatureJL()
-    d = primary_censored(dist, primary; solver = custom_solver, force_numeric = false)
+    d = primary_censored(dist, primary; method = AnalyticalSolver(custom_solver))
 
     @test d.method isa CensoredDistributions.AnalyticalSolver
     @test d.method.solver === custom_solver

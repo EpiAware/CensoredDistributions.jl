@@ -281,7 +281,7 @@ fig_relative = draw(
         :value => "Cost relative to ForwardDiff",
         col = :metric => metric_order) *
     visual(BoxPlot);
-    figure = (size = (900, 400),),
+    figure = (size = (1200, 500),),
     axis = (yscale = log10, xticklabelrotation = pi / 4),
     facet = (; linkyaxes = :none)
 );
@@ -317,8 +317,8 @@ fig_scenarios = draw(
         color = :family => "Backend family",
         marker = :mode => "Mode",
         col = :metric => metric_order) *
-    visual(Scatter, markersize = 9);
-    figure = (size = (1000, 600),),
+    visual(Scatter, markersize = 11);
+    figure = (size = (1600, 800),),
     axis = (yscale = log10, xticklabelrotation = pi / 4),
     facet = (; linkyaxes = :none)
 );

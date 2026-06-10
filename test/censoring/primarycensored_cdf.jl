@@ -92,7 +92,7 @@
 
         # For a distribution with analytical solution but forced numeric
         d_forced = primary_censored(Gamma(2.0, 3.0), Uniform(0.0, 1.0);
-            solver = BrokenSolver(), force_numeric = true)
+            method = NumericSolver(BrokenSolver()))
 
         # This should also error because we're forcing numerical
         @test_throws MethodError cdf(d_forced, 2.0)
