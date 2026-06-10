@@ -131,11 +131,17 @@ _child_moment(leaf, f::F) where {F} = f(leaf)
 # mean/var (the marginal time-to-resolution), not the NamedTuple. This keeps
 # the per-outcome entries (which DO recurse to NamedTuples) intact while the
 # branch-prob-weighted aggregate stays a scalar.
+#
+# A nested `Competing` reuses its OWN free `mixture` moment (`_competing_means`/
+# `_competing_vars`), which is built from the free per-outcome moments, NOT the
+# censored `mean(c)`/`var(c)` (which lower through `as_mixture` and so report the
+# censored marginal — and have no analytic moment for a censored leaf). This
+# keeps the free-leaf transparency through arbitrarily nested Competing nodes.
 _outcome_scalar_mean(leaf) = _edge_mean(leaf)
-_outcome_scalar_mean(c::Competing) = mean(c)
+_outcome_scalar_mean(c::Competing) = _competing_means(c).mixture
 _outcome_scalar_mean(d::Latent) = _outcome_scalar_mean(d.dist)
 _outcome_scalar_var(leaf) = _edge_var(leaf)
-_outcome_scalar_var(c::Competing) = var(c)
+_outcome_scalar_var(c::Competing) = _competing_vars(c).mixture
 _outcome_scalar_var(d::Latent) = _outcome_scalar_var(d.dist)
 
 # Competing: per-outcome free-delay means keyed by outcome name plus a `mixture`

@@ -61,7 +61,44 @@ end
     ev = edge_vars(outer)
     @test ev.simple ≈ var(Gamma(2.0, 3.5))
     @test ev.nested.fast ≈ var(Gamma(1.0, 1.0))
-    @test isfinite(ev.mixture)
+    # Outer mixture variance via law of total variance over the SCALAR marginal
+    # moments, where the nested outcome contributes its own free mixture moments.
+    inner_var = 0.5 * (var(Gamma(1.0, 1.0)) + mean(Gamma(1.0, 1.0))^2) +
+                0.5 * (var(Gamma(2.0, 2.0)) + mean(Gamma(2.0, 2.0))^2) -
+                inner_mean^2
+    om = 0.4 * mean(Gamma(2.0, 3.5)) + 0.6 * inner_mean
+    @test ev.mixture ≈
+          0.4 * (var(Gamma(2.0, 3.5)) + mean(Gamma(2.0, 3.5))^2) +
+          0.6 * (inner_var + inner_mean^2) - om^2
+end
+
+@testitem "nested-Competing mixture aggregate sees through censored leaves" begin
+    using CensoredDistributions, Distributions
+
+    dic(d) = double_interval_censored(
+        d; primary_event = Uniform(0, 1), interval = 1.0)
+
+    # The nested outcome's inner leaves are CENSORED: the outer mixture aggregate
+    # must still report the FREE (peeled) delay moments, matching the documented
+    # free-leaf transparency, NOT the censored mean(Competing)/var(Competing).
+    inner = Competing(:fast => (dic(Gamma(1.0, 1.0)), 0.5),
+        :slow => (dic(Gamma(2.0, 2.0)), 0.5))
+    outer = Competing(:simple => (dic(Gamma(2.0, 3.5)), 0.4),
+        :nested => (inner, 0.6))
+
+    inner_mean = 0.5 * mean(Gamma(1.0, 1.0)) + 0.5 * mean(Gamma(2.0, 2.0))
+    em = edge_means(outer)
+    @test em.nested.mixture ≈ inner_mean
+    @test em.mixture ≈ 0.4 * mean(Gamma(2.0, 3.5)) + 0.6 * inner_mean
+
+    inner_var = 0.5 * (var(Gamma(1.0, 1.0)) + mean(Gamma(1.0, 1.0))^2) +
+                0.5 * (var(Gamma(2.0, 2.0)) + mean(Gamma(2.0, 2.0))^2) -
+                inner_mean^2
+    om = 0.4 * mean(Gamma(2.0, 3.5)) + 0.6 * inner_mean
+    ev = edge_vars(outer)
+    @test ev.mixture ≈
+          0.4 * (var(Gamma(2.0, 3.5)) + mean(Gamma(2.0, 3.5))^2) +
+          0.6 * (inner_var + inner_mean^2) - om^2
 end
 
 @testitem "edge_means walks Select, Latent, Convolved and bare leaves" begin
