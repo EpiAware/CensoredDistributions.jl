@@ -105,3 +105,59 @@ end
     @test g isa AbstractVector && length(g) == 4 && all(isfinite, g)
     @test all(!=(0), g)
 end
+
+# The latent CHAIN scores its terminal conditional through the by-name event
+# vector (`_row_event_vector(chain, row)`), which DERIVES the chain's event names
+# from the edge names with string ops (`_split_edge_name` in `tree_events.jl`).
+# Mooncake reverse cannot trace that string-based name derivation over a row
+# vector carrying `Missing` (it errors in const verification:
+# "non-boolean (Missing) used in boolean context"), so the latent chain is kept
+# on ForwardDiff here. A separate package-level Mooncake fix for the event-name
+# derivation is in progress on another branch; once it lands the chain can move
+# to the Mooncake-reverse coverage the latent LEAF already has (the leaf reads
+# its observed value positionally, so it never hits the name derivation).
+@testitem "vectorised latent chain gradient: ForwardDiff" tags=[
+    :ad, :forwarddiff] begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent, latent_observed_logpdf
+    using ADTypes: AutoForwardDiff
+    using DifferentiationInterface: gradient
+    using ForwardDiff: ForwardDiff
+
+    # A two-edge latent chain: each row stacks the origin draw and the first gap;
+    # the terminal conditions. The flat `primaries` carries a two-slot block per
+    # row.
+    rows = [(onset = missing, admit = missing, death = 6.0),
+        (onset = missing, admit = missing, death = 9.0)]
+    primaries = [0.4, 1.9, 0.6, 2.5]
+
+    # θ = [edge1 shape, edge1 scale, edge2 shape, edge2 scale].
+    function f(θ)
+        e1 = primary_censored(Gamma(θ[1], θ[2]), Uniform(0, 1))
+        e2 = primary_censored(Gamma(θ[3], θ[4]), Uniform(0, 1))
+        d = latent(Sequential((e1, e2), (:onset_admit, :admit_death)))
+        return latent_observed_logpdf(d, rows, primaries)
+    end
+
+    θ = [2.0, 1.0, 3.0, 1.5]
+    g = gradient(f, AutoForwardDiff(), θ)
+    @test g isa AbstractVector && length(g) == 4 && all(isfinite, g)
+    # `latent_observed_logpdf` scores ONLY the terminal conditional (the chain's
+    # PRIOR factors, including the intermediate-gap core, live in the separate
+    # `product_distribution` statement). So only the terminal edge's params
+    # (θ[3], θ[4]) appear here; the first edge's params (θ[1], θ[2]) enter via the
+    # priors and so are zero in this conditional.
+    @test g[3] != 0 && g[4] != 0
+
+    # The gradient w.r.t. the stacked latents (origin draws + gaps) also flows;
+    # every latent slot contributes through the reconstructed terminal gap.
+    function fp(p)
+        e1 = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+        e2 = primary_censored(Gamma(3.0, 1.5), Uniform(0, 1))
+        d = latent(Sequential((e1, e2), (:onset_admit, :admit_death)))
+        return latent_observed_logpdf(d, rows, p)
+    end
+    gp = gradient(fp, AutoForwardDiff(), primaries)
+    @test gp isa AbstractVector && length(gp) == 4 && all(isfinite, gp)
+    @test all(!=(0), gp)
+end
