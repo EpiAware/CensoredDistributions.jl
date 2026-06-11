@@ -113,6 +113,12 @@ export weight, get_dist, get_dist_recursive, get_primary_event
 # Turing-free and distributions-led.
 export completeness_probability, thin_by_completeness
 
+# Exported discrete-time reporting-hazard helpers: the epinowcast hazard layer
+# that reshapes a delay PMF by logit-scale reference + report effects and forms
+# the per-(reference, report) expected-count matrix.
+export delay_hazard, hazard_to_pmf, apply_hazard_effects,
+       reference_report_matrix
+
 # Exported forward-transform leaves: a deterministic op applied to the count
 # series `convolve_distributions` produces (transparent to `logpdf`). `transform`
 # is the generic verb; `thin` (scale by a probability) and `cumulative`
@@ -190,6 +196,12 @@ include("utils/forward_transform.jl")
 # composers/wrap (uses `observed_distribution`, `_observed_leaves`) and
 # tree_events (`_flat_event_names`).
 include("utils/convolve_with_vector.jl")
+
+# Discrete-time reporting-hazard layer (epinowcast): reshape a delay PMF by
+# logit-scale reference + report effects and form the per-(reference, report)
+# expected-count matrix. After convolve_with_vector, whose `_delay_pmf` it
+# reuses as the baseline PMF.
+include("utils/hazard.jl")
 
 # Censored specialisations of the generic composers: included last
 # as they depend on the composers, the censored types, `get_dist_recursive`
