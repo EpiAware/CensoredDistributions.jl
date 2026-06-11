@@ -40,7 +40,8 @@ if !skip_notebooks
         "fitting-with-turing.jl",
         "bdbv-linelist-analysis.jl",
         "andv-linelist-analysis.jl",
-        "rt-renewal-convolution.jl"
+        "rt-renewal-convolution.jl",
+        "epinowcast-nowcasting.jl"
     ]
 
     println(
@@ -91,7 +92,8 @@ else
         "fit-marginal-sample-event-based.md" => "# Fit marginal, sample event based",
         "bdbv-linelist-analysis.md" => "# Bundibugyo Ebola delays from the 2012 Isiro line list",
         "andv-linelist-analysis.md" => "# Real-time Andes virus delays from the Epuyén line list",
-        "rt-renewal-convolution.md" => "# An Rt renewal model with delay convolution"
+        "rt-renewal-convolution.md" => "# An Rt renewal model with delay convolution",
+        "epinowcast-nowcasting.md" => "# [An epinowcast-style hazard nowcasting model](@id epinowcast-nowcasting)"
     ]
     for (file, heading) in tutorial_stubs
         open(joinpath(tutorials_dir, file), "w") do io

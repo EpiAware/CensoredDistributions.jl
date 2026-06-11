@@ -23,6 +23,16 @@
 # only reshapes that PMF through the hazard, so a primary_censored /
 # double_censored baseline flows straight in.
 #
+# Why not a forward-transform op. The `Transformed`/`thin`/`cumulative` protocol
+# (`forward_transform.jl`) applies a deterministic map to the 1-D count series
+# AFTER `convolve_distributions(stack, series)` has collapsed the delay into a
+# single, time-INVARIANT PMF convolved across all times. The nowcasting hazard is
+# time-VARYING by construction: a reference-date effect gives each reference date
+# its OWN delay PMF, so the result is a reference-by-report MATRIX, not a series a
+# forward op can produce. The hazard layer therefore reuses `_delay_pmf` for the
+# baseline PMF (the part the convolution layer already builds once) but forms the
+# per-reference-date matrix itself.
+#
 # AD-safety. Every operation here is a plain arithmetic reduction over vectors
 # (cumulative sums, `logistic`, products), seeded from the input element type, so
 # `Dual`/tracked numbers propagate and the whole hazard layer differentiates
