@@ -83,6 +83,113 @@ end
     @test logpdf(dm, ev) ≈ logpdf(compose((a = cmp, b = d_notif)), ev)
 end
 
+@testitem "compose: table prob/compete columns build a Competing branch" begin
+    using Distributions
+
+    d_death = Gamma(1.5, 1.0)
+    d_disc = Gamma(2.0, 1.5)
+    d_notif = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
+    cfr = 0.3
+
+    # An edge-list table whose `compete` column folds the death/discharge rows
+    # into ONE Competing node (their `prob` values are the branch
+    # probabilities), while the notification row stays an ordinary leaf branch.
+    table = (
+        name = [:death, :discharge, :notification],
+        dist = [d_death, d_disc, d_notif],
+        compete = [1, 1, 0],
+        prob = [cfr, 1 - cfr, missing],
+        chain = [0, 0, 0]
+    )
+
+    d = compose(table)
+    expected = Parallel(
+        Competing(:death => (d_death, cfr), :discharge => (d_disc, 1 - cfr)),
+        d_notif)
+    @test d isa CensoredDistributions.Parallel
+    @test d.components[1] isa CensoredDistributions.Competing
+    @test d == expected
+    @test d.components[1].names == (:death, :discharge)
+    @test d.components[1].branch_probs == (cfr, 1 - cfr)
+end
+
+@testitem "compose: table Competing works without a chain column" begin
+    using Distributions
+
+    d_death = Gamma(1.5, 1.0)
+    d_disc = Gamma(2.0, 1.5)
+    d_notif = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
+    cfr = 0.4
+
+    # The `chain` column is optional; a `compete`/`prob` table alone still
+    # builds the Competing branch (compete id 0 rows stay leaf branches).
+    table = (
+        name = [:death, :discharge, :notification],
+        dist = [d_death, d_disc, d_notif],
+        compete = [2, 2, 0],
+        prob = [cfr, 1 - cfr, missing]
+    )
+
+    d = compose(table)
+    @test d == Parallel(
+        Competing(:death => (d_death, cfr), :discharge => (d_disc, 1 - cfr)),
+        d_notif)
+end
+
+@testitem "compose: table Competing branch scores like the NamedTuple form" begin
+    using Distributions
+
+    d_death = Gamma(1.5, 1.0)
+    d_disc = Gamma(2.0, 1.5)
+    d_notif = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
+    cmp = Competing(:death => (d_death, 0.3), :disch => (d_disc, 0.7))
+
+    table = (
+        name = [:death, :disch, :notification],
+        dist = [d_death, d_disc, d_notif],
+        compete = [1, 1, 0],
+        prob = [0.3, 0.7, missing]
+    )
+
+    dt = compose(table)
+    dn = compose((resolution = cmp, notification = d_notif))
+    ev = Vector{Union{Missing, Float64}}([0.2, 3.0, missing, 2.5])
+    @test logpdf(dt, ev) ≈ logpdf(dn, ev)
+end
+
+@testitem "compose: table Competing validates branch probs" begin
+    using Distributions
+
+    d_death = Gamma(1.5, 1.0)
+    d_disc = Gamma(2.0, 1.5)
+
+    # Branch probabilities in a compete group must sum to one.
+    bad_sum = (
+        name = [:death, :disch],
+        dist = [d_death, d_disc],
+        compete = [1, 1],
+        prob = [0.3, 0.3]
+    )
+    @test_throws ArgumentError compose(bad_sum)
+
+    # A `compete` row needs a non-missing `prob`.
+    missing_prob = (
+        name = [:death, :disch],
+        dist = [d_death, d_disc],
+        compete = [1, 1],
+        prob = [0.3, missing]
+    )
+    @test_throws ArgumentError compose(missing_prob)
+
+    # A `prob` column without a `compete` column is rejected (ambiguous).
+    no_compete = (
+        name = [:death, :disch],
+        dist = [d_death, d_disc],
+        prob = [0.3, 0.7]
+    )
+    @test_throws ArgumentError compose(no_compete)
+end
+
 @testitem "Competing inner constructor validates every path" begin
     using Distributions
 
