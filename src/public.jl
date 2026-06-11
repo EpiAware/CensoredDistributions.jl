@@ -7,6 +7,11 @@ public IntervalCensored
 public Weighted
 public Convolved
 
+# Build-once delay PMF for vector evaluation (public but not exported): the
+# explicit precomputed-PMF object the caller builds once with `discretise_pmf`
+# and reuses across a vector of reference dates / records (the nowcasting path).
+public DelayPMF, discretise_pmf
+
 # Primary censoring utilities and solver methods (public but not exported)
 public AbstractSolverMethod
 public AnalyticalSolver

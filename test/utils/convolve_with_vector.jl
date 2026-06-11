@@ -237,3 +237,91 @@ end
     just_death = convolve_distributions(c, series; events = :death)
     @test just_death ≈ 0.7 .* reference_convolution(d_death, series)
 end
+
+# --- build-once DelayPMF for vector evaluation ----------------------------
+
+@testitem "DelayPMF masses match the rebuild-every-time delay PMF" begin
+    using CensoredDistributions, Distributions
+    delay = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    maxlag = 12
+
+    pmf = CensoredDistributions.discretise_pmf(delay, maxlag)
+    @test pmf isa CensoredDistributions.DelayPMF
+    @test length(pmf) == maxlag + 1
+
+    # The masses are EXACTLY the private rebuild-every-time `_delay_pmf` values.
+    rebuilt = CensoredDistributions._delay_pmf(delay, maxlag, 1.0)
+    @test pmf.masses == rebuilt
+end
+
+@testitem "convolve_distributions(pmf, series) == rebuild-every-time path" setup=[
+    ConvolveVectorRef] begin
+    using CensoredDistributions, Distributions
+    series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
+    delay = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+
+    # The PMF needs at least `length(series) - 1` lags to cover the window; the
+    # rebuild path uses exactly `length(series) - 1`.
+    pmf = CensoredDistributions.discretise_pmf(delay, length(series) - 1)
+
+    built_once = convolve_distributions(pmf, series)
+    rebuilt_each = convolve_distributions(delay, series)
+
+    # Numerically IDENTICAL to the rebuild-every-time path, not just ≈.
+    @test built_once == rebuilt_each
+    @test built_once ≈ reference_convolution(delay, series)
+end
+
+@testitem "one DelayPMF reused across many series (nowcasting shape)" setup=[
+    ConvolveVectorRef] begin
+    using CensoredDistributions, Distributions
+    delay = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+
+    # A vector of reference-date series; build the PMF ONCE, reuse across all.
+    reference_series = [
+        [0.0, 1.0, 3.0, 6.0, 8.0],
+        [0.0, 2.0, 4.0, 1.0, 0.0],
+        [1.0, 1.0, 1.0, 1.0, 1.0]
+    ]
+    maxlag = maximum(length, reference_series) - 1
+    pmf = CensoredDistributions.discretise_pmf(delay, maxlag)
+
+    for s in reference_series
+        # Each reuse equals rediscretising for that series (identical masses up
+        # to the shared maxlag), so it matches the rebuild-every-time path.
+        @test convolve_distributions(pmf, s) == convolve_distributions(delay, s)
+    end
+end
+
+@testitem "pdf(pmf, lags) looks up the precomputed masses" begin
+    using CensoredDistributions, Distributions
+    delay = Gamma(2.0, 1.0)
+    maxlag = 8
+    pmf = CensoredDistributions.discretise_pmf(delay, maxlag)
+    rebuilt = CensoredDistributions._delay_pmf(delay, maxlag, 1.0)
+
+    # Scalar lookup returns the mass at that integer lag.
+    for lag in 0:maxlag
+        @test pdf(pmf, lag) == rebuilt[lag + 1]
+    end
+
+    # Out-of-range lags carry no mass.
+    @test pdf(pmf, -1) == 0.0
+    @test pdf(pmf, maxlag + 1) == 0.0
+
+    # Vector lookup maps the scalar lookup, including out-of-range zeros.
+    lags = [0, 3, 8, 20]
+    @test pdf(pmf, lags) == [rebuilt[1], rebuilt[4], rebuilt[9], 0.0]
+end
+
+@testitem "DelayPMF rejects degenerate construction" begin
+    using CensoredDistributions, Distributions
+    delay = Gamma(2.0, 1.0)
+    @test_throws ArgumentError CensoredDistributions.discretise_pmf(delay, -1)
+    @test_throws ArgumentError CensoredDistributions.DelayPMF(Float64[], 1.0)
+    @test_throws ArgumentError CensoredDistributions.DelayPMF([1.0], 0.0)
+
+    # A non-unit PMF cannot drive the unit-step causal convolution.
+    pmf = CensoredDistributions.discretise_pmf(delay, 5; interval = 0.5)
+    @test_throws ArgumentError convolve_distributions(pmf, [0.0, 1.0, 2.0])
+end

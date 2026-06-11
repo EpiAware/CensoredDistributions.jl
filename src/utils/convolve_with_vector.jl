@@ -318,3 +318,177 @@ function _select_specs(specs, names::Tuple, series, maxlag, interval)
         names)
     return NamedTuple{names}(vals)
 end
+
+# ============================================================================
+# Opt-in build-once delay PMF for vector evaluation
+# ============================================================================
+#
+# The renewal method above rebuilds the delay PMF on EVERY call. For the
+# nowcasting use case a single delay PMF is applied across a whole vector of
+# reference dates / many timeseries (the delay params are FIXED for the build),
+# so rebuilding the (relatively expensive) discretised PMF per element is wasted
+# work. `DelayPMF` is an EXPLICIT precomputed-PMF value object: the caller builds
+# it ONCE with `discretise_pmf` and reuses it across many evaluations.
+#
+# The object is IMMUTABLE and holds no mutable memo: it is built from whatever
+# parameter type the delay carries (a plain `Float64` or an AD `Dual`/tracked
+# number), so the build itself differentiates and the masses propagate gradients.
+# When the parameters change the caller builds a NEW object; there is no hidden
+# param-keyed cache that could go stale under sampling (the #321 footgun), and
+# no interpolation/approximation — the masses are EXACTLY the `_delay_pmf`
+# interval probabilities the rebuild-every-time path computes, so results are
+# numerically identical.
+
+@doc raw"
+A precomputed discretised delay PMF, built ONCE and reused across many vector
+evaluations.
+
+`DelayPMF` holds the raw [`interval_censored`](@ref) interval masses of a delay
+distribution on the unit-spaced grid ``[0, 1), [1, 2), \dots, [m, m+1)`` (where
+``m`` is `maxlag`), so a single discretisation is shared across a whole vector of
+reference dates / timeseries instead of being rebuilt per element. This is the
+nowcasting build-once optimisation: discretise the delay once, then convolve or
+look it up across the whole reference-date vector.
+
+Build it with [`discretise_pmf`](@ref); apply it with
+`convolve_distributions(pmf, series)` (the causal renewal convolution) or look up
+masses at integer lags with `pdf(pmf, lags)`. The object is immutable and carries
+no mutable cache: the masses keep the delay's parameter type, so the build and
+every reuse differentiate cleanly, and a parameter change is handled by building
+a fresh object (never a stale memo).
+
+# Fields
+- `masses`: the length `maxlag + 1` vector of interval probabilities.
+- `interval`: the grid width the masses were discretised on.
+
+# See also
+- [`discretise_pmf`](@ref): the build-once constructor.
+- [`convolve_distributions`](@ref): apply the PMF across a series.
+"
+struct DelayPMF{V <: AbstractVector, I <: Real}
+    "The discretised interval masses over the grid `0..maxlag`."
+    masses::V
+    "The grid width the masses were discretised on."
+    interval::I
+
+    function DelayPMF(masses::V, interval::I) where {
+            V <: AbstractVector, I <: Real}
+        length(masses) >= 1 ||
+            throw(ArgumentError("DelayPMF needs at least one mass"))
+        interval > 0 ||
+            throw(ArgumentError("DelayPMF interval must be positive"))
+        new{V, I}(masses, interval)
+    end
+end
+
+# The number of grid points is `maxlag + 1`; `maxlag` is the largest integer lag
+# the PMF carries a mass for.
+Base.length(pmf::DelayPMF) = length(pmf.masses)
+_maxlag(pmf::DelayPMF) = length(pmf.masses) - 1
+
+@doc raw"
+Discretise a delay distribution to a [`DelayPMF`](@ref) ONCE for reuse across a
+vector of evaluation points.
+
+`discretise_pmf(delay, maxlag; interval = 1.0)` computes the raw
+[`interval_censored`](@ref) interval masses of `delay` on the grid
+``[0, 1), \dots, [\text{maxlag}, \text{maxlag} + 1)`` (scaled by `interval`),
+returning a precomputed [`DelayPMF`](@ref) the caller passes into
+`convolve_distributions(pmf, series)` or `pdf(pmf, lags)`. Building it once and
+reusing it avoids rediscretising the delay per reference date / per record — the
+nowcasting build-once optimisation.
+
+The masses are EXACTLY those the rebuild-every-time
+`convolve_distributions(delay, series)` path computes (raw interval
+probabilities, no renormalise, no interpolation), so a prebuilt PMF gives
+numerically identical results. The masses keep the delay's parameter type, so the
+discretisation differentiates w.r.t. the delay parameters; a parameter change is
+handled by calling `discretise_pmf` again (there is no stale cache).
+
+# Arguments
+- `delay`: the delay distribution to discretise (e.g. a leaf or a
+  [`Convolved`](@ref) total delay).
+- `maxlag`: the largest integer lag to carry a mass for; the PMF has
+  `maxlag + 1` entries.
+
+# Keyword Arguments
+- `interval`: the discretisation grid width (default `1.0`).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+delay = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+# Build the delay PMF ONCE for a 30-day reference window.
+pmf = CensoredDistributions.discretise_pmf(delay, 30)
+
+# Reuse it across many reference-date series without rediscretising.
+infections = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
+counts = convolve_distributions(pmf, infections)
+```
+
+# See also
+- [`DelayPMF`](@ref): the precomputed-PMF object.
+- [`convolve_distributions`](@ref): apply the PMF across a series.
+"
+function discretise_pmf(delay::UnivariateDistribution, maxlag::Integer;
+        interval::Real = 1.0)
+    maxlag >= 0 ||
+        throw(ArgumentError("maxlag must be non-negative, got $(maxlag)"))
+    return DelayPMF(_delay_pmf(delay, maxlag, interval), interval)
+end
+
+@doc raw"
+Apply a precomputed [`DelayPMF`](@ref) across a timeseries with the causal
+renewal convolution, reusing the build-once PMF.
+
+`convolve_distributions(pmf, series)` is the same causal, window-truncated
+convolution as `convolve_distributions(delay, series)` but takes a PMF that was
+discretised ONCE (via [`discretise_pmf`](@ref)) instead of rebuilding it. The
+result is numerically identical to the rebuild-every-time path when the PMF was
+built from the same `delay`. This is the nowcasting build-once path: discretise
+the delay once, then push every reference-date series through the same PMF.
+
+# Arguments
+- `pmf`: a precomputed [`DelayPMF`](@ref).
+- `series`: the input timeseries (expected events at unit-spaced times from 0).
+
+# See also
+- [`discretise_pmf`](@ref): build the PMF once.
+- [`DelayPMF`](@ref): the precomputed-PMF object.
+"
+function convolve_distributions(pmf::DelayPMF, series::AbstractVector{<:Real})
+    isone(pmf.interval) || throw(ArgumentError(
+        "convolve_distributions(pmf, series) needs a unit-spaced PMF: the " *
+        "causal convolution shifts by integer series steps, so a PMF grid " *
+        "width other than 1 conflates the discretisation width with the " *
+        "series time-step. Got interval = $(pmf.interval)."))
+    return _causal_convolve(series, pmf.masses)
+end
+
+@doc raw"
+Look up the precomputed [`DelayPMF`](@ref) masses at integer lags.
+
+`pdf(pmf, lags)` returns the discretised interval mass at each lag in `lags` (an
+integer or a vector of integers), reusing the build-once PMF instead of
+re-evaluating the censored density per lag. A lag outside `0..maxlag` returns a
+zero of the PMF's element type (no mass is carried there).
+
+This is the per-reference-date lookup the nowcasting path uses once the delay PMF
+is built: every reference date reads the same precomputed masses at ~O(1).
+
+# Arguments
+- `pmf`: a precomputed [`DelayPMF`](@ref).
+- `lags`: an integer lag, or a vector of integer lags.
+
+# See also
+- [`discretise_pmf`](@ref): build the PMF once.
+"
+function pdf(pmf::DelayPMF, lag::Integer)
+    (0 <= lag <= _maxlag(pmf)) || return zero(eltype(pmf.masses))
+    return @inbounds pmf.masses[lag + 1]
+end
+
+function pdf(pmf::DelayPMF, lags::AbstractVector{<:Integer})
+    return map(l -> pdf(pmf, l), lags)
+end
