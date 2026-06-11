@@ -36,7 +36,11 @@ composers, not a new tree type.
   `Vector` or `Tuple` of distributions nests as a [`Sequential`](@ref), and a
   bare `UnivariateDistribution` is a leaf branch.
 - Tables.jl table with `name` and `dist` columns: a [`Parallel`](@ref) over the
-  rows, the column-table equivalent of a flat `NamedTuple`.
+  rows, the column-table equivalent of a flat `NamedTuple`. An optional `chain`
+  column folds rows sharing a non-zero group id into a [`Sequential`](@ref)
+  branch, and an optional `compete`/`prob` column pair folds rows sharing a
+  non-zero `compete` id into a [`Competing`](@ref) node whose `prob` entries are
+  the branch probabilities (each in ``[0, 1]`` and summing to one per group).
 - nested `Matrix` of distributions: rows are [`Parallel`](@ref) branches and the
   columns within a row are [`Sequential`](@ref) steps, so a one-column matrix is
   parallel leaf branches and a one-row matrix is a single chain.
@@ -157,9 +161,12 @@ end
 # column-table equivalent of a flat NamedTuple of leaves. An optional `chain`
 # column groups consecutive rows that share a non-zero group id into one
 # Sequential branch, so a table can also express the nested chain a NamedTuple
-# encodes with a vector value. The generic method accepts any Tables.jl source
-# (a column table is also matched by the NamedTuple method, which delegates
-# here); the `_compose_table` worker does the shared build.
+# encodes with a vector value. An optional `compete`/`prob` column pair folds
+# the rows sharing a non-zero `compete` group id into one `Competing` node (the
+# `prob` entries its branch probabilities), so the table can also express a
+# competing-outcome set. The generic method accepts any Tables.jl source (a
+# column table is also matched by the NamedTuple method, which delegates here);
+# the `_compose_table` worker does the shared build.
 function compose(table)
     Tables.istable(table) ||
         throw(ArgumentError(
@@ -178,12 +185,86 @@ function _compose_table(table)
     all(d -> d isa UnivariateDistribution, dists) ||
         throw(ArgumentError(
             "every `dist` entry must be a UnivariateDistribution"))
+    # A `prob` column only makes sense alongside `compete`, which marks the rows
+    # the probabilities apply to; reject it alone rather than silently ignoring.
+    (:prob in names && !(:compete in names)) &&
+        throw(ArgumentError(
+            "a `prob` column needs a `compete` column to mark its outcome set"))
+    if :compete in names
+        return _compose_table_competing(dists, row_names,
+            Tables.getcolumn(cols, :compete),
+            :prob in names ? Tables.getcolumn(cols, :prob) : nothing,
+            :chain in names ? Tables.getcolumn(cols, :chain) : nothing)
+    end
     if :chain in names
         return _compose_table_chained(
             dists, row_names, Tables.getcolumn(cols, :chain))
     end
     # Flat table: each row is a branch, the `name` column its branch name.
     return Parallel(Tuple(dists), _coerce_names(row_names, :branch, length(dists)))
+end
+
+# Fold the rows sharing a non-zero `compete` group id into one `Competing` node
+# (its `prob` entries the branch probabilities); rows with a zero/`missing`
+# `compete` id stay ordinary leaf branches (or, with a `chain` column, fold into
+# Sequential branches by chain id). Branches appear in first-seen order — the
+# row order of each group's first member — so the Parallel reads down the table,
+# named by that first row, mirroring `_compose_table_chained`.
+function _compose_table_competing(dists, row_names, compete, prob, chain)
+    all(g -> g === missing || g >= 0, compete) || throw(ArgumentError(
+        "`compete` group ids must be non-negative or missing"))
+    # One first-seen pass assigns each row a branch KEY: a `compete:id` for a
+    # competing group, else `chain:id` for a chained leaf (a zero/`missing`
+    # `compete` AND `chain` both make a fresh singleton key). The branch order is
+    # the keys' first appearance, and `members` holds each key's rows in order.
+    order = Any[]
+    members = Dict{Any, Vector{Int}}()
+    leaf_counter = 0
+    has_compete = false
+    for i in eachindex(dists)
+        c = compete[i]
+        if !(c === missing || c == 0)
+            has_compete = true
+            key = (:compete, Int(c))
+        else
+            ch = chain === nothing ? missing : chain[i]
+            key = (ch === missing || ch == 0) ? (:leaf, leaf_counter -= 1) :
+                  (:chain, Int(ch))
+        end
+        key in order || push!(order, key)
+        push!(get!(members, key, Int[]), i)
+    end
+    has_compete || throw(ArgumentError(
+        "the `compete` column marks no competing rows (all zero/missing)"))
+    branches = map(order) do key
+        idx = members[key]
+        if key[1] === :compete
+            _competing_from_rows(dists, row_names, prob, idx, key[2])
+        elseif length(idx) == 1
+            dists[idx[1]]
+        else
+            steps = Tuple(Symbol(row_names[i]) for i in idx)
+            Sequential(Tuple(dists[i] for i in idx), steps)
+        end
+    end
+    branch_names = Tuple(Symbol(row_names[members[key][1]]) for key in order)
+    return Parallel(Tuple(branches), branch_names)
+end
+
+# Build one `Competing` node from a compete group's rows: `name => (dist, prob)`
+# per row. The constructor validates the branch probabilities sum to one and lie
+# in `[0, 1]`; a missing `prob` in a compete row is an error (it is required).
+function _competing_from_rows(dists, row_names, prob, idx, gid)
+    prob === nothing && throw(ArgumentError(
+        "a `compete` group needs a `prob` column of branch probabilities"))
+    outcomes = map(idx) do i
+        p = prob[i]
+        p === missing && throw(ArgumentError(
+            "row $(row_names[i]) is in compete group $gid but has a missing " *
+            "`prob`"))
+        Symbol(row_names[i]) => (dists[i], p)
+    end
+    return Competing(outcomes...)
 end
 
 # Group rows by the `chain` column: rows sharing a non-zero group id fold into
