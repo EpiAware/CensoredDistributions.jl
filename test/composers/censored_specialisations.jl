@@ -917,3 +917,38 @@ end
     @test CensoredDistributions.event_logpdf(seq, ev3; horizon = D) ≈
           num3 - logcdf(to_c, D)
 end
+
+@testitem "event_logpdf whole-compose origin-missing (#366)" begin
+    using Distributions
+    using CensoredDistributions: record_distributions
+
+    # When the latent origin E_0 is UNOBSERVED but a per-record horizon is
+    # supplied, the conv-to-last-observed denominator is anchored at the first
+    # OBSERVED event, which is an exact-time anchor, NOT the latent primary. The
+    # origin primary is therefore reapplied only when the first observed event is
+    # E_0 (`obs_idx[1] == 1`). The denominator delay must match
+    # `_sequential_segment` with NO primary, and the flat `event_logpdf` path must
+    # stay exactly equal to the vectorised `record_distributions` build (whose run
+    # uses the same `a == 1 ? primary` rule).
+    pe = Uniform(0, 1)
+    e1 = primary_censored(LogNormal(1.0, 0.4), pe)
+    e2 = primary_censored(Gamma(2.0, 0.8), pe)
+    e3 = primary_censored(Gamma(1.5, 1.0), pe)
+    seq = Sequential((e1, e2, e3), (:a_b, :b_c, :c_d))
+    D = 12.0
+
+    # Origin a missing; b, c, d observed. Last observed is d, so the denominator
+    # spans the run (b -> d) WITHOUT the origin primary (b is observed exactly).
+    ev = Vector{Union{Missing, Float64}}([missing, 2.0, 5.0, 7.0])
+    last_seg = CensoredDistributions._sequential_segment(
+        seq.components, 2, 4, nothing)
+    num = logpdf(e2, 3.0) + logpdf(e3, 2.0)
+    @test CensoredDistributions.event_logpdf(seq, ev; horizon = D) ≈
+          num - logcdf(last_seg, D - 2.0)
+
+    # The flat path equals the vectorised record build exactly.
+    row = (a = missing, b = 2.0, c = 5.0, d = 7.0, obs_time = D)
+    recs = record_distributions(seq, [row])
+    @test logpdf(only(recs), [0.0, 2.0, 5.0, 7.0]) ≈
+          CensoredDistributions.event_logpdf(seq, ev; horizon = D)
+end

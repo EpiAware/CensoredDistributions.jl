@@ -614,11 +614,15 @@ function _seq_event_logpdf_h(d::Sequential, events, horizon)
     length(obs_idx) >= 2 || throw(ArgumentError(
         "a Sequential event vector needs at least two observed events"))
     primary = _origin_primary_event(d.components[1])
-    # Numerator: the untruncated factorised per-segment density.
+    # Numerator: the untruncated factorised per-segment density. The origin
+    # primary is reapplied only to the segment that actually starts at the latent
+    # origin E_0 (`obs_idx[j] == 1`), matching `_sequential_segment`'s `a == 1`
+    # contract and the vectorised `_build_seq_bundle` run.
     total = zero(promote_type(eltype(obs_val), float(eltype(d))))
     for j in 1:(length(obs_idx) - 1)
         seg = _sequential_segment(
-            d.components, obs_idx[j], obs_idx[j + 1], j == 1 ? primary : nothing)
+            d.components, obs_idx[j], obs_idx[j + 1],
+            obs_idx[j] == 1 ? primary : nothing)
         gap = obs_val[j + 1] - obs_val[j]
         total += logpdf(seg, gap)
     end
@@ -626,9 +630,14 @@ function _seq_event_logpdf_h(d::Sequential, events, horizon)
     # the convolution of every component from the origin to the LAST observed
     # event, truncated at the remaining window from the observed origin. With one
     # observed segment `C` is that segment, so this matches the endpoint-observed
-    # term `-logcdf(seg, window)`.
+    # term `-logcdf(seg, window)`. The origin primary is reapplied only when the
+    # first observed event IS the latent origin E_0 (`obs_idx[1] == 1`), matching
+    # `_sequential_segment`'s `a == 1` contract and the vectorised
+    # `_build_seq_bundle` run; a denominator anchored at an observed intermediate
+    # (origin unobserved) is an exact-time anchor, not the latent primary.
     last_seg = _sequential_segment(
-        d.components, obs_idx[1], obs_idx[end], primary)
+        d.components, obs_idx[1], obs_idx[end],
+        obs_idx[1] == 1 ? primary : nothing)
     window = horizon - obs_val[1]
     # A non-positive window (the horizon already passed the observed origin) is an
     # empty-support truncation: the record cannot have been observed, so the whole
@@ -651,8 +660,12 @@ function _seq_event_logpdf_untrunc(d::Sequential, events)
     primary = _origin_primary_event(d.components[1])
     total = zero(promote_type(eltype(obs_val), float(eltype(d))))
     for j in 1:(length(obs_idx) - 1)
+        # Reapply the origin primary only to the segment starting at the latent
+        # origin E_0 (`obs_idx[j] == 1`); a leading run anchored at an observed
+        # event is an exact-time anchor, matching the vectorised build.
         seg = _sequential_segment(
-            d.components, obs_idx[j], obs_idx[j + 1], j == 1 ? primary : nothing)
+            d.components, obs_idx[j], obs_idx[j + 1],
+            obs_idx[j] == 1 ? primary : nothing)
         gap = obs_val[j + 1] - obs_val[j]
         total += logpdf(seg, gap)
     end
