@@ -430,6 +430,16 @@ or, equivalently:
 julia --project=docs docs/make.jl
 ```
 
+## Benchmark history
+
+The numbers on this page are a single snapshot from the docs-build
+machine.
+For how these timings move across releases, the `benchmark-history`
+workflow runs the same suite over the last few tags plus the current
+`main` on every push and tag, and publishes per-benchmark timeline plots.
+See the
+[benchmark history pages](https://EpiAware.github.io/CensoredDistributions.jl/history/).
+
 ## See also
 
 - `test/ad/` holds the gradient tests as tagged `@testitem`s, validated
@@ -438,6 +448,5 @@ julia --project=docs docs/make.jl
   (e.g. `TAG=enzyme_reverse task test-ad-backend`) to run a single
   backend, as the per-backend CI does.
 - `benchmark/src/ad_gradients.jl` runs the same scenarios under
-  AirspeedVelocity. A benchmark history timeline is tracked in
-  [#224](https://github.com/EpiAware/CensoredDistributions.jl/issues/224).
+  AirspeedVelocity, the suite the benchmark history above is built from.
 """
