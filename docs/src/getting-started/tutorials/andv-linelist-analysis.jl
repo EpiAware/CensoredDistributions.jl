@@ -515,13 +515,16 @@ end
     return sel
 end
 
-# Fitted at the same budget as the latent fit. The nested integral makes each
-# leapfrog step more expensive, so the wall-clock is markedly longer for the
-# same number of draws.
+# Fitted at a SMALLER budget than the latent fit (fewer draws and a capped tree
+# depth). The nested integral makes each leapfrog step so much more expensive
+# that matching the latent budget would dominate the doc build; even at this
+# reduced budget the marginal fit is markedly slower in wall-clock, and the
+# tighter budget is exactly the regime where its incubation scale can drift, the
+# trade-off this section is here to show. A real analysis would lengthen it.
 Random.seed!(20260608)
 marg_time = @elapsed marg_chain = sample(andv_marginal(marg_records),
-    NUTS(200, 0.95; max_depth = 6, adtype = AutoForwardDiff()),
-    MCMCThreads(), 200, 2;
+    NUTS(50, 0.9; max_depth = 4, adtype = AutoForwardDiff()),
+    MCMCThreads(), 50, 2;
     initial_params = fill(InitFromPrior(), 2), progress = false)
 nothing #hide
 
@@ -544,24 +547,31 @@ both = DataFrame(
          for p in (:mu_inc, :sigma_inc, :mu_delta,
             :sigma_delta)], digits = 3))
 
-# A note on the trade-off, read from the same two fits. `latent_time` and
-# `marg_time` are the wall-clock seconds of the two real-data fits at the same
-# budget; their ratio is the speed-up the latent form gives by avoiding the
-# per-record integral. The latent form is therefore the default for this
-# analysis; the marginal form is the more familiar textbook expression and is
-# convenient when a sourced case must be one observed delay rather than a
-# sampled chain, but it should be run at a larger budget so the nested integral
-# resolves the incubation scale.
-speedup = round(marg_time / latent_time; digits = 1)
+# A note on the trade-off, read from the two real-data fits. The fits run at
+# DIFFERENT budgets (the marginal form at fewer draws, because its nested
+# integral is too costly to match the latent budget in a doc build), so the fair
+# comparison is the cost PER post-warmup draw: `marg_time / 100` against
+# `latent_time / 400`. Per draw the marginal form is several times more
+# expensive, the cost of the integral the latent form avoids. The latent form is
+# therefore the default for this analysis; the marginal form is the more
+# familiar textbook expression and is convenient when a sourced case must be one
+# observed delay rather than a sampled chain, but it should be run at a larger
+# budget so the nested integral resolves the incubation scale.
+latent_per_draw = latent_time / 400   # 200 draws x 2 chains
+marg_per_draw = marg_time / 100       # 50 draws x 2 chains
+speedup = round(marg_per_draw / latent_per_draw; digits = 1)
 tradeoff = DataFrame(
     form = ["latent (primary)", "marginal-convolved"],
+    draws = [400, 100],
     wall_clock_s = round.([latent_time, marg_time], digits = 1),
-    sourced_likelihood = ["sampled two-edge chain", "nested integral"],
-    use_when = ["accuracy at a small budget; the default here",
-        "a single observed sourced delay is wanted; run a larger budget"])
+    ms_per_draw = round.(
+        [1000 * latent_per_draw, 1000 * marg_per_draw], digits = 1),
+    sourced_likelihood = ["sampled two-edge chain", "nested integral"])
 
-# The marginal form is roughly `speedup`x slower here, the cost of the nested
-# integral that the latent form avoids.
+# Per draw the marginal form is roughly `speedup`x more expensive here, the cost
+# of the nested integral that the latent form avoids; use the latent form for
+# accuracy at a small budget and the marginal form only when a single observed
+# sourced delay is wanted, at a larger budget.
 tradeoff
 
 # The recovered parameters from both forms against the target.
