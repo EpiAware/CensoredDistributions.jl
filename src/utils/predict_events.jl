@@ -25,7 +25,7 @@ COMPOSED tree (nested [`Sequential`](@ref)/[`Parallel`](@ref), a
 [`Competing`](@ref) outcome, or a [`Select`](@ref) top) already `rand`s a full
 event path natively: `rand` walks the tree sharing the latent origin, samples
 each Competing outcome and the selected branch, and returns a NAMED event
-record keyed by [`_flat_event_names`](@ref) (an unsampled Competing outcome is
+record keyed by `_flat_event_names` (an unsampled Competing outcome is
 `missing`), so a whole case-study path is one `predict_events` call with no
 extra wrapping.
 

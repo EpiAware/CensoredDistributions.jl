@@ -67,7 +67,7 @@ type, so `Dual`/tracked numbers propagate and the hazard differentiates under
 AD.
 
 # Arguments
-- `pmf`: the delay PMF over the grid `0:D` (e.g. from [`_delay_pmf`](@ref) or a
+- `pmf`: the delay PMF over the grid `0:D` (e.g. from `_delay_pmf` or a
   discretised [`double_censored`](@ref) delay).
 
 # Examples
