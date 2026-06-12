@@ -816,12 +816,14 @@ function _latent_row_observed_logpdf(alt::UnivariateDistribution, events, block)
 end
 function _latent_row_observed_logpdf(chain::Sequential, events, block)
     # `events` is the chain's flat event vector `[E_0, ..., E_k]`; only the
-    # terminal is observed for the endpoint-observed chain. Reconstruct the
-    # latent event times from the origin draw and the intermediate gaps, then
-    # condition the terminal on the last edge's BARE core (#453): its predecessor
-    # is a SAMPLED latent, so the edge scores the bare delay (no primary smear),
-    # matching the per-record chain submodel and the marginal (which convolves the
-    # bare cores across the sampled run).
+    # terminal is observed for the endpoint-observed chain (origin and EVERY
+    # intermediate sampled). Reconstruct the latent event times from the origin
+    # draw and the intermediate gaps, then condition the observed terminal on the
+    # last edge. #453 rule, matching the per-record `_latent_edge`: when there is a
+    # sampled INTERMEDIATE before the terminal (k >= 2) the whole observed->observed
+    # segment is a marginalised run, so the terminal edge scores the BARE core; a
+    # SINGLE-edge chain (k == 1) is the origin->terminal segment and keeps its
+    # DECLARED censoring with the floored sampled origin (#419/#423).
     edges = chain.components
     k = length(edges)
     prev = block[1]
@@ -829,7 +831,12 @@ function _latent_row_observed_logpdf(chain::Sequential, events, block)
         prev += block[i]
     end
     terminal = _the_terminal_observed(events)
-    return logpdf(_bare_latent_edge(edges[k]), terminal - prev)
+    if k >= 2
+        return logpdf(_bare_latent_edge(edges[k]), terminal - prev)
+    end
+    iv = _leaf_interval(edges[k])
+    shift = iv === nothing ? prev : _apply_leaf_interval(prev, iv)
+    return logpdf(edges[k], terminal - shift)
 end
 
 # The terminal (last) observed value of a chain's flat event vector. The

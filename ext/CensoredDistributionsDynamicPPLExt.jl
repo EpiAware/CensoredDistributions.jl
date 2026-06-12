@@ -709,10 +709,10 @@ end
         CensoredDistributions._first_origin_node(chain))
 
     e = Vector{Union{Missing, Float64}}(obs)
-    # The ORIGINAL missingness pattern: a slot SAMPLED here (missing in the row)
-    # is a latent the model draws, so any edge hanging off it scores the BARE core
-    # (see `_latent_edge`); a slot OBSERVED keeps the edge's declared censoring.
-    # Captured before any `~` fills a slot.
+    # The ORIGINAL missingness pattern: an edge whose TARGET slot is SAMPLED
+    # (missing in the row) scores the BARE core (the marginal convolves bare cores
+    # across the sampled run); an edge whose target is OBSERVED keeps its declared
+    # censoring (see `_latent_edge`). Captured before any `~` fills a slot.
     sampled = [v === missing for v in e]
     plan = _latent_plan!(_LeafPlan[], chain, 1, 2, false)
     # Origin E_0. A MISSING origin must be SAMPLED, so the chain needs a primary
@@ -733,7 +733,8 @@ end
     end
     for p in plan
         edge = _latent_edge(p.edge, e[p.shift_idx],
-            sampled[p.shift_idx], sampled[p.event_idx], p.always_bare)
+            sampled[p.shift_idx], p.shift_idx == 1,
+            sampled[p.event_idx], p.always_bare)
         if e[p.event_idx] === missing
             e[p.event_idx] ~ edge
         else
@@ -770,11 +771,10 @@ end
     shared = CensoredDistributions._shared_primary_event(tree.components)
 
     e = Vector{Union{Missing, Float64}}(obs)
-    # The ORIGINAL missingness pattern (captured before any `~` fills a slot): a
-    # SAMPLED predecessor makes its edge score the BARE core, an OBSERVED one keeps
-    # the declared censoring (see `_latent_edge`). The flat shared origin is
-    # the predecessor of every branch, so when it is sampled each branch conditions
-    # on the continuous core, matching the marginal `_parallel_conditional_logpdf`.
+    # The ORIGINAL missingness pattern (captured before any `~` fills a slot)
+    # drives the target-sampled bare-vs-declared choice (see `_latent_edge`); the
+    # root flat Parallel additionally forces every branch bare (`always_bare`),
+    # matching the marginal `_parallel_conditional_logpdf` / `_parallel_marginal_logpdf`.
     sampled = [v === missing for v in e]
     # Root flat Parallel branches are always bare (the marginal conditional scores
     # each branch on the continuous core).
@@ -793,7 +793,8 @@ end
     end
     for p in plan
         edge = _latent_edge(p.edge, e[p.shift_idx],
-            sampled[p.shift_idx], sampled[p.event_idx], p.always_bare)
+            sampled[p.shift_idx], p.shift_idx == 1,
+            sampled[p.event_idx], p.always_bare)
         if e[p.event_idx] === missing
             e[p.event_idx] ~ edge
         else
@@ -886,44 +887,43 @@ Distributions.pdf(d::_ShiftedDelay, y::Real) = exp(logpdf(d, y))
 Base.rand(rng::AbstractRNG, d::_ShiftedDelay) = d.shift + rand(rng, d.delay)
 
 # The shifted edge distribution one leaf event is scored against, given its
-# DECLARED `edge`, the predecessor value `shift`, whether each endpoint was
-# SAMPLED, and `always_bare` (a root flat `Parallel` branch). This is where the
-# #453 marginalisation-consistent rule is applied:
+# DECLARED `edge`, the predecessor value `shift`, whether the predecessor / target
+# were SAMPLED, whether the predecessor is the chain ORIGIN, and `always_bare`
+# (a root flat `Parallel` branch). The bare-vs-declared choice MATCHES the marginal
+# scorer's segment factorisation edge-for-edge: the marginal splits the chain into
+# SEGMENTS between consecutive OBSERVED events, scoring a single observed-bounded
+# edge on its DECLARED censoring and convolving the BARE cores across a segment
+# that spans a sampled (unobserved) intermediate.
 #
-#   - BOTH endpoints OBSERVED (and not a root Parallel branch): KEEP the declared
-#     edge (its full primary/secondary censoring), shifted by the FLOORED
-#     predecessor (`_latent_shift`), so a day-resolution gap between two observed
-#     events conditions on its declared interval/double censoring (#419) and stays
-#     in-support (#423).
-#   - EITHER endpoint SAMPLED (or a root Parallel branch): strip the PRIMARY
-#     censoring (`_bare_edge`, keeping any secondary/onset interval the target
-#     event carries). A sampled endpoint is a continuous latent whose within-window
-#     position is already represented, so re-applying primary censoring would
-#     double-count it; the marginal convolves the BARE cores across a sampled run,
-#     so the bare edge makes latent-integrated == marginal == the target's
-#     bare-delay score. A sampled predecessor also drops the flooring (continuous,
-#     not day-floored).
-function _latent_edge(edge, shift, pred_sampled::Bool, target_sampled::Bool,
-        always_bare::Bool)
-    # A root flat `Parallel` branch is ALWAYS bare (the marginal scores each branch
-    # on the continuous core). Otherwise only an edge between TWO OBSERVED data
-    # events keeps its declared censoring (#419); if EITHER endpoint is a sampled
-    # latent the edge scores the BARE core, because the marginal convolves the bare
-    # cores across any run containing a sampled (unobserved) intermediate, so each
-    # such edge must be bare for latent-integrated == marginal. A sampled
-    # predecessor also drops the flooring (it is a continuous latent, not a
-    # day-floored observation).
-    if !always_bare && !pred_sampled && !target_sampled
-        return _ShiftedDelay(edge, _latent_shift(edge, shift))
+#   - ROOT flat `Parallel` branch (`always_bare`): bare core, matching the marginal
+#     `_parallel_conditional_logpdf` / `_parallel_marginal_logpdf` (each
+#     shared-origin branch conditions / integrates on `_marginal_core`).
+#   - TARGET SAMPLED (a mid-run latent intermediate): bare core — the target is
+#     integrated out, so this edge is the head of a marginalised run the marginal
+#     scores as a bare convolution.
+#   - TARGET OBSERVED, PREDECESSOR a SAMPLED INTERMEDIATE (not the origin): bare
+#     core — this edge is the TAIL of a run whose intermediate predecessor was
+#     sampled, so the whole observed->observed segment is a bare convolution in the
+#     marginal; scoring it bare makes latent-integrated == marginal.
+#   - TARGET OBSERVED, PREDECESSOR OBSERVED, or the SAMPLED ORIGIN: DECLARED edge,
+#     shifted by the FLOORED predecessor (`_latent_shift`). A single
+#     observed-bounded edge conditions on its declared interval/double censoring
+#     (#419); the origin->first-observed edge keeps the declared edge and floors
+#     the sampled continuous origin so the floored gap stays in-support (#423).
+function _latent_edge(edge, shift, pred_sampled::Bool, pred_is_origin::Bool,
+        target_sampled::Bool, always_bare::Bool)
+    bare = always_bare || target_sampled ||
+           (pred_sampled && !pred_is_origin)
+    if bare
+        return _ShiftedDelay(_bare_edge(edge), shift)
     end
-    bare = _bare_edge(edge)
-    return _ShiftedDelay(bare, pred_sampled ? shift : _latent_shift(bare, shift))
+    return _ShiftedDelay(edge, _latent_shift(edge, shift))
 end
 
-# The PRIMARY-stripped edge for a sampled predecessor (delegates to the shared
-# core helper): the continuous delay core with any SECONDARY (onset) interval
-# censoring re-applied, but NO primary censoring. Matches the issue's rule "score
-# the BARE delay with only the TARGET event's interval/secondary censoring".
+# The BARE continuous core of an edge for a sampled-endpoint latent edge
+# (delegates to the shared core helper): every censoring layer stripped (primary
+# AND secondary interval), matching the `_marginal_core` the marginal scorer
+# conditions a sampled-endpoint edge on, so latent-integrated == marginal.
 _bare_edge(edge) = CensoredDistributions._bare_latent_edge(edge)
 
 # The predecessor value an interval-censored latent edge is shifted by when the
