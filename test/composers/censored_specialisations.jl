@@ -821,3 +821,99 @@ end
     end
     @test saw_noninteger
 end
+
+@testitem "event_logpdf observed-intermediate whole-compose (#366)" begin
+    using Distributions
+
+    # Whole-compose TOTAL truncation of an OBSERVED-intermediate Sequential
+    # record (#366): the factorised per-segment numerator over a single
+    # conv-to-last-observed denominator. Equals the hand-rolled per-record
+    # decomposition (the andv index-vs-sourced terms generalised to an observed
+    # intermediate).
+    pe = Uniform(0, 1)
+    inc = primary_censored(LogNormal(1.2, 0.5), pe)
+    delta = primary_censored(Gamma(2.0, 1.0), pe)
+    seq = Sequential((inc, delta), (:onset_admit, :admit_death))
+
+    D = 8.0
+    o, a, dth = 0.0, 2.0, 5.0
+    ev = Vector{Union{Missing, Float64}}([o, a, dth])
+
+    # Numerator: each observed segment conditions on its own edge (unchanged
+    # from the untruncated factorisation).
+    numerator = logpdf(inc, a - o) + logpdf(delta, dth - a)
+    @test logpdf(seq, ev) ≈ numerator
+
+    # Denominator: conv of ALL components origin -> last observed event,
+    # evaluated at window = D - origin.
+    conv = CensoredDistributions._sequential_segment(seq.components, 1, 3, pe)
+    expected = numerator - logcdf(conv, D - o)
+    @test CensoredDistributions.event_logpdf(seq, ev; horizon = D) ≈ expected
+
+    # The horizon adds exactly the conv-to-last-observed right-truncation term.
+    @test CensoredDistributions.event_logpdf(seq, ev; horizon = D) ≈
+          logpdf(seq, ev) - logcdf(conv, D - o)
+
+    # A non-zero observed origin shifts the window to D - origin.
+    o2 = 1.5
+    ev2 = Vector{Union{Missing, Float64}}([o2, o2 + 2.0, o2 + 5.0])
+    num2 = logpdf(inc, 2.0) + logpdf(delta, 3.0)
+    @test CensoredDistributions.event_logpdf(seq, ev2; horizon = D) ≈
+          num2 - logcdf(conv, D - o2)
+end
+
+@testitem "event_logpdf whole-compose reduces to endpoint-observed (#366)" begin
+    using Distributions
+
+    # With the intermediate UNOBSERVED the chain has a single observed segment,
+    # so the conv-to-last-observed denominator IS that segment and the result
+    # reduces to the endpoint-observed hanta total truncation.
+    pe = Uniform(0, 1)
+    inc = primary_censored(LogNormal(1.5, 0.5), pe)
+    delta = primary_censored(Gamma(2.0, 1.0), pe)
+    seq = Sequential((inc, delta), (:onset_mid, :mid_obs))
+    D = 6.0
+
+    ev = Vector{Union{Missing, Float64}}([0.0, missing, 5.0])
+    seg = CensoredDistributions._sequential_segment(seq.components, 1, 3, pe)
+    @test CensoredDistributions.event_logpdf(seq, ev; horizon = D) ≈
+          logpdf(seg, 5.0) - logcdf(seg, D)
+end
+
+@testitem "event_logpdf whole-compose three-segment patterns (#366)" begin
+    using Distributions
+
+    # A three-step chain with the middle two intermediates: an observed middle
+    # factorises into two segments, an unobserved middle convolves its run. The
+    # whole-compose denominator is always conv-to-last-observed at D - origin.
+    pe = Uniform(0, 1)
+    e1 = primary_censored(LogNormal(1.0, 0.4), pe)
+    e2 = primary_censored(Gamma(2.0, 0.8), pe)
+    e3 = primary_censored(Gamma(1.5, 1.0), pe)
+    seq = Sequential((e1, e2, e3), (:a_b, :b_c, :c_d))
+    D = 12.0
+    full = CensoredDistributions._sequential_segment(seq.components, 1, 4, pe)
+
+    # All intermediates observed: three-way factorised numerator, full conv
+    # denominator.
+    ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0, 7.0])
+    num = logpdf(e1, 2.0) + logpdf(e2, 3.0) + logpdf(e3, 2.0)
+    @test CensoredDistributions.event_logpdf(seq, ev; horizon = D) ≈
+          num - logcdf(full, D)
+
+    # Middle intermediate (b) unobserved: e1 e2 convolve, e3 conditions; the
+    # denominator is still the full conv-to-last-observed (d).
+    ev2 = Vector{Union{Missing, Float64}}([0.0, missing, 5.0, 7.0])
+    s12 = CensoredDistributions._sequential_segment(seq.components, 1, 3, pe)
+    num2 = logpdf(s12, 5.0) + logpdf(e3, 2.0)
+    @test CensoredDistributions.event_logpdf(seq, ev2; horizon = D) ≈
+          num2 - logcdf(full, D)
+
+    # Last event (d) unobserved -> the last OBSERVED event is c: denominator
+    # convolves only e1 e2 e3 up to c (origin->c), not to the missing d.
+    ev3 = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0, missing])
+    to_c = CensoredDistributions._sequential_segment(seq.components, 1, 3, pe)
+    num3 = logpdf(e1, 2.0) + logpdf(e2, 3.0)
+    @test CensoredDistributions.event_logpdf(seq, ev3; horizon = D) ≈
+          num3 - logcdf(to_c, D)
+end
