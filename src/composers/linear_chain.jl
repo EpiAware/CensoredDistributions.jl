@@ -97,7 +97,7 @@ ODE/compartment model consumes:
   step, in chain order, named by the step names.
 
 Censoring wrappers are peeled to the inner free delay first (via
-[`free_leaf`](@ref)), so a chain of censored Exp/Erlang delays still lowers
+`free_leaf`), so a chain of censored Exp/Erlang delays still lowers
 cleanly. The total number of compartments is `sum(s.stages for s in stages)`.
 
 The lowering is EXACT only for Exponential / Erlang leaves; any other family

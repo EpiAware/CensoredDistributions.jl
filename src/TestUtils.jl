@@ -20,7 +20,7 @@ Public interface-conformance harness for composers and leaves.
 `TestUtils.test_interface(d)` runs one interface checklist over a composed
 distribution (or bare leaf), so a downstream author writing a new leaf or
 composer can drop it into their own `@testset` to verify conformance against the
-package's public interface. [`test_interface`](@ref), [`example_fixtures`](@ref),
+package's public interface. [`test_interface`](@ref), `example_fixtures`,
 and [`test_rejects_invalid`](@ref) are exported from this submodule.
 """
 module TestUtils
@@ -100,7 +100,7 @@ The checklist asserts, where applicable to the node's shape:
 - `event(d, path...)` round-trips the supplied known path;
 - `observed_distribution` / `endpoint` collapses a chain to a univariate scalar.
 
-Pass the fixture metadata (an [`example_fixtures`](@ref) entry, or the keyword
+Pass the fixture metadata (an `example_fixtures` entry, or the keyword
 arguments directly) so the harness knows the in-support `draw`, a known `event`
 `path`, a `Select` `kind`, the `overall` moment shape, and whether the per-event
 `latent_moments` view applies. Returns the `@testset` object.

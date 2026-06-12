@@ -110,7 +110,7 @@ The child names of a composed distribution.
 Returns the tuple of names for a composer's direct children: the step names of a
 [`Sequential`](@ref) chain, the branch names of a [`Parallel`](@ref) set, or the
 outcome names of a [`Competing`](@ref) node. These EDGE names key the parameter
-inventory, distinct from the flat EVENT names of [`_flat_event_names`](@ref).
+inventory, distinct from the flat EVENT names of `_flat_event_names`.
 
 # Examples
 ```@example
@@ -124,7 +124,7 @@ CensoredDistributions.component_names(tree)
 
 # See also
 - [`event_names`](@ref): the public EDGE-name accessor
-- [`_flat_event_names`](@ref): the flat EVENT names
+- `_flat_event_names`: the flat EVENT names
 "
 component_names(d::Sequential) = d.names
 
@@ -169,7 +169,7 @@ Sample a chain realisation. For a plain chain this is the step-value vector
 flat censored chain (its steps carry primary censoring) it is the full
 event-time path `[E_0, ...]` including the latent origin draw. For a NESTED tree
 (a step is itself a composer, or a [`Competing`](@ref) step) it is a NAMED event
-record keyed by [`_flat_event_names`](@ref): a shared origin draw, each Competing
+record keyed by `_flat_event_names`: a shared origin draw, each Competing
 outcome sampled (the unsampled outcomes `missing`), so the whole tree path is one
 `rand`. See the censored-specialisation [`rand`](@ref) method.
 

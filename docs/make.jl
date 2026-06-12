@@ -223,6 +223,9 @@ function api_bindings(mod::Module)
 end
 
 function write_api_page(path, title, anchor, page, intro, api_heading, mod, names)
+    # `docs/src/lib/` holds only generated pages (gitignored), so it is absent
+    # on a fresh checkout (CI) — create it before writing.
+    mkpath(dirname(path))
     open(path, "w") do io
         if anchor === nothing
             println(io, "# $title")
@@ -301,7 +304,10 @@ makedocs(; sitename = "CensoredDistributions.jl",
     clean = true, doctest = false, linkcheck = !skip_notebooks,
     warnonly = [
         :docs_block, :missing_docs,
-        :autodocs_block
+        :autodocs_block,
+        # Internal "see also" @refs to undocumented helper functions render as
+        # plain code rather than failing the build.
+        :cross_references
     ],
     modules = [CensoredDistributions],
     pages = pages,
