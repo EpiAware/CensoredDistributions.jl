@@ -25,11 +25,24 @@
 
 # --- edge-name -> (origin, target) event names ------------------------------
 
+# Whether `s` is `prefix` immediately followed by one or more ASCII digits and
+# nothing else (the positional-default shape `prefix_1`, `prefix_2`, ...). Plain
+# string scan, NO `Regex`: a compiled `Regex` uses a try/catch that Mooncake
+# reverse cannot differentiate, and this runs on the AD'd scoring path (it is
+# reached from `_flat_event_names` inside the differentiated `logpdf`). See #409.
+function _has_positional_suffix(s::AbstractString, prefix::AbstractString)
+    startswith(s, prefix) || return false
+    rest = SubString(s, ncodeunits(prefix) + 1)
+    isempty(rest) && return false
+    return all(c -> '0' <= c <= '9', rest)
+end
+
 # Whether an edge name is a positional default (`:step_i` / `:branch_i`),
 # carrying no real event names to derive an origin/target split from.
 function _is_positional_edge_name(name::Symbol)
     s = string(name)
-    return occursin(r"^step_\d+$", s) || occursin(r"^branch_\d+$", s)
+    return _has_positional_suffix(s, "step_") ||
+           _has_positional_suffix(s, "branch_")
 end
 
 # Split an underscore-joined edge name `:onset_admit` into its `(:onset, :admit)`
@@ -191,7 +204,7 @@ end
 # Whether a tuple of event names is the all-positional default layout (so a row
 # is matched positionally, the documented fallback rather than by name).
 function _all_positional_event_names(enames::Tuple)
-    return all(n -> occursin(r"^event_\d+$", string(n)), enames)
+    return all(n -> _has_positional_suffix(string(n), "event_"), enames)
 end
 
 # --- pure row -> event-vector / reserved-field parsing ----------------------
