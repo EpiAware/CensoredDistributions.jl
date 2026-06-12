@@ -573,7 +573,7 @@ end
     @test logpdf(d, evd) ≈ refd rtol=1e-10
 end
 
-# --- Nested/Competing-aware full-path rand / predict_events -----------------
+# --- Nested/Competing-aware full-path rand ----------------------------------
 
 @testitem "rand on a nested tree returns a named shared-origin path" begin
     using Distributions, Random
