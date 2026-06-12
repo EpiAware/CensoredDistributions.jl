@@ -304,6 +304,12 @@ makedocs(; sitename = "CensoredDistributions.jl",
     # A fast build skips the network linkcheck (rate-limited, irrelevant to a
     # local content build); a full build keeps it strict.
     clean = true, doctest = false, linkcheck = !skip_notebooks,
+    # The benchmark-history page is published by a separate workflow and
+    # only resolves once the maintainer enables Pages for the benchmarks
+    # branch, so it is intentionally excluded from linkcheck until live.
+    linkcheck_ignore = [
+        r"EpiAware\.github\.io/CensoredDistributions\.jl/history"
+    ],
     warnonly = [
         :docs_block, :missing_docs,
         :autodocs_block,
