@@ -27,11 +27,14 @@
         #   the ReverseDiff extension; @grad_from_chainrules is the standard
         #   ChainRules-to-ReverseDiff bridge macro and TrackedReal is the
         #   public-by-convention tape value type, neither marked `public`.
+        # - _primal, _window_quantile: internal Convolved quadrature helpers
+        #   marked `@non_differentiable` by the ChainRulesCore extension.
         ignore = (
             :Censored, :_in_closed_interval, :_gamma_cdf, :_grad_p_a_series,
             :_gamma_cdf_value_and_partials,
             :Dual, :value, :partials,
-            Symbol("@grad_from_chainrules"), :TrackedReal
+            Symbol("@grad_from_chainrules"), :TrackedReal,
+            :_primal, :_window_quantile
         )
     ) === nothing
 
