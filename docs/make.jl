@@ -41,7 +41,8 @@ if !skip_notebooks
         "bdbv-linelist-analysis.jl",
         "andv-linelist-analysis.jl",
         "rt-renewal-convolution.jl",
-        "epinowcast-nowcasting.jl"
+        "epinowcast-nowcasting.jl",
+        "linear-chain-sir.jl"
     ]
 
     println(
@@ -101,6 +102,7 @@ else
         "bdbv-linelist-analysis.md" => "# Bundibugyo Ebola delays from the 2012 Isiro line list",
         "andv-linelist-analysis.md" => "# Real-time Andes virus delays from the Epuyén line list",
         "rt-renewal-convolution.md" => "# An Rt renewal model with delay convolution",
+        "linear-chain-sir.md" => "# [A composed delay as ODE compartments: the linear chain trick](@id linear-chain-sir)",
         "epinowcast-nowcasting.md" => "# [An epinowcast-style hazard nowcasting model](@id epinowcast-nowcasting)"
     ]
     for (file, heading) in tutorial_stubs
