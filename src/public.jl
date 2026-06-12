@@ -7,6 +7,10 @@ public IntervalCensored
 public Weighted
 public Convolved
 
+# Linear chain trick per-step record (public but not exported): the (rate,
+# stages) Erlang-stage struct `linear_chain_stages` returns.
+public ChainStage
+
 # Build-once delay PMF for vector evaluation (public but not exported): the
 # explicit precomputed-PMF object the caller builds once with `discretise_pmf`
 # and reuses across a vector of reference dates / records (the nowcasting path).

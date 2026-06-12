@@ -137,6 +137,11 @@ export primary_censored_model, interval_censored_model,
 # Turing) is loaded; the method lives in the package extension.
 export predict_events
 
+# Exported linear chain trick lowering: read the (rate, stages) Erlang-stage
+# compartment structure off an Exponential/Erlang delay or Sequential chain, the
+# distributions -> compartments bridge an ODE/compartment model consumes.
+export linear_chain_stages
+
 include("docstrings.jl")
 
 include("utils/gamma_ad.jl")
@@ -164,6 +169,10 @@ include("composers/nesting.jl")
 include("composers/equality.jl")
 include("composers/compose.jl")
 include("composers/introspection.jl")
+# Linear chain trick: lower an Exp/Erlang composed delay to its (rate, stages)
+# compartment structure. After introspection so it reuses `free_leaf` to peel
+# censoring; depends on `Sequential`.
+include("composers/linear_chain.jl")
 # Affine transform leaf: after introspection so it can extend
 # `free_leaf`/`rewrap_leaf` for transparent inner-delay introspection.
 include("distributions/Affine.jl")

@@ -2,6 +2,15 @@
 
 ### Features
 
+- `linear_chain_stages`: lower an Exponential or Erlang (integer-shape Gamma)
+  delay, or a `Sequential` chain of such leaves, to its linear-chain-trick
+  `(rate, stages)` compartment structure (a `ChainStage` per step). This is the
+  distributions -> compartments bridge an ODE/compartment model consumes:
+  an Erlang(k, θ) delay is k Exponential sub-compartments leaving at rate 1/θ.
+  Censoring wrappers are peeled to the free delay; non-Exp/Erlang families throw,
+  since no exact finite linear chain represents them. A new tutorial composes
+  the resulting delay compartments with an SIR-type ModelingToolkit system.
+  Addresses #400.
 - Batch latent model entry
   `composed_distribution_model(latent(d), rows)` /
   `composed_distribution_model(latent(d), table)`: a looping submodel that
