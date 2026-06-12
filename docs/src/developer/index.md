@@ -8,6 +8,7 @@ This section contains guides and resources for contributors and maintainers.
 New to contributing? Start here:
 
 - **[Contributing Guide](@ref contributing)**: How to contribute code, documentation, and issues
+- **[Extending the composer toolkit](@ref extending-composer)**: How to write your own leaf or composer and verify it with the public conformance harness
 - **[Release Process](@ref release-process)**: How we manage releases and versioning
 
 For general Julia development setup, see [Getting Started with Julia](@ref julia) in the Getting Started section.

@@ -186,14 +186,94 @@ end
 
 # --- params_table (hand-rolled pre-order walk) -----------------------------
 
+# A thin wrapper over the flat column table so `params_table(d)` prints as an
+# actual table (matching its name) rather than as a bare `NamedTuple` of vectors,
+# while staying a first-class Tables.jl source. It forwards the whole Tables.jl
+# column interface to the wrapped `NamedTuple`, so `Tables.istable`,
+# `Tables.columns`, `Tables.getcolumn` and `DataFrame(tbl)` all work unchanged,
+# and `getproperty` forwards `tbl.edge`/`tbl.param`/... to the columns. Only the
+# `show(::MIME"text/plain")` is customised, to render a padded ASCII table.
+
+@doc "
+
+A Tables.jl column table of a composed distribution's free parameters.
+
+The value [`params_table`](@ref) returns: a Tables.jl source (a column table)
+that prints as a padded `edge | param | value | support` table. It is a thin
+wrapper over a `NamedTuple` of equal-length column vectors, forwarding the whole
+Tables.jl column interface and column access (`tbl.edge`, `tbl.param`, ...), so
+`Tables.istable`, `Tables.columns`, `Tables.getcolumn`, `DataFrame(tbl)` and
+[`build_priors`](@ref) all consume it unchanged; only its display is customised.
+
+See also: [`params_table`](@ref), [`build_priors`](@ref).
+"
+struct ParamsTable{C <: NamedTuple}
+    columns::C
+end
+
+# Tables.jl source interface: a column table, delegating to the wrapped columns.
+Tables.istable(::Type{<:ParamsTable}) = true
+Tables.columnaccess(::Type{<:ParamsTable}) = true
+Tables.columns(t::ParamsTable) = getfield(t, :columns)
+Tables.columnnames(t::ParamsTable) = keys(getfield(t, :columns))
+Tables.getcolumn(t::ParamsTable, i::Int) = getfield(t, :columns)[i]
+Tables.getcolumn(t::ParamsTable, nm::Symbol) = getfield(t, :columns)[nm]
+Tables.schema(t::ParamsTable) = Tables.schema(getfield(t, :columns))
+Tables.rowaccess(::Type{<:ParamsTable}) = true
+Tables.rows(t::ParamsTable) = Tables.rows(getfield(t, :columns))
+
+# Forward column access (`tbl.edge`, `tbl.param`, ...) to the wrapped columns so
+# the table reads like the NamedTuple it wraps.
+Base.getproperty(t::ParamsTable, nm::Symbol) = getfield(t, :columns)[nm]
+Base.propertynames(t::ParamsTable) = keys(getfield(t, :columns))
+
+# The number of rows (every column is equal length).
+function _nrows(t::ParamsTable)
+    cols = getfield(t, :columns)
+    return isempty(cols) ? 0 : length(first(cols))
+end
+
+# A compact one-liner for inline / array display.
+function Base.show(io::IO, t::ParamsTable)
+    print(io, "ParamsTable($(_nrows(t)) rows)")
+    return nothing
+end
+
+# A padded ASCII table for `text/plain` display, so `params_table(d)` renders as
+# an actual table. Columns are `edge | param | value | support`; each cell is the
+# `string` of the value, columns padded to their widest cell (header included).
+function Base.show(io::IO, ::MIME"text/plain", t::ParamsTable)
+    cols = getfield(t, :columns)
+    names = collect(keys(cols))
+    n = _nrows(t)
+    println(io, "params_table ($n rows)")
+    isempty(names) && return nothing
+    # Stringify every cell, then size each column to its widest entry.
+    cells = [string.(getindex(cols, nm)) for nm in names]
+    headers = string.(names)
+    widths = [maximum(length, vcat(headers[j], cells[j]); init = 0)
+              for j in eachindex(names)]
+    pad(s, w) = s * " "^(w - length(s))
+    row(parts) = "  " * join((pad(parts[j], widths[j])
+        for j in eachindex(parts)), "  ")
+    println(io, row(headers))
+    println(io, "  " * join(("─"^w for w in widths), "  "))
+    for i in 1:n
+        line = row([cells[j][i] for j in eachindex(names)])
+        i == n ? print(io, line) : println(io, line)
+    end
+    return nothing
+end
+
 @doc "
 
 Flatten a composed distribution's parameters into a prior-definition table.
 
-`params_table(d)` returns a Tables.jl column table (a `NamedTuple` of equal-length
-column vectors, so `Tables.istable(params_table(d))` is `true`); wrap it in
-`DataFrame` for a DataFrame. It has one row per scalar free parameter of the
-composed distribution `d`, with columns:
+`params_table(d)` returns a Tables.jl column table (a [`ParamsTable`](@ref)
+wrapping a `NamedTuple` of equal-length column vectors, so
+`Tables.istable(params_table(d))` is `true` and it prints as a padded table);
+wrap it in `DataFrame` for a DataFrame. It has one row per scalar free parameter
+of the composed distribution `d`, with columns:
 
 - `edge`: the dotted path of names to the parameter's edge/leaf (e.g.
   `:onset_admit`, or `:resolution.branch_probs` inside a `Competing`).
@@ -229,8 +309,8 @@ function params_table(d::Union{Sequential, Parallel, Competing, Select})
     supports = Any[]
     seen = Set{Symbol}()
     _walk_rows!(edges, params_col, values, supports, seen, d, ())
-    return (edge = edges, param = params_col,
-        value = values, support = supports)
+    return ParamsTable((edge = edges, param = params_col,
+        value = values, support = supports))
 end
 
 # Pre-order walk over the composer tree. `path` is the tuple of names from the

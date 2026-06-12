@@ -36,7 +36,7 @@ reference-by-report count structure.
 
 This tutorial builds on [Getting Started with
 CensoredDistributions.jl](@ref getting-started), the composer reference
-([The composer toolkit](@ref composer-toolkit)) and the renewal
+([Composing censored distributions](@ref composer-toolkit)) and the renewal
 observation layer ([An Rt renewal model with delay
 convolution](@ref)).
 We reuse the branched [`compose`](@ref) stack from the renewal tutorial and add
