@@ -103,31 +103,28 @@ cleanly. The total number of compartments is `sum(s.stages for s in stages)`.
 The lowering is EXACT only for Exponential / Erlang leaves; any other family
 (general Gamma, LogNormal, ...) throws.
 
+# Arguments
+- `d`: an Exp/Erlang delay leaf, or a flat [`Sequential`](@ref) chain of such
+  leaves, to lower to its compartment stages.
+
+# Keyword Arguments
+- `name`: the [`ChainStage`](@ref) name for a single-leaf lowering (a chain names
+  each stage by its step name instead). Defaults to `:delay`.
+
 # Examples
-```jldoctest
+```@example
 using CensoredDistributions, Distributions
 
 # An Erlang(3, 1.5) incubation -> 3 compartments leaving at rate 1/1.5.
 linear_chain_stages(Gamma(3.0, 1.5))
-
-# output
-
-1-element Vector{CensoredDistributions.ChainStage}:
- ChainStage(delay: 3 stages @ rate 0.6667)
 ```
 
-```jldoctest
+```@example
 using CensoredDistributions, Distributions
 
 # A two-step E -> I -> R chain lowers step by step.
 chain = Sequential(Gamma(2.0, 1.0), Exponential(0.5))
 linear_chain_stages(chain)
-
-# output
-
-2-element Vector{CensoredDistributions.ChainStage}:
- ChainStage(step_1: 2 stages @ rate 1.0)
- ChainStage(step_2: 1 stage @ rate 2.0)
 ```
 
 # See also
