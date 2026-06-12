@@ -47,17 +47,23 @@
 # conditioned at a small sampler budget.
 # The LATENT form instead samples the infection time as a per-case parameter and
 # scores the two delays directly, with no integral.
-# A benchmark on these data found the latent form about five times faster in
-# wall-clock and far cheaper per gradient, and it converged at the doc-build
-# sampler budget where the marginal form did not.
-# This page therefore uses the latent form as the primary fit.
+# A benchmark on these data found the latent form about six times faster in
+# wall-clock than the marginal form and far cheaper per gradient, and it
+# recovers the published posterior cleanly at the doc-build sampler budget.
 #
-# The two record types are routed by a single [`selecting`](@ref)
-# disjunction keyed on a `:kind` field: an `:index` case scores its marginal
-# incubation leaf, a `:sourced` case scores a latent two-edge chain whose middle
-# infection event is sampled. One table carries both kinds, and the model loops
-# over its rows letting `select` pick the branch per record, so the
-# split-by-kind is data-driven rather than two hand-maintained tables.
+# This page fits BOTH and compares them.
+# The latent form is the primary, accurate fit, used for every downstream
+# result; the marginal-convolved form is then fitted on the same data as the
+# faster alternative, and a closing section sets the two recovered delay
+# parameter sets side by side against the published targets so the speed and
+# accuracy trade-off can be read directly.
+#
+# The two record types of the latent form are routed by a single
+# [`selecting`](@ref) disjunction keyed on a `:kind` field: an `:index` case
+# scores its marginal incubation leaf, a `:sourced` case scores a latent two-edge
+# chain whose middle infection event is sampled. One table carries both kinds,
+# and the model loops over its rows letting `select` pick the branch per record,
+# so the split-by-kind is data-driven rather than two hand-maintained tables.
 # The composer tools used to build the branches are covered in the
 # [composer toolkit tutorial](@ref composer-toolkit); here the focus is the
 # delay model and the Bayesian workflow.
@@ -315,7 +321,7 @@ sim_summary = DataFrame(
 # The same model is fitted to the real records.
 
 Random.seed!(20260608)
-chain = sample(andv(records, src_window),
+latent_time = @elapsed chain = sample(andv(records, src_window),
     NUTS(200, 0.95; max_depth = 6, adtype = AutoForwardDiff()),
     MCMCThreads(), 200, 2;
     initial_params = fill(InitFromPrior(), 2), progress = false)
@@ -441,6 +447,125 @@ cfig
 # targets closely in both location and width.
 # The transmission-timing parameters overlap too, but their intervals are wide.
 comparison
+
+# ## The marginal-convolved alternative
+#
+# The latent fit above samples each sourced case's infection time and scores the
+# two delays directly. The MARGINAL form instead integrates that infection time
+# out, so a sourced case is a single delay: the
+# [`convolve_distributions`](@ref) of the transmission timing and the incubation
+# period, measured from the source's onset to the case's onset. Both branches
+# are then a single double-interval-censored leaf, so the whole model is one
+# [`selecting`](@ref) disjunction with no sampled latent and no separate
+# completeness term: the real-time horizon rides on each record's reserved
+# `obs_time` field, which right-truncates the sourced convolved leaf exactly as
+# it truncates the index leaf.
+#
+# The convolution of a Normal transmission timing and a LogNormal incubation
+# period has no closed form, so the sourced branch runs a nested numerical
+# integral per likelihood evaluation. That is what makes the marginal form
+# slower per gradient than the latent form, and what can bias the recovered
+# incubation SCALE at a small sampler budget where the integral is coarse. We
+# fit it here on the same data to read the trade-off, not as the primary result.
+
+# The marginal sourced branch is the convolved delay; the index branch is the
+# bare incubation. Both share the one `inc` because both branches are rebuilt
+# from the same sampled parameters inside the model, exactly as in the latent
+# form.
+function marginal_select(inc, delta)
+    selecting(:index => index_branch(inc),
+        :sourced => index_branch(convolve_distributions(delta, inc)))
+end
+
+# The same line list, re-expressed for the marginal form: a sourced record is now
+# just its observed onset-to-onset delay plus the real-time `obs_time` window
+# (`horizon - source onset`), with no sampled infection event. The index records
+# are unchanged.
+marg_records = NamedTuple[]
+for i in eachindex(pid)
+    if !ismissing(exp_lo[i])
+        push!(marg_records,
+            (kind = :index, delay = onset_day[i] - exp_lo[i],
+                obs_time = horizon - exp_lo[i]))
+    end
+    src = ll.source_case[i]
+    (ismissing(src) || src == "index") && continue
+    s = first(split(string(src), "/"))
+    haskey(onset_of, s) || continue
+    push!(marg_records,
+        (kind = :sourced, onset = onset_day[i] - onset_of[s],
+            obs_time = horizon - onset_of[s]))
+end
+
+# The marginal model: the same four priors, then one routed delay object scored
+# over the whole table. The vectorised [`composed_distribution_model`](@ref)
+# entry scores every record in one `~`, each row picking its branch by `:kind`
+# and right-truncated at its own `obs_time`; the sourced branch's convolved
+# completeness denominator is applied by that truncation, so no `@addlogprob!`
+# term is needed.
+@model function andv_marginal(records)
+    mu_inc ~ Normal(3.0, 0.5)
+    sigma_inc ~ truncated(Normal(0.0, 0.5); lower = 0)
+    mu_delta ~ Normal(0.0, 5.0)
+    sigma_delta ~ truncated(Normal(0.0, 1.0); lower = 0)
+    inc = LogNormal(mu_inc, sigma_inc)
+    delta = Normal(mu_delta, sigma_delta)
+    sel = marginal_select(inc, delta)
+    obs ~ to_submodel(composed_distribution_model(sel, records))
+    return sel
+end
+
+# Fitted at the same budget as the latent fit. The nested integral makes each
+# leapfrog step more expensive, so the wall-clock is markedly longer for the
+# same number of draws.
+Random.seed!(20260608)
+marg_time = @elapsed marg_chain = sample(andv_marginal(marg_records),
+    NUTS(200, 0.95; max_depth = 6, adtype = AutoForwardDiff()),
+    MCMCThreads(), 200, 2;
+    initial_params = fill(InitFromPrior(), 2), progress = false)
+nothing #hide
+
+# ## Marginal versus latent versus the published target
+#
+# The two formulations are set side by side against the published posterior. The
+# incubation log-mean (`mu_inc`) agrees across both. The marginal form's
+# incubation log-SD (`sigma_inc`) is the parameter most exposed to the coarse
+# nested integral at this budget, so it is the one to watch for the scale bias;
+# the latent form recovers it cleanly. The weakly identified transmission-timing
+# parameters stay close to their priors under both forms.
+both = DataFrame(
+    parameter = ["mu_inc", "sigma_inc", "mu_delta", "sigma_delta"],
+    target = [3.06, 0.32, 0.17, 0.62],
+    latent_mean = round.(
+        [here.mu_inc.mean, here.sigma_inc.mean,
+            here.mu_delta.mean, here.sigma_delta.mean], digits = 3),
+    marginal_mean = round.(
+        [mean(vec(marg_chain[p]))
+         for p in (:mu_inc, :sigma_inc, :mu_delta,
+            :sigma_delta)], digits = 3))
+
+# A note on the trade-off, read from the same two fits. `latent_time` and
+# `marg_time` are the wall-clock seconds of the two real-data fits at the same
+# budget; their ratio is the speed-up the latent form gives by avoiding the
+# per-record integral. The latent form is therefore the default for this
+# analysis; the marginal form is the more familiar textbook expression and is
+# convenient when a sourced case must be one observed delay rather than a
+# sampled chain, but it should be run at a larger budget so the nested integral
+# resolves the incubation scale.
+speedup = round(marg_time / latent_time; digits = 1)
+tradeoff = DataFrame(
+    form = ["latent (primary)", "marginal-convolved"],
+    wall_clock_s = round.([latent_time, marg_time], digits = 1),
+    sourced_likelihood = ["sampled two-edge chain", "nested integral"],
+    use_when = ["accuracy at a small budget; the default here",
+        "a single observed sourced delay is wanted; run a larger budget"])
+
+# The marginal form is roughly `speedup`x slower here, the cost of the nested
+# integral that the latent form avoids.
+tradeoff
+
+# The recovered parameters from both forms against the target.
+both
 
 # ## The transmission timing is weakly identified
 #
