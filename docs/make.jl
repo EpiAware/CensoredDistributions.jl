@@ -58,14 +58,22 @@ if !skip_notebooks
         )
     end
 
+    # Heavy tutorials sample several MCMC chains with `MCMCThreads()`, so each
+    # subprocess needs more than one thread to run them in parallel. The parent
+    # docs process is usually single-threaded (Documenter sets no thread count),
+    # and `Base.julia_cmd()` would propagate that single thread to the child, so
+    # the chains would run serially. Read the requested count from
+    # `JULIA_NUM_THREADS` (default 4) and pass it explicitly to each subprocess.
+    tutorial_threads = get(ENV, "JULIA_NUM_THREADS", "4")
     println(
-        "Executing heavy Literate tutorials, one per subprocess..."
+        "Executing heavy Literate tutorials, one per subprocess " *
+        "($(tutorial_threads) threads each)..."
     )
     runner = joinpath(@__DIR__, "run_literate_tutorial.jl")
     for file in heavy_tutorials
         input = joinpath(tutorials_dir, file)
         println("  executing $file in a fresh subprocess...")
-        run(`$(Base.julia_cmd()) --project=$(@__DIR__) $runner $input $tutorials_dir`)
+        run(`$(Base.julia_cmd()) --threads=$(tutorial_threads) --project=$(@__DIR__) $runner $input $tutorials_dir`)
     end
     println("Literate tutorial processing complete")
 else

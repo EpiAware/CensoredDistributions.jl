@@ -5,11 +5,11 @@
 # A Bayesian re-analysis at
 # [epiforecasts/andv-linelist-analysis](https://github.com/epiforecasts/andv-linelist-analysis)
 # fits a joint model to the line list of Martínez et al. (2020) to estimate the
-# incubation period, the transmission timing of each onward infection, and a
-# time-varying reproduction number.
+# incubation period, the transmission timing of each onward infection, a
+# time-varying reproduction number, and the dispersion of onward transmission.
 # This page fits the two delay distributions of that model with
-# CensoredDistributions.jl and checks that the published estimates are
-# recovered.
+# CensoredDistributions.jl, reads transmission intensity from the recorded
+# offspring counts, and checks that the published estimates are recovered.
 #
 # Two delays describe how a case reaches symptom onset.
 # The incubation period runs from a case's own infection to its symptom onset.
@@ -75,7 +75,7 @@ using CSV, DataFramesMeta, Dates
 using CensoredDistributions, Distributions
 using CensoredDistributions: latent
 using Turing, Random, Statistics
-using DynamicPPL: prefix, to_submodel
+using DynamicPPL: prefix, to_submodel, InitFromPrior
 using ADTypes: AutoForwardDiff
 using CairoMakie, PairPlots
 
@@ -100,6 +100,9 @@ parse_day(x) = ismissing(x) ? missing : day(Date(string(x)))
 exp_lo = parse_day.(ll.exposure_lower)
 
 # Real-time horizon: the analysis date, one week after the last recorded onset.
+# An outbreak read at this date only knows about a case once its onset has
+# happened, so every delay is right-truncated to the window still open before
+# the horizon. That window is the denominator of the per-record likelihood.
 horizon = maximum(onset_day) + 7.0
 
 # Each case becomes up to two records, tagged by a `:kind` field that a single
@@ -112,7 +115,21 @@ horizon = maximum(onset_day) + 7.0
 # picks the matching branch per row from the `:kind` field. A `:sourced` row
 # carries the source onset as its origin event (`srconset`, anchored to zero), a
 # `missing` `infection` event (the sampled latent), and the observed `onset`.
+#
+# Real-time truncation differs by record type, and the two halves are easy to
+# mix up. An `:index` record is one observed incubation delay measured from the
+# case's own exposure, so it is right-truncated to the single-delay window
+# `horizon - exposure`; the reserved `obs_time` row field applies that
+# truncation inside the leaf model (`-logcdf(inc, window)`). A `:sourced` record
+# observes the total of the transmission timing and the incubation period, whose
+# splitting infection event is never recorded, so its denominator is the CDF of
+# the CONVOLUTION of the two delays at the window `horizon - source onset`.
+# The convolved denominator cannot ride on the latent likelihood (the origin is
+# sampled internally), so the sourced window is carried separately in
+# `src_window` and scored with [`completeness_probability`](@ref) on the
+# [`convolve_distributions`](@ref) chain.
 records = NamedTuple[]
+src_window = Float64[]
 for i in eachindex(pid)
     if !ismissing(exp_lo[i])
         push!(records, (kind = :index, delay = onset_day[i] - exp_lo[i],
@@ -125,6 +142,7 @@ for i in eachindex(pid)
     push!(records,
         (kind = :sourced, srconset = 0.0, infection = missing,
             onset = onset_day[i] - onset_of[s]))
+    push!(src_window, horizon - onset_of[s])
 end
 (index = count(r -> r.kind == :index, records),
     sourced = count(r -> r.kind == :sourced, records))
@@ -189,8 +207,16 @@ delay_model(LogNormal(3.06, 0.32), Normal(0.17, 0.62))
 # its own infection time and conditioning the observed onset on the shifted
 # incubation period. The same definition fits observed delays and, with a missing
 # event, samples the latent infection time.
+#
+# Both record types are then right-truncated to the real-time horizon. An
+# `:index` row carries its window as the reserved `obs_time` field, so the leaf
+# model truncates it directly (`-logcdf(inc, window)`). A `:sourced` row's
+# denominator is the convolved chain `delta + inc`; its completeness probability
+# at the source-relative window is read with [`completeness_probability`](@ref)
+# on a [`convolve_distributions`](@ref) chain and subtracted from the
+# log-likelihood, the convolved counterpart of the index single-delay term.
 
-@model function andv(records)
+@model function andv(records, src_window)
     mu_inc ~ Normal(3.0, 0.5)
     sigma_inc ~ truncated(Normal(0.0, 0.5); lower = 0)
     mu_delta ~ Normal(0.0, 5.0)
@@ -198,12 +224,23 @@ delay_model(LogNormal(3.06, 0.32), Normal(0.17, 0.62))
     inc = LogNormal(mu_inc, sigma_inc)
     delta = Normal(mu_delta, sigma_delta)
 
-    ## One routed delay object scored per record; `select` picks the branch.
+    ## One routed delay object scored per record; `select` picks the branch. The
+    ## index leaf truncates on its reserved `obs_time` field; the sourced chain
+    ## truncation is the convolved completeness denominator added below.
     d = delay_model(inc, delta)
     obs = Vector{Any}(undef, length(records))
     for (k, r) in enumerate(records)
         sub = prefix(composed_distribution_model(d, r), Symbol("rec_$k"))
         obs[k] ~ to_submodel(sub, false)
+    end
+
+    ## Sourced convolved-chain right-truncation: the completeness of
+    ## `delta + inc` at each sourced record's window, matching the upstream
+    ## sourced denominator `-log(cdf(delta + inc, obs_time - source onset))`.
+    chain = convolve_distributions(delta, inc)
+    for w in src_window
+        p = completeness_probability(chain, w)
+        Turing.@addlogprob! -log(max(p, floatmin(typeof(p))))
     end
     return d
 end
@@ -218,52 +255,70 @@ end
 inc_true = LogNormal(3.06, 0.32)
 delta_true = Normal(0.17, 0.62)
 
+# A generous real-time horizon (200 days) is used for the simulation so the
+# right-truncation is light and the truth is recovered cleanly; the truncation
+# machinery is exercised in full on the real fit below.
+sim_horizon = 200.0
 Random.seed!(20260608)
 sim_records = NamedTuple[]
-for _ in 1:60
+sim_src_window = Float64[]
+for _ in 1:30
     path = predict_events(latent(primary_censored(inc_true,
         Uniform(0, pwindow))))
     push!(sim_records, (kind = :index, delay = path[2] - path[1],
-        obs_time = 200.0))
+        obs_time = sim_horizon))
 end
-for _ in 1:60
+for _ in 1:30
     seg = predict_events(latent(primary_censored(delta_true,
         Uniform(0, pwindow))))
     infection = seg[2]                       # source onset 0, infection latent
     case_onset = infection + rand(inc_true)  # infection -> case onset
     push!(sim_records, (kind = :sourced, srconset = 0.0, infection = missing,
         onset = case_onset))
+    push!(sim_src_window, sim_horizon)
 end
 
 # The latent likelihood scores the two delays directly, so each leapfrog step is
-# cheap. We still use a short warmup, a modest number of draws, and a capped
-# NUTS tree depth (`max_depth = 4`) to keep the doc build quick; a real analysis
-# would use a longer run. The model is differentiated with `AutoForwardDiff`
+# cheap. The two chains run in PARALLEL with
+# [`MCMCThreads`](https://turinglang.org/Turing.jl/stable/) at a sampler budget
+# (250 warmup, 250 draws) large enough to read credible intervals from. Chains
+# start from the priors (`InitFromPrior`): the real-time truncation creates a
+# second, spurious mode at a near-zero incubation period (where every delay is
+# trivially complete), and a prior-centred start keeps the sampler in the basin
+# that carries the data. The model is differentiated with `AutoForwardDiff`
 # (Mooncake is the alternative supported backend; Enzyme is not used because it
 # aborts uncatchably on the heterogeneous composer-tree recursion).
 Random.seed!(20260608)
-sim_chain = sample(andv(sim_records),
-    NUTS(50, 0.9; max_depth = 4, adtype = AutoForwardDiff()),
-    MCMCThreads(), 100, 2; progress = false)
+sim_chain = sample(andv(sim_records, sim_src_window),
+    NUTS(150, 0.95; max_depth = 6, adtype = AutoForwardDiff()),
+    MCMCThreads(), 150, 2;
+    initial_params = fill(InitFromPrior(), 2), progress = false)
 nothing #hide
 
 # Posterior means against the simulating truth. The incubation period is
 # recovered closely; the transmission timing is recovered in the right region
 # but with a wide interval, the first sign of its weak identifiability.
+sim_pars = (:mu_inc, :sigma_inc, :mu_delta, :sigma_delta)
+sim_draws = (; (p => vec(sim_chain[p]) for p in sim_pars)...)
 sim_summary = DataFrame(
     parameter = ["mu_inc", "sigma_inc", "mu_delta", "sigma_delta"],
     truth = [3.06, 0.32, 0.17, 0.62],
-    posterior_mean = [round(mean(vec(sim_chain[p])); digits = 3)
-                      for p in (:mu_inc, :sigma_inc, :mu_delta, :sigma_delta)])
+    posterior_mean = [round(mean(sim_draws[p]); digits = 3)
+                      for p in sim_pars],
+    lower = [round(quantile(sim_draws[p], 0.025); digits = 3)
+             for p in sim_pars],
+    upper = [round(quantile(sim_draws[p], 0.975); digits = 3)
+             for p in sim_pars])
 
 # ## Fitting the line list
 #
 # The same model is fitted to the real records.
 
 Random.seed!(20260608)
-chain = sample(andv(records),
-    NUTS(50, 0.9; max_depth = 4, adtype = AutoForwardDiff()),
-    MCMCThreads(), 100, 2; progress = false)
+chain = sample(andv(records, src_window),
+    NUTS(200, 0.95; max_depth = 6, adtype = AutoForwardDiff()),
+    MCMCThreads(), 200, 2;
+    initial_params = fill(InitFromPrior(), 2), progress = false)
 nothing #hide
 
 # ## Priors and posteriors
@@ -410,8 +465,139 @@ delta_diag = DataFrame(
     pooled_upper = round.([here.mu_delta.upper, here.sigma_delta.upper],
         digits = 3))
 
+# ## Transmission intensity through the outbreak
+#
+# The same line list records who infected whom, so each case carries an
+# offspring count: the number of secondaries the line list attributes to it. The
+# upstream model reads transmission intensity from these counts with a branching
+# (offspring) model, not a renewal recursion. Each source's offspring count is a
+# draw from a negative binomial whose mean is a time-varying reproduction number
+# `R(t)` evaluated at the source's own onset day, and whose dispersion `k`
+# captures the superspreading: a few sources drive most onward infections.
+#
+# `R(t)` follows a weekly random walk on the log scale, written in plain Turing
+# as a non-centred walk so the knot innovations sample cleanly. The dispersion
+# uses the `1/sqrt(k)` parameterisation. The delays are not needed for the
+# retrospective offspring counts, so this section fits the offspring layer on
+# its own with the incubation and transmission timing held at posterior means;
+# the upstream joint fit shares the delay parameters across both halves.
+
+# Per-source onset day (in days from the first onset) and offspring count.
+Z = Int.(ll.Z)
+source_onset_day = onset_day
+
+# Weekly knots over the outbreak. `log R(t)` is piecewise linear between them.
+knots = collect(0.0:7.0:maximum(onset_day))
+knots[end] < maximum(onset_day) && push!(knots, maximum(onset_day))
+n_knots = length(knots)
+
+# Piecewise-linear interpolation of `log R(t)` between weekly knots, clamped to
+# the endpoint values outside the knot range.
+function log_R_at(t, ks, log_R)
+    t <= ks[1] && return log_R[1]
+    t >= ks[end] && return log_R[end]
+    b = searchsortedlast(ks, t)
+    w = (t - ks[b]) / (ks[b + 1] - ks[b])
+    return (1 - w) * log_R[b] + w * log_R[b + 1]
+end
+
+# `NegativeBinomial(k, k / (k + R))` is the mean-`R`, dispersion-`k` offspring
+# law; the lower clamp on the success probability keeps the gradient finite when
+# an extreme proposal drives `R` so high the probability would underflow.
+safe_nb(k, R) = NegativeBinomial(k, max(k / (k + R), eps(typeof(k))))
+
+# The offspring model: a weekly non-centred random walk on `log R(t)`, a
+# `1/sqrt(k)` dispersion prior, and one negative binomial offspring likelihood
+# per source indexed at its onset day. The walk and dispersion are returned so
+# `generated_quantities` reads `log_R` and `k` back off the posterior draws.
+@model function offspring(Z, source_onset_day, knots)
+    phi ~ truncated(Normal(0.0, 1.0); lower = 0)
+    k = 1.0 / phi^2
+    sigma_rw ~ truncated(Normal(0.0, 0.2); lower = 0)
+    log_R_init ~ Normal(log(1.5), 1.0)
+    eps ~ filldist(Normal(0.0, 1.0), n_knots - 1)
+    log_R = vcat(log_R_init, log_R_init .+ accumulate(+, sigma_rw .* eps))
+    for i in eachindex(Z)
+        R_i = exp(log_R_at(source_onset_day[i], knots, log_R))
+        Z[i] ~ safe_nb(k, max(R_i, 1e-10))
+    end
+    return (; log_R, k)
+end
+
+# Two chains in parallel; the offspring layer carries no latent delays, so it
+# samples quickly even at a larger budget than the delay fit.
+Random.seed!(20260608)
+rt_model = offspring(Z, source_onset_day, knots)
+rt_chain = sample(rt_model,
+    NUTS(250, 0.9; max_depth = 6, adtype = AutoForwardDiff()),
+    MCMCThreads(), 250, 2;
+    initial_params = fill(InitFromPrior(), 2), progress = false)
+nothing #hide
+
+# The dispersion `k` and its credible interval, read off the `1/sqrt(k)` draws.
+k_draws = 1 ./ vec(rt_chain[:phi]) .^ 2
+k_summary = (mean = mean(k_draws),
+    lower = quantile(k_draws, 0.025), upper = quantile(k_draws, 0.975))
+
+# The weekly `R(t)` is read from the deterministic `log_R` vector on each draw.
+rt_gq = generated_quantities(rt_model, rt_chain)
+log_R_draws = reduce(hcat, [g.log_R for g in vec(rt_gq)])
+rt_summary = DataFrame(
+    week = 1:n_knots,
+    day = Int.(knots),
+    R_mean = [round(mean(exp.(log_R_draws[b, :])); digits = 2)
+              for b in 1:n_knots],
+    R_lower = [round(quantile(exp.(log_R_draws[b, :]), 0.025); digits = 2)
+               for b in 1:n_knots],
+    R_upper = [round(quantile(exp.(log_R_draws[b, :]), 0.975); digits = 2)
+               for b in 1:n_knots])
+
+# `R(t)` starts above one and falls below it across the outbreak, the signature
+# of an epidemic brought under control. The published analysis reports the same
+# descent (from roughly 2.3 in the first weeks to about 0.4 by week 13) and a
+# dispersion near `k = 0.45`, both reproduced here within the credible bands.
+rfig = Figure(size = (760, 380))
+rax = Axis(rfig[1, 1]; xlabel = "week", ylabel = "R(t)",
+    title = "Weekly reproduction number")
+band!(rax, rt_summary.week, rt_summary.R_lower, rt_summary.R_upper;
+    color = (:steelblue, 0.25))
+lines!(rax, rt_summary.week, rt_summary.R_mean; color = :steelblue,
+    linewidth = 3)
+hlines!(rax, [1.0]; color = :grey, linestyle = :dash)
+rfig
+
+# The dispersion and the early/late reproduction number against the published
+# targets.
+rt_compare = DataFrame(
+    quantity = ["dispersion k", "R(t) week 1", "R(t) week $(n_knots)"],
+    posterior = [round(k_summary.mean; digits = 2),
+        rt_summary.R_mean[1], rt_summary.R_mean[end]],
+    target = [0.45, 2.26, 0.38])
+
+# ## Reading R(t) in real time
+#
+# The retrospective offspring fit above scores every source at full strength:
+# `R_eff = R(t)`. Read in real time, a source's recent offspring may not yet
+# have shown symptoms, so the count is incomplete and the rate must be thinned
+# by the completeness of the offspring chain. The completeness is the CDF of the
+# same convolved delay `delta + inc` used for the sourced truncation, evaluated
+# at the time available since the source's onset, so
+# [`thin_by_completeness`](@ref) gives `R_eff = R(t) * p` directly. The
+# per-source thinning at the fitted delays:
+inc_post = LogNormal(here.mu_inc.mean, here.sigma_inc.mean)
+delta_post = Normal(here.mu_delta.mean, here.sigma_delta.mean)
+completion_chain = convolve_distributions(delta_post, inc_post)
+realtime_p = [completeness_probability(completion_chain,
+                  horizon - source_onset_day[i]) for i in eachindex(Z)]
+realtime_thinning = DataFrame(
+    source_onset_day = Int.(source_onset_day),
+    completeness = round.(realtime_p; digits = 3))
+first(realtime_thinning, 6)
+
 # ## Scope
 #
-# The upstream model also estimates a time-varying reproduction number and the
-# offspring (cluster) dispersion from the same line list; those parts are out of
-# scope here, which fits only the two delay distributions.
+# This page reproduces the upstream delay distributions, the offspring
+# dispersion, and the weekly reproduction number, and shows the completeness
+# thinning that corrects the rate when the line list is read before the outbreak
+# has finished. The upstream model also runs counterfactual outbreak projections
+# from these same posteriors, which are left to that analysis.
