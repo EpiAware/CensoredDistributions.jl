@@ -36,7 +36,7 @@ function _value_lookup(chain, draw, draws, summary)
     end
     sel = _draw_indices(chain, draws)
     return Dict(string(vn) => summary(_select_draws(chain[vn], sel))
-                for vn in vns)
+    for vn in vns)
 end
 
 # The iteration indices a `draws` selector picks out. `nothing` is every
