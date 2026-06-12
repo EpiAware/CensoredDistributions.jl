@@ -188,18 +188,19 @@ md"""
 ## Simulate from the double censored distribution
 
 We simulate from the full composed object with the true parameters, so the
-parameters we recover can be checked. [`predict_events`](@ref) walks the object
-to draw a full event path `[onset, report]` per record; the onset is the primary
-event origin (here zero) and the report is the censored delay. We draw an
-observation window per record and keep only reports observed within it, which is
-the right-truncation that the `obs_time` field then adjusts for.
+parameters we recover can be checked. `rand(d)` walks the object to draw a full
+labelled event record per record (a comprehension batches `n` of them); the
+onset is the primary event origin (here zero) and the report is the censored
+delay. We draw an observation window per record and keep only reports observed
+within it, which is the right-truncation that the `obs_time` field then adjusts
+for.
 """
 
 rng = MersenneTwister(123)
 
-paths = predict_events(full_template, n; rng = rng)
+paths = [rand(rng, full_template) for _ in 1:n]
 
-reports = [p[2] for p in paths]
+reports = [p.report for p in paths]
 
 obs_times = rand(rng, DiscreteUniform(8, 12), n)
 
@@ -428,10 +429,9 @@ md"""
 The composed interface reads the fitted delay back as a distribution.
 [`update`](@ref) rebuilds the object from the posterior, [`event`](@ref) fetches
 the named leaf, and the overall [`mean`](@ref CensoredDistributions.mean)
-reports the mean delay. For the
-per-event breakdown wrap with [`latent`](@ref): the per-event Vector reports each
-event's mean, seeing through the censored leaf to its inner free delay (label it
-with [`event_names`](@ref)).
+reports the mean delay. For the per-event breakdown wrap with [`latent`](@ref):
+the per-event labelled `NamedTuple` reports each event's mean, seeing through the
+censored leaf to its inner free delay (keyed by [`event_names`](@ref)).
 """
 
 fitted = update(full_template, full_fit; prefix = :delays)
@@ -441,10 +441,10 @@ fitted_leaf = event(fitted, :onset_report)
 mean(fitted)
 
 md"""
-The per-event view labels each event with its name.
+The per-event view is a labelled NamedTuple keyed by [`event_names`](@ref).
 """
 
-NamedTuple{event_names(fitted)}(Tuple(mean(latent(fitted))))
+mean(latent(fitted))
 
 md"""
 FlexiChains also extends Statistics functions over the chain. Here we ask for
@@ -480,8 +480,8 @@ md"""
 - The same parameter block ([`composed_parameters_model`](@ref)) and vectorised
   record model ([`composed_distribution_model`](@ref)) fit every model; only the
   leaf changes, and a `DataFrame` of records scores in one `~`.
-- [`predict_events`](@ref) simulates event paths from the same object, so
-  simulation and inference share one model.
+- `rand(d)` / `rand(latent(d))` simulates labelled event paths from the same
+  object, so simulation and inference share one model.
 - Reserved `obs_time` and `count` row fields apply per-record truncation and
   count weighting without changing the model.
 - The naive model is misspecified; adding interval censoring and truncation

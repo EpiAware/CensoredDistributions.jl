@@ -25,11 +25,13 @@
     @test rec isa NamedTuple
     @test keys(rec) == event_names(single)
 
-    # `mean(latent(...))` over the per-event view must also not error.
+    # `mean(latent(...))` over the per-event view must also not error and
+    # returns the per-event NamedTuple keyed by event_names(single).
     m = mean(latent(single))
-    @test m isa AbstractVector
+    @test m isa NamedTuple
+    @test keys(m) == event_names(single)
     @test length(m) == length(event_names(single))
-    @test all(isfinite, skipmissing(m))
+    @test all(isfinite, skipmissing(values(m)))
 end
 
 @testitem "single-branch compose stays a Parallel-of-one (no collapse)" begin

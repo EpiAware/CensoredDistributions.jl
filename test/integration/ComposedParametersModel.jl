@@ -387,8 +387,7 @@ end
             admit_death = (shape = 1.5, scale = 2.0)))
     rng = MersenneTwister(909)
     rows = map(1:6) do _
-        s = predict_events(truth; rng = rng)
-        (onset = s[1], admit = s[2], death = s[3])
+        rand(rng, truth)
     end
 
     chain = sample(Xoshiro(1), latent_fit(template, priors, rows),
@@ -431,8 +430,7 @@ end
             admit_death = (shape = 1.5, scale = 2.0)))
     rng = MersenneTwister(909)
     rows = map(1:8) do _
-        s = predict_events(truth; rng = rng)
-        (onset = s[1], admit = s[2], death = s[3])
+        rand(rng, truth)
     end
 
     mchain = sample(Xoshiro(1), marginal_fit(template, priors, rows),

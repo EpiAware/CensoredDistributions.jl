@@ -283,7 +283,7 @@ end
 #
 # Before touching the data we check the model can recover known parameters.
 # A full delay path is drawn for each record from the latent form with
-# `predict_events`, one latent-applied draw per record, then the simulated
+# `rand(latent(d))`, one latent-applied draw per record, then the simulated
 # delays are fitted and compared with the truth.
 
 inc_true = LogNormal(3.06, 0.32)
@@ -297,10 +297,13 @@ Random.seed!(20260608)
 sim_records = NamedTuple[]
 for _ in 1:4
     ## Latent index path off a broad-prior infection: an infection position drawn
-    ## across the window plus the incubation period gives the observed onset.
-    path = predict_events(latent(primary_censored(inc_true,
+    ## across the window plus the incubation period gives the observed onset. The
+    ## latent leaf `rand` returns a `(primary, observed)` NamedTuple, so the
+    ## observed onset is `path.observed`.
+    path = rand(latent(primary_censored(inc_true,
         Uniform(0, inc_window))))
-    push!(sim_records, (kind = :index, infection = missing, onset = path[2]))
+    push!(sim_records, (kind = :index, infection = missing,
+        onset = path.observed))
 end
 for _ in 1:30
     ## Source onset 0 -> exposure (transmission) -> onset (incubation), the
@@ -389,7 +392,7 @@ fig
 # from hand-built distributions.
 # A `Sequential` template of the two delays is updated from the posterior means
 # keyed by step name, then the per-event
-# [`mean`](@ref CensoredDistributions.mean)`(latent(posted))` Vector
+# [`mean`](@ref CensoredDistributions.mean)`(latent(posted))` NamedTuple
 # reads both delay means off the fitted object in one call.
 
 template = Sequential(Normal(0.0, 1.0), LogNormal(1.0, 0.5))

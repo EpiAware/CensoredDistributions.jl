@@ -161,7 +161,11 @@ function _child_rand!(out, offset, rng::AbstractRNG, c::UnivariateDistribution)
 end
 function _child_rand!(
         out, offset, rng::AbstractRNG, c::Union{Sequential, Parallel})
-    sub = rand(rng, c)
+    # Use the INTERNAL vector-valued realisation (`_composer_rand`), not the
+    # public `rand`: the public `rand` labels a top-level multivariate draw as a
+    # NamedTuple, but a nested child here is concatenated into the flat value
+    # vector by position, so it must stay vector-valued.
+    sub = _composer_rand(rng, c)
     @inbounds for k in eachindex(sub)
         out[offset + k] = sub[k]
     end

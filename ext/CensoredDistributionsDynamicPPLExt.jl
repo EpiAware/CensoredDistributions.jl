@@ -11,11 +11,11 @@ using CensoredDistributions: CensoredDistributions, PrimaryCensored, Latent,
 import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model,
                               composed_distribution_model,
-                              composed_parameters_model, predict_events
+                              composed_parameters_model
 using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
 using Distributions: Distributions, UnivariateDistribution, logpdf,
                      product_distribution
-using Random: AbstractRNG, default_rng
+using Random: AbstractRNG
 import Tables
 
 # `CensoredDistributions.weight(d, w)` is called with the module qualifier
@@ -942,63 +942,6 @@ function _latent_shift(edge, shift)
     iv = CensoredDistributions._leaf_interval(edge)
     iv === nothing && return shift
     return CensoredDistributions._apply_leaf_interval(shift, iv)
-end
-
-# ===========================================================================
-# predict_events: recover observed records' latent event times
-# ===========================================================================
-
-@doc "
-
-Recover the observed records' integrated-out latent event times from a
-marginal-fit posterior.
-
-Fit a model in its efficient MARGINAL form (the primary event integrated out,
-no extra latent dimensions), then call `predict_events(chain, model)` to
-recover the internal event times of the records you fit, by running the LATENT
-form of the same model over the fitted posterior. This works because the
-marginal and latent forms are one family sharing the same parameter names
-together with the marginal-equals-latent equivalence, so the marginal-fit
-posterior drops straight into the latent form. It delegates to
-`DynamicPPL.predict`: the latent `model` is executed conditioned on each
-parameter draw in `chain`, re-sampling the event variables the marginal chain
-does not carry. The observed events are supplied in `model` (the censored
-observations are fixed), so this re-samples only the integrated-out latents —
-the primary event time and any unobserved intermediate events — conditioned on
-the data and the posterior parameters.
-
-For forward-simulating fresh event paths from parameters (no `@model`, no
-conditioning on data), use the Turing-free raw-distribution method
-[`predict_events`](@ref)`(d, ...)` instead.
-
-`chain` is any posterior-draw container `DynamicPPL.predict` accepts: an
-`MCMCChains.Chains` (via DynamicPPL's MCMCChains extension) or a FlexiChains
-chain (via DynamicPPL's FlexiChains extension, which the tests use). Calling
-`DynamicPPL.predict` rather than `Turing.predict` keeps the extension
-Turing-free (DynamicPPL weak-dep only).
-
-# Arguments
-- `chain`: The posterior draws from fitting the MARGINAL model, as an
-  `MCMCChains.Chains` or a FlexiChains chain.
-- `model`: The LATENT form of the same model, carrying the observed event times
-  (built with a [`latent`](@ref)-wrapped node via [`primary_censored_model`](@ref),
-  with the same parameter names as the marginal model that produced `chain`).
-
-# Keyword Arguments
-- `rng`: Random number generator for the predictive sampling.
-- `include_all`: Passed through to `DynamicPPL.predict`. `false` (the default)
-  returns only the recovered event variables; `true` also keeps the parameters
-  from `chain`.
-
-# See also
-- [`predict_events`](@ref): the Turing-free `(d, ...)` forward-simulation
-  method.
-- [`latent`](@ref), [`composed_distribution_model`](@ref).
-"
-function predict_events(
-        chain, model::DynamicPPL.Model;
-        rng = default_rng(), include_all = false)
-    return DynamicPPL.predict(rng, model, chain; include_all = include_all)
 end
 
 # ===========================================================================

@@ -150,7 +150,7 @@ censored-specialisation [`rand`](@ref) method.
 
 See also: [`Parallel`](@ref)
 "
-Base.rand(rng::AbstractRNG, d::Parallel) = _composer_rand(rng, d)
+Base.rand(rng::AbstractRNG, d::Parallel) = _named_composer_rand(rng, d)
 
 Base.rand(d::Parallel) = rand(default_rng(), d)
 sampler(d::Parallel) = d

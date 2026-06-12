@@ -11,6 +11,21 @@
   since no exact finite linear chain represents them. A new tutorial composes
   the resulting delay compartments with an SIR-type ModelingToolkit system.
   Addresses #400.
+- Labelled `NamedTuple` outputs for multivariate composed distributions. Any
+  multivariate composed output is now self-labelling: `rand(d)` for a flat
+  censored `Sequential`/`Parallel` returns a `NamedTuple` keyed by
+  `event_names(d)` (the nested-tree `rand` already did), `rand(latent(d))`
+  follows the same rule (a latent leaf draws `(primary, observed)`), and
+  `mean(latent(d))`/`var`/`std` and the per-endpoint `mean(parallel)`/`var`/`std`
+  return `NamedTuple`s keyed by the event / endpoint names. A univariate
+  (collapsible) output stays a bare scalar. `logpdf` accepts the labelled
+  `NamedTuple` draw (matched to the scored vector by name, field order
+  irrelevant) so a draw round-trips straight back through `logpdf(d, rand(d))`;
+  the internal vector-valued scored representation (and the
+  `product_distribution` record path and AD) are unchanged. Closes #425.
+- `marginal(d)` is the inverse of `latent`: it unwraps a `Latent` back to the
+  marginal node it carries (`marginal(latent(d)) == d`) and is idempotent (a
+  non-`Latent` node is returned unchanged).
 - Batch latent model entry
   `composed_distribution_model(latent(d), rows)` /
   `composed_distribution_model(latent(d), table)`: a looping submodel that
@@ -47,6 +62,16 @@
 
 ### Breaking
 
+- Multivariate composed `rand`/`mean`/`var`/`std` now return a `NamedTuple`
+  instead of a bare `Vector` (see the Features note). Code that indexed the old
+  Vector positionally (`r[1]`) still works via NamedTuple integer indexing, but
+  code that relied on the `Vector` type (`r isa Vector`, broadcasting `sqrt.(r)`)
+  must move to the NamedTuple (key access, `map(sqrt, r)`). A latent leaf's
+  `rand`/`logpdf` use the labelled record `(primary, observed)`.
+- `predict_events` is removed (all methods and the DynamicPPL extension method).
+  Forward simulation is `rand(latent(d))` (a comprehension batches it); posterior
+  event recovery is `DynamicPPL.predict(model, chain)` directly (the removed
+  `predict_events(chain, model)` was a one-line pass-through to it).
 - `primary_censored(...; solver)` defaults to `GaussLegendre(; n = 64)`
   (was `QuadGKJL()`). The fixed-node solver traces cleanly through every
   AD backend, where adaptive quadrature does not. Pass

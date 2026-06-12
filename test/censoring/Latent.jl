@@ -15,7 +15,7 @@
     @test get_primary_event(ld) === get_primary_event(d)
 end
 
-@testitem "latent rand produces the internal times [primary, observed]" begin
+@testitem "latent rand produces the labelled record (primary, observed)" begin
     using Distributions, Random
 
     delay = LogNormal(1.5, 0.75)
@@ -24,11 +24,32 @@ end
 
     rng = MersenneTwister(42)
     x = rand(rng, ld)
-    @test x isa AbstractVector
-    @test length(x) == 2
-    p, y = x[1], x[2]
-    @test insupport(pe, p)        # primary drawn from the primary prior
-    @test y >= p                  # observed = primary + non-negative delay
+    # The latent leaf draw is a labelled NamedTuple (the scored representation is
+    # the vector `[primary, observed]`).
+    @test x isa NamedTuple
+    @test keys(x) == (:primary, :observed)
+    @test insupport(pe, x.primary)   # primary drawn from the primary prior
+    @test x.observed >= x.primary    # observed = primary + non-negative delay
+
+    # The labelled record round-trips straight back through logpdf (matched by
+    # name; the scored representation is the `[primary, observed]` vector).
+    @test logpdf(ld, x) ≈ logpdf(ld, [x.primary, x.observed])
+    # Field order does not matter; the names do.
+    @test logpdf(ld, (observed = x.observed, primary = x.primary)) ≈
+          logpdf(ld, x)
+end
+
+@testitem "marginal is the inverse of latent (idempotent)" begin
+    using Distributions
+
+    d = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
+    ld = latent(d)
+    # marginal unwraps a Latent back to the marginal node it carries.
+    @test marginal(ld) === d
+    @test marginal(latent(d)) == d
+    # Idempotent: a non-Latent node is returned unchanged.
+    @test marginal(d) === d
+    @test marginal(marginal(ld)) === marginal(ld)
 end
 
 @testitem "latent logpdf = primary prior + conditional" begin

@@ -175,7 +175,7 @@ outcome sampled (the unsampled outcomes `missing`), so the whole tree path is on
 
 See also: [`Sequential`](@ref)
 "
-Base.rand(rng::AbstractRNG, d::Sequential) = _composer_rand(rng, d)
+Base.rand(rng::AbstractRNG, d::Sequential) = _named_composer_rand(rng, d)
 
 Base.rand(d::Sequential) = rand(default_rng(), d)
 sampler(d::Sequential) = d

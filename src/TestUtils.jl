@@ -159,41 +159,53 @@ end
 _check_select(::Any, fix) = nothing
 
 # The moments have two tiers: the OVERALL `mean(d)` (a scalar for a
-# univariate-collapsible node, a per-endpoint Vector for a `Parallel`) and the
-# per-event `mean(latent(d))` (a Vector matching `rand(latent(d))`). The harness
-# exercises `rand(d)` and asserts each tier the fixture declares applicable.
+# univariate-collapsible node, a per-endpoint NamedTuple for a `Parallel`) and
+# the per-event `mean(latent(d))` (a NamedTuple matching `rand(latent(d))`). Any
+# MULTIVARIATE composed output is a labelled `NamedTuple`; a univariate
+# (collapsible) output stays a scalar. The harness exercises `rand(d)` and
+# asserts each tier the fixture declares applicable.
 function _check_moments_and_rand(d, fix)
     _is_select(d) && return nothing
     @testset "moments and rand" begin
         r = rand(d)
-        @test r isa Union{Real, AbstractVector, NamedTuple}
+        # A multivariate composer realisation is a labelled NamedTuple; a
+        # univariate node is a bare scalar.
+        if fix.univariate
+            @test r isa Real
+        else
+            @test r isa NamedTuple
+        end
         # Overall moment shape.
         if fix.overall === :scalar
             @test mean(d) isa Real
             @test var(d) isa Real
             @test std(d) isa Real
         elseif fix.overall === :vector
+            # A genuinely multivariate `Parallel`: the per-endpoint moment is a
+            # labelled NamedTuple keyed by the endpoint names.
             m = mean(d)
             v = var(d)
             s = std(d)
-            @test m isa AbstractVector
-            @test v isa AbstractVector
-            @test s isa AbstractVector
-            @test length(m) == length(v) == length(s)
+            @test m isa NamedTuple
+            @test v isa NamedTuple
+            @test s isa NamedTuple
+            @test keys(m) == keys(v) == keys(s)
         end
-        # Per-event (latent) moment: a full Vector matching rand(latent(d)).
+        # Per-event (latent) moment: a full NamedTuple matching rand(latent(d)),
+        # keyed by the same event names.
         if fix.latent_moments
             ld = latent(d)
             lr = rand(ld)
             lm = mean(ld)
             lv = var(ld)
             ls = std(ld)
-            @test lm isa AbstractVector
-            @test lv isa AbstractVector
-            @test ls isa AbstractVector
-            @test length(lm) == length(lr)
-            @test length(lv) == length(lr)
-            @test length(ls) == length(lr)
+            @test lr isa NamedTuple
+            @test lm isa NamedTuple
+            @test lv isa NamedTuple
+            @test ls isa NamedTuple
+            @test keys(lm) == keys(lr)
+            @test keys(lv) == keys(lr)
+            @test keys(ls) == keys(lr)
         end
     end
     return nothing
@@ -217,8 +229,10 @@ end
 function _score(d, draw::Real)
     return logpdf(d, draw)
 end
+# A labelled NamedTuple draw scores directly: the composer / latent-leaf `logpdf`
+# accepts a NamedTuple and converts it to the scored vector BY NAME internally.
 function _score(d, draw::NamedTuple)
-    return logpdf(d, _missing_vec(collect(draw)))
+    return logpdf(d, draw)
 end
 function _score(d, draw::AbstractVector)
     try
