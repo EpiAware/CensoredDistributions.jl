@@ -718,16 +718,17 @@ end
 
 # The latent priors of one latent row's alternative, flattened. A latent LEAF
 # contributes its single origin primary; a latent CHAIN contributes the origin
-# primary then the first `k - 1` DECLARED edges (the intermediate gap priors), so a
-# `k`-edge chain row stacks `k` priors. The intermediate gap `E_i - E_{i-1}` is
-# distributed as the DECLARED edge from `E_{i-1}` to `E_i`, matching the per-record
-# chain submodel (which samples `E_i ~ _ShiftedDelay(declared_edge, E_{i-1})`) and
-# the marginal (which conditions each observed edge on its declared censoring).
+# primary then the first `k - 1` edges as the intermediate gap priors, so a
+# `k`-edge chain row stacks `k` priors. The endpoint-observed chain SAMPLES the
+# origin and every intermediate, so each gap `E_i - E_{i-1}` is distributed as the
+# BARE edge core (#453): when both endpoints of an edge are sampled latents the
+# marginal convolves the bare cores, so the latent gap prior and the terminal
+# conditional must be bare too for marginal == latent (no spurious primary smear).
 _latent_row_priors(alt::Latent) = _latent_row_priors(alt.dist)
 _latent_row_priors(alt::UnivariateDistribution) = (get_primary_event(alt),)
 function _latent_row_priors(chain::Sequential)
     origin = _origin_primary_event(_first_origin_node(chain))
-    edges = Base.front(chain.components)
+    edges = map(_bare_latent_edge, Base.front(chain.components))
     return (origin, edges...)
 end
 
@@ -815,10 +816,14 @@ function _latent_row_observed_logpdf(alt::UnivariateDistribution, events, block)
 end
 function _latent_row_observed_logpdf(chain::Sequential, events, block)
     # `events` is the chain's flat event vector `[E_0, ..., E_k]`; only the
-    # terminal is observed for the endpoint-observed chain. Reconstruct the
-    # latent event times from the origin draw and the intermediate gaps, then
-    # condition the terminal on the last DECLARED edge (matching the per-record
-    # chain submodel and the marginal, which keep the edge's declared censoring).
+    # terminal is observed for the endpoint-observed chain (origin and EVERY
+    # intermediate sampled). Reconstruct the latent event times from the origin
+    # draw and the intermediate gaps, then condition the observed terminal on the
+    # last edge. #453 rule, matching the per-record `_latent_edge`: when there is a
+    # sampled INTERMEDIATE before the terminal (k >= 2) the whole observed->observed
+    # segment is a marginalised run, so the terminal edge scores the BARE core; a
+    # SINGLE-edge chain (k == 1) is the origin->terminal segment and keeps its
+    # DECLARED censoring with the floored sampled origin (#419/#423).
     edges = chain.components
     k = length(edges)
     prev = block[1]
@@ -826,7 +831,12 @@ function _latent_row_observed_logpdf(chain::Sequential, events, block)
         prev += block[i]
     end
     terminal = _the_terminal_observed(events)
-    return logpdf(edges[k], terminal - prev)
+    if k >= 2
+        return logpdf(_bare_latent_edge(edges[k]), terminal - prev)
+    end
+    iv = _leaf_interval(edges[k])
+    shift = iv === nothing ? prev : _apply_leaf_interval(prev, iv)
+    return logpdf(edges[k], terminal - shift)
 end
 
 # The terminal (last) observed value of a chain's flat event vector. The

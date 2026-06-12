@@ -68,6 +68,21 @@ _leaf_interval(d::Truncated) = _leaf_interval(d.untruncated)
 _leaf_interval(d::Weighted) = _leaf_interval(d.dist)
 _leaf_interval(::UnivariateDistribution) = nothing
 
+# The BARE continuous core of an edge for a SAMPLED-endpoint latent edge (#453):
+# every censoring layer stripped (the same `_marginal_core` the marginal scorer
+# uses), so NO primary AND no secondary interval. When an edge's predecessor or
+# target is a sampled continuous latent, the marginal form scores the edge on this
+# bare core — `_parallel_conditional_logpdf` conditions each flat branch on
+# `_marginal_core`, and `_sequential_segment` convolves the `_marginal_core`s
+# across a sampled-intermediate run. Re-applying ANY censoring (primary or the
+# secondary interval) on a sampled-endpoint edge would diverge from the marginal
+# and double-count the within-window uncertainty already represented by the
+# sampled continuous time. Shared by the per-record latent scoring (the DynamicPPL
+# ext) and the vectorised endpoint-observed chain path so the two latent forms and
+# the marginal all agree. An OBSERVED-to-OBSERVED edge keeps its declared
+# censoring (#419) and never reaches here.
+_bare_latent_edge(edge) = _marginal_core(edge)
+
 # Apply a leaf's secondary interval to a recorded (continuous) event time: floor
 # to the regular width or snap to the arbitrary boundary, mirroring
 # `rand(::IntervalCensored)`. A `nothing` interval leaves the value continuous.
