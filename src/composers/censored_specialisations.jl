@@ -1233,20 +1233,30 @@ _tree_primary_event(d::Latent) = _tree_primary_event(d.dist)
 # but descends into nested composer branches, so a Parallel-of-one over a nested
 # censored child still finds the shared origin. Branches that disagree on the
 # primary event are rejected (a shared origin must be unique).
+#
+# Implemented as a HEAD/TAIL tuple recursion (not a `primary = nothing`
+# accumulator loop): the loop form leaves `primary::Union{Nothing, P}`, which
+# older compilers (CI's `lts`/`1`) fail to constant-fold, making
+# `_tree_primary_event` type-unstable and breaking `@inferred` on the sampling
+# walk. The recursion dispatches `_combine_primary` on whether each side is a
+# concrete primary or `nothing`, so the compiler resolves the return type per
+# step (the same pattern `_tree_core_eltype` uses).
+_shared_tree_primary_event(::Tuple{}) = nothing
 function _shared_tree_primary_event(components::Tuple)
-    primary = nothing
-    @inbounds for c in components
-        p = _tree_primary_event(c)
-        p === nothing && continue
-        if primary === nothing
-            primary = p
-        else
-            primary == p || throw(ArgumentError(
-                "Parallel shared-origin branches must share one primary " *
-                "event; got $(primary) and $(p)"))
-        end
-    end
-    return primary
+    return _combine_primary(_tree_primary_event(first(components)),
+        _shared_tree_primary_event(Base.tail(components)))
+end
+
+# Combine a branch's primary with the rest's shared primary. A `nothing` side
+# yields the other; two concrete primaries must agree (a shared origin is unique).
+_combine_primary(a::Nothing, b) = b
+_combine_primary(a, b::Nothing) = a
+_combine_primary(a::Nothing, ::Nothing) = nothing
+function _combine_primary(a, b)
+    a == b || throw(ArgumentError(
+        "Parallel shared-origin branches must share one primary " *
+        "event; got $(a) and $(b)"))
+    return a
 end
 
 # The sampled event-time element type: promote the primary and every leaf delay
