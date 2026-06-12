@@ -161,8 +161,13 @@ end
 # `srconset -> infection -> onset`: the transmission timing carries the source's
 # onset to the case's own infection, then the incubation period carries that
 # infection to the case's onset. The chain is wrapped in `latent`, so the middle
-# infection event is sampled and the two delays are scored directly with no
-# convolution.
+# infection event is sampled and the two delays are scored as BARE continuous
+# densities (`logpdf(delta, ·)` and `logpdf(inc, ·)`) anchored on the source's
+# onset, matching the target model: the source onset is the continuous reference
+# the case is anchored to, so neither edge carries primary censoring (the sampled
+# infection already represents the within-window position; a primary smear would
+# double-count it and break marginal == latent). The unobserved infection is
+# marginalised by the bare convolution `delta + inc`, the sourced denominator.
 # `selecting` routes a record to the branch its `:kind` names, so both kinds
 # share one `inc` and one `delta` and are scored through a single object.
 
@@ -175,12 +180,14 @@ function index_branch(inc)
         primary_event = Uniform(0, pwindow), interval = swindow)
 end
 
-# Sourced branch: the latent transmission -> incubation chain, named so its
-# events read srconset/infection/onset.
+# Sourced branch: the latent transmission -> incubation chain with BARE edges,
+# named so its events read srconset/infection/onset. The source onset is the
+# observed continuous anchor (`srconset = 0`); the two delays are scored bare, so
+# integrating the sampled infection out reproduces the bare convolution
+# `delta + inc` (the marginal and target sourced delay).
 function sourced_branch(inc, delta)
     chain = Sequential(
-        (primary_censored(delta, Uniform(0, pwindow)),
-            primary_censored(inc, Uniform(0, pwindow))),
+        (delta, inc),
         (:srconset_infection, :infection_onset))
     return latent(chain)
 end
@@ -269,10 +276,8 @@ for _ in 1:30
         obs_time = sim_horizon))
 end
 for _ in 1:30
-    seg = predict_events(latent(primary_censored(delta_true,
-        Uniform(0, pwindow))))
-    infection = seg[2]                       # source onset 0, infection latent
-    case_onset = infection + rand(inc_true)  # infection -> case onset
+    infection = rand(delta_true)             # source onset 0 -> infection (bare)
+    case_onset = infection + rand(inc_true)  # infection -> case onset (bare)
     push!(sim_records, (kind = :sourced, srconset = 0.0, infection = missing,
         onset = case_onset))
     push!(sim_src_window, sim_horizon)
