@@ -602,8 +602,10 @@ marginal `logpdf`), so a latent fit recovers the same delays; this section runs
 it alongside the marginal fit and compares.
 
 The composed tree carries a [`Competing`](@ref) resolution node, and a
-`latent`-wrapped composer with a nested `Competing` is out of scope (the latent
-turn-on would have to SAMPLE which outcome occurs, a distinct construction). The
+`latent`-wrapped composer with a nested `Competing` is out of scope: the latent
+composer model treats every event slot as a per-record latent, so it would
+demand BOTH outcome columns at once rather than scoring the one that occurred
+(sampling which outcome occurs would be a distinct construction). The
 latent form therefore handles the resolution the same way the data do: a
 record's recorded outcome is observed, so we route by it. For each resolved
 record we build a two-edge [`latent`](@ref) chain onset → admission → outcome
@@ -700,9 +702,11 @@ namespaced by `prefix` so the chain stays readable.
 end
 
 md"""
-We fit the latent form to the same real records, at a modest budget (the
-per-record admission latents make each leapfrog step heavier, so the latent fit
-is the slower of the two). The posterior is read back with the same
+We fit the latent form to the same real records, at a modest budget. Every
+resolved record here carries its recorded admission, so the latent fit samples no
+extra admission latents and has the SAME parameter dimension as the marginal fit;
+the per-record latent submodels still add per-leapfrog overhead, so the latent
+fit is the slower of the two. The posterior is read back with the same
 [`update`](@ref) and per-event [`mean`](@ref)`(latent(fit))` machinery as the
 marginal fit, since both share the one parameter block.
 """
@@ -802,14 +806,15 @@ end
 
 md"""
 Read the two forms as one model in two directions. The MARGINAL form is the
-default: it carries no per-record latents, so each gradient is cheaper and the
+default: it carries no per-record submodels, so each gradient is cheaper and the
 fit is faster, which is why the sections above use it. The LATENT form matches
-the formulation of the original Isiro analysis and exposes each case's sampled
-admission time, at the cost of the extra per-record dimensions and a slower fit.
-Both recover the same delays here, so prefer the marginal form for routine fits
-and reach for the latent form when the intermediate event times are wanted (for
-example to inspect or to propagate admission timing) or to reproduce the original
-analysis directly.
+the formulation of the original Isiro analysis and would expose any case's
+sampled admission time (here every resolved record has its admission recorded, so
+none is sampled and the parameter dimension is unchanged); the per-record
+submodels still make the fit slower. Both recover the same delays here, so prefer
+the marginal form for routine fits and reach for the latent form when an
+unobserved intermediate event time must be sampled (for example to inspect or to
+propagate admission timing) or to reproduce the original analysis directly.
 """
 
 mvl_comparison
