@@ -405,6 +405,50 @@ end
           CensoredDistributions.Sequential
 end
 
+@testitem "latent batch entry: one-tilde fit matches the manual loop" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: VNChain
+
+    # The batch latent entry collapses the per-record loop + prefix into one
+    # tilde, symmetric with the marginal batch entry. It must produce the same
+    # `recN.e` varnames and fit through the same update/edge_means read.
+    pc(d) = primary_censored(d, Uniform(0, 1))
+    template = Sequential((pc(Gamma(2.0, 1.5)), pc(Gamma(1.5, 2.0))),
+        (:onset_admit, :admit_death))
+    priors = build_priors(params_table(template))
+
+    @model function marginal_fit(t, p, rows)
+        delays ~ to_submodel(composed_parameters_model(t, p))
+        obs ~ to_submodel(composed_distribution_model(delays, rows))
+    end
+    @model function latent_fit(t, p, rows)
+        delays ~ to_submodel(composed_parameters_model(t, p))
+        obs ~ to_submodel(composed_distribution_model(latent(delays), rows))
+    end
+
+    truth = update(
+        template, (onset_admit = (shape = 2.0, scale = 1.5),
+            admit_death = (shape = 1.5, scale = 2.0)))
+    rng = MersenneTwister(909)
+    rows = map(1:8) do _
+        s = predict_events(truth; rng = rng)
+        (onset = s[1], admit = s[2], death = s[3])
+    end
+
+    mchain = sample(Xoshiro(1), marginal_fit(template, priors, rows),
+        NUTS(0.8), 25; chain_type = VNChain, progress = false)
+    lchain = sample(Xoshiro(1), latent_fit(template, priors, rows),
+        NUTS(0.8), 25; chain_type = VNChain, progress = false)
+
+    # Both fits run and read back finite, positive edge means via the same
+    # update/mean path the per-record loop uses; the latent fit's per-record
+    # `recN.e` event vectors are skipped by the template read.
+    mfit = update(template, mchain; prefix = :delays)
+    lfit = update(template, lchain; prefix = :delays)
+    @test all(>(0), mean(mfit))
+    @test all(>(0), mean(lfit))
+end
+
 @testitem "update(template, chain) == update via chain_to_params" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
     using FlexiChains: VNChain

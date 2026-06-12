@@ -161,6 +161,13 @@ record may also be passed a bare observed value. `missing` fields drive the
 per-record marginalise-vs-condition dispatch, and a reserved `weight`/`count`
 field (or the `weight =` keyword) scales the likelihood.
 
+A WHOLE TABLE of records scores in one `~`: pass a `Vector` of row
+`NamedTuple`s or any Tables.jl table (a `DataFrame`) instead of a single row.
+The marginal form collapses to one `product_distribution`; the [`latent`](@ref)
+form loops the records and prefixes each `:recN` inside the package, so both
+batch entries are symmetric and collapse the user model to one `~`. A
+per-record `obs_time` horizon is not supported under `latent`.
+
 This function has no methods until `DynamicPPL` (or `Turing`) is loaded; the
 methods live in the package extension so the core stays free of `DynamicPPL`.
 
