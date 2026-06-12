@@ -28,7 +28,7 @@ We'll cover the following key points:
 
 This tutorial builds on the concepts introduced in [Getting Started with
 CensoredDistributions.jl](@ref getting-started) and the composer reference,
-[The composer toolkit](@ref composer-toolkit), which introduces
+[Composing censored distributions](@ref composer-toolkit), which introduces
 [`compose`](@ref), [`params_table`](@ref), [`build_priors`](@ref), and the
 marginal-versus-latent duality used here.
 
@@ -39,6 +39,9 @@ core package stays Turing-free.
 
 We sample with non-Enzyme AD: ForwardDiff here (see [Automatic differentiation
 backends](@ref ad-backends) for the support matrix and per-backend benchmarks).
+Standardising the fitting tutorials on Mooncake reverse-mode AD throughout
+follows [#409](https://github.com/EpiAware/CensoredDistributions.jl/issues/409),
+so the backend choice here is left unchanged for now.
 
 ## Packages used
 We use CairoMakie for plotting, Turing for probabilistic programming,

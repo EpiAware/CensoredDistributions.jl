@@ -1,4 +1,4 @@
-# # [The composer toolkit](@id composer-toolkit)
+# # [Composing censored distributions](@id composer-toolkit)
 #
 # CensoredDistributions.jl composes per-event delay distributions into one
 # object that describes a whole record.
@@ -157,20 +157,51 @@ row = (onset = 0.0, admit = 2.0, death = 5.0);
 
 only(logjoint(demo(obs_chain, row), (;)))
 
-# For many records, `record_distributions` assembles a vector of
-# per-record distributions and `product_distribution` scores them at once.
-# Each record bakes in its own missingness pattern, so the same call handles a
-# mix of missingness across records: the first has its intermediate admission
-# observed, the second leaves it unobserved (integrated out).
+# For many records, `record_distributions` assembles a vector of per-record
+# distributions and `product_distribution` scores them at once.
+# Each record bakes in its OWN missingness pattern, so one call handles a mix of
+# missingness across the dataset: where the intermediate admission is observed
+# the chain conditions on it, and where it is `missing` the same chain integrates
+# it out (the two delays convolve into one onset-to-death gap).
+# We use a small batch of records so the mix is visible: three observe the
+# admission, three leave it `missing`, and one onset is even repeated to show
+# that nothing special happens per record.
 
 rows = [(onset = 0.0, admit = 2.0, death = 5.0),
-    (onset = 1.0, admit = missing, death = 7.0)];
+    (onset = 0.0, admit = 3.0, death = 6.0),
+    (onset = 1.0, admit = 2.5, death = 5.5),
+    (onset = 0.0, admit = missing, death = 5.0),
+    (onset = 1.0, admit = missing, death = 7.0),
+    (onset = 2.0, admit = missing, death = 9.0),
+    (onset = 1.0, admit = 3.0, death = 7.0)];
 
 recs = CensoredDistributions.record_distributions(obs_chain, rows);
 
-events = hcat([0.0, 2.0, 5.0], [1.0, 0.0, 7.0]);
+# The event matrix is one column per record in `[onset, admit, death]` layout.
+# A `missing` admission keeps a placeholder slot (its value is ignored, since the
+# record integrates that event out); we fill it with `0.0` to keep the matrix
+# numeric.
+
+events = reduce(hcat,
+    [Float64[r.onset, coalesce(r.admit, 0.0), r.death] for r in rows]);
+
+# Scoring the whole batch at once: the conditioned and integrated-out records
+# contribute to one log density, with no per-record bookkeeping at the call site.
 
 logpdf(product_distribution(recs), events)
+
+# The mix is genuine, not a relabelling: an observed-admission record scores the
+# two segments separately, while a `missing`-admission record scores a single
+# convolved onset-to-death gap.
+# We can see the two regimes by scoring each record on its own.
+
+per_record = [logpdf(recs[i],
+                  Float64[rows[i].onset, coalesce(rows[i].admit, 0.0),
+                      rows[i].death])
+              for i in eachindex(rows)];
+
+(observed_admit = round.(per_record[1:3]; digits = 3),
+    integrated_out = round.(per_record[4:6]; digits = 3))
 
 # The same object simulates.
 # A `rand` of a nested tree returns a full named event record: a shared origin
@@ -250,16 +281,21 @@ predict_events(ld; rng = Xoshiro(11))
 # A composed distribution carries a flat inventory of its free parameters.
 # [`params_table`](@ref) lists one row per scalar parameter, keyed by the edge
 # path and the parameter name, with the support a prior must respect.
+# It prints as a table and is a Tables.jl source (a [`ParamsTable`](@ref)), so
+# `tbl.edge`/`tbl.param` read its columns and `DataFrame(tbl)` makes a DataFrame.
 
 template = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)));
 
-tbl = params_table(template);
+tbl = params_table(template)
+
+# Its columns are accessed by name.
 
 tbl.edge, tbl.param
 
-# [`build_priors`](@ref) turns that table into the nested prior NamedTuple the
-# parameter model expects.
+# [`build_priors`](@ref) takes that TABLE (any Tables.jl source with `edge`,
+# `param`, `value`, `support` columns) and turns it into the nested prior
+# NamedTuple the parameter model expects.
 # It derives a default prior per row from that leaf's SUPPORT: a positive scale
 # parameter gets a positive-truncated prior, a location parameter an unbounded
 # one, a `[0, 1]` probability a `Uniform(0, 1)`.
@@ -316,3 +352,16 @@ NamedTuple{keys(event_tree(updated))}(Tuple(mean(updated)))
 # - [`params_table`](@ref), [`build_priors`](@ref) (support-derived defaults),
 #   [`composed_parameters_model`](@ref), and [`update`](@ref) attach parameters
 #   and priors to the same object and feed the record model.
+#
+# ## Where next
+#
+# - To FIT a composed distribution to data, see [Fitting CensoredDistributions.jl
+#   modified distributions with Turing.jl](@ref), which takes the `params_table`
+#   / `build_priors` / `composed_parameters_model` pieces shown here through a
+#   full Turing fit and posterior summary. We do not repeat fitting on this page.
+# - The [Fit marginal, sample event based](@ref) tutorial fits in the cheap
+#   marginal form and then samples event paths from the latent form.
+# - To write your OWN leaf or composer that plugs into these tools, see
+#   [Extending the composer toolkit](@ref extending-composer): the interface a
+#   custom distribution must satisfy, a worked example composed into a tree, and
+#   the public conformance harness that checks it.

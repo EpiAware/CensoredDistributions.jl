@@ -52,3 +52,7 @@ public GaussLegendre, integrate, gl_integrate
 # `TestUtils.test_interface(d)` lets a downstream author verify a new leaf /
 # composer against the package's interface checklist.
 public TestUtils
+
+# The Tables.jl column table `params_table` returns (public but not exported): a
+# Tables.jl source that prints as a padded table and forwards column access.
+public ParamsTable

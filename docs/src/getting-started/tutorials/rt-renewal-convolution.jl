@@ -30,12 +30,14 @@ We cover:
 2. A Turing fit: the same renewal and combined-stack convolution recomputed
    inside a `@model`, fitting Rt, ascertainment and IFR to the simulated cases
    and deaths, and recovering the truth.
+3. A posterior-predictive check: push the posterior back through the same forward
+   map and overlay the fitted case and death series, with a band, on the data.
 
 ### What might I need to know before starting
 
 This tutorial builds on [Getting Started with
 CensoredDistributions.jl](@ref getting-started) and the composer reference,
-[The composer toolkit](@ref composer-toolkit), which introduces
+[Composing censored distributions](@ref composer-toolkit), which introduces
 [`Sequential`](@ref) chains, [`compose`](@ref) and
 [`convolve_distributions`](@ref).
 We do not re-explain the composer basics here; this page is about using a
@@ -384,6 +386,79 @@ draw(rt_plot;
     axis = (; xlabel = "day", ylabel = "Rt", title = "Rt recovery"))
 
 md"""
+## Posterior-predictive fit to data
+
+Recovering the parameters is one check; a stronger one is whether the fitted
+model REPRODUCES the data it was fit to.
+We push the posterior back through the SAME forward map used in the demo and the
+`@model`: for each draw we rebuild the Rt path, run the renewal, rebuild the
+observation stack with that draw's ascertainment and IFR, and convolve to
+expected cases and deaths.
+This reuses [`convolve_distributions`](@ref) through the `observation_stack` /
+`expected_streams` helpers with no new machinery.
+"""
+
+post_draws = [(R_block = draws.R_block[i], alpha = draws.alpha[i],
+                  rho = draws.rho[i]) for i in eachindex(draws.alpha)]
+
+function predict_streams(draw)
+    Rt = [draw.R_block[block_of(t)] for t in 1:n_days]
+    infections = renewal(Rt, g, I0)
+    stack = observation_stack(incubation, onset_report, onset_death,
+        draw.alpha, draw.rho)
+    return expected_streams(stack, infections)
+end
+
+pred = [predict_streams(d) for d in post_draws]
+
+md"""
+We summarise the predictive expected streams by their pointwise median and a
+50-to-95% band across draws, then overlay the simulated observed counts the fit
+saw.
+A model that fits well has the observed points sitting inside its predictive
+band.
+"""
+
+function band_df(series, kind)
+    mat = reduce(hcat, series)
+    return DataFrame(day = 1:n_days, kind = kind,
+        med = [median(mat[t, :]) for t in 1:n_days],
+        lo = [quantile(mat[t, :], 0.025) for t in 1:n_days],
+        hi = [quantile(mat[t, :], 0.975) for t in 1:n_days])
+end
+
+pp_band = vcat(
+    band_df([p.cases for p in pred], "cases"),
+    band_df([p.deaths for p in pred], "deaths"))
+
+pp_obs = vcat(
+    DataFrame(day = 1:n_days, kind = "cases", value = Float64.(cases_obs)),
+    DataFrame(day = 1:n_days, kind = "deaths", value = Float64.(deaths_obs)))
+
+pp_plot = (
+    data(pp_band) *
+    mapping(:day, :lo, :hi, layout = :kind) * visual(Band, alpha = 0.3) +
+    data(pp_band) *
+    mapping(:day, :med, layout = :kind) * visual(Lines) +
+    data(pp_obs) *
+    mapping(:day, :value, layout = :kind) * visual(Scatter, markersize = 5))
+
+draw(pp_plot;
+    facet = (; linkyaxes = :none),
+    figure = (; size = (800, 350)),
+    axis = (; xlabel = "day", ylabel = "count",
+        title = "Posterior-predictive fit"))
+
+md"""
+The fitted median tracks both observed series and the band covers the scatter,
+so the model reproduces the case and death streams it was fit to, at their very
+different scales, from one shared infection process.
+
+The same pattern carries to the case studies: after fitting, push the posterior
+back through the model's forward map, summarise the predicted series by a median
+and a band across draws, and overlay the observed data to check the fit visually
+rather than only by parameter recovery.
+
 ## Summary
 
 - The renewal recursion is user-side; the package supplies the observation
