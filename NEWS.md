@@ -1,5 +1,16 @@
 ## Unreleased
 
+### Features
+
+- Batch latent model entry
+  `composed_distribution_model(latent(d), rows)` /
+  `composed_distribution_model(latent(d), table)`: a looping submodel that
+  runs the per-record loop and `:recN` prefixing inside the package, so a
+  latent fit collapses to one `~` (`obs ~ to_submodel(...)`) just like the
+  marginal batch entry. Mirrors the marginal form's vector-of-rows and
+  Tables.jl table signatures, so the two batch forms are symmetric. A
+  per-record `obs_time` horizon stays rejected under `latent`. Closes #449.
+
 ### Bug fixes
 
 - `compose` no longer misclassifies a structural `NamedTuple` whose
