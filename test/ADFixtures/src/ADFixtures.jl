@@ -172,6 +172,15 @@ function backend_broken_scenarios()
     # Enzyme heterogeneous-edge gap (#319); ForwardDiff / ReverseDiff / Mooncake
     # differentiate it correctly.
     nested_comp = "Nested Competing tree conditioned logpdf"
+    # `double_interval_censored(Sequential ...)` collapses the Sequential to its
+    # observed total (`observed_distribution`), a `Convolved{Tuple{Gamma,
+    # LogNormal}}`, then double-censors it. Enzyme (both modes) cannot find a
+    # shadow for that `Convolved` quadrature-window struct inside the
+    # differentiated `double_interval_censored` call (`EnzymeNoShadowError`): the
+    # same class of Enzyme gap as the heterogeneous-edge tree (#319). ForwardDiff,
+    # ReverseDiff and Mooncake all differentiate it correctly, so it is registered
+    # broken for Enzyme only (#444).
+    convolved_dic = "double_interval_censored(Sequential) over total"
     # The vectorised path runs an AD-FREE pre-pass that collects the table rows
     # (`Tables.rows` iteration, vector building, validation `throw`s) before the
     # AD-traced build/evaluate. ForwardDiff and ReverseDiff trace straight through
@@ -201,9 +210,11 @@ function backend_broken_scenarios()
         "Mooncake reverse" => copy(compiled_broken),
         "Mooncake forward" => copy(compiled_broken),
         "Enzyme reverse" => union(
-            Set{String}([nested_tree, nested_comp]), compiled_broken),
+            Set{String}([nested_tree, nested_comp, convolved_dic]),
+            compiled_broken),
         "Enzyme forward" => union(
-            Set{String}([nested_tree, nested_comp]), compiled_broken)
+            Set{String}([nested_tree, nested_comp, convolved_dic]),
+            compiled_broken)
     )
 end
 
