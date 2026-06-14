@@ -102,6 +102,14 @@ end
 _origin_interval(d::Sequential) = _origin_interval(d.components[1])
 _origin_interval(d::Parallel) = _shared_origin_interval(d.components)
 _origin_interval(d::Competing) = _shared_origin_interval(d.delays)
+# A nested `Select` / `Latent` anchors its origin within the routed alternative /
+# wrapped node; the alternatives share one origin interval, so the first is
+# representative. Mirrors the `_tree_primary_event` recursion so a Parallel whose
+# origin-anchor branch is itself a `Select`/`Latent` still discretises its origin
+# slot (reached only when that branch is the first censored one, e.g. a
+# single-branch `compose((x = select(...),))`, issue #436).
+_origin_interval(d::Select) = _shared_origin_interval(d.alternatives)
+_origin_interval(d::Latent) = _origin_interval(d.dist)
 _origin_interval(d::UnivariateDistribution) = _leaf_interval(d)
 
 # The shared origin interval of a `Parallel`/`Competing`: the branches hang off
@@ -1237,10 +1245,57 @@ end
 
 # The latent origin distribution seeding the whole tree: a `Sequential`'s origin
 # is its first step's primary (recursing into a nested first step); a `Parallel`'s
-# is its branches' shared primary. `nothing` for a plain (uncensored) tree.
+# is its branches' shared primary (recursing into a nested branch). `nothing` for
+# a plain (uncensored) tree.
+#
+# The Parallel case must RECURSE into each branch rather than only checking each
+# branch's `_origin_primary_event` (a leaf-only probe that returns `nothing` for a
+# nested composer): a single-branch `compose((x = nested_censored,))` is a
+# Parallel-of-one whose only branch is itself a censored composer, and the whole
+# tree shares one latent origin found inside that branch. Probing leaf-only would
+# miss it, fall through to the plain per-leaf-value `rand`, and error on the
+# nested record (issue #436).
 _tree_primary_event(d::Sequential) = _tree_primary_event(d.components[1])
-_tree_primary_event(d::Parallel) = _shared_primary_event(d.components)
+_tree_primary_event(d::Parallel) = _shared_tree_primary_event(d.components)
 _tree_primary_event(d::UnivariateDistribution) = _origin_primary_event(d)
+# A `Competing` branch shares the parent origin and resolves to one outcome; its
+# own origin primary (if censored) is any outcome's primary (they share it). A
+# `Select` shares the origin of its alternatives. Both recurse so a nested
+# censored child still surfaces the tree's shared latent origin.
+_tree_primary_event(d::Competing) = _shared_tree_primary_event(d.delays)
+_tree_primary_event(d::Select) = _shared_tree_primary_event(d.alternatives)
+_tree_primary_event(d::Latent) = _tree_primary_event(d.dist)
+
+# The single shared primary event across a tuple of (possibly nested) branches,
+# recursing into each via `_tree_primary_event`. Mirrors `_shared_primary_event`
+# but descends into nested composer branches, so a Parallel-of-one over a nested
+# censored child still finds the shared origin. Branches that disagree on the
+# primary event are rejected (a shared origin must be unique).
+#
+# Implemented as a HEAD/TAIL tuple recursion (not a `primary = nothing`
+# accumulator loop): the loop form leaves `primary::Union{Nothing, P}`, which
+# older compilers (CI's `lts`/`1`) fail to constant-fold, making
+# `_tree_primary_event` type-unstable and breaking `@inferred` on the sampling
+# walk. The recursion dispatches `_combine_primary` on whether each side is a
+# concrete primary or `nothing`, so the compiler resolves the return type per
+# step (the same pattern `_tree_core_eltype` uses).
+_shared_tree_primary_event(::Tuple{}) = nothing
+function _shared_tree_primary_event(components::Tuple)
+    return _combine_primary(_tree_primary_event(first(components)),
+        _shared_tree_primary_event(Base.tail(components)))
+end
+
+# Combine a branch's primary with the rest's shared primary. A `nothing` side
+# yields the other; two concrete primaries must agree (a shared origin is unique).
+_combine_primary(a::Nothing, b) = b
+_combine_primary(a, b::Nothing) = a
+_combine_primary(a::Nothing, ::Nothing) = nothing
+function _combine_primary(a, b)
+    a == b || throw(ArgumentError(
+        "Parallel shared-origin branches must share one primary " *
+        "event; got $(a) and $(b)"))
+    return a
+end
 
 # The sampled event-time element type: promote the primary and every leaf delay
 # core's parameter type so an AD/tracked param flows through (matching the
