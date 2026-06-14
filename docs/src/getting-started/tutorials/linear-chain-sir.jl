@@ -88,7 +88,7 @@ delay = Sequential((latent_period, infectious_period),
 # ## Lowering the delay to compartments
 #
 # [`linear_chain_stages`](@ref) reads the `(rate, stages)` structure off the
-# chain, one [`ChainStage`](@ref) per step.
+# chain, one [`ChainStage`](@ref CensoredDistributions.ChainStage) per step.
 # The exposed step becomes 2 compartments and the infectious step 3, each with
 # its own per-stage rate.
 
@@ -105,8 +105,8 @@ end
 
 # ## Building a delay sub-system in ModelingToolkit
 #
-# We turn one [`ChainStage`](@ref) group into an MTK `System` of compartments in
-# series.
+# We turn one [`ChainStage`](@ref CensoredDistributions.ChainStage) group into
+# an MTK `System` of compartments in series.
 # Each compartment leaves at the stage rate to the next; the last leaves the
 # sub-system entirely.
 # We expose two interface variables the larger model connects to: `inflow` (the

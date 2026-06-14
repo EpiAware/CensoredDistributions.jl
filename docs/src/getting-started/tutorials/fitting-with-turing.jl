@@ -427,7 +427,8 @@ parameters(full_fit)
 md"""
 The composed interface reads the fitted delay back as a distribution.
 [`update`](@ref) rebuilds the object from the posterior, [`event`](@ref) fetches
-the named leaf, and the overall [`mean`](@ref) reports the mean delay. For the
+the named leaf, and the overall [`mean`](@ref CensoredDistributions.mean)
+reports the mean delay. For the
 per-event breakdown wrap with [`latent`](@ref): the per-event Vector reports each
 event's mean, seeing through the censored leaf to its inner free delay (label it
 with [`event_names`](@ref)).
@@ -485,7 +486,8 @@ md"""
   count weighting without changing the model.
 - The naive model is misspecified; adding interval censoring and truncation
   improves it, and the full double-censored model recovers the truth.
-- [`update`](@ref)`(template, chain)`, [`event`](@ref), and [`mean`](@ref) read
+- [`update`](@ref)`(template, chain)`, [`event`](@ref), and
+  [`mean`](@ref CensoredDistributions.mean) read
   the fitted delay back onto the composed object with no manual chain indexing,
   while the FlexiChains output exposes the raw `VarName`-keyed samples.
 """
