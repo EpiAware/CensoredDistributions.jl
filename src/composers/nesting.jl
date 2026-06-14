@@ -57,8 +57,19 @@ end
 # Select's flat slot carries observed values, not the latent primary.
 _child_nleaves(c::Latent) = _child_nleaves(c.dist)
 
-# Total leaf count over a tuple of children.
-_nleaves(components::Tuple) = sum(_child_nleaves, components)
+# Total leaf count over a tuple of children. A HEAD/TAIL recursion, NOT
+# `sum(_child_nleaves, components)`: `sum(f, ::Tuple)` over a heterogeneous tuple
+# is inferred `Any` on the CI compilers (`lts`/`1`) -- it lowers to a generic
+# `mapreduce` whose accumulator type the older inference cannot resolve -- which
+# poisons every downstream `Vector{...}(undef, _nleaves(...) + 1)` constructor
+# (its length argument becomes `Any`, so the constructed array type widens to
+# `Any` and the whole sampling/scoring path infers `Any`). Julia 1.12 happens to
+# constant-fold the `sum` and so masks the regression locally. The recursion
+# below resolves to a concrete `Int` per step on every supported version.
+_nleaves(::Tuple{}) = 0
+function _nleaves(components::Tuple)
+    _child_nleaves(first(components)) + _nleaves(Base.tail(components))
+end
 
 # Number of EVENT slots a child contributes to the flat EVENT vector.
 # Distinct from `_child_nleaves` (the generic VALUE-vector layout): a `Competing`
@@ -84,8 +95,16 @@ function _event_child_nleaves(c::Select)
 end
 
 # Total EVENT-slot count over a tuple of children (the flat event vector minus
-# its shared origin).
-_event_nleaves(components::Tuple) = sum(_event_child_nleaves, components)
+# its shared origin). HEAD/TAIL recursion for the same reason as `_nleaves`:
+# `sum(_event_child_nleaves, ::Tuple)` infers `Any` on the CI compilers and
+# widens the `Vector{Union{Missing, T}}(missing, _event_nleaves(...) + 1)`
+# constructor in `_tree_event_vector` to `Any`, breaking `@inferred` on the
+# sampling walk on every version except the one that constant-folds it (1.12).
+_event_nleaves(::Tuple{}) = 0
+function _event_nleaves(components::Tuple)
+    _event_child_nleaves(first(components)) +
+    _event_nleaves(Base.tail(components))
+end
 
 # Sum the per-child log-densities over the matching flat slices of `x`. A leaf
 # consumes one scalar; a nested composer consumes a `_child_nleaves`-long slice
