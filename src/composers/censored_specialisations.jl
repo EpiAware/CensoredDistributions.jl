@@ -587,33 +587,65 @@ function _seq_event_logpdf(::_Flat, d::Sequential, events)
 end
 
 # Flat `Sequential` scoring with an OPTIONAL per-record observation horizon
-# `horizon` (hanta truncation). The WHOLE composed distribution is truncated
-# per record at the horizon (the same combine-then-censor semantics as wrapping a
-# chain in `double_interval_censored`): the record's observed total is the elapsed
-# time from the FIRST observed event (origin) to the LAST observed event
-# (terminal), right-truncated at `window = horizon - origin`. This is unambiguous
-# for the ENDPOINT-OBSERVED case (origin + terminal observed, intermediates
-# unobserved) -- the hanta index/sourced shape -- where the record IS the single
-# collapsed total. With OBSERVED INTERMEDIATES the "whole-compose at D" meaning is
-# a maintainer decision (truncate the collapsed total at D - origin, vs each
-# observed segment at D - its anchor); that case is rejected pending the decision
-# rather than guessed. `horizon === nothing` leaves the scoring untruncated.
+# `horizon` (real-time right-truncation). The WHOLE composed distribution is
+# truncated per record at the horizon (the same combine-then-censor semantics as
+# wrapping a chain in `double_interval_censored`): the record is included only if
+# its LAST OBSERVED event occurred by the horizon `D`. Resolved semantics (#366,
+# maintainer decision): whole-compose TOTAL truncation.
+#
+#   numerator   = the untruncated factorised per-segment density (unchanged): an
+#                 observed intermediate conditions on its own edge at the observed
+#                 gap; an unobserved-intermediate run convolves its cores.
+#   denominator = a SINGLE term `-logcdf(C, window)` where `C` is the convolution
+#                 of all components from the origin to the LAST OBSERVED event
+#                 (the origin primary reapplied) and `window = D - origin`.
+#
+# This is the standard real-time right-truncation (a record is in the sample iff
+# its last observed event has occurred by `D`) and is well-defined for ALL
+# observed patterns, so it covers BOTH the endpoint-observed hanta index/sourced
+# shape (a single collapsed total) and the observed-intermediate case (the
+# factorised numerator over the single conv-to-last-observed denominator). With a
+# single observed segment the denominator's `C` IS that segment, so the result
+# reduces to `truncate_to_horizon(seg, window)`. `horizon === nothing` leaves the
+# scoring untruncated.
 function _seq_event_logpdf_h(d::Sequential, events, horizon)
     horizon === nothing && return _seq_event_logpdf_untrunc(d, events)
     obs_idx, obs_val = _observed_indices_values(events)
     length(obs_idx) >= 2 || throw(ArgumentError(
         "a Sequential event vector needs at least two observed events"))
-    length(obs_idx) == 2 || throw(ArgumentError(
-        "per-record horizon truncation of a Sequential is defined for the " *
-        "endpoint-observed case (origin + terminal observed, intermediates " *
-        "unobserved); a record with observed intermediates needs the " *
-        "whole-compose-vs-per-segment decision before it is scored"))
-    # Endpoint-observed: the collapsed origin->terminal total, truncated at the
-    # remaining window from the observed origin.
     primary = _origin_primary_event(d.components[1])
-    seg = _sequential_segment(d.components, obs_idx[1], obs_idx[2], primary)
-    gap = obs_val[2] - obs_val[1]
-    return logpdf(truncate_to_horizon(seg, horizon - obs_val[1]), gap)
+    # Numerator: the untruncated factorised per-segment density. The origin
+    # primary is reapplied only to the segment that actually starts at the latent
+    # origin E_0 (`obs_idx[j] == 1`), matching `_sequential_segment`'s `a == 1`
+    # contract and the vectorised `_build_seq_bundle` run.
+    total = zero(promote_type(eltype(obs_val), float(eltype(d))))
+    for j in 1:(length(obs_idx) - 1)
+        seg = _sequential_segment(
+            d.components, obs_idx[j], obs_idx[j + 1],
+            obs_idx[j] == 1 ? primary : nothing)
+        gap = obs_val[j + 1] - obs_val[j]
+        total += logpdf(seg, gap)
+    end
+    # Denominator: a single conv-to-last-observed right-truncation term. `C` is
+    # the convolution of every component from the origin to the LAST observed
+    # event, truncated at the remaining window from the observed origin. With one
+    # observed segment `C` is that segment, so this matches the endpoint-observed
+    # term `-logcdf(seg, window)`. The origin primary is reapplied only when the
+    # first observed event IS the latent origin E_0 (`obs_idx[1] == 1`), matching
+    # `_sequential_segment`'s `a == 1` contract and the vectorised
+    # `_build_seq_bundle` run; a denominator anchored at an observed intermediate
+    # (origin unobserved) is an exact-time anchor, not the latent primary.
+    last_seg = _sequential_segment(
+        d.components, obs_idx[1], obs_idx[end],
+        obs_idx[1] == 1 ? primary : nothing)
+    window = horizon - obs_val[1]
+    # A non-positive window (the horizon already passed the observed origin) is an
+    # empty-support truncation: the record cannot have been observed, so the whole
+    # contribution is `-Inf`, matching the `truncate_to_horizon` empty-support
+    # guard rather than the `+Inf` a bare `total - logcdf(., minimum)` would give.
+    window <= minimum(last_seg) &&
+        return convert(typeof(total), -Inf)
+    return total - logcdf(last_seg, window)
 end
 
 # The untruncated flat-chain scoring (the original per-segment factorisation).
@@ -628,8 +660,12 @@ function _seq_event_logpdf_untrunc(d::Sequential, events)
     primary = _origin_primary_event(d.components[1])
     total = zero(promote_type(eltype(obs_val), float(eltype(d))))
     for j in 1:(length(obs_idx) - 1)
+        # Reapply the origin primary only to the segment starting at the latent
+        # origin E_0 (`obs_idx[j] == 1`); a leading run anchored at an observed
+        # event is an exact-time anchor, matching the vectorised build.
         seg = _sequential_segment(
-            d.components, obs_idx[j], obs_idx[j + 1], j == 1 ? primary : nothing)
+            d.components, obs_idx[j], obs_idx[j + 1],
+            obs_idx[j] == 1 ? primary : nothing)
         gap = obs_val[j + 1] - obs_val[j]
         total += logpdf(seg, gap)
     end
@@ -828,15 +864,17 @@ WHOLE composed distribution is right-truncated at that observation time for the
 record, the same combine-then-censor direction as wrapping the compose in
 [`double_interval_censored`](@ref) but with the upper bound supplied per record.
 
-For a [`Sequential`](@ref) the record's observed total (origin to terminal) is
-truncated at ``\text{horizon} - \text{origin}`` (the endpoint-observed
-index/sourced shape); for a [`Parallel`](@ref) each branch endpoint is truncated
-at ``\text{horizon} - \text{origin}`` off the shared origin. The truncation
+For a [`Sequential`](@ref) the truncation is whole-compose TOTAL truncation
+(#366): the factorised per-segment numerator is divided by a single
+``F(\text{window})`` denominator, where the denominator delay is the convolution
+of every component from the origin to the LAST OBSERVED event and
+``\text{window} = \text{horizon} - \text{origin}``. A record is then included
+only if its last observed event occurred by the horizon. This is well-defined for
+all observed patterns, so observed intermediates are scored (their numerator
+factorises, the single conv-to-last-observed denominator truncates), not rejected.
+For a [`Parallel`](@ref) each branch endpoint is truncated at
+``\text{horizon} - \text{origin}`` off the shared origin. The truncation
 contributes the ``-\log F(\text{window})`` correction, upper-only and AD-safe.
-
-A `Sequential` record with OBSERVED INTERMEDIATES is rejected with a per-record
-horizon: whether whole-compose truncation means the collapsed total or each
-observed segment is a maintainer decision left open rather than guessed.
 
 # Arguments
 - `d`: a censored [`Sequential`](@ref) or [`Parallel`](@ref) composer.

@@ -1479,22 +1479,37 @@ end
     @test lj == -Inf
 end
 
-@testitem "per-record horizon: observed-intermediate is rejected (#329)" begin
+@testitem "per-record horizon: observed-intermediate whole-compose (#366)" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
-    seq = Sequential(
-        (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
-            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
-        (:onset_admit, :admit_death))
+    inc = primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1))
+    delta = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    seq = Sequential((inc, delta), (:onset_admit, :admit_death))
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
 
-    # With the intermediate admit OBSERVED and a per-record horizon, the
-    # whole-compose-vs-per-segment meaning is undecided (#329): rejected, not
-    # guessed.
-    row = (onset = 0.0, admit = 2.0, death = 5.0, obs_time = 8.0)
-    @test_throws ArgumentError logjoint(demo(seq, row), (;))
+    # With the intermediate admit OBSERVED and a per-record horizon, #366 scores
+    # whole-compose TOTAL truncation: the factorised per-segment numerator over a
+    # single conv-to-last-observed denominator. Match the hand-rolled per-record
+    # decomposition (the andv index-vs-sourced terms generalised to an observed
+    # intermediate).
+    D = 8.0
+    o, a, dth = 0.0, 2.0, 5.0
+    # Numerator: each observed segment conditions on its own edge.
+    numerator = logpdf(inc, a - o) + logpdf(delta, dth - a)
+    # Denominator: the convolution of all components origin->last observed
+    # (death), truncated at D - origin.
+    conv = CensoredDistributions._sequential_segment(
+        seq.components, 1, 3, Uniform(0, 1))
+    expected = numerator - logcdf(conv, D - o)
+    row = (onset = o, admit = a, death = dth, obs_time = D)
+    @test only(logjoint(demo(seq, row), (;))) ≈ expected
+
+    # The whole-compose denominator is conv-to-LAST-observed, NOT a per-segment
+    # product of each edge's own window: the two genuinely differ.
+    per_segment = logcdf(inc, D - o) + logcdf(delta, D - a)
+    @test !isapprox(logcdf(conv, D - o), per_segment)
 end
 
 @testitem "per-record horizon: leaf record truncates at D (#329)" begin

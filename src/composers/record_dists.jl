@@ -93,25 +93,27 @@ function _record_logpdf(r::EventRecord{<:Sequential}, x::AbstractVector)
     obs = _observed_event_indices(r.events)
     vals = [x[i] for i in obs]
     nseg = length(obs) - 1
-    if r.horizon !== nothing
-        nseg == 1 || throw(ArgumentError(
-            "per-record horizon truncation of a Sequential is defined for the " *
-            "endpoint-observed case (origin + terminal observed, " *
-            "intermediates unobserved)"))
-        seg = _lookup_seg(bundle.segs, obs[1], obs[2])
-        window = r.horizon - vals[1]
-        lp = logpdf(truncate_to_horizon(seg, window), vals[2] - vals[1])
-        return _weight_lp(lp, r.weight)
-    end
-    # The accumulator is seeded with a `Float64` zero and left UNANNOTATED so each
-    # segment's (possibly AD-tracked) log density widens it naturally, mirroring
-    # the flat `_seq_event_logpdf_untrunc` pattern (the data is constant; the
-    # `Dual` comes from the leaf params via the segments).
+    # Numerator: the untruncated factorised per-segment density. The accumulator
+    # is seeded with a `Float64` zero and left UNANNOTATED so each segment's
+    # (possibly AD-tracked) log density widens it naturally, mirroring the flat
+    # `_seq_event_logpdf_untrunc` pattern (the data is constant; the `Dual` comes
+    # from the leaf params via the segments).
     lp = zero(float(eltype(vals)))
     @inbounds for j in 1:nseg
         seg = _lookup_seg(bundle.segs, obs[j], obs[j + 1])
         lp += logpdf(seg, vals[j + 1] - vals[j])
     end
+    r.horizon === nothing && return _weight_lp(lp, r.weight)
+    # Denominator: whole-compose TOTAL truncation (#366). A single
+    # conv-to-last-observed right-truncation term `-logcdf(C, window)`, where `C`
+    # is the prebuilt origin->last-observed segment and `window = horizon -
+    # origin`. With one observed segment `C` IS that segment, reducing to the
+    # endpoint-observed term. A non-positive window is an empty-support truncation
+    # (`-Inf`), matching `event_logpdf`'s guard.
+    last_seg = _lookup_seg(bundle.segs, obs[1], obs[end])
+    window = r.horizon - vals[1]
+    lp = window <= minimum(last_seg) ? convert(typeof(lp), -Inf) :
+         lp - logcdf(last_seg, window)
     return _weight_lp(lp, r.weight)
 end
 
@@ -386,18 +388,23 @@ end
 # position). Pure integer/data: reads only the observed indices. A record with
 # fewer than two observed events contributes no run (a fully-missing record is
 # scored as zero and SAMPLED through `rand`, the generative path).
+#
+# A record carrying a per-record horizon also needs the conv-to-last-observed run
+# `(obs[1], obs[end])` for its whole-compose TOTAL truncation denominator (#366),
+# so that origin->last-observed segment is registered (and built once, shared)
+# alongside the per-segment numerator runs. For an endpoint-observed record this
+# is the same run as its single segment.
 function _distinct_runs(parsed)
     seen = Set{Tuple{Int, Int}}()
     runs = Tuple{Int, Int}[]
+    push_run!(run) = run in seen || (push!(seen, run); push!(runs, run))
     for p in parsed
         obs = _observed_event_indices(p.events)
         length(obs) >= 2 || continue
         for j in 1:(length(obs) - 1)
-            run = (obs[j], obs[j + 1])
-            run in seen && continue
-            push!(seen, run)
-            push!(runs, run)
+            push_run!((obs[j], obs[j + 1]))
         end
+        p.horizon === nothing || push_run!((obs[1], obs[end]))
     end
     return runs
 end
