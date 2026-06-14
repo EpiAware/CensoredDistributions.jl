@@ -7,6 +7,7 @@ getting_started_pages = Any[
         "Automatic differentiation backends" => "getting-started/tutorials/ad-backends.md",
         "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md",
         "Composing censored distributions" => "getting-started/tutorials/composer-toolkit.md",
+        "SurvivalDistributions.jl delay families" => "getting-started/tutorials/survival-delay-families.md",
         "Rt renewal with delay convolution" => "getting-started/tutorials/rt-renewal-convolution.md",
         "Composed delay as ODE compartments" => "getting-started/tutorials/linear-chain-sir.md",
         "Epinowcast-style hazard nowcasting" => "getting-started/tutorials/epinowcast-nowcasting.md",

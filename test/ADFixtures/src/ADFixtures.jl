@@ -31,6 +31,7 @@ using ADTypes: ADTypes, AutoForwardDiff, AutoReverseDiff, AutoMooncake,
 using DifferentiationInterface: DifferentiationInterface, Constant
 import ForwardDiff, ReverseDiff, Mooncake, Enzyme
 import DifferentiationInterfaceTest as DIT
+import SurvivalDistributions as SD
 
 export scenarios, backends, working_backends, broken_backends,
        broken_scenario_names, backend_broken_scenarios,
@@ -551,6 +552,24 @@ function scenarios(; with_reference::Bool = false)
             x -> logpdf(interval_censored(Weibull(θ[1], θ[2]), 1.0), x),
             obs),
         [2.0, 1.5], (Constant(obs_int),))
+
+    # SurvivalDistributions.jl leaf (#465). A GeneralizedGamma delay family
+    # scored through its own `logpdf` — the gradient a sampler takes when fitting
+    # one of these families. GeneralizedGamma's `logpdf` differentiates on every
+    # backend (ForwardDiff / ReverseDiff / Mooncake reverse+forward / Enzyme
+    # reverse+forward), so it is a full (non-broken) scenario. The CENSORED path
+    # for this family is NOT an AD fixture: its `logcdf` routes through
+    # `StatsFuns._gammalogccdf`, which has no Dual/Tracked method, so no backend
+    # differentiates the censored CDF (the same incomplete-gamma gap stock Gamma
+    # avoids via the package's `_gamma_cdf` helper, which the upstream family
+    # does not use). Three params (shape σ, scale, power). Guarded on the
+    # AirspeedVelocity baseline: the fixtures module is loaded when benchmarking
+    # the PR against `main`, and `SD` is a fixtures dep there too, so the literal
+    # constructor is safe; the scenario verifies leaf gradients on every backend.
+    _push!("SurvivalDistributions GeneralizedGamma logpdf",
+        (θ, obs) -> sum(
+            x -> logpdf(SD.GeneralizedGamma(θ[1], θ[2], θ[3]), x), obs),
+        [1.0, 1.5, 2.0], (Constant(obs),))
 
     # Convolved (sum of independent delays). The analytic Normal+Normal
     # pair differentiates through `Distributions.convolve`; the

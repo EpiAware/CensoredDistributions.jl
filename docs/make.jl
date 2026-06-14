@@ -25,6 +25,7 @@ if !skip_notebooks
         "analytical-primarycensored-cdfs.jl",
         "exponentially-tilted-primary-events.jl",
         "composer-toolkit.jl",
+        "survival-delay-families.jl",
         "fit-marginal-sample-event-based.jl"
     ]
 
@@ -98,6 +99,7 @@ else
         "ad-backends.md" => "# [Automatic differentiation backends](@id ad-backends)",
         "fitting-with-turing.md" => "# Fitting with Turing.jl",
         "composer-toolkit.md" => "# [Composing censored distributions](@id composer-toolkit)",
+        "survival-delay-families.md" => "# [Delay families from SurvivalDistributions.jl](@id survival-delay-families)",
         "fit-marginal-sample-event-based.md" => "# Fit marginal, sample event based",
         "bdbv-linelist-analysis.md" => "# Bundibugyo Ebola delays from the 2012 Isiro line list",
         "andv-linelist-analysis.md" => "# Real-time Andes virus delays from the Epuyén line list",
