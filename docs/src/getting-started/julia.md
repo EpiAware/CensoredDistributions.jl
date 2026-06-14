@@ -194,7 +194,7 @@ pkg> update     # Update to compatible versions
 
 With this setup, you're ready to:
 - Work through the [tutorials](@ref tutorials) to learn CensoredDistributions.jl
-- Explore the [API documentation](@ref "Public API")
+- Explore the [API documentation](@ref public-api)
 - [Contribute to the project](@ref contributing) if you're interested
 
 ## Additional resources

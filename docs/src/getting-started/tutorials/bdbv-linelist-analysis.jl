@@ -259,9 +259,9 @@ md"""
 
 We fit the synthetic line list and read the posterior back onto the composed
 object with [`update`](@ref), passing the fitted chain directly.
-The per-event [`mean`](@ref)`(latent(fit))` Vector (labelled with
-[`event_names`](@ref)) then reads each delay's mean off the updated distribution,
-so there is no manual chain indexing.
+The per-event [`mean`](@ref CensoredDistributions.mean)`(latent(fit))`
+Vector (labelled with [`event_names`](@ref)) then reads each delay's mean
+off the updated distribution, so there is no manual chain indexing.
 
 The likelihood is differentiated with forward mode (`AutoForwardDiff`).
 Mooncake reverse mode is the preferred backend for a tree this size, but it
@@ -280,8 +280,9 @@ sim_chain = sample(Xoshiro(1), bdbv(template, priors, sim_rows),
 sim_fit = update(template, sim_chain; prefix = :delays)
 
 md"""
-The per-event [`mean`](@ref)`(latent(fit))` Vector reads every delay mean off any
-fitted composed object at once, in the same flat layout as [`event_names`](@ref)
+The per-event [`mean`](@ref CensoredDistributions.mean)`(latent(fit))`
+Vector reads every delay mean off any fitted composed object at once, in
+the same flat layout as [`event_names`](@ref)
 and seeing through each censored leaf to its inner free delay. `flat_means`
 labels that Vector and picks the four delays we report, and `delay_mean_draws`
 applies it to every posterior draw, giving the posterior distribution of each
@@ -707,7 +708,8 @@ resolved record here carries its recorded admission, so the latent fit samples n
 extra admission latents and has the SAME parameter dimension as the marginal fit;
 the per-record latent submodels still add per-leapfrog overhead, so the latent
 fit is the slower of the two. The posterior is read back with the same
-[`update`](@ref) and per-event [`mean`](@ref)`(latent(fit))` machinery as the
+[`update`](@ref) and per-event
+[`mean`](@ref CensoredDistributions.mean)`(latent(fit))` machinery as the
 marginal fit, since both share the one parameter block.
 """
 
@@ -854,8 +856,10 @@ md"""
   floor(origin)`, fits the real line list, and overlaps the re-estimated study
   delays within uncertainty for all four delays.
 - The posterior is read back with [`update`](@ref) applied to the fitted chain
-  and the per-event [`mean`](@ref)`(latent(fit))` Vector, so delay means and the
-  onset-to-death convolution come straight from the fitted object.
+  and the per-event
+  [`mean`](@ref CensoredDistributions.mean)`(latent(fit))` Vector, so delay
+  means and the onset-to-death convolution come straight from the fitted
+  object.
 - The same delay model is fit in both the MARGINAL form (admission integrated
   out, the cheap default) and the LATENT form (admission sampled per record,
   matching the original Isiro analysis), routing the resolution by the observed

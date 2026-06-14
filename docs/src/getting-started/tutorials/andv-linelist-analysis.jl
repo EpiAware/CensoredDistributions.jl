@@ -359,7 +359,8 @@ fig
 # `update`, so the post-fit delay object comes from the composer rather than
 # from hand-built distributions.
 # A `Sequential` template of the two delays is updated from the posterior means
-# keyed by step name, then the per-event [`mean`](@ref)`(latent(posted))` Vector
+# keyed by step name, then the per-event
+# [`mean`](@ref CensoredDistributions.mean)`(latent(posted))` Vector
 # reads both delay means off the fitted object in one call.
 
 template = Sequential(Normal(0.0, 1.0), LogNormal(1.0, 0.5))
