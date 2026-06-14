@@ -112,6 +112,7 @@ end
 
 _child_params(c::Union{Sequential, Parallel}) = _composed_params(c)
 _child_params(c::Competing) = _competing_params(c)
+_child_params(c::Select) = _select_params(c)
 _child_params(c) = params(c)
 
 # A `Competing` node's nested params: each outcome name -> its delay's params,
@@ -120,6 +121,21 @@ function _competing_params(c::Competing)
     outcome_vals = map(params, c.delays)
     outcomes = NamedTuple{c.names}(outcome_vals)
     return merge(outcomes, (; branch_probs = c.branch_probs))
+end
+
+# A `Select` node's nested params: a NamedTuple keyed by the alternative NAMES,
+# each value the alternative's own `_child_params` (recursing into a nested
+# composer, delegating to `params` at a leaf). The public `params(::Select)`
+# stays positional (mirroring `params(::Competing)`), but this name-keyed form is
+# what the nested params tree threads when a `Select` is a child, so a `Select`
+# under a `Sequential`/`Parallel` yields a name-keyed subtree rather than a
+# positional tuple. Per-branch params are namespaced per alternative
+# (`index.…`/`sourced.…`); a tag shared across alternatives via `shared(:tag,...)`
+# still appears once per occurrence here and is inventoried/sampled once by
+# `params_table`/the prior model.
+function _select_params(d::Select)
+    vals = map(_child_params, d.alternatives)
+    return NamedTuple{d.names}(vals)
 end
 
 # --- censoring-transparent leaves ------------------------------------------
@@ -287,6 +303,12 @@ of the composed distribution `d`, with columns:
 Define priors against the rows of this table instead of hand-matching parameter
 names. Built from [`params`](@ref) (nested, name-keyed values) plus the edge
 distributions' support.
+
+For a [`Select`](@ref) node the alternatives' independent per-branch params are
+namespaced per alternative (`index.…` / `sourced.…`), one row-group per
+alternative. A parameter tied across alternatives via [`shared`](@ref)`(:tag,
+...)` is inventoried ONCE under its `tag` edge and sampled once, so a value tied
+across the index and sourced branches appears as a single row-group.
 
 # Examples
 ```@example
