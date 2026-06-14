@@ -47,6 +47,14 @@ An alternative may itself be any distribution or a nested composer
 `Select` as a child of a `Sequential` / `Parallel` / `compose` composer — is not
 currently supported (a `Select` has no fixed contribution length) and is rejected.
 
+For prior introspection ([`params_table`](@ref), [`build_priors`](@ref),
+[`update`](@ref)) the alternatives' parameters are namespaced per alternative:
+independent per-branch params live under their alternative name (`index.…` /
+`sourced.…`), so each branch's parameters are inventoried and sampled separately.
+A parameter tied across alternatives via [`shared`](@ref)`(:tag, ...)` is keyed
+once by its `tag` and is inventoried once and sampled once, so the tied value is
+shared by every alternative that uses it.
+
 # Fields
 - `names`: tuple of the alternative names (`Symbol`s).
 - `alternatives`: tuple of the alternative distributions, one per name.
@@ -163,6 +171,11 @@ function Base.length(::Select)
         "d, kind))` or pass `kind` to `logpdf`/`rand`."))
 end
 
+# The PUBLIC `params(::Select)` is POSITIONAL, mirroring `params(::Competing)`: a
+# tuple of each alternative's `params` in alternative order. The NAME-keyed nested
+# params tree (what prior introspection threads when a `Select` is a child) goes
+# through `_select_params`/`_child_params` in `introspection.jl`, keyed by the
+# alternative names so a nested `Select` yields a name-keyed subtree.
 params(d::Select) = map(params, d.alternatives)
 
 @doc "
