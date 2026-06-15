@@ -308,7 +308,12 @@ function _select_resolved_records(d::Union{Sequential, Parallel}, rows)
 end
 
 # The selector field names of every nested `Select` in a tree (each Select's
-# `selector`), so they are stripped from a row before event matching.
+# `selector`), so they are stripped from a row before event matching. RECURSES
+# through the same nesting as `_count_selects`/`_resolve_selects` (composer
+# components, an `AbstractCompeting`'s outcome `delays`, a Select's alternatives, a
+# Latent's inner dist), so a Select nested inside a competing-outcome subtree has
+# its selector field stripped too (else the field would be matched as a spurious
+# event).
 _select_fields(::UnivariateDistribution) = Symbol[]
 function _select_fields(d::Select)
     vcat([d.selector],
@@ -317,6 +322,10 @@ end
 function _select_fields(d::Union{Sequential, Parallel})
     return reduce(vcat, map(_select_fields, d.components); init = Symbol[])
 end
+function _select_fields(c::AbstractCompeting)
+    return reduce(vcat, map(_select_fields, c.delays); init = Symbol[])
+end
+_select_fields(d::Latent) = _select_fields(d.dist)
 
 # Drop several named fields from a NamedTuple, preserving the order of the rest.
 function _drop_named_fields(row::NamedTuple, fields)
@@ -538,19 +547,37 @@ end
 
 # The single Competing node of a tree (for coercing a per-record override against
 # its outcome names), or `nothing` when there is none; errors if more than one.
-_the_competing_node(c::Competing) = c
+# RECURSES through the same nesting as `_count_competing`/`_replace_competing`
+# (composer components, an `AbstractCompeting`'s outcome `delays`, a `Select`'s
+# alternatives, a `Latent`'s inner dist), so a Competing nested inside a
+# competing-outcome subtree or a Select alternative is found and coerced against.
+# (Previously a nested `AbstractCompeting` hit the `::UnivariateDistribution`
+# fallback — they share that supertype — so a nested Competing was missed, and
+# `Select`/`Latent` hit no method.) A `HazardCompeting` is NOT branch-prob-
+# overridable, so it is not itself returned, but its delays are still searched.
+_the_competing_node(c::Competing) = _merge_competing(c,
+    _the_competing_node_in(c.delays))
+_the_competing_node(c::HazardCompeting) = _the_competing_node_in(c.delays)
 _the_competing_node(::UnivariateDistribution) = nothing
 function _the_competing_node(d::Union{Sequential, Parallel})
-    found = nothing
-    for c in d.components
-        f = _the_competing_node(c)
-        f === nothing && continue
-        found === nothing || throw(ArgumentError(
-            "a per-record `branch_probs` override needs exactly one Competing " *
-            "node in the tree; found more than one"))
-        found = f
-    end
-    return found
+    return _the_competing_node_in(d.components)
+end
+_the_competing_node(d::Select) = _the_competing_node_in(d.alternatives)
+_the_competing_node(d::Latent) = _the_competing_node(d.dist)
+
+_the_competing_node_in(::Tuple{}) = nothing
+function _the_competing_node_in(xs::Tuple)
+    return _merge_competing(_the_competing_node(first(xs)),
+        _the_competing_node_in(Base.tail(xs)))
+end
+
+_merge_competing(a, ::Nothing) = a
+_merge_competing(::Nothing, b) = b
+_merge_competing(::Nothing, ::Nothing) = nothing
+function _merge_competing(a, b)
+    throw(ArgumentError(
+        "a per-record `branch_probs` override needs exactly one Competing " *
+        "node in the tree; found more than one"))
 end
 
 # ---------------------------------------------------------------------------

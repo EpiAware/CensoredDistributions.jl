@@ -280,23 +280,45 @@ end
 
 # The single Competing node of a tree (for coercing a per-record override against
 # its outcome names), or `nothing` when there is none. Errors if more than one.
+# Mirrors the core `_count_competing`/`_replace_competing` nesting: it RECURSES
+# through composer components, an `AbstractCompeting`'s outcome `delays` (a
+# Competing can nest inside a competing-outcome subtree), a `Select`'s
+# alternatives, and a `Latent`'s inner dist. (Previously a nested
+# `AbstractCompeting` hit the `::UnivariateDistribution` fallback — they share
+# that supertype — so a Competing nested inside a competing outcome was never
+# found, and `Select`/`Latent` hit no method.) A `HazardCompeting` is NOT
+# branch-prob-overridable, so it is not itself returned, but its delays are still
+# searched (a Competing may nest inside one of its causes).
 function _the_competing(d)
     found = _find_competing(d)
     return found
 end
-_find_competing(c::Competing) = c
+_find_competing(c::Competing) = _merge_found(c, _find_competing_in(c.delays))
+function _find_competing(c::CensoredDistributions.HazardCompeting)
+    return _find_competing_in(c.delays)
+end
 _find_competing(::UnivariateDistribution) = nothing
-function _find_competing(d::Union{Sequential, Parallel})
-    found = nothing
-    for c in d.components
-        f = _find_competing(c)
-        f === nothing && continue
-        found === nothing || throw(ArgumentError(
-            "a per-record `branch_probs` override needs exactly one Competing " *
-            "node in the tree; found more than one"))
-        found = f
-    end
-    return found
+_find_competing(d::Union{Sequential, Parallel}) = _find_competing_in(d.components)
+_find_competing(d::Select) = _find_competing_in(d.alternatives)
+_find_competing(d::Latent) = _find_competing(d.dist)
+
+# Fold `_find_competing` over a tuple of children, erroring if more than one
+# Competing node is found anywhere (the single `branch_probs` row field is then
+# ambiguous).
+_find_competing_in(::Tuple{}) = nothing
+function _find_competing_in(xs::Tuple)
+    return _merge_found(_find_competing(first(xs)),
+        _find_competing_in(Base.tail(xs)))
+end
+
+# Combine two search results into the single found Competing, erroring on two.
+_merge_found(a, ::Nothing) = a
+_merge_found(::Nothing, b) = b
+_merge_found(::Nothing, ::Nothing) = nothing
+function _merge_found(a, b)
+    throw(ArgumentError(
+        "a per-record `branch_probs` override needs exactly one Competing " *
+        "node in the tree; found more than one"))
 end
 
 # VECTORISED entry: score a WHOLE TABLE of records sharing the same composed `d`

@@ -29,6 +29,11 @@ import SurvivalDistributions as SD
 # `Gamma{T}`, so a `Dual`/`Tracked` parameter is preserved in `shape(d.G)` /
 # `scale(d.G)`; the helpers below pull those out and the `_gamma_cdf` rules do
 # the rest.
+#
+# `SurvivalDistributions.LogLogistic` needs NO special AD routing here: its
+# `logccdf` is built from elementary operations (`log1p`/`exp`), so it
+# differentiates through the generic elementary `logccdf` fallback under every
+# backend without a `_*_ad_safe` method (#487).
 
 function _gg_cdf(d::SD.GeneralizedGamma, u::Real)
     return _gamma_cdf(shape(d.G), scale(d.G), u^d.gamma)
