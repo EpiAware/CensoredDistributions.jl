@@ -2,11 +2,11 @@
 # Wrapping a composer with an external censoring wrapper
 # ============================================================================
 #
-# This layer defines what it MEANS to apply a censoring wrapper
-# (`primary_censored` / `interval_censored` / `double_interval_censored`) ON
-# TOP of a composer. It is the EXTERNAL direction: combine first, then censor,
-# the dual of the internal direction, which specialises a composer whose
-# internal nodes are already censored.
+# This layer defines what it MEANS to apply a censoring or truncation wrapper
+# (`primary_censored` / `interval_censored` / `double_interval_censored` /
+# `truncate_to_horizon`) ON TOP of a composer. It is the EXTERNAL direction:
+# combine first, then censor/truncate, the dual of the internal direction, which
+# specialises a composer whose internal nodes are already censored.
 #
 # A censoring wrapper observes one scalar quantity. Each composer exposes its
 # observed scalar through `observed_distribution`:
@@ -19,9 +19,14 @@
 # returning a `Parallel` of censored branches (each branch endpoint censored on
 # its own).
 #
+# A `Select` is a data-selected disjunction of independent alternatives, so a
+# wrapper distributes into every alternative and returns a `Select` of wrapped
+# alternatives (the selected alternative's own observed scalar is wrapped).
+#
 # `Convolved` and `Competing` are univariate, so the existing
 # `UnivariateDistribution` wrapper methods already accept them; this file adds
-# only the `Sequential` (collapse-then-wrap) and `Parallel` (distribute) cases.
+# the `Sequential` (collapse-then-wrap), `Parallel` (distribute over branches)
+# and `Select` (distribute over alternatives) cases.
 # Dispatch on the composer type — no runtime predicate, no new hierarchy.
 
 @doc "
@@ -156,6 +161,22 @@ function double_interval_censored(
         interval = interval, method = method, force_numeric = force_numeric)
 end
 
+@doc "
+
+Right-truncate the total elapsed time of a [`Sequential`](@ref) chain to an
+observation `window`.
+
+The chain is first collapsed to its observed quantity (the convolution of the
+steps via [`observed_distribution`](@ref)), then right-truncated, the same
+combine-first-then-truncate direction as
+[`interval_censored`](@ref)`(::Sequential)`.
+
+See also: [`truncate_to_horizon`](@ref), [`observed_distribution`](@ref)
+"
+function truncate_to_horizon(d::Sequential, window::Real)
+    return truncate_to_horizon(observed_distribution(d), window)
+end
+
 # ---------------------------------------------------------------------------
 # Parallel: distribute the wrapper into every branch.
 # ---------------------------------------------------------------------------
@@ -208,4 +229,104 @@ See also: [`double_interval_censored`](@ref)
 function double_interval_censored(d::Parallel; kwargs...)
     return Parallel(
         map(b -> double_interval_censored(b; kwargs...), d.components), d.names)
+end
+
+@doc "
+
+Right-truncate every branch of a [`Parallel`](@ref) to an observation `window`
+independently.
+
+A `Parallel` has several independent endpoints, so right-truncation distributes
+into each branch, returning a `Parallel` of right-truncated branches (the same
+distribute idiom as [`interval_censored`](@ref)`(::Parallel)`).
+
+See also: [`truncate_to_horizon`](@ref)
+"
+function truncate_to_horizon(d::Parallel, window::Real)
+    return Parallel(
+        map(b -> truncate_to_horizon(b, window), d.components), d.names)
+end
+
+# ---------------------------------------------------------------------------
+# Select: distribute the wrapper into every alternative.
+# ---------------------------------------------------------------------------
+#
+# A `Select` is a data-selected disjunction: each alternative is a full,
+# independent sub-distribution with its own endpoint, and a record's `kind`
+# selects which alternative scores / `rand`s. A censoring or truncation wrapper
+# observes the SELECTED alternative's scalar, so wrapping a `Select` distributes
+# the wrapper into every alternative and returns a `Select` of wrapped
+# alternatives. Scoring stays coherent: `logpdf(wrapped, x; kind)` routes (via
+# `_pick`) to the wrapped alternative's own `logpdf`, i.e. the censored /
+# truncated score of the selected sub-model, exactly the per-`kind` observation
+# model. This mirrors the `Parallel` distribute idiom; the selector and names
+# are preserved so the disjunction is unchanged apart from each alternative now
+# being observed through the wrapper.
+
+@doc "
+
+Primary-event-censor every alternative of a [`Select`](@ref) independently.
+
+Each alternative is an independent sub-distribution selected by a record's
+`kind`, so censoring distributes into every alternative, returning a `Select` of
+primary-censored alternatives (selector and names preserved). Scoring a record
+then routes to its selected alternative's censored score.
+
+See also: [`primary_censored`](@ref), [`Select`](@ref)
+"
+function primary_censored(d::Select, primary_event::UnivariateDistribution;
+        kwargs...)
+    return Select(d.names,
+        map(a -> primary_censored(a, primary_event; kwargs...),
+            d.alternatives), d.selector)
+end
+
+function primary_censored(d::Select; kwargs...)
+    return Select(d.names,
+        map(a -> primary_censored(a; kwargs...), d.alternatives), d.selector)
+end
+
+@doc "
+
+Interval-censor every alternative of a [`Select`](@ref) independently.
+
+Distributes the interval boundaries into each alternative, returning a `Select`
+of interval-censored alternatives (selector and names preserved).
+
+See also: [`interval_censored`](@ref), [`Select`](@ref)
+"
+function interval_censored(d::Select, interval)
+    return Select(d.names,
+        map(a -> interval_censored(a, interval), d.alternatives), d.selector)
+end
+
+@doc "
+
+Apply the full primary/truncation/interval pipeline to every alternative of a
+[`Select`](@ref) independently.
+
+Distributes the pipeline into each alternative, returning a `Select` of censored
+alternatives (selector and names preserved).
+
+See also: [`double_interval_censored`](@ref), [`Select`](@ref)
+"
+function double_interval_censored(d::Select; kwargs...)
+    return Select(d.names,
+        map(a -> double_interval_censored(a; kwargs...), d.alternatives),
+        d.selector)
+end
+
+@doc "
+
+Right-truncate every alternative of a [`Select`](@ref) to an observation
+`window` independently.
+
+Distributes the right-truncation into each alternative, returning a `Select` of
+right-truncated alternatives (selector and names preserved).
+
+See also: [`truncate_to_horizon`](@ref), [`Select`](@ref)
+"
+function truncate_to_horizon(d::Select, window::Real)
+    return Select(d.names,
+        map(a -> truncate_to_horizon(a, window), d.alternatives), d.selector)
 end

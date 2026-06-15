@@ -146,3 +146,147 @@ end
     @test 0.0 <= cdf(d, 5.0) <= 1.0
     @test pdf(d, 3.0) >= 0.0
 end
+
+# ---------------------------------------------------------------------------
+# Coverage matrix (#363): every composer x every wrapper constructs and gives a
+# finite logpdf. This is the deliverable the maintainer asked for: truncation /
+# censoring / interval-censoring compose over a composed distribution as you'd
+# expect. truncate_to_horizon now joins the censoring wrappers over composers,
+# and Select distributes a wrapper into its alternatives.
+# ---------------------------------------------------------------------------
+
+@testitem "every composer x every wrapper constructs and scores finitely" begin
+    using Distributions
+
+    # A finite-logpdf check at a valid point for each composer realisation.
+    function score_finite(d)
+        if d isa CensoredDistributions.Parallel
+            return isfinite(logpdf(d, fill(2.0, length(d))))
+        elseif d isa CensoredDistributions.Select
+            return isfinite(logpdf(d, 2.0; kind = first(d.names)))
+        else
+            return isfinite(logpdf(d, 2.0))
+        end
+    end
+
+    composers = (
+        ("Sequential",
+            Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))),
+        ("Parallel",
+            Parallel(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))),
+        ("Select",
+            selecting(:index => Gamma(2.0, 1.0),
+                :sourced => LogNormal(0.5, 0.4))),
+        ("Competing",
+            Competing(:a => (Gamma(2.0, 1.0), 0.6),
+                :b => (LogNormal(0.5, 0.4), 0.4))),
+        ("HazardCompeting",
+            HazardCompeting(:a => Gamma(2.0, 1.0),
+                :b => LogNormal(0.5, 0.4))),
+        ("Convolved",
+            convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))),
+        ("Seq[leaf,Competing]",
+            Sequential(Gamma(2.0, 1.0),
+                Competing(:a => (Gamma(1.5, 1.0), 0.5),
+                    :b => (LogNormal(0.3, 0.4), 0.5))))
+    )
+
+    wrappers = (
+        ("truncate_to_horizon", d -> truncate_to_horizon(d, 10.0)),
+        ("primary_censored", d -> primary_censored(d, Uniform(0, 1))),
+        ("interval_censored", d -> interval_censored(d, 1.0)),
+        ("double_interval_censored",
+            d -> double_interval_censored(
+                d; primary_event = Uniform(0, 1), upper = 10.0,
+                interval = 1.0))
+    )
+
+    for (cname, d) in composers, (wname, w) in wrappers
+
+        wrapped = w(d)
+        @test score_finite(wrapped)
+    end
+end
+
+@testitem "single-edge Sequential collapse is exact (== bare leaf)" begin
+    using Distributions
+
+    leaf = Gamma(2.0, 1.0)
+    seq = Sequential(leaf)
+
+    # The collapse is identity at the distribution level.
+    @test observed_distribution(seq) === leaf
+
+    # Every wrapper over the single-edge chain is density-identical to the
+    # wrapper over the bare leaf (collapse-then-wrap must be exact).
+    for x in (0.5, 1.0, 2.5, 5.0)
+        @test logpdf(truncate_to_horizon(seq, 8.0), x) ≈
+              logpdf(truncate_to_horizon(leaf, 8.0), x)
+        @test logpdf(primary_censored(seq, Uniform(0, 1)), x) ≈
+              logpdf(primary_censored(leaf, Uniform(0, 1)), x)
+        @test logpdf(interval_censored(seq, 1.0), x) ≈
+              logpdf(interval_censored(leaf, 1.0), x)
+        @test logpdf(
+            double_interval_censored(seq; primary_event = Uniform(0, 1),
+                upper = 10.0, interval = 1.0), x) ≈
+              logpdf(
+            double_interval_censored(leaf; primary_event = Uniform(0, 1),
+                upper = 10.0, interval = 1.0), x)
+    end
+end
+
+@testitem "truncate_to_horizon over Sequential collapses then truncates" begin
+    using Distributions
+
+    seq = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    conv = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+
+    t_seq = truncate_to_horizon(seq, 8.0)
+    t_conv = truncate_to_horizon(conv, 8.0)
+    @test t_seq isa Truncated
+    @test logpdf(t_seq, 3.0) ≈ logpdf(t_conv, 3.0)
+end
+
+@testitem "truncate_to_horizon over Parallel distributes into branches" begin
+    using Distributions
+
+    par = Parallel(Gamma(2.0, 1.0), LogNormal(1.0, 0.5))
+    t = truncate_to_horizon(par, 8.0)
+    @test t isa CensoredDistributions.Parallel
+    @test t.components[1] isa Truncated
+    @test t.components[2] isa Truncated
+    # The distributed truncation scores each branch independently.
+    @test logpdf(t, [2.0, 3.0]) ≈
+          logpdf(truncate_to_horizon(Gamma(2.0, 1.0), 8.0), 2.0) +
+          logpdf(truncate_to_horizon(LogNormal(1.0, 0.5), 8.0), 3.0)
+end
+
+@testitem "Wrapping a Select distributes into its alternatives" begin
+    using Distributions
+
+    sel = selecting(:index => Gamma(2.0, 1.0),
+        :sourced => LogNormal(0.5, 0.4))
+
+    # Each wrapper distributes into every alternative, preserving the
+    # names/selector, and scoring a record routes (via `kind`) to it.
+    for (w,
+        leaf_w) in (
+        (d -> primary_censored(d, Uniform(0, 1)),
+            ld -> primary_censored(ld, Uniform(0, 1))),
+        (d -> interval_censored(d, 1.0), ld -> interval_censored(ld, 1.0)),
+        (d -> truncate_to_horizon(d, 8.0), ld -> truncate_to_horizon(ld, 8.0)),
+        (
+            d -> double_interval_censored(d; primary_event = Uniform(0, 1),
+                upper = 10.0, interval = 1.0),
+            ld -> double_interval_censored(ld; primary_event = Uniform(0, 1),
+                upper = 10.0, interval = 1.0)))
+        wrapped = w(sel)
+        @test wrapped isa CensoredDistributions.Select
+        @test wrapped.names === sel.names
+        @test wrapped.selector === sel.selector
+        @test logpdf(wrapped, 2.0; kind = :index) ≈
+              logpdf(leaf_w(Gamma(2.0, 1.0)), 2.0)
+        @test logpdf(wrapped, 2.0; kind = :sourced) ≈
+              logpdf(leaf_w(LogNormal(0.5, 0.4)), 2.0)
+    end
+end
