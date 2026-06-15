@@ -1,5 +1,5 @@
 md"""
-# Bundibugyo Ebola delays from the 2012 Isiro line list
+# [Bundibugyo Ebola delays from the 2012 Isiro line list](@id bdbv-linelist-analysis)
 
 ## Introduction
 

@@ -1,5 +1,7 @@
 # # [Delay families from SurvivalDistributions.jl](@id survival-delay-families)
 #
+# ## Introduction
+#
 # CensoredDistributions.jl treats any `UnivariateDistribution` as a delay leaf.
 # That contract is satisfied by more than the families in Distributions.jl.
 # [SurvivalDistributions.jl](https://github.com/JuliaSurv/SurvivalDistributions.jl)
@@ -9,8 +11,19 @@
 # They subtype `ContinuousUnivariateDistribution` and define
 # `logpdf`/`cdf`/`rand`, and they already declare support on `[0, Inf)`, so they
 # drop into the composed stack as leaves with no extra code.
-# This page shows a survival family used as a censored delay, composed into a
-# record, and convolved with another delay.
+#
+# ### What are we going to do in this exercise
+#
+# 1. Use a SurvivalDistributions.jl family (LogLogistic) as a plain delay leaf.
+# 2. Double-interval-censor that survival leaf.
+# 3. Compose it into a record alongside a stock Distributions.jl delay.
+# 4. Convolve it with another delay.
+#
+# ### What might I need to know before starting
+#
+# This tutorial builds on [Getting Started with
+# CensoredDistributions.jl](@ref getting-started) and the composer reference,
+# [Composing censored distributions](@ref composer-toolkit).
 
 # ## Packages used
 #

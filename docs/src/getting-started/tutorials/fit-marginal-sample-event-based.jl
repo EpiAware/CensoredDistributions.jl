@@ -1,5 +1,5 @@
 md"""
-# Fit marginal, sample event based
+# [Fit marginal, sample event based](@id fit-marginal-sample-event-based)
 
 ## Introduction
 

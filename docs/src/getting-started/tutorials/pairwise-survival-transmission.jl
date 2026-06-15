@@ -23,7 +23,15 @@ This is exactly a **competing risks across sources** problem: the sources race,
 the first contact wins, and timing and cause are coupled.
 
 This page maps that structure directly onto the CensoredDistributions composer
-stack:
+stack.
+
+### What are we going to do in this exercise
+
+We fit the 1861 Hagelloch measles outbreak, the canonical dataset for this
+method, recover the contact-interval parameters and ``R_0``, and read off a
+within-household hazard ratio.
+
+1. Map each Kenah pairwise concept onto a composed primitive:
 
 | Kenah pairwise concept | Composed primitive |
 |---|---|
@@ -33,9 +41,16 @@ stack:
 | contact-interval observation windows (dates to the day) | a [`double_interval_censored`](@ref) leaf (sketched in the refinements) |
 | covariate hazard ratios (within vs between household) | a per-pair scale on the leaf |
 
-We fit the 1861 Hagelloch measles outbreak, the canonical dataset for this
-method, recover the contact-interval parameters and ``R_0``, and read off a
-within-household hazard ratio.
+2. Define the contact-interval distribution as a custom hazard leaf.
+3. Build the pairwise survival likelihood as a racing-hazard competing node.
+4. Fit the Hagelloch data and recover the parameters, ``R_0`` and the
+   within-household hazard ratio.
+
+### What might I need to know before starting
+
+This tutorial builds on [Getting Started with
+CensoredDistributions.jl](@ref getting-started) and the composer reference,
+[Composing censored distributions](@ref composer-toolkit).
 
 ## The method
 

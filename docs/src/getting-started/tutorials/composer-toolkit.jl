@@ -1,13 +1,29 @@
 # # [Composing censored distributions](@id composer-toolkit)
 #
+# ## Introduction
+#
 # CensoredDistributions.jl composes per-event delay distributions into one
 # object that describes a whole record.
 # The same object scores observed records and simulates new ones, so a model is
 # built once and used in both directions.
-# This page is the reference the case studies point to: it demonstrates the
-# composer front-ends, how they nest, how to score and simulate from one object,
-# and how to attach parameters and priors.
-# Each section is a small runnable example rather than a full analysis.
+# This page is the reference the case studies point to.
+#
+# ### What are we going to do in this exercise
+#
+# Each section is a small runnable example rather than a full analysis. We:
+#
+# 1. Compose a record from per-event delays with [`compose`](@ref).
+# 2. Build the four composers directly ([`Sequential`](@ref),
+#    [`Parallel`](@ref), [`Competing`](@ref), [`Select`](@ref)) and see how they
+#    nest.
+# 3. Score and simulate from one composed object.
+# 4. Attach parameters and priors with [`params_table`](@ref) and
+#    [`build_priors`](@ref).
+#
+# ### What might I need to know before starting
+#
+# This page is the composer reference the case studies point to. It builds on
+# [Getting Started with CensoredDistributions.jl](@ref getting-started).
 
 # ## Packages used
 #

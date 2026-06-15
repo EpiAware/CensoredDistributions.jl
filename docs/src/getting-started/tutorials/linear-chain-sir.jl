@@ -18,6 +18,8 @@
 # A delay we wrote as a distribution becomes a chain of ODE compartments with a
 # single per-stage rate, exactly.
 #
+# ### What are we going to do in this exercise
+#
 # We do three things:
 #
 # 1. Take a composed Exp/Erlang delay stack and read off its linear-chain
@@ -27,7 +29,13 @@
 #    latent (E) and infectious (I) periods are explicit sub-systems of one
 #    larger ODE, then solve and plot.
 #
-# ### Which framework, and why
+# ### What might I need to know before starting
+#
+# This tutorial builds on [Getting Started with
+# CensoredDistributions.jl](@ref getting-started) and the composer reference,
+# [Composing censored distributions](@ref composer-toolkit).
+#
+# #### Which framework, and why
 #
 # The bridge target is a modelling framework that can hold the delay
 # compartments as a *sub-system* and compose it with a transmission model.

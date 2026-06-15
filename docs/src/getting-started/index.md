@@ -232,11 +232,31 @@ In addition to these main functions, the package also includes:
 
 ### [Tutorials](@id tutorials)
 
-For more information on the package and its integration with other packages, see the tutorials in this getting started section:
+For more information on the package and its integration with other packages, see the tutorials in this getting started section.
+
+**Distributions and censoring**
 
 - **[Analytical CDF solutions](tutorials/analytical-primarycensored-cdfs.md)**: Understanding analytical solutions for common distribution pairs
-- **[Fitting with Turing.jl](tutorials/fitting-with-turing.md)**: Bayesian inference with censored distributions
 - **[Exponentially tilted primary events](tutorials/exponentially-tilted-primary-events.md)**: Understanding the impact of exponentially tilted primary events on primary event timing and the knock on impact to primary event censored distributions
+- **[Delay families from SurvivalDistributions.jl](@ref survival-delay-families)**: Using parametric survival families as delay leaves in the composed stack
+
+**Composing and fitting**
+
+- **[Composing censored distributions](@ref composer-toolkit)**: The composer reference for building one object per record from per-event delays
+- **[Fitting with Turing.jl](tutorials/fitting-with-turing.md)**: Bayesian inference with censored distributions
+- **[Fit marginal, sample event based](@ref fit-marginal-sample-event-based)**: Fitting in the efficient marginal form, then drawing full event paths
+- **[Automatic differentiation backends](@ref ad-backends)**: The AD support matrix and per-backend benchmarks
+
+**Case studies and applications**
+
+- **[Bundibugyo Ebola delays](@ref bdbv-linelist-analysis)**: A competing-risks line-list workflow on the 2012 Isiro Bundibugyo data
+- **[Real-time Andes virus delays](@ref andv-linelist-analysis)**: Marginal-versus-latent delay fitting on the Epuyén hantavirus line list
+- **[Stratified Sierra Leone Ebola delays](@ref ebola-stratified-delays)**: A partially pooled stratified onset-to-test delay model
+- **[Branching-process competing outcomes](@ref branching-competing)**: A per-case natural history with competing and racing-hazard outcomes
+- **[Pairwise survival of transmission](@ref pairwise-survival-transmission)**: Kenah's pairwise survival framework as a racing-hazard composition
+- **[An Rt renewal model with delay convolution](@ref rt-renewal-convolution)**: A renewal model fitting Rt to cases and deaths through a shared delay stack
+- **[Epinowcast-style hazard nowcasting](@ref epinowcast-nowcasting)**: A discrete-time reporting-hazard nowcasting model
+- **[Composed delay as ODE compartments](@ref linear-chain-sir)**: Bridging a composed delay to ODE compartments with the linear chain trick
 
 ### Methodological background
 
