@@ -41,6 +41,11 @@ public rand_outcome
 # segment construction across records.
 public record_distributions, EventRecord
 
+# Grouped per-stratum scoring (public but not exported): the varying-parameter
+# primitive scoring records grouped by an integer stratum id, each stratum's
+# records built from its own (possibly partially-pooled) composed distribution.
+public batched_event_logpdf
+
 # Vectorised LATENT scoring (public but not exported): the stacked primary
 # priors and the vectorised observed conditional that express the latent table
 # as a `primaries ~ product_distribution(...)` plus `@addlogprob! ...` pair.
