@@ -35,13 +35,13 @@ within-household hazard ratio.
 
 | Kenah pairwise concept | Composed primitive |
 |---|---|
-| contact interval ``\tau_{ij}`` with hazard ``\lambda(\tau)`` | a custom in-doc `UnivariateDistribution` leaf |
+| contact interval ``\tau_{ij}`` with hazard ``\lambda(\tau)`` | a `Distributions.Weibull` leaf |
 | susceptible ``j`` infected at ``\min_i \tau_{ij}``, source ``=\arg\min`` | racing-hazard [`competing`](@ref) ([`HazardCompeting`](@ref)) |
 | pair right-censored (``j`` infected elsewhere / source recovers / study ends) | the racing-hazard survival ``\prod_k S_k`` (`logccdf`) |
 | contact-interval observation windows (dates to the day) | a [`double_interval_censored`](@ref) leaf (sketched in the refinements) |
 | covariate hazard ratios (within vs between household) | a per-pair scale on the leaf |
 
-2. Define the contact-interval distribution as a custom hazard leaf.
+2. Identify the contact-interval distribution as a stock `Weibull` leaf.
 3. Build the pairwise survival likelihood as a racing-hazard competing node.
 4. Fit the Hagelloch data and recover the parameters, ``R_0`` and the
    within-household hazard ratio.
@@ -66,11 +66,17 @@ H(\tau) = (\lambda \tau)^\gamma,
 
 ``\gamma > 1`` gives an increasing hazard of infectious contact (infectiousness
 that builds after onset), ``\gamma < 1`` a decreasing one.
-This is identical to a `Distributions.Weibull(γ, 1/λ)`, but we define it from
-its hazard as a custom leaf — it doubles as a worked example of the
-*user-extensibility* of the composer stack: any `UnivariateDistribution` that
-reports a `logpdf` and a `logccdf` is a valid cause-specific delay for the
-racing-hazard node, no new package feature required.
+This cumulative hazard ``(\lambda\tau)^\gamma`` is exactly a Weibull, so the
+contact-interval leaf is a stock `Distributions.Weibull(γ, 1/λ)` — the
+`transtat` rate/shape ``(\lambda, \gamma)`` map onto the Weibull shape ``\gamma``
+and scale ``1/\lambda``.
+Any `UnivariateDistribution` that reports a `logpdf` and a `logccdf` is a valid
+cause-specific delay for the racing-hazard node, so a richer hazard family — a
+[SurvivalDistributions.jl](@ref survival-delay-families) leaf
+(`GeneralizedGamma`, `PowerGeneralizedWeibull`) or a piecewise-constant hazard —
+drops in unchanged with no new package feature; we use the plain Weibull here
+because the `transtat` contact interval *is* a Weibull and nothing is gained by
+dressing it up.
 
 For a susceptible ``j`` infected at time ``t_j``, let ``R(j)`` be the set of
 sources infectious before ``t_j`` and write ``g_{ij} = t_j - o_i`` for the gap
@@ -100,65 +106,37 @@ binomial secondary-attack-rate calculation [kenah2011contact](@cite).
 using CSV, DataFramesMeta, Dates
 using CensoredDistributions, Distributions
 using Turing, Random, Statistics
-using ADTypes: AutoForwardDiff
+import Mooncake
+using ADTypes: AutoMooncake
 import Distributions: logpdf, logccdf, pdf, cdf, ccdf, quantile
 import Base: minimum, maximum, rand
 
 md"""
 ## The contact-interval leaf
 
-The contact interval is a custom `UnivariateDistribution` defined from its
-cumulative hazard ``H(\tau) = (\lambda\tau)^\gamma``.
-We give it the survival functions the racing-hazard node needs
-(`logccdf`/`ccdf`), the density (`logpdf`/`pdf`), and `quantile`/`rand` for
-simulation.
-Everything is written through `log1p`/`expm1`/`log` so the leaf is AD-safe and
-differentiates with respect to ``\lambda`` and ``\gamma`` under Turing.
+The cumulative hazard ``H(\tau) = (\lambda\tau)^\gamma`` is a Weibull, so the
+contact-interval leaf is a stock `Distributions.Weibull`: a `transtat` rate
+``\lambda`` and shape ``\gamma`` are a Weibull of shape ``\gamma`` and scale
+``1/\lambda``.
+`contact_interval` is just that mapping, so the rest of the page keeps working in
+the natural ``(\lambda, \gamma)`` hazard parameterisation while the leaf itself
+is a tested library distribution with AD-safe `logpdf`/`logccdf` (the survival
+the racing-hazard node needs) and a `quantile`/`rand` for simulation.
 """
 
-struct ContactInterval{T <: Real} <: ContinuousUnivariateDistribution
-    "Rate parameter ``\\lambda`` of the contact-interval hazard."
-    lambda::T
-    "Shape parameter ``\\gamma`` of the contact-interval hazard."
-    gamma::T
-end
-
-minimum(::ContactInterval) = 0.0
-maximum(::ContactInterval) = Inf
-
-## Cumulative hazard H(τ) = (λτ)^γ and the survival S = exp(-H).
-_cumhazard(d::ContactInterval, t::Real) = (d.lambda * t)^d.gamma
-function logccdf(d::ContactInterval, t::Real)
-    return t <= 0 ? zero(float(t)) : -_cumhazard(d, t)
-end
-ccdf(d::ContactInterval, t::Real) = exp(logccdf(d, t))
-cdf(d::ContactInterval, t::Real) = -expm1(logccdf(d, t))
-
-## Density f(τ) = h(τ) S(τ) with hazard h(τ) = λγ(λτ)^(γ-1).
-function logpdf(d::ContactInterval, t::Real)
-    t <= 0 && return oftype(float(t), -Inf)
-    loghazard = log(d.lambda) + log(d.gamma) +
-                (d.gamma - 1) * log(d.lambda * t)
-    return loghazard - _cumhazard(d, t)
-end
-pdf(d::ContactInterval, t::Real) = exp(logpdf(d, t))
-
-## Inverse-cdf draw: H(τ) = -log(1-p) ⇒ τ = (1/λ)(-log(1-p))^(1/γ).
-function quantile(d::ContactInterval, p::Real)
-    return (1 / d.lambda) * (-log1p(-p))^(1 / d.gamma)
-end
-rand(rng::AbstractRNG, d::ContactInterval) = quantile(d, rand(rng))
+contact_interval(lambda::Real, gamma::Real) = Weibull(gamma, 1 / lambda)
 
 md"""
-The leaf is just a `Distributions.Weibull(γ, 1/λ)` written from its hazard, so
-we can check it against the stock distribution: the density, survival, and
-quantiles agree to machine precision.
+We can read off the hazard form directly from the Weibull to confirm the
+mapping: the survival ``S(\tau) = e^{-(\lambda\tau)^\gamma}`` and the cumulative
+hazard ``-\log S(\tau) = (\lambda\tau)^\gamma`` are exactly the `transtat`
+parameterisation.
 """
 
-let d = ContactInterval(0.4, 1.6), w = Weibull(1.6, 1 / 0.4)
-    (; dlogpdf = logpdf(d, 3.0) - logpdf(w, 3.0),
-        dlogccdf = logccdf(d, 3.0) - logccdf(w, 3.0),
-        dquantile = quantile(d, 0.7) - quantile(w, 0.7))
+let d = contact_interval(0.4, 1.6), tau = 3.0
+    (; survival = ccdf(d, tau),
+        cumhazard = -logccdf(d, tau),
+        transtat_cumhazard = (0.4 * tau)^1.6)
 end
 
 md"""
@@ -175,8 +153,8 @@ survival ``\prod_k S_k``, and [`winning_probabilities`](@ref) is the per-source
 ``\arg\min`` (who-infected-whom) split.
 """
 
-let node = competing(:near => ContactInterval(0.4, 1.6),
-        :far => ContactInterval(0.1, 1.6))
+let node = competing(:near => contact_interval(0.4, 1.6),
+        :far => contact_interval(0.1, 1.6))
     (; marginal_logpdf = logpdf(node, 2.0),
         joint_logsurvival = logccdf(node, 2.0),
         winning = winning_probabilities(node))
@@ -222,8 +200,8 @@ survival is the product of the per-source survivals.
 """
 
 let onset_near = 1.0, onset_far = 2.5, t_infect = 6.0
-    node = competing(:near => Anchored(ContactInterval(0.4, 1.6), onset_near),
-        :far => Anchored(ContactInterval(0.1, 1.6), onset_far))
+    node = competing(:near => Anchored(contact_interval(0.4, 1.6), onset_near),
+        :far => Anchored(contact_interval(0.1, 1.6), onset_far))
     (; marginal_logpdf = logpdf(node, t_infect),
         joint_logsurvival = logccdf(node, t_infect))
 end
@@ -316,7 +294,7 @@ end
 function source_delays(lambda_w, lambda_b, gamma, onset, household, sources, j)
     return Tuple(
         Anchored(
-            ContactInterval(
+            contact_interval(
                 source_scale(lambda_w, lambda_b, household, i, j), gamma),
             onset[i])
     for i in sources)
@@ -367,16 +345,32 @@ md"""
 For one susceptible the racing-hazard marginal at ``t_j`` is the log-sum-exp of
 each source's cause-resolved log sub-density
 ``\log f(g_{ij}) + \sum_{k \ne i} \log S(g_{kj})``.
-This is exactly `logpdf(source_node(...), t_j)`, written out directly here so the
-likelihood evaluates the contact-interval leaf functions without rebuilding a
-composer node on every gradient step (the closed Hagelloch fit scores every
-ordered at-risk pair).
+This is *exactly* `logpdf(source_node(...), t_j)`: `source_node` builds the
+racing-hazard [`competing`](@ref) node over the anchored sources and its marginal
+`logpdf` is the per-susceptible likelihood. We verify that equality below, then
+fit through the direct reduction `susceptible_loglik`.
+
+The package's higher-level Turing tooling
+([`composed_distribution_model`](@ref), which scores a record — or a whole table
+of records in one `~` — against a composed distribution) covers a *fixed* record
+graph scored against observed events, where the node structure and its event
+names are the same for every record. The pairwise likelihood here is not that shape: the
+racing node is *rebuilt per susceptible* over a different at-risk source set
+``R(j)`` (a different arity, different onsets, different within-household flags),
+and the susceptible's infection time is scored as the node's marginal rather than
+as a named-event record. So the right composed primitive is the racing-hazard
+[`competing`](@ref) node — which the package *does* supply and which the
+agreement check confirms is the same likelihood — and the manual part that
+remains is only the per-susceptible loop and the log-sum-exp reduction.
+We write that reduction out directly so the likelihood evaluates the leaf
+`logpdf`/`logccdf` without allocating a fresh `competing` node on every gradient
+step (the closed Hagelloch fit scores every ordered at-risk pair).
 The within-household flag picks the rate ``\lambda_w`` or ``\lambda_b``; the
 shared shape ``\gamma`` carries the hazard's time shape.
 """
 
 function susceptible_loglik(lambda_w, lambda_b, gamma, gaps, within)
-    leaf(k) = ContactInterval(within[k] ? lambda_w : lambda_b, gamma)
+    leaf(k) = contact_interval(within[k] ? lambda_w : lambda_b, gamma)
     ## joint survival ∏ S_k(g_kj) = Σ logccdf, shared by every cause term
     total_logsurv = sum(logccdf(leaf(k), gaps[k]) for k in eachindex(gaps))
     ## cause-resolved term for source k: log f_k - log S_k + Σ_i log S_i.
@@ -450,6 +444,10 @@ We put weakly-informative positive priors on the two rates and the shape and
 score the whole line list with `Turing.@addlogprob!`.
 The shape prior is centred at one (a constant hazard, the exponential special
 case) so the data drive any departure.
+The likelihood is differentiated with Mooncake reverse mode (`AutoMooncake`),
+the package's preferred reverse-mode backend: the pairwise loglik is a pure-Julia
+log-sum-exp over the Weibull `logpdf`/`logccdf`, with no string or control-flow
+operations that Mooncake cannot trace, so it compiles a rule cleanly here.
 """
 
 @model function hagelloch_pairwise(pairs)
@@ -461,7 +459,7 @@ end
 
 rng = MersenneTwister(2024)
 chain = sample(rng, hagelloch_pairwise(pairs),
-    NUTS(0.8; adtype = AutoForwardDiff()), 400; progress = false)
+    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), 400; progress = false)
 
 md"""
 The posterior summaries for the contact-interval parameters:
@@ -504,7 +502,7 @@ window = 8.0                            # measles infectious window (days)
 R_household_samples = map(eachindex(vec(chain[:lambda_w]))) do s
     lw = vec(chain[:lambda_w])[s]
     g = vec(chain[:gamma])[s]
-    cdf(ContactInterval(lw, g), window) * mean_hh_susc
+    cdf(contact_interval(lw, g), window) * mean_hh_susc
 end
 (; R_household_mean = mean(R_household_samples),
     R_household_90 = quantile(R_household_samples, (0.05, 0.95)))
@@ -583,10 +581,11 @@ without ever being shown it.
 This page is a faithful but deliberately compact rendering of Kenah's pairwise
 survival method [kenah2011contact](@cite) on the composer stack:
 
-- the **contact interval** is a custom hazard leaf, so any parametric or
-  semiparametric hazard family (Weibull, log-logistic, a
-  [SurvivalDistributions.jl](@ref survival-delay-families) leaf, a
-  piecewise-constant hazard) drops in unchanged;
+- the **contact interval** is a stock `Weibull` leaf — the `transtat`
+  parameterisation *is* a Weibull — and because the racing node needs only a
+  `logpdf` and a `logccdf`, any richer parametric or semiparametric hazard family
+  (a [SurvivalDistributions.jl](@ref survival-delay-families) leaf such as
+  `GeneralizedGamma`, a piecewise-constant hazard) drops in unchanged;
 - the **racing across sources** is the racing-hazard [`competing`](@ref) node,
   whose cause-resolved marginal is the pairwise likelihood and whose
   ``\arg\min`` draws give the who-infected-whom posterior;
