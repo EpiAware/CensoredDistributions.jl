@@ -585,3 +585,164 @@ end
     @test all(isfinite, g)
     @test any(!iszero, g)
 end
+
+# ---------------------------------------------------------------------------
+# Bare-leaf records (a single-delay model, no Sequential wrapper)
+# ---------------------------------------------------------------------------
+
+@testitem "bare-leaf record == single-edge Sequential wrapper" begin
+    using CensoredDistributions, Distributions
+
+    # A single-delay model scores a BARE censored leaf directly: no need to wrap
+    # it in a one-edge `Sequential`. The bare-leaf record must be density-equal to
+    # the one-edge-`Sequential`-wrapped form (observed from a zero origin) and to
+    # the per-record loop.
+    leaf = primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1))
+    rows = [(delay = 2.0,), (delay = 3.5,), (delay = 4.0,)]
+    obs = [[2.0], [3.5], [4.0]]
+
+    bare = CensoredDistributions.record_distributions(leaf, rows)
+    bare_total = sum(logpdf(bare[i], obs[i]) for i in eachindex(bare))
+
+    # Single-edge `Sequential(leaf)` over `[E_0, E_1]` from a zero origin.
+    seq = Sequential(leaf)
+    wrows = [(onset = 0.0, delay = 2.0), (onset = 0.0, delay = 3.5),
+        (onset = 0.0, delay = 4.0)]
+    wobs = [[0.0, 2.0], [0.0, 3.5], [0.0, 4.0]]
+    wrapped = CensoredDistributions.record_distributions(seq, wrows)
+    wrapped_total = sum(logpdf(wrapped[i], wobs[i]) for i in eachindex(wrapped))
+
+    # The per-record loop value.
+    loop = sum(logpdf(leaf, obs[i][1]) for i in eachindex(obs))
+
+    @test bare_total ≈ wrapped_total
+    @test bare_total ≈ loop
+    @test CensoredDistributions.batched_event_logpdf(leaf, rows) ≈ bare_total
+end
+
+@testitem "bare-leaf record horizon and weight" begin
+    using CensoredDistributions, Distributions
+
+    leaf = primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1))
+    # A reserved `obs_time` right-truncates the leaf; a `weight` scales it.
+    hrec = only(CensoredDistributions.record_distributions(
+        leaf, [(delay = 2.0, obs_time = 10.0)]))
+    @test logpdf(hrec, [2.0]) ≈
+          logpdf(CensoredDistributions.truncate_to_horizon(leaf, 10.0), 2.0)
+
+    wrec = only(CensoredDistributions.record_distributions(
+        leaf, [(delay = 2.0, weight = 3.0)]))
+    @test logpdf(wrec, [2.0]) ≈ 3 * logpdf(leaf, 2.0)
+
+    # An empty table errors clearly (matching the composer entries).
+    @test_throws ArgumentError CensoredDistributions.record_distributions(
+        leaf, NamedTuple[])
+end
+
+@testitem "bare-leaf grouped == wrapped == per-stratum loop" begin
+    using CensoredDistributions, Distributions
+
+    # Bare leaves per stratum (partial-pooling style): each record scores its
+    # OWN stratum leaf directly. Grouped == single-edge-Sequential-wrapped ==
+    # the per-record loop.
+    leaf1 = primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1))
+    leaf2 = primary_censored(Gamma(2.0, 1.5), Uniform(0, 1))
+    ds = [leaf1, leaf2]
+    rows = [(delay = 2.0,), (delay = 3.0,), (delay = 4.0,), (delay = 5.0,)]
+    group = [1, 2, 1, 2]
+    obs = [[2.0], [3.0], [4.0], [5.0]]
+
+    recs = CensoredDistributions.record_distributions(ds, rows; group = group)
+    grouped = sum(logpdf(recs[i], obs[i]) for i in eachindex(recs))
+
+    loop = sum(logpdf(ds[group[i]], obs[i][1]) for i in eachindex(obs))
+    @test grouped ≈ loop
+    # The leaf genuinely CONSTRAINS the observed delay (not a silent zero): the
+    # record scores `logpdf(leaf, delay)`, so the contribution is non-trivial.
+    @test grouped != 0.0
+    @test all(logpdf(recs[i], obs[i]) != 0.0 for i in eachindex(recs))
+
+    # Wrapped: one-edge Sequential per stratum, origin slot added.
+    dsseq = [Sequential(leaf1), Sequential(leaf2)]
+    wrows = [(onset = 0.0, delay = r.delay) for r in rows]
+    wobs = [[0.0, o[1]] for o in obs]
+    wrecs = CensoredDistributions.record_distributions(
+        dsseq, wrows; group = group)
+    wrapped = sum(logpdf(wrecs[i], wobs[i]) for i in eachindex(wrecs))
+    @test grouped ≈ wrapped
+
+    @test CensoredDistributions.batched_event_logpdf(ds, rows; group = group) ≈
+          grouped
+end
+
+@testitem "bare-leaf grouped honours per-record obs_time truncation" begin
+    using CensoredDistributions, Distributions
+
+    # A reserved per-record `obs_time = D` field right-truncates each record's
+    # leaf at `D`, threaded THROUGH the grouped (per-stratum) path. The grouped
+    # value must equal baking `upper = D` into each record's leaf (the ebola
+    # right-truncation), per stratum and per record.
+    leaf1 = primary_censored(Gamma(2.0, 1.5), Uniform(0, 1))
+    leaf2 = primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1))
+    ds = [leaf1, leaf2]
+    group = [1, 2, 1]
+    D = [8.0, 9.0, 7.0]
+    y = [2.0, 3.0, 4.0]
+    rows = [(delay = y[i], obs_time = D[i]) for i in eachindex(y)]
+
+    grouped = CensoredDistributions.batched_event_logpdf(ds, rows; group = group)
+
+    # `upper = D` baked into the leaf (the explicit right-truncation).
+    upper_baked = sum(
+        logpdf(truncated(ds[group[i]]; upper = D[i]), y[i])
+    for i in eachindex(y))
+    @test isapprox(grouped, upper_baked; atol = 1e-6)
+
+    # Equal to the internal `truncate_to_horizon` primitive (exact).
+    horizon_baked = sum(
+        logpdf(CensoredDistributions.truncate_to_horizon(ds[group[i]], D[i]),
+            y[i])
+    for i in eachindex(y))
+    @test grouped ≈ horizon_baked
+
+    # The truncation actually moves the value (a real data constraint).
+    untrunc = CensoredDistributions.batched_event_logpdf(
+        ds, [(delay = y[i],) for i in eachindex(y)]; group = group)
+    @test grouped != untrunc
+end
+
+@testitem "bare-leaf grouped one stratum == shared-leaf path" begin
+    using CensoredDistributions, Distributions
+
+    leaf = primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1))
+    rows = [(delay = 2.0,), (delay = 3.0,), (delay = 4.0,)]
+    obs = [[2.0], [3.0], [4.0]]
+    group = [1, 1, 1]
+
+    grouped = CensoredDistributions.record_distributions(
+        [leaf], rows; group = group)
+    shared = CensoredDistributions.record_distributions(leaf, rows)
+    @test all(logpdf(grouped[i], obs[i]) == logpdf(shared[i], obs[i])
+    for i in eachindex(obs))
+end
+
+@testitem "bare-leaf grouped AD-safe gradient" tags=[:turing] begin
+    using CensoredDistributions, Distributions, ForwardDiff
+
+    # The grouped bare-leaf scoring must differentiate w.r.t. the per-stratum
+    # params (the group key is an integer data-pass id, never keyed on a float).
+    rows = [(delay = 2.0,), (delay = 3.0,), (delay = 4.0,)]
+    group = [1, 2, 1]
+
+    function nll(theta)
+        mk(scale) = primary_censored(Gamma(2.0, scale), Uniform(0, 1))
+        ds = [mk(theta[1]), mk(theta[2])]
+        return -CensoredDistributions.batched_event_logpdf(
+            ds, rows; group = group)
+    end
+
+    g = ForwardDiff.gradient(nll, [1.5, 2.0])
+    @test length(g) == 2
+    @test all(isfinite, g)
+    @test any(!iszero, g)
+end
