@@ -37,6 +37,20 @@
 
 ### Bug fixes
 
+- A `shared(:tag, ...)` censored leaf at a composed-tree origin no longer loses
+  its censoring when scored. The censored-tree traversal strips every other
+  wrapper (`Truncated`, `IntervalCensored`, `Weighted`) to recover a leaf's
+  origin primary event and secondary interval, but did not descend through
+  `Shared`, so a `shared(:inc, primary_censored(...))` first step silently
+  scored as an uncensored origin and a shared `double_interval_censored` leaf
+  dropped its interval discretisation, diverging from the untagged leaf. A
+  shared censored leaf now scores identically to the same tree built from
+  independent identical untagged leaves. Found while investigating the #395
+  shared-dist compute-reuse follow-up; that cross-occurrence reuse yields no
+  measurable speedup under the numerically-identical constraint (the
+  primary-censored CDF quadrature is parameterised by the per-occurrence
+  observed gap and the wrapper objects precompute nothing), so no reuse path was
+  added; a benchmark records the like-for-like scoring cost for future work.
 - `compose` no longer misclassifies a structural `NamedTuple` whose
   user-chosen branch keys are `:name`/`:dist` and carry distribution
   vectors (e.g. `(name = [d1, d2], dist = [d3, d4])`) as a `(name, dist)`
