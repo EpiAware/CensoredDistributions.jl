@@ -15,7 +15,8 @@ getting_started_pages = Any[
         "Bundibugyo Ebola delays" => "getting-started/tutorials/bdbv-linelist-analysis.md",
         "Real-time Andes virus delays" => "getting-started/tutorials/andv-linelist-analysis.md",
         "Stratified Sierra Leone Ebola delays" => "getting-started/tutorials/ebola-stratified-delays.md",
-        "Branching-process competing outcomes" => "getting-started/tutorials/branching-competing.md"
+        "Branching-process competing outcomes" => "getting-started/tutorials/branching-competing.md",
+        "Pairwise survival of transmission" => "getting-started/tutorials/pairwise-survival-transmission.md"
     ],
     "Julia" => "getting-started/julia.md",
     "FAQ" => "getting-started/faq.md"
