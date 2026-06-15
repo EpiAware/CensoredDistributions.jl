@@ -402,89 +402,225 @@ function _tree_step(step::UnivariateDistribution, events, o_idx::Int,
     return zero(T)
 end
 
-# A nested `Competing` node SELF-DISPATCHES on the row's outcome missingness,
-# mirroring the top-level `Competing` self-dispatch but anchored at the
-# parent event. Its `n_outcomes` event slots begin at `ev_idx`; the anchor (the
-# parent origin) is `events[o_idx]`. The numeric event-vector path uses the
-# node's STORED branch probabilities (the per-record `branch_probs` override is a
-# ROW input, applied by the DynamicPPL extension which re-anchors a nested
-# Competing with row context). Exactly one outcome slot observed -> condition on
-# that branch (`log(p[i]) + logpdf(delay[i], gap)`); no outcome observed ->
-# contributes no factor (the resolved-but-unknown-outcome encoding for a NESTED
-# Competing is deferred). The shared core arithmetic
-# (`_competing_condition_logpdf`) is the SAME one the top-level path uses.
-function _tree_step(step::Competing, events, o_idx::Int, ev_idx::Int,
-        primary, ::Type{T}) where {T}
-    o = events[o_idx]
-    return _competing_tree_logpdf(step, step.branch_probs, o,
-        events, ev_idx, T)
+# --- competing outcome-slice layout (leaf OR composer subtree, #466 F3) -------
+#
+# Each competing outcome occupies a CONTIGUOUS slice of the event vector starting
+# at `ev_idx`: a LEAF outcome is one slot, a NON-TERMINAL outcome whose payload is
+# a composer subtree is its whole subtree's event-slot width (`_event_child_
+# nleaves`, matching `_walk_edge!`'s emitted names and `_event_child_nleaves`'s
+# count). `_competing_outcome_start(delays, k)` is the 1-based offset of outcome
+# `k`'s slice within the node's outcome region (outcome 1 at 0). Pure-Int
+# bookkeeping over the constant tree structure, so it stays off the AD'd values.
+function _competing_outcome_start(delays::Tuple, k::Int)
+    off = 0
+    @inbounds for j in 1:(k - 1)
+        off += _competing_outcome_slots(delays[j])
+    end
+    return off
 end
 
-# Score a nested `Competing` against its outcome-slot slice given the anchor
-# value `o` and branch probabilities `probs` (stored or row-overridden). Pure
+# Whether ANY slot of outcome `k`'s slice (width `w`, beginning at absolute index
+# `start`) is observed (non-missing). A composer outcome is "observed" when any of
+# its subtree slots is present (e.g. a `death => chain` record fills one of the
+# chain's leaf events); a leaf outcome is observed when its single slot is.
+function _competing_outcome_observed(events, start::Int, w::Int)
+    @inbounds for s in 0:(w - 1)
+        events[start + s] === missing || return true
+    end
+    return false
+end
+
+# Resolve WHICH competing outcome a record observes by scanning each outcome's
+# slice for a present slot, erroring if two distinct outcomes are both observed (a
+# record resolves to exactly one outcome). Returns `(obs_i, obs_start, obs_w)`
+# with `obs_i == 0` when no outcome is observed. The anchor is the parent event
+# `events[o_idx]` (a competing outcome's slice hangs off it). Pure control flow
+# over the constant event vector.
+function _resolve_competing_outcome(delays::Tuple, names::Tuple, events,
+        ev_idx::Int)
+    n = length(delays)
+    obs_i = 0
+    obs_start = 0
+    obs_w = 0
+    off = 0
+    @inbounds for k in 1:n
+        w = _competing_outcome_slots(delays[k])
+        start = ev_idx + off
+        if _competing_outcome_observed(events, start, w)
+            obs_i == 0 || throw(ArgumentError(
+                "a nested Competing record may observe at most one outcome; " *
+                "got outcomes $(names[obs_i]) and $(names[k])"))
+            obs_i = k
+            obs_start = start
+            obs_w = w
+        end
+        off += w
+    end
+    return obs_i, obs_start, obs_w
+end
+
+# A nested `Competing` node SELF-DISPATCHES on which OUTCOME a record observes,
+# mirroring the top-level `Competing` self-dispatch but anchored at the parent
+# event. Its outcome slices begin at `ev_idx`; the anchor (the parent origin) is
+# `events[o_idx]`. The numeric event-vector path uses the node's STORED branch
+# probabilities (the per-record `branch_probs` override is a ROW input, applied by
+# the DynamicPPL extension which re-anchors a nested Competing with row context).
+# Exactly one outcome observed -> score that branch's mixture weight `log p_k`
+# plus its payload term (a leaf conditions on its delay at the gap; a composer
+# subtree recurses through `_tree_score` on the outcome's slice, anchored at the
+# shared parent origin); no outcome observed -> contributes no factor (the
+# resolved-but-unknown-outcome encoding for a NESTED Competing is deferred).
+function _tree_step(step::Competing, events, o_idx::Int, ev_idx::Int,
+        primary, ::Type{T}) where {T}
+    return _competing_tree_logpdf(step, step.branch_probs, o_idx,
+        events, ev_idx, primary, T)
+end
+
+# Score a nested `Competing` against its outcome slices given the anchor INDEX
+# `o_idx` and branch probabilities `probs` (stored or row-overridden). Pure
 # Turing-free arithmetic shared by the numeric path and the DynamicPPL extension.
 # A no-event branch's slot is a PRESENCE marker (its value is not a time): a
 # non-missing no-event slot is an OBSERVED non-occurrence scoring `log q` (no
 # delay term), a missing no-event slot is a latent non-occurrence contributing
-# nothing. An observed real outcome conditions on that branch as before.
-function _competing_tree_logpdf(c::Competing, probs, o, events, ev_idx::Int,
-        ::Type{T}) where {T}
-    n = _n_branches(c)
-    obs_i = 0
-    obs_gap = zero(T)
-    @inbounds for k in 1:n
-        y = events[ev_idx + k - 1]
-        y === missing && continue
-        obs_i == 0 || throw(ArgumentError(
-            "a nested Competing record may observe at most one outcome time; " *
-            "got outcomes $(c.names[obs_i]) and $(c.names[k])"))
-        # A real-outcome slot needs an observed anchor for its gap; a no-event
-        # slot is a presence marker and needs no anchor (no delay term).
-        if !_is_no_event(c.delays[k])
-            o === missing && throw(ArgumentError(
-                "a nested Competing with an observed outcome needs an observed " *
-                "anchor (its parent event); got a missing anchor"))
-            obs_gap = convert(T, y) - convert(T, o)
-        end
-        obs_i = k
-    end
+# nothing. An observed real LEAF outcome conditions on that branch; a COMPOSER
+# outcome scores `log p_k + _tree_score(subtree, slice)` (the mixture weight plus
+# its subtree's own censored event-vector density anchored at the parent origin).
+function _competing_tree_logpdf(c::Competing, probs, o_idx::Int, events,
+        ev_idx::Int, primary, ::Type{T}) where {T}
+    obs_i,
+    obs_start,
+    obs_w = _resolve_competing_outcome(c.delays, c.names, events, ev_idx)
     obs_i == 0 && return zero(T)
+    delay = c.delays[obs_i]
     # An OBSERVED non-occurrence scores the no-event mass `log q` alone.
-    _is_no_event(c.delays[obs_i]) && return log(probs[obs_i])
-    return _competing_condition_logpdf(probs, c.delays[obs_i], obs_gap, obs_i)
+    _is_no_event(delay) && return log(probs[obs_i])
+    o = events[o_idx]
+    return log(probs[obs_i]) +
+           _competing_outcome_payload_logpdf(delay, o, o_idx, events,
+        obs_start, obs_w, primary, T)
 end
 
-# A nested racing-hazard `HazardCompeting` node SELF-DISPATCHES on which outcome
-# slot is observed, anchored at the parent event `events[o_idx]`. Exactly one
-# outcome observed at gap `t` -> the cause-resolved sub-density `log f_j(t) +
-# Σ_{k≠j} log S_k(t)`; no outcome observed -> the marginal any-event survival
-# `Σ_k log S_k(window)` IF an OBSERVED non-occurrence horizon rides the record
-# (the `none` survival term the transtat pairwise-survival use case needs), else
-# (a fully latent record) no factor. The winning probability is DERIVED, so there
-# is no branch-probability term. Shared core arithmetic with the standalone node.
+# The payload term of an observed competing outcome: a LEAF conditions on its
+# (declared-censored) delay at the gap from the anchor; a COMPOSER subtree scores
+# its own censored event-vector density on the outcome's slice, anchored at the
+# parent origin (shared like a nested-composer origin). The mixture weight
+# `log p_k` is added by the caller, so this is the conditional `f(payload | k)`.
+function _competing_outcome_payload_logpdf(delay::UnivariateDistribution, o,
+        o_idx::Int, events, obs_start::Int, obs_w::Int, primary, ::Type{T}
+) where {T}
+    y = events[obs_start]
+    o === missing && throw(ArgumentError(
+        "a nested Competing with an observed outcome needs an observed anchor " *
+        "(its parent event); got a missing anchor"))
+    return logpdf(delay, convert(T, y) - convert(T, o))
+end
+
+# A COMPOSER outcome: recurse through `_tree_score` on the `[origin, slice...]`
+# sub-event vector, the outcome's resolution sharing the parent origin (the
+# subtree origin slot). The subtree's leaf events occupy `obs_w` slots from
+# `obs_start`; the parent origin anchors them. The subtree may itself be censored,
+# so its own origin primary (if any) seeds the recursion; the parent-level primary
+# is passed through for a sampled-origin sub-chain.
+function _competing_outcome_payload_logpdf(
+        delay::Union{Sequential, Parallel}, o, o_idx::Int, events,
+        obs_start::Int, obs_w::Int, primary, ::Type{T}) where {T}
+    sub = _subevent_slice(events, o_idx, obs_start, obs_w)
+    sub_primary = _subtree_origin_primary(delay, primary)
+    return _tree_score(delay, sub, 1, 2, sub_primary, T)
+end
+
+# A `Select` outcome routes to its committed (first) alternative on the numeric
+# path (the data path resolves Selects out before scoring); score that.
+function _competing_outcome_payload_logpdf(delay::Select, o, o_idx::Int, events,
+        obs_start::Int, obs_w::Int, primary, ::Type{T}) where {T}
+    return _competing_outcome_payload_logpdf(first(delay.alternatives), o,
+        o_idx, events, obs_start, obs_w, primary, T)
+end
+
+# A nested `Competing` outcome (a competing node as a competing branch): recurse
+# through the competing scorer on the outcome's slice, anchored at the parent
+# origin (the inner competing's outcomes hang off the same shared anchor).
+function _competing_outcome_payload_logpdf(delay::Competing, o, o_idx::Int,
+        events, obs_start::Int, obs_w::Int, primary, ::Type{T}) where {T}
+    sub = _subevent_slice(events, o_idx, obs_start, obs_w)
+    return _competing_tree_logpdf(delay, delay.branch_probs, 1, sub, 2,
+        primary, T)
+end
+
+function _competing_outcome_payload_logpdf(delay::HazardCompeting, o, o_idx::Int,
+        events, obs_start::Int, obs_w::Int, primary, ::Type{T}) where {T}
+    sub = _subevent_slice(events, o_idx, obs_start, obs_w)
+    return _hazard_competing_tree_logpdf(delay, 1, sub, 2, primary, T)
+end
+
+# The origin primary event seeding a COMPOSER competing outcome's subtree. A
+# censored subtree surfaces its own shared latent origin (e.g. a chain whose first
+# step is `primary_censored`); a plain subtree has none and inherits the parent's
+# primary (a sampled-origin sub-chain off the competing anchor). Mirrors the
+# `_tree_score` root seeding.
+function _subtree_origin_primary(d::Sequential, parent_primary)
+    p = _origin_primary_event(_first_origin_node(d))
+    return p === nothing ? parent_primary : p
+end
+function _subtree_origin_primary(d::Parallel, parent_primary)
+    p = _shared_primary_event(d.components)
+    return p === nothing ? parent_primary : p
+end
+
+# A nested racing-hazard `HazardCompeting` node SELF-DISPATCHES on which OUTCOME a
+# record observes, anchored at the parent event `events[o_idx]`. Exactly one
+# outcome observed -> its payload term (a leaf scores the cause-resolved
+# sub-density `log f_j(t) + Σ_{k≠j} log S_k(t)`; a composer subtree the racing
+# survival PLUS the subtree's own event-vector density); no outcome observed ->
+# no factor (a fully latent record). The winning probability is DERIVED, so there
+# is no branch-probability term.
 function _tree_step(step::HazardCompeting, events, o_idx::Int, ev_idx::Int,
         primary, ::Type{T}) where {T}
-    o = events[o_idx]
-    n = _n_branches(step)
-    obs_i = 0
-    obs_gap = zero(T)
-    @inbounds for k in 1:n
-        y = events[ev_idx + k - 1]
-        y === missing && continue
-        obs_i == 0 || throw(ArgumentError(
-            "a nested HazardCompeting record may observe at most one outcome " *
-            "time; got $(step.names[obs_i]) and $(step.names[k])"))
-        o === missing && throw(ArgumentError(
-            "a nested HazardCompeting with an observed outcome needs an " *
-            "observed anchor (its parent event); got a missing anchor"))
-        obs_i = k
-        obs_gap = convert(T, y) - convert(T, o)
-    end
+    return _hazard_competing_tree_logpdf(step, o_idx, events, ev_idx, primary, T)
+end
+
+function _hazard_competing_tree_logpdf(step::HazardCompeting, o_idx::Int, events,
+        ev_idx::Int, primary, ::Type{T}) where {T}
+    obs_i,
+    obs_start,
+    obs_w = _resolve_competing_outcome(step.delays, step.names, events, ev_idx)
     obs_i == 0 && return zero(T)
-    # The log density carries any AD `Dual`/tracked type from the racing delays'
-    # params, so it must NOT be narrowed to the data type `T` (only the `obs_gap`,
-    # which is data, is `T`).
-    return _hazard_cause_logpdf(step, obs_i, obs_gap)
+    o = events[o_idx]
+    return _hazard_outcome_payload_logpdf(step, obs_i, o, o_idx, events,
+        obs_start, obs_w, primary, T)
+end
+
+# A LEAF racing outcome: the cause-resolved sub-density at the observed gap. The
+# log density carries any AD `Dual`/tracked type from the racing delays' params,
+# so it is NOT narrowed to the data type `T` (only the `obs_gap`, data, is `T`).
+function _hazard_outcome_payload_logpdf(step::HazardCompeting, obs_i::Int, o,
+        o_idx::Int, events, obs_start::Int, obs_w::Int, primary, ::Type{T}
+) where {T}
+    return _hazard_outcome_payload(step, obs_i, step.delays[obs_i], o, o_idx,
+        events, obs_start, obs_w, primary, T)
+end
+
+function _hazard_outcome_payload(step::HazardCompeting, obs_i::Int,
+        delay::UnivariateDistribution, o, o_idx::Int, events, obs_start::Int,
+        obs_w::Int, primary, ::Type{T}) where {T}
+    y = events[obs_start]
+    o === missing && throw(ArgumentError(
+        "a nested HazardCompeting with an observed outcome needs an observed " *
+        "anchor (its parent event); got a missing anchor"))
+    return _hazard_cause_logpdf(step, obs_i, convert(T, y) - convert(T, o))
+end
+
+# A COMPOSER racing outcome (#466 F3): the racing SURVIVAL up to the subtree's
+# resolution PLUS the subtree's own censored event density. The cause-resolved
+# weighting of a non-terminal racing branch is its survival contribution; the
+# subtree then scores the within-branch path conditional on that cause winning.
+# The anchor for the subtree is the parent origin (shared).
+function _hazard_outcome_payload(step::HazardCompeting, obs_i::Int,
+        delay::Union{Sequential, Parallel}, o, o_idx::Int, events,
+        obs_start::Int, obs_w::Int, primary, ::Type{T}) where {T}
+    sub = _subevent_slice(events, o_idx, obs_start, obs_w)
+    sub_primary = _subtree_origin_primary(delay, primary)
+    return _tree_score(delay, sub, 1, 2, sub_primary, T)
 end
 
 # --- per-record branch-probability override for a nested Competing -----
@@ -1402,35 +1538,125 @@ end
 function _tree_rand_step!(out, rng::AbstractRNG, step::Competing, origin, idx,
         ::Type{T}) where {T}
     # Draw the resolved outcome from the branch probabilities, fill only its
-    # slot; the others stay missing so the record scores as the conditioned
-    # (one-outcome) Competing. A no-event win leaves EVERY slot missing (no time
-    # recorded), so the record scores as a latent non-occurrence.
+    # outcome's slice; the other outcomes' slices stay missing so the record
+    # scores as the conditioned (one-outcome) Competing. A no-event win leaves
+    # EVERY slot missing (no time recorded), so the record scores as a latent
+    # non-occurrence. A NON-TERMINAL (composer) outcome recurses into its subtree,
+    # which shares the parent `origin` as its anchor (#466 Feature 3).
     i = _sample_branch(rng, step.branch_probs)
+    start = idx + _competing_outcome_start(step.delays, i)
     if !_is_no_event(step.delays[i])
-        delay = rand(rng, _marginal_core(step.delays[i]))
-        out[idx + i - 1] = origin + convert(T, delay)
+        _competing_outcome_rand!(out, rng, step.delays[i], origin, start, T)
     end
-    return idx + _n_branches(step), origin
+    return idx + _event_child_nleaves(step), origin
 end
 
-# Racing-hazard `HazardCompeting`: draw a latent time per cause, fill the
-# argmin-cause slot with its (absolute) min time; the others stay missing so the
-# record scores as the cause-resolved sub-density. The terminal for a following
-# step is the shared origin (like a Parallel/Competing).
+# Sample the chosen competing outcome's payload into `out` from index `start`,
+# hanging off the parent `origin`. A LEAF outcome fills one slot with
+# `origin + delay`; a COMPOSER outcome walks its subtree (sharing `origin` as the
+# subtree origin) so the subtree's leaf-event slots are filled.
+function _competing_outcome_rand!(out, rng::AbstractRNG,
+        delay::UnivariateDistribution, origin, start::Int, ::Type{T}) where {T}
+    out[start] = origin + convert(T, rand(rng, _marginal_core(delay)))
+    return nothing
+end
+
+function _competing_outcome_rand!(out, rng::AbstractRNG,
+        delay::Union{Sequential, Parallel}, origin, start::Int,
+        ::Type{T}) where {T}
+    _tree_rand!(out, rng, delay, origin, start, T)
+    return nothing
+end
+
+function _competing_outcome_rand!(out, rng::AbstractRNG, delay::Select, origin,
+        start::Int, ::Type{T}) where {T}
+    return _competing_outcome_rand!(out, rng, first(delay.alternatives), origin,
+        start, T)
+end
+
+# A nested `Competing` / `HazardCompeting` outcome recurses through its own
+# `_tree_rand_step!`, anchored at the parent origin.
+function _competing_outcome_rand!(out, rng::AbstractRNG,
+        delay::AbstractCompeting, origin, start::Int, ::Type{T}) where {T}
+    _tree_rand_step!(out, rng, delay, origin, start, T)
+    return nothing
+end
+
+# Racing-hazard `HazardCompeting`: draw a latent racing time per cause, fill the
+# argmin-cause's slice; the others stay missing so the record scores as the
+# cause-resolved sub-density. A LEAF cause's racing time is a draw from its delay
+# (filling its one slot at the min time); a NON-TERMINAL (composer) cause's racing
+# time is its subtree's marginal time-to-resolution, and on a win its subtree is
+# walked (#466 Feature 3). The terminal for a following step is the shared origin.
 function _tree_rand_step!(out, rng::AbstractRNG, step::HazardCompeting, origin,
         idx, ::Type{T}) where {T}
     n = _n_branches(step)
     best_i = 1
-    best_t = convert(T, rand(rng, _marginal_core(step.delays[1])))
+    best_t = _hazard_outcome_racing_time(rng, step.delays[1], T)
     @inbounds for k in 2:n
-        t = convert(T, rand(rng, _marginal_core(step.delays[k])))
+        t = _hazard_outcome_racing_time(rng, step.delays[k], T)
         if t < best_t
             best_t = t
             best_i = k
         end
     end
-    out[idx + best_i - 1] = origin + best_t
-    return idx + n, origin
+    start = idx + _competing_outcome_start(step.delays, best_i)
+    _hazard_outcome_rand!(out, rng, step.delays[best_i], origin, best_t, start, T)
+    return idx + _event_child_nleaves(step), origin
+end
+
+# The racing time of one outcome (for the argmin draw): a leaf delay draws its own
+# time; a composer subtree draws its marginal time-to-resolution (the gap from a
+# zero origin to the subtree's terminal event), so its first-resolution time races
+# the leaf causes. The draw is from a fresh zero-origin walk so the racing time is
+# independent of where the cause finally lands.
+function _hazard_outcome_racing_time(rng, delay::UnivariateDistribution, ::Type{T}
+) where {T}
+    convert(T, rand(rng, _marginal_core(delay)))
+end
+function _hazard_outcome_racing_time(rng, delay::Union{Sequential, Parallel},
+        ::Type{T}) where {T}
+    z = zero(T)
+    nslots = _event_nleaves(delay.components)
+    tmp = Vector{Union{Missing, T}}(missing, nslots + 1)
+    tmp[1] = z
+    _tree_rand!(tmp, rng, delay, z, 2, T)
+    return _subtree_resolution_time(delay, tmp, T)
+end
+
+# The marginal resolution time of a zero-origin subtree walk: a `Sequential`
+# resolves at its last leaf event (its single terminal); a `Parallel` resolves
+# when its LAST branch endpoint fires (the latest of its filled slots), so it
+# races by the time the whole fan-out has resolved.
+function _subtree_resolution_time(d::Sequential, tmp, ::Type{T}) where {T}
+    term = tmp[2 + _terminal_offset(d)]
+    return term === missing ? convert(T, Inf) : convert(T, term)
+end
+function _subtree_resolution_time(d::Parallel, tmp, ::Type{T}) where {T}
+    best = convert(T, -Inf)
+    @inbounds for k in 2:length(tmp)
+        v = tmp[k]
+        v === missing && continue
+        v > best && (best = convert(T, v))
+    end
+    return best == convert(T, -Inf) ? convert(T, Inf) : best
+end
+
+# Fill the winning racing outcome's slice. A LEAF cause fills its single slot at
+# the (absolute) winning time; a COMPOSER cause walks its subtree off the parent
+# origin (its leaf events fill the slice; the winning racing time is implicit in
+# the drawn sub-times).
+function _hazard_outcome_rand!(out, rng::AbstractRNG,
+        delay::UnivariateDistribution, origin, best_t, start::Int,
+        ::Type{T}) where {T}
+    out[start] = origin + best_t
+    return nothing
+end
+function _hazard_outcome_rand!(out, rng::AbstractRNG,
+        delay::Union{Sequential, Parallel}, origin, best_t, start::Int,
+        ::Type{T}) where {T}
+    _tree_rand!(out, rng, delay, origin, start, T)
+    return nothing
 end
 
 # Sample an outcome index from the branch probabilities by inverse-CDF (a single
@@ -1503,12 +1729,38 @@ end
 
 function _discretise_step!(out, step::AbstractCompeting, idx::Int)
     n = _n_branches(step)
+    off = 0
     @inbounds for k in 1:n
-        out[idx + k - 1] === missing && continue
-        out[idx + k - 1] = _apply_leaf_interval(
-            out[idx + k - 1], _leaf_interval(step.delays[k]))
+        delay = step.delays[k]
+        w = _competing_outcome_slots(delay)
+        _discretise_competing_outcome!(out, delay, idx + off, w)
+        off += w
     end
-    return idx + n
+    return idx + off
+end
+
+# Discretise ONE competing outcome's slice. A LEAF outcome floors its single slot
+# to the leaf's interval; a COMPOSER outcome discretises its subtree's slots
+# through the subtree's own depth-first pass (#466 Feature 3).
+function _discretise_competing_outcome!(out, delay::UnivariateDistribution,
+        start::Int, ::Int)
+    out[start] === missing ||
+        (out[start] = _apply_leaf_interval(out[start], _leaf_interval(delay)))
+    return nothing
+end
+function _discretise_competing_outcome!(out, delay::Union{Sequential, Parallel},
+        start::Int, ::Int)
+    _discretise_event_record!(out, delay, start)
+    return nothing
+end
+function _discretise_competing_outcome!(out, delay::Select, start::Int, w::Int)
+    return _discretise_competing_outcome!(out, first(delay.alternatives), start,
+        w)
+end
+function _discretise_competing_outcome!(out, delay::AbstractCompeting,
+        start::Int, ::Int)
+    _discretise_step!(out, delay, start)
+    return nothing
 end
 
 function _discretise_step!(out, step::UnivariateDistribution, idx::Int)

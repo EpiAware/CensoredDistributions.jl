@@ -264,6 +264,188 @@ end
     @test lj_non ≈ log(1 - ρ)
 end
 
+@testitem "non-terminal Competing: whole-tree event-name layout (#466 F3)" begin
+    using Distributions
+
+    # A composer-valued outcome (death => a Sequential subchain) spans its
+    # SUBTREE's event slots; a leaf outcome (recover) spans one. The flat event
+    # names interleave the subtree targets where the composer outcome sits.
+    admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    burial = Gamma(1.5, 1.0)
+    chain = Sequential((admit, burial), (:onset_admit, :admit_burial))
+    recover = Gamma(3.0, 2.0)
+    ne = competing(:death => (chain, 0.4), :recover => (recover, 0.6))
+
+    @test ne isa CensoredDistributions.Competing
+    @test CensoredDistributions._is_nonterminal(ne)
+    # death outcome -> 2 subtree slots (admit, burial); recover -> 1 slot.
+    @test CensoredDistributions._event_child_nleaves(ne) == 3
+
+    d = compose((resolution = ne,))
+    enames = event_names(d)
+    # origin (event_1) + admit + burial (death subtree) + recover (leaf).
+    @test enames == (:event_1, :admit, :burial, :recover)
+end
+
+@testitem "non-terminal Competing: composer-outcome slice scoring (#466 F3)" begin
+    using Distributions
+
+    admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    burial = Gamma(1.5, 1.0)
+    chain = Sequential((admit, burial), (:onset_admit, :admit_burial))
+    recover = Gamma(3.0, 2.0)
+    pd, pr = 0.4, 0.6
+    ne = competing(:death => (chain, pd), :recover => (recover, pr))
+    d = compose((resolution = ne,))
+    enames = event_names(d)
+    i = Dict(n => k for (k, n) in enumerate(enames))
+
+    o, t_admit, t_burial = 0.3, 2.5, 4.0
+
+    # COMPOSER outcome observed (death subtree): score is
+    # log p_death + subtree chain density (admit conditions on its declared
+    # censoring at the gap from the shared origin, burial at its gap).
+    evd = Vector{Union{Missing, Float64}}(missing, length(enames))
+    evd[i[:event_1]] = o
+    evd[i[:admit]] = o + t_admit
+    evd[i[:burial]] = o + t_admit + t_burial
+    expected_d = log(pd) + logpdf(admit, t_admit) + logpdf(burial, t_burial)
+    @test logpdf(d, evd) ≈ expected_d
+
+    # LEAF outcome observed (recover): the mixed leaf+composer slice arithmetic
+    # still lands recover in its own slot; score is log p_recover + leaf density.
+    evr = Vector{Union{Missing, Float64}}(missing, length(enames))
+    evr[i[:event_1]] = o
+    evr[i[:recover]] = o + 5.0
+    @test logpdf(d, evr) ≈ log(pr) + logpdf(recover, 5.0)
+end
+
+@testitem "non-terminal Competing: rand round-trips through logpdf (#466 F3)" begin
+    using Distributions, Random
+
+    onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
+    admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    burial = Gamma(1.5, 1.0)
+    chain = Sequential((admit, burial), (:admit_death, :death_burial))
+    recover = Gamma(3.0, 2.0)
+    ne = competing(:death => (chain, 0.4), :recover => (recover, 0.6))
+    d = compose((onset = onset, resolution = ne))
+
+    rng = MersenneTwister(11)
+    for _ in 1:25
+        draw = rand(rng, d)
+        @test draw isa NamedTuple
+        # Exactly one outcome resolved: either the death subtree's slots are
+        # populated (and recover missing) or recover is populated (subtree
+        # missing). A simulated record always scores finite.
+        death_obs = draw.death !== missing || draw.burial !== missing
+        recover_obs = draw.recover !== missing
+        @test death_obs ⊻ recover_obs
+        @test isfinite(logpdf(d, draw))
+    end
+end
+
+@testitem "non-terminal Competing: scalar marginal errors (#466 F3)" begin
+    using Distributions
+
+    admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    chain = Sequential((admit, Gamma(1.5, 1.0)), (:onset_admit, :admit_burial))
+    ne = competing(:death => (chain, 0.4), :recover => (Gamma(3.0, 2.0), 0.6))
+
+    # A non-terminal node is multivariate: no scalar logpdf / mean / as_mixture.
+    @test_throws ArgumentError logpdf(ne, 1.0)
+    @test_throws ArgumentError mean(ne)
+    @test_throws ArgumentError as_mixture(ne)
+    @test_throws ArgumentError cdf(ne, 1.0)
+
+    # The same holds for a non-terminal racing-hazard node.
+    haz = competing(:death => chain, :recover => Gamma(3.0, 2.0))
+    @test haz isa CensoredDistributions.HazardCompeting
+    @test CensoredDistributions._is_nonterminal(haz)
+    @test_throws ArgumentError logpdf(haz, 1.0)
+    @test_throws ArgumentError mean(haz)
+    @test_throws ArgumentError winning_probabilities(haz)
+end
+
+@testitem "non-terminal Competing: forward stream recurses subtrees (#466 F3)" begin
+    using Distributions
+
+    # A composer-valued outcome fans its SUBTREE's events out, each carrying the
+    # outcome's branch-probability thinning. The death subtree's burial endpoint
+    # mass equals the outcome probability (a unit impulse, long horizon).
+    pd, pr = 0.4, 0.6
+    chain = Sequential((Gamma(2.0, 1.0), Gamma(1.5, 1.0)),
+        (:onset_admit, :admit_burial))
+    ne = competing(:death => (chain, pd), :recover => (Gamma(3.0, 2.0), pr))
+
+    series = zeros(120)
+    series[1] = 1.0
+    fwd = convolve_distributions(ne, series; events = (:burial, :recover))
+    # burial is the death subtree endpoint -> mass p_death; recover -> p_recover.
+    @test sum(fwd.burial) ≈ pd atol = 1e-3
+    @test sum(fwd.recover) ≈ pr atol = 1e-3
+end
+
+@testitem "non-terminal Competing: AD agrees across duals (#466 F3)" begin
+    using Distributions
+    using ForwardDiff: gradient
+
+    # Differentiate the non-terminal tree logpdf w.r.t. the death subtree's leaf
+    # params AND the branch probability; the gradient is finite and non-zero.
+    ev = Vector{Union{Missing, Float64}}([0.3, 2.8, 6.5, missing])
+    function f(p)
+        admit = primary_censored(Gamma(p[1], 1.0), Uniform(0, 1))
+        chain = Sequential((admit, Gamma(p[2], 1.0)),
+            (:onset_admit, :admit_burial))
+        ne = competing(:death => (chain, p[3]),
+            :recover => (Gamma(3.0, 2.0), 1 - p[3]))
+        return logpdf(compose((resolution = ne,)), ev)
+    end
+    g = gradient(f, [2.0, 1.5, 0.4])
+    @test all(isfinite, g)
+    @test any(!=(0), g)
+    # d/dp[3] of log(p[3]) at 0.4 is 1/0.4 = 2.5 (the branch-prob weight).
+    @test g[3] ≈ 2.5 atol = 1e-6
+end
+
+@testitem "non-terminal Competing: small Turing recovery (#466 F3)" tags=[:turing] begin
+    using Distributions, Random
+    using Turing
+    using Statistics: mean
+
+    # Simulate a populated death-subtree / leaf-recover dataset, then recover the
+    # death branch probability by NUTS. The composer outcome's subtree slots are
+    # populated on a death win, the recover slot on a recover win, so the model
+    # scores the whole-tree non-terminal Competing per record.
+    onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
+    admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    burial = Gamma(1.5, 1.0)
+    chain = Sequential((admit, burial), (:admit_death, :death_burial))
+    recover = Gamma(3.0, 2.0)
+    p_true = 0.35
+    truth = compose((onset = onset,
+        resolution = competing(:death => (chain, p_true),
+            :recover => (recover, 1 - p_true))))
+
+    rng = MersenneTwister(2027)
+    rows = [rand(rng, truth) for _ in 1:400]
+
+    @model function recover_cfr(rows)
+        p ~ Beta(2, 2)
+        node = compose((onset = onset,
+            resolution = competing(:death => (chain, p),
+                :recover => (recover, 1 - p))))
+        for r in rows
+            Turing.@addlogprob! logpdf(node, r)
+        end
+    end
+
+    chn = sample(rng, recover_cfr(rows), NUTS(), 600; progress = false)
+    p_hat = mean(chn[:p])
+    # The posterior mean recovers the true CFR within a loose tolerance (N = 400).
+    @test isapprox(p_hat, p_true; atol = 0.08)
+end
+
 @testitem "competing: introspection works for both node types" begin
     using Distributions
 

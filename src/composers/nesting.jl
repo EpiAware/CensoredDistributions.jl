@@ -17,6 +17,31 @@ _is_composable(::Select) = true
 _is_composable(::Latent) = true
 _is_composable(::Any) = false
 
+# Whether a value is admissible as a competing OUTCOME delay: a univariate leaf
+# (a plain delay, the `NoEvent` marker, or a nested `Competing`) OR a composer
+# SUBTREE (`Sequential` / `Parallel` / `Select`, the non-terminal branch of #466
+# Feature 3). Used by the `competing` / `Competing` / `HazardCompeting`
+# constructors to validate a branch payload without referencing the later-loaded
+# composer types in their method signatures.
+_is_competing_branch(::UnivariateDistribution) = true
+_is_competing_branch(::Union{Sequential, Parallel, Select}) = true
+_is_competing_branch(::Any) = false
+
+# Whether an outcome's payload is itself a composer SUBTREE (a non-terminal
+# competing branch, #466 Feature 3) rather than a leaf delay. A nested `Competing`
+# (univariate but multi-slot) also counts: its event layout spans more than one
+# slot. A leaf delay (including the `NoEvent` marker) is terminal. Defined here
+# (not in `Competing.jl`) so `Sequential` / `Parallel` / `Select` are all loaded.
+_is_composer_outcome(::Union{Sequential, Parallel, Select, AbstractCompeting}) = true
+_is_composer_outcome(::UnivariateDistribution) = false
+
+# Whether a competing node is NON-TERMINAL: any outcome's payload is a composer
+# subtree. A non-terminal competing node is MULTIVARIATE (its outcomes span their
+# subtrees' event slots), so its scalar `logpdf` / `mean` / `as_mixture` error and
+# its outputs are NamedTuples (#466 Feature 3); an all-leaf node is the unchanged
+# univariate (collapsible) terminal node.
+_is_nonterminal(c::AbstractCompeting) = any(_is_composer_outcome, c.delays)
+
 # Default positional names for a composer node, used when the front-end (or a
 # positional constructor) supplies none. `_default_names(:step, 3)` is
 # `(:step_1, :step_2, :step_3)`; the prefix is `:step` for `Sequential` and
@@ -81,10 +106,37 @@ end
 # trees and `length`/the generic value path are untouched.
 _event_child_nleaves(c) = _child_nleaves(c)
 # Both competing nodes (the mixture `Competing` and the racing-hazard
-# `HazardCompeting`) expose one EVENT slot per outcome, including any no-event
-# slot (an OBSERVED non-occurrence record fills it). Dispatch on the shared
-# supertype so the layout is identical.
-_event_child_nleaves(c::AbstractCompeting) = _n_branches(c)
+# `HazardCompeting`) expose event slots PER OUTCOME. A LEAF outcome (a plain
+# delay) occupies ONE slot; a NON-TERMINAL outcome whose payload is itself a
+# composer subtree (`Sequential`/`Parallel`/`Select`/nested `Competing`) occupies
+# its WHOLE subtree's event-slot width (#466 Feature 3), anchored at the outcome's
+# resolution event (shared like a nested-composer origin). The all-leaf fast path
+# is exactly `_n_branches(c)` (every outcome contributes one slot), preserving the
+# #474 terminal-Competing layout; a composer outcome instead recurses through
+# `_event_child_nleaves`, so its sub-event slots are summed in. Dispatch on the
+# shared supertype so the mixture and racing nodes share the layout.
+function _event_child_nleaves(c::AbstractCompeting)
+    return _competing_outcome_nleaves(c.delays)
+end
+
+# Sum the EVENT-slot width of each competing outcome: a leaf outcome is one slot,
+# a composer outcome is its own `_event_child_nleaves` (its subtree's slots).
+# HEAD/TAIL recursion for the same `Any`-inference reason as `_event_nleaves`
+# (`sum`/`mapreduce` over a heterogeneous outcome tuple widens to `Any` on the CI
+# compilers and poisons the downstream event-vector length).
+_competing_outcome_nleaves(::Tuple{}) = 0
+function _competing_outcome_nleaves(delays::Tuple)
+    return _competing_outcome_slots(first(delays)) +
+           _competing_outcome_nleaves(Base.tail(delays))
+end
+
+# Event-slot width of ONE competing outcome's payload: a leaf delay (including the
+# no-event marker) is one slot; a composer payload recurses to its subtree width.
+_competing_outcome_slots(::UnivariateDistribution) = 1
+function _competing_outcome_slots(d::Union{Sequential, Parallel, Select,
+        AbstractCompeting})
+    return _event_child_nleaves(d)
+end
 _event_child_nleaves(c::Union{Sequential, Parallel}) = _event_nleaves(c.components)
 # A nested `Select` occupies its (common) alternative's EVENT-slot width: every
 # alternative must expose the same number of event slots to share one flat slot,

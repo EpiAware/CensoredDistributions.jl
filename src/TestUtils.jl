@@ -31,7 +31,7 @@ using Distributions: Distributions, mean, var, std, logpdf, cdf, params,
 import Tables
 
 using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
-                               Competing, AbstractCompeting, HazardCompeting,
+                               Competing, AbstractCompeting,
                                Select, Latent, compose, latent,
                                double_interval_censored, primary_censored,
                                event, event_names, event_tree, params_table,
