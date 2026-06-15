@@ -414,20 +414,6 @@ as_mixture(node)
 # See also
 - [`Competing`](@ref): the composer type
 "
-# A NON-TERMINAL (composer-outcome) competing node is MULTIVARIATE: an outcome's
-# subtree spans several event slots, so there is no single marginal
-# time-to-resolution and no scalar `logpdf` / `mean` / `as_mixture`. It is scored
-# only through the event-vector path (its outcome subtree's slice), so the scalar
-# methods error with a clear message pointing at the event-vector / NamedTuple
-# path. (#466 Feature 3.)
-function _nonterminal_marginal_error(what::AbstractString)
-    throw(ArgumentError(
-        "a non-terminal Competing node (an outcome whose payload is a composer " *
-        "subtree) is multivariate and has no scalar `$(what)`; score it through " *
-        "the event-vector path (nest it in a `compose(...)` tree and pass the " *
-        "outcome subtree's event slots, or use `event_names` / NamedTuple I/O)"))
-end
-
 function as_mixture(c::Competing)
     # A non-terminal node (a composer-valued outcome) is multivariate: no single
     # marginal time-to-resolution exists, so the scalar lowering is rejected.
@@ -454,6 +440,22 @@ function _no_event_marginal_error(what::AbstractString)
         "a Competing node with a no-event branch is a defective marginal " *
         "(its observed-time mass is < 1) and has no scalar `$(what)`; score it " *
         "through the event-vector path (its observed-outcome / no-event record)"))
+end
+
+# A NON-TERMINAL (composer-outcome) competing node is MULTIVARIATE: an outcome's
+# subtree spans several event slots, so there is no single marginal
+# time-to-resolution and no scalar `logpdf` / `mean` / `as_mixture`. It is scored
+# only through the event-vector path (its outcome subtree's slice), so the scalar
+# methods error with a clear message pointing at the event-vector / NamedTuple
+# path. (#466 Feature 3.) Defined AFTER `as_mixture` so the `@doc` block above
+# `as_mixture` attaches to it (an intervening function definition would steal the
+# docstring and leave `as_mixture` undocumented, an Aqua failure).
+function _nonterminal_marginal_error(what::AbstractString)
+    throw(ArgumentError(
+        "a non-terminal Competing node (an outcome whose payload is a composer " *
+        "subtree) is multivariate and has no scalar `$(what)`; score it through " *
+        "the event-vector path (nest it in a `compose(...)` tree and pass the " *
+        "outcome subtree's event slots, or use `event_names` / NamedTuple I/O)"))
 end
 
 params(c::Competing) = (map(params, c.delays), c.branch_probs)
@@ -861,8 +863,13 @@ See also: [`HazardCompeting`](@ref), [`occurrence_probability`](@ref)
 function winning_probabilities(c::HazardCompeting)
     _is_nonterminal(c) && _nonterminal_marginal_error("winning_probabilities")
     lo = float(minimum(c))
-    hi = float(maximum(c))
-    isfinite(hi) || (hi = lo + _hazard_quad_window(c))
+    hi_raw = float(maximum(c))
+    # Bind `hi` UNCONDITIONALLY (a ternary, not `isfinite(hi) || (hi = ...)`): the
+    # short-circuit-assignment form leaves `hi` only conditionally assigned, and the
+    # `ntuple` closure below that captures it then trips JET's `local variable hi is
+    # not defined` (the closure cannot prove the assignment branch ran). An
+    # unbounded cause support falls back to a finite high-quantile quad window.
+    hi = isfinite(hi_raw) ? hi_raw : lo + _hazard_quad_window(c)
     n = _n_branches(c)
     probs = ntuple(n) do j
         gl_integrate(lo, hi, _PRIMARY_GL) do t

@@ -225,7 +225,8 @@ function backend_broken_scenarios()
                 nonterminal_comp, convolved_dic]),
             compiled_broken),
         "Enzyme forward" => union(
-            Set{String}([nested_tree, nested_comp, nested_hazard, convolved_dic]),
+            Set{String}([nested_tree, nested_comp, nested_hazard,
+                nonterminal_comp, convolved_dic]),
             compiled_broken)
     )
 end
