@@ -1059,12 +1059,47 @@ function _check_group_ids(group, nstrata::Int)
     return nothing
 end
 
-# A grouped `batched_event_logpdf(ds, rows; group)`: the grouped invariant as a
-# direct value (the per-record loop), bypassing `product_distribution`. Equal to
-# `sum(logpdf(record_distributions(ds, rows; group)[i], obs_i))` over the
-# observed records, with a fully-missing record contributing zero. Used by the
-# benchmark + the regression test (grouped == per-record loop) without building a
-# Turing model.
+@doc "
+
+The grouped (or shared-`d`) per-record log density as a direct value.
+
+`batched_event_logpdf(ds, rows; group)` scores a whole table of records under a
+PER-STRATUM distribution set: each record is built from `ds[group[i]]` (via
+[`record_distributions`](@ref)`(ds, rows; group)`) and the result is the sum of
+the per-record log densities, equal to
+`sum(logpdf(record_distributions(ds, rows; group)[i], obs_i))` over the observed
+records, with a fully-missing record contributing zero. It is the
+varying-parameter grouped invariant as a plain number (bypassing
+`product_distribution`), so a benchmark or a regression test can compare the
+grouped value to the per-record loop without building a Turing model.
+
+`batched_event_logpdf(d, rows)` is the single shared-`d` form, mirroring
+[`record_distributions`](@ref)`(d, rows)`.
+
+# Arguments
+- `ds`: a vector of composed distributions, one per stratum (or a single
+  composed distribution `d` for the shared form).
+- `rows`: a Tables.jl row source of records keyed by event name.
+
+# Keyword Arguments
+- `group`: a vector of 1-based stratum ids (one per record) indexing `ds`.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+mk(scale) = Sequential(
+    primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+    primary_censored(Gamma(2.0, scale), Uniform(0, 1)))
+ds = [mk(1.0), mk(2.0)]
+rows = [(onset = 0.0, admit = 2.0, death = 5.0),
+    (onset = 1.0, admit = 3.0, death = 9.0)]
+CensoredDistributions.batched_event_logpdf(ds, rows; group = [1, 2])
+```
+
+# See also
+- [`record_distributions`](@ref): the per-record / per-stratum assembly entry.
+"
 function batched_event_logpdf(ds::AbstractVector, rows; group)
     recs = record_distributions(ds, rows; group)
     return _batched_records_logpdf(recs)
