@@ -234,6 +234,18 @@ ev_mid_missing = Vector{Union{Missing, Float64}}([0.0, missing, 5.0]);
 
 CensoredDistributions.event_logpdf(obs_chain, ev_mid_missing; horizon = 8.0)
 
+# !!! note "How a partly-observed chain is scored"
+#     When only some events in a chain are seen, the package MARGINALISES over
+#     the unobserved intermediate events, integrating them out as the
+#     convolution of their bare continuous delays. The day-interval (and
+#     primary) censoring on an UNOBSERVED internal node is dropped, because no
+#     date was recorded there to censor; only the OBSERVED events carry their
+#     censoring, applied once over the convolved delay between them. So with the
+#     admission `missing` above, the onset-to-admission and admission-to-death
+#     delays convolve into one onset-to-death gap whose censoring lives on the
+#     observed onset and death. This is automatic per record, driven by each
+#     record's own missingness pattern.
+#
 # ## Scoring and simulation from one object
 #
 # The composer is dual-purpose: it scores observed records and simulates new

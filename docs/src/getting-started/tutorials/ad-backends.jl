@@ -153,7 +153,7 @@ md"""
 combinations show up as gaps rather than being hidden, except for the
 per-backend scenarios `ADFixtures.backend_skip_scenarios()` flags as
 uncatchable crashes (Enzyme aborts the whole process on the vectorised
-per-record tree-rebuild scenario, issue #319); those pairs are dropped before
+per-record tree-rebuild scenario); those pairs are dropped before
 the run so the benchmark cannot take the process down with it.
 
 The benchmark executed on this page excludes the Enzyme backends, because
