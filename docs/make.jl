@@ -45,7 +45,8 @@ if !skip_notebooks
         "rt-renewal-convolution.jl",
         "epinowcast-nowcasting.jl",
         "linear-chain-sir.jl",
-        "branching-competing.jl"
+        "branching-competing.jl",
+        "pairwise-survival-transmission.jl"
     ]
 
     println(
@@ -108,7 +109,8 @@ else
         "ebola-stratified-delays.md" => "# Stratified onset-to-test delays in the 2014-2016 Sierra Leone Ebola outbreak",
         "rt-renewal-convolution.md" => "# An Rt renewal model with delay convolution",
         "linear-chain-sir.md" => "# [A composed delay as ODE compartments: the linear chain trick](@id linear-chain-sir)",
-        "epinowcast-nowcasting.md" => "# [An epinowcast-style hazard nowcasting model](@id epinowcast-nowcasting)"
+        "epinowcast-nowcasting.md" => "# [An epinowcast-style hazard nowcasting model](@id epinowcast-nowcasting)",
+        "pairwise-survival-transmission.md" => "# [Pairwise survival analysis of transmission (Kenah)](@id pairwise-survival-transmission)"
     ]
     for (file, heading) in tutorial_stubs
         open(joinpath(tutorials_dir, file), "w") do io
