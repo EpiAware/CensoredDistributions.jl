@@ -363,10 +363,15 @@ end
 # `log Σ_i p_i f_i(t)` via the log-sum-exp of `log p_i + logpdf(delay_i, t)`,
 # preserving the probabilities' (possibly `Dual`) element type. A zero
 # probability contributes no term (its `log` is `-Inf`); an all-zero set returns
-# `-Inf`.
+# `-Inf`. A no-event branch carries no density at a finite observed time `t` (its
+# mass is the survival, not a density term), so it contributes `-Inf` and is
+# skipped here, leaving the marginal as the sum over the REAL outcomes.
 function _competing_logmix(probs, delays, t)
     n = length(probs)
-    terms = ntuple(i -> log(probs[i]) + logpdf(delays[i], t), n)
+    terms = ntuple(
+        i -> _is_no_event(delays[i]) ?
+             oftype(log(probs[i]), -Inf) :
+             log(probs[i]) + logpdf(delays[i], t), n)
     m = maximum(terms)
     isfinite(m) || return m
     s = zero(m)

@@ -426,9 +426,14 @@ end
 function _competing_logprob(d::Competing, row::NamedTuple, probs, w, horizon)
     obs = _observed_outcomes(d, row)
     if length(obs) == 1
-        # Observed outcome: condition on that branch through the SHARED core
-        # arithmetic (the per-record horizon right-truncates the branch delay).
         i, gap = obs[1]
+        # An OBSERVED non-occurrence (the no-event slot present) scores the
+        # no-event mass `log q` alone (no delay term); a real outcome conditions
+        # on its branch through the SHARED core arithmetic (the per-record horizon
+        # right-truncates the branch delay).
+        if CensoredDistributions._is_no_event(d.delays[i])
+            return _scale(log(probs[i]), w)
+        end
         branch = _maybe_truncate(d.delays[i], horizon)
         lp = CensoredDistributions._competing_condition_logpdf(
             probs, branch, gap, i)

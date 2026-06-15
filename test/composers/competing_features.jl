@@ -246,6 +246,24 @@ end
           logpdf(SD.LogLogistic(2.0, 1.5), t) + logccdf(Gamma(3.0, 2.0), t)
 end
 
+@testitem "no-event: top-level DynamicPPL scores occurrence vs non-occurrence" begin
+    using Distributions
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    ρ = 0.7
+    report_d = Gamma(2.0, 1.0)
+    ne = competing(:report => (report_d, ρ), :none => (NoEvent(), 1 - ρ))
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # OBSERVED occurrence: condition on the report branch (log ρ + delay logpdf).
+    lj_occ = only(logjoint(demo(ne, (report = 2.5,)), (;)))
+    @test lj_occ ≈ log(ρ) + logpdf(report_d, 2.5)
+
+    # OBSERVED non-occurrence: the no-event slot present scores log(1 - ρ) alone.
+    lj_non = only(logjoint(demo(ne, (none = 1.0,)), (;)))
+    @test lj_non ≈ log(1 - ρ)
+end
+
 @testitem "competing: introspection works for both node types" begin
     using Distributions
 
