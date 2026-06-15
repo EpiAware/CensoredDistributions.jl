@@ -6,9 +6,15 @@ module CensoredDistributionsFlexiChainsExt
 
 using CensoredDistributions: CensoredDistributions, Sequential, Parallel,
                              Competing, Select, component_names
-import CensoredDistributions: chain_to_params, update
+import CensoredDistributions: chain_to_params, update, strip_prefix
+using DynamicPPL: VarName
 using FlexiChains: FlexiChains
 using Statistics: mean
+
+# `AbstractPPL.unprefix` removes one leading prefix from a `VarName`. It is the
+# parent module of `VarName` (re-exported through DynamicPPL) and is reached that
+# way rather than as a direct dependency, keeping the weakdep set unchanged.
+const _AbstractPPL = parentmodule(VarName)
 
 # Read a chain's free parameters into a `String`-keyed lookup, so the tree-walk
 # matches each template parameter by its dotted name instead of rebuilding a
@@ -63,7 +69,12 @@ _read_value(lookup, key) = get(lookup, key, nothing)
 # Form the dotted name a submodel-sampled parameter carries: the `~`-bound
 # `prefix` then the edge path and parameter name (e.g. prefix `:d`, path
 # `(:onset_admit, :shape)` -> `"d.onset_admit.shape"`), matching `string(vn)`.
-_dotted(prefix::Symbol, path::Tuple) = join(string.((prefix, path...)), ".")
+# An EMPTY prefix (`Symbol("")`) drops the leading segment, so a `strip_prefix`ed
+# chain reads back at the bare edge path (`"onset_admit.shape"`).
+function _dotted(prefix::Symbol, path::Tuple)
+    prefix === Symbol("") && return join(string.(path), ".")
+    return join(string.((prefix, path...)), ".")
+end
 
 # Build the nested NamedTuple by walking the template, so its key order matches
 # `params(template)` (deterministic, not Dict-ordered). Each node reads its
@@ -207,6 +218,29 @@ function update(template, chain::FlexiChains.FlexiChain;
     params = chain_to_params(template, chain; prefix = prefix, draw = draw,
         draws = draws, summary = summary)
     return update(template, params)
+end
+
+# Remove the single leading `prefix` from one parameter VarName, leaving the rest
+# of the path (the edge-path namespacing) intact. A VarName that does not carry
+# the prefix (`AbstractPPL.unprefix` throws an `ArgumentError`) is returned
+# unchanged, so a plain top-level variable sampled alongside the submodel is left
+# alone rather than erroring.
+function _strip_one(vn::VarName, prefix::VarName)
+    try
+        return _AbstractPPL.unprefix(vn, prefix)
+    catch err
+        err isa ArgumentError && return vn
+        rethrow()
+    end
+end
+
+# `strip_prefix(chain; prefix = :d)`: map every parameter VarName through
+# `_strip_one`, dropping the outer submodel prefix. `FlexiChains.map_parameters`
+# touches only the parameter keys, so the chain's extras (log-densities, sampler
+# stats) and draw values are preserved.
+function strip_prefix(chain::FlexiChains.FlexiChain; prefix::Symbol = :d)
+    pre = VarName{prefix}()
+    return FlexiChains.map_parameters(vn -> _strip_one(vn, pre), chain)
 end
 
 end

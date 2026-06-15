@@ -96,6 +96,11 @@ export endpoint
 # loaded; the method lives in the package extension.
 export chain_to_params
 
+# Exported chain renamer: drop the outer submodel prefix from a fitted chain's
+# parameter names (`d.onset_admit.shape` -> `onset_admit.shape`). No method until
+# both DynamicPPL and FlexiChains are loaded; the method lives in the extension.
+export strip_prefix
+
 # Exported data-selected disjunction node (the case selector over independent
 # alternatives). `Select` is the type; `selecting` the friendly constructor.
 export Select, selecting
