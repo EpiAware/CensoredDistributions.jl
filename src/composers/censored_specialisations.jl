@@ -38,6 +38,14 @@ _origin_primary_event(d::PrimaryCensored) = d.primary_event
 _origin_primary_event(d::Truncated) = _origin_primary_event(d.untruncated)
 _origin_primary_event(d::IntervalCensored) = _origin_primary_event(d.dist)
 _origin_primary_event(d::Weighted) = _origin_primary_event(d.dist)
+# A `shared(:tag, ...)` leaf is TRANSPARENT to scoring (#394), so a shared
+# censored leaf at a tree origin must surface its wrapped leaf's primary event
+# like the other censoring wrappers; without this the origin's latent primary is
+# lost and a `shared(:inc, primary_censored(...))` first step scores as an
+# UNCENSORED origin (#395 follow-up: the shared wrapper was stripped by
+# `_marginal_core` / `cdf` but not by the origin-primary traversal, diverging
+# from the untagged leaf).
+_origin_primary_event(d::Shared) = _origin_primary_event(d.dist)
 _origin_primary_event(::UnivariateDistribution) = nothing
 # A nested multivariate composer is not a primary-censored origin leaf, so it
 # surfaces no origin primary event (the censored treatment is resolved within
@@ -66,6 +74,12 @@ _marginal_core(d::Convolved) = d
 _leaf_interval(d::IntervalCensored) = d
 _leaf_interval(d::Truncated) = _leaf_interval(d.untruncated)
 _leaf_interval(d::Weighted) = _leaf_interval(d.dist)
+# A `shared(:tag, ...)` leaf is transparent to scoring (#394), so recover the
+# secondary interval THROUGH the shared wrapper like the other wrappers;
+# otherwise a `shared(:inc, double_interval_censored(...))` leaf drops its
+# interval discretisation and scores its gaps continuously, diverging from the
+# untagged leaf.
+_leaf_interval(d::Shared) = _leaf_interval(d.dist)
 _leaf_interval(::UnivariateDistribution) = nothing
 
 # The BARE continuous core of an edge for a SAMPLED-endpoint latent edge (#453):
