@@ -153,6 +153,9 @@ function _overall_moment(d::Sequential, f::F) where {F}
 end
 _overall_moment(c::Competing, ::typeof(_leaf_mean)) = _competing_mix_mean(c)
 _overall_moment(c::Competing, ::typeof(_leaf_var)) = _competing_mix_var(c)
+# A racing-hazard node collapses to its marginal any-event (min) moment.
+_overall_moment(c::HazardCompeting, ::typeof(_leaf_mean)) = mean(c)
+_overall_moment(c::HazardCompeting, ::typeof(_leaf_var)) = var(c)
 # A `Parallel` step inside a chain has several independent endpoints, so the chain
 # has no single observed scalar to collapse to (mirroring `observed_distribution`,
 # which rejects a `Sequential` whose step is a `Parallel`).
@@ -322,6 +325,18 @@ function _event_moment_step!(out, child::Competing, f::F, idx::Int) where {F}
     return idx + _n_branches(child)
 end
 
+# A racing-hazard step: one slot per outcome. Cause and timing are COUPLED, so a
+# per-slot scalar uses the marginal any-event (min) moment for every outcome slot
+# (the racing time is shared across causes); the per-cause split is a probability,
+# not a separate time scale.
+function _event_moment_step!(out, child::HazardCompeting, f::F, idx::Int) where {F}
+    m = float(f(child))
+    for i in 1:_n_branches(child)
+        out[idx + i - 1] = m
+    end
+    return idx + _n_branches(child)
+end
+
 function _event_moment_step!(out, child, f::F, idx::Int) where {F}
     out[idx] = float(f(child))
     return idx + 1
@@ -366,6 +381,9 @@ end
 function _outcome_scalar_moment(c::Competing, ::typeof(_leaf_var))
     return _competing_mix_var(c)
 end
+# A racing-hazard outcome's scalar moment is the node's marginal any-event moment.
+_outcome_scalar_moment(c::HazardCompeting, ::typeof(_leaf_mean)) = mean(c)
+_outcome_scalar_moment(c::HazardCompeting, ::typeof(_leaf_var)) = var(c)
 function _outcome_scalar_moment(d::Latent, f::F) where {F}
     return _outcome_scalar_moment(d.dist, f)
 end

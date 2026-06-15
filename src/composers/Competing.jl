@@ -711,6 +711,33 @@ end
 
 pdf(c::HazardCompeting, t::Real) = exp(logpdf(c, t))
 
+# Mean / variance of the marginal any-event time `T = min_k D_k`, by AD-safe
+# fixed-node Gauss-Legendre quadrature of the survival `∏ S_k` (`E[T] = ∫ S(t)
+# dt` for a non-negative `T`, `E[T²] = ∫ 2t S(t) dt`). A racing node's support
+# floor may be positive; the integral runs from zero over the survival so the
+# `E[T] = ∫ S` identity holds for a non-negative time.
+function _hazard_marginal_window(c::HazardCompeting)
+    hi = float(maximum(c))
+    isfinite(hi) && return hi
+    return _hazard_quad_window(c)
+end
+
+function mean(c::HazardCompeting)
+    hi = _hazard_marginal_window(c)
+    return gl_integrate(zero(hi), hi, _PRIMARY_GL) do t
+        exp(_hazard_logsurvival(c, t))
+    end
+end
+
+function var(c::HazardCompeting)
+    hi = _hazard_marginal_window(c)
+    m = mean(c)
+    e2 = gl_integrate(zero(hi), hi, _PRIMARY_GL) do t
+        2 * t * exp(_hazard_logsurvival(c, t))
+    end
+    return e2 - m^2
+end
+
 @doc "
 
 Survival of the racing-hazard marginal any-event time at `t`: `∏_k S_k(t)`.

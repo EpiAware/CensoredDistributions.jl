@@ -192,3 +192,62 @@ end
     @test all(isfinite, g)
     @test any(!=(0), g)
 end
+
+@testitem "racing-hazard: AD through a nested censored tree logpdf" begin
+    using Distributions
+    using ForwardDiff: gradient
+
+    # The nested-tree event-vector scorer must keep the racing delays' Dual type
+    # (regression: a `convert(T, ...)` to the data type stripped it). Differentiate
+    # the censored-composer logpdf of a death-observed record w.r.t. the shapes.
+    onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
+    ev = Vector{Union{Missing, Float64}}([0.3, missing, 3.3, missing])
+    function f(p)
+        haz = competing(:death => Gamma(p[1], 3.0),
+            :recover => Gamma(p[2], 2.0))
+        d = compose((onset = onset, resolution = haz))
+        return logpdf(d, ev)
+    end
+    g = gradient(f, [2.0, 3.0])
+    @test all(isfinite, g)
+    @test any(!=(0), g)
+end
+
+@testitem "no-event: forward stream drops the no-event mass" begin
+    using Distributions
+
+    # The forward per-outcome stream skips the no-event branch: only the real
+    # outcome produces a count series, carrying its branch-probability mass.
+    ρ = 0.6
+    ne = competing(:report => (Gamma(2.0, 1.5), ρ), :none => (NoEvent(), 1 - ρ))
+    series = zeros(60)
+    series[1] = 1.0
+    fwd = convolve_distributions(ne, series; events = (:report,))
+    @test sum(fwd.report)≈ρ atol = 1e-6
+    # The `none` branch is not a producible event (it has no series).
+    @test_throws ArgumentError convolve_distributions(ne, series; events = (:none,))
+end
+
+@testitem "competing: introspection works for both node types" begin
+    using Distributions
+
+    haz = competing(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
+    onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
+    d = compose((onset = onset, severity = haz))
+
+    # event_names / event_tree / event descend the racing node.
+    @test :death in event_names(d)
+    @test event(d, :severity) === haz
+    @test event(d, :severity, :death) == Gamma(2.0, 3.0)
+
+    # params_table lists the racing delays but NO branch_probs rows.
+    pt = params_table(haz)
+    @test !any(occursin("branch_probs", string(e)) for e in pt.edge)
+
+    # update rebuilds the racing node from a new parameter set.
+    haz2 = update(haz,
+        (death = (shape = 4.0, scale = 3.0),
+            recover = (shape = 5.0, scale = 2.0)))
+    @test haz2 isa CensoredDistributions.HazardCompeting
+    @test event(haz2, :death) == Gamma(4.0, 3.0)
+end

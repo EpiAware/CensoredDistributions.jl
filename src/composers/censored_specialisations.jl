@@ -481,7 +481,10 @@ function _tree_step(step::HazardCompeting, events, o_idx::Int, ev_idx::Int,
         obs_gap = convert(T, y) - convert(T, o)
     end
     obs_i == 0 && return zero(T)
-    return convert(T, _hazard_cause_logpdf(step, obs_i, obs_gap))
+    # The log density carries any AD `Dual`/tracked type from the racing delays'
+    # params, so it must NOT be narrowed to the data type `T` (only the `obs_gap`,
+    # which is data, is `T`).
+    return _hazard_cause_logpdf(step, obs_i, obs_gap)
 end
 
 # --- per-record branch-probability override for a nested Competing -----
