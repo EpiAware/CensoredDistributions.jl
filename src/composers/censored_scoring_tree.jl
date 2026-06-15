@@ -96,7 +96,7 @@ _terminal_offset(::Parallel) = -1
 # event-slot width (checked by `_event_child_nleaves`), so the Select's terminal
 # offset is that of its (common) alternative. A following chain step hangs off the
 # same terminal regardless of which alternative routes.
-_terminal_offset(d::Select) = _terminal_offset(first(d.alternatives))
+_terminal_offset(d::Select) = _terminal_offset(_flat_select_alternative(d))
 function _seq_terminal_offset(components::Tuple)
     # The last step's terminal, measured from the chain's own first event. Uses
     # the EVENT-slot count (a `Competing` step spans one slot per outcome).
@@ -210,7 +210,7 @@ end
 # alternative recurses.
 function _tree_step(step::Select, events, o_idx::Int, ev_idx::Int,
         primary, ::Type{T}) where {T}
-    return _tree_step(first(step.alternatives), events, o_idx, ev_idx,
+    return _tree_step(_flat_select_alternative(step), events, o_idx, ev_idx,
         primary, T)
 end
 
