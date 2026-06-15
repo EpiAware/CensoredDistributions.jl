@@ -46,7 +46,7 @@ transmission engine stays in the simulator.
 
 rng = MersenneTwister(2024)
 
-R = 1.3
+R = 1.6
 gen_interval = Gamma(2.0, 2.5)
 
 function toy_branching(rng, R, gen_interval, n_generations)
@@ -67,7 +67,7 @@ function toy_branching(rng, R, gen_interval, n_generations)
     return infection_times
 end
 
-infection_times = toy_branching(rng, R, gen_interval, 6)
+infection_times = toy_branching(rng, R, gen_interval, 9)
 length(infection_times)
 
 md"""
