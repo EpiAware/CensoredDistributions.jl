@@ -138,7 +138,7 @@ end
 # path (the data path resolves Selects out before scoring); score that.
 function _competing_outcome_payload_logpdf(delay::Select, o, o_idx::Int, events,
         obs_start::Int, obs_w::Int, primary, ::Type{T}) where {T}
-    return _competing_outcome_payload_logpdf(first(delay.alternatives), o,
+    return _competing_outcome_payload_logpdf(_flat_select_alternative(delay), o,
         o_idx, events, obs_start, obs_w, primary, T)
 end
 

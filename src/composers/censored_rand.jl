@@ -312,8 +312,8 @@ end
 
 function _competing_outcome_rand!(out, rng::AbstractRNG, delay::Select, origin,
         start::Int, ::Type{T}) where {T}
-    return _competing_outcome_rand!(out, rng, first(delay.alternatives), origin,
-        start, T)
+    return _competing_outcome_rand!(out, rng, _flat_select_alternative(delay),
+        origin, start, T)
 end
 
 # A nested `Competing` / `HazardCompeting` outcome recurses through its own
@@ -427,7 +427,8 @@ end
 # the Select before sampling, so a routed record samples its chosen alternative.
 function _tree_rand_step!(out, rng::AbstractRNG, step::Select, origin, idx,
         ::Type{T}) where {T}
-    return _tree_rand_step!(out, rng, first(step.alternatives), origin, idx, T)
+    return _tree_rand_step!(out, rng, _flat_select_alternative(step), origin,
+        idx, T)
 end
 
 # The terminal event time of a nested subtree just filled into `out` from
@@ -496,8 +497,8 @@ function _discretise_competing_outcome!(out, delay::Union{Sequential, Parallel},
     return nothing
 end
 function _discretise_competing_outcome!(out, delay::Select, start::Int, w::Int)
-    return _discretise_competing_outcome!(out, first(delay.alternatives), start,
-        w)
+    return _discretise_competing_outcome!(out, _flat_select_alternative(delay),
+        start, w)
 end
 function _discretise_competing_outcome!(out, delay::AbstractCompeting,
         start::Int, ::Int)
@@ -514,5 +515,5 @@ end
 # A nested `Select` discretises its DEFAULT alternative's slot(s), matching the
 # default the simulation walk filled.
 function _discretise_step!(out, step::Select, idx::Int)
-    return _discretise_step!(out, first(step.alternatives), idx)
+    return _discretise_step!(out, _flat_select_alternative(step), idx)
 end

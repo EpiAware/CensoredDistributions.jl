@@ -70,7 +70,7 @@ _child_nleaves(c::Union{Sequential, Parallel}) = length(c)
 # common width is the nested Select's leaf count; disagreeing widths cannot
 # share one flat slot and error (a `length(::Select)` has no single answer).
 function _child_nleaves(c::Select)
-    n = _child_nleaves(first(c.alternatives))
+    n = _child_nleaves(_flat_select_alternative(c))
     widths = map(_child_nleaves, c.alternatives)
     all(==(n), widths) || throw(ArgumentError(
         "a nested Select needs every alternative to have the same leaf count " *
@@ -142,7 +142,7 @@ _event_child_nleaves(c::Union{Sequential, Parallel}) = _event_nleaves(c.componen
 # alternative must expose the same number of event slots to share one flat slot,
 # so the chosen alternative for a row lands in the same slice whichever it is.
 function _event_child_nleaves(c::Select)
-    n = _event_child_nleaves(first(c.alternatives))
+    n = _event_child_nleaves(_flat_select_alternative(c))
     widths = map(_event_child_nleaves, c.alternatives)
     all(==(n), widths) || throw(ArgumentError(
         "a nested Select needs every alternative to expose the same number of " *
@@ -195,8 +195,15 @@ function _child_logpdf(c::Latent, x, offset, n::Int)
     return _child_logpdf(c.dist, x, offset, n)
 end
 
-# The alternative a nested Select commits to on the data-free flat path: the
-# first. The row/record path overrides this by the row's selector value.
+# The alternative a nested Select commits to on the data-free path: the FIRST.
+# The row/record path overrides this by the row's selector value (`_pick` /
+# `_resolve_selects`). This is the SINGLE source of the "Select routes to its
+# first alternative" rule shared by every tree walk -- the flat value path here,
+# the event-name walk (`tree_events.jl`), the per-event moment / discretisation /
+# sampling walks (`composed_moments.jl` / `censored_rand.jl`), and the AD'd
+# scorer (`censored_scoring_tree.jl` / `censored_competing.jl`). It is a pure
+# structural accessor (no leaf values, no closures), so the scorer routing
+# through it stays AD-safe (it inlines to the bare `first(c.alternatives)`).
 _flat_select_alternative(c::Select) = first(c.alternatives)
 
 # Concatenate the per-child draws into one flat vector of element type `T`.
