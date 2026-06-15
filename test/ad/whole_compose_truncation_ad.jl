@@ -43,3 +43,46 @@
     # partial is non-zero.
     @test all(!=(0), g)
 end
+
+@testitem "compose-over wrappers gradient: ForwardDiff (#363)" tags=[
+    :ad, :forwarddiff] begin
+    using CensoredDistributions, Distributions
+    using ADTypes: AutoForwardDiff
+    using DifferentiationInterface: gradient
+    using ForwardDiff: ForwardDiff
+
+    # The wrap-over-composer paths added in #363 must differentiate: a
+    # Sequential collapsed then truncated/censored, a Parallel and a Select with
+    # the wrapper distributed into branches/alternatives. θ = leaf
+    # LogNormal log-means; LogNormal keeps truncation `logcdf` off the Gamma
+    # shape-derivative path.
+    function f(θ)
+        a = LogNormal(θ[1], 0.5)
+        b = LogNormal(θ[2], 0.4)
+
+        # Sequential: collapse-then-truncate and collapse-then-double-censor.
+        seq = Sequential(a, b)
+        s1 = logpdf(truncate_to_horizon(seq, 10.0), 3.0)
+        s2 = logpdf(
+            double_interval_censored(seq; primary_event = Uniform(0, 1),
+                upper = 12.0, interval = 1.0), 3.0)
+
+        # Parallel: distributed truncation + interval censoring.
+        par = Parallel(a, b)
+        s3 = logpdf(truncate_to_horizon(par, 10.0), [2.0, 3.0])
+        s4 = logpdf(interval_censored(par, 1.0), [2.0, 3.0])
+
+        # Select: distributed primary censoring, scored per-alternative.
+        sel = selecting(:index => a, :sourced => b)
+        s5 = logpdf(primary_censored(sel, Uniform(0, 1)), 2.0; kind = :index)
+        s6 = logpdf(truncate_to_horizon(sel, 10.0), 3.0; kind = :sourced)
+
+        return s1 + s2 + s3 + s4 + s5 + s6
+    end
+
+    θ = [1.0, 0.5]
+    @test isfinite(f(θ))
+    g = gradient(f, AutoForwardDiff(), θ)
+    @test g isa AbstractVector && length(g) == 2 && all(isfinite, g)
+    @test all(!=(0), g)
+end
