@@ -28,23 +28,25 @@ stack.
 ### What are we going to do in this exercise
 
 We fit the 1861 Hagelloch measles outbreak, the canonical dataset for this
-method, recover the contact-interval parameters and ``R_0``, and read off a
-within-household hazard ratio.
+method, recover the **transmission coefficients** ``\beta`` of Kenah's
+hazard-of-infectious-contact regression and ``R_0``, and read off the
+within-household effect.
 
 1. Map each Kenah pairwise concept onto a composed primitive:
 
 | Kenah pairwise concept | Composed primitive |
 |---|---|
-| contact interval ``\tau_{ij}`` with hazard ``\lambda(\tau)`` | a `Distributions.Weibull` leaf |
+| contact interval ``\tau_{ij}`` with hazard ``\lambda_0(\tau)\,e^{\beta' x_{ij}}`` | a `Distributions.Weibull` leaf with a per-pair rate |
 | susceptible ``j`` infected at ``\min_i \tau_{ij}``, source ``=\arg\min`` | racing-hazard [`competing`](@ref) ([`HazardCompeting`](@ref)) |
 | pair right-censored (``j`` infected elsewhere / source recovers / study ends) | the racing-hazard survival ``\prod_k S_k`` (`logccdf`) |
 | contact-interval observation windows (dates to the day) | a [`double_interval_censored`](@ref) leaf (sketched in the refinements) |
-| covariate hazard ratios (within vs between household) | a per-pair scale on the leaf |
+| transmission coefficients ``\beta`` (household, class, …) | a per-pair log-rate regression ``\lambda_0 e^{\beta' x_{ij}}`` |
 
-2. Identify the contact-interval distribution as a stock `Weibull` leaf.
+2. Identify the baseline contact interval as a stock `Weibull` leaf and put a
+   log-rate regression ``\lambda_0 e^{\beta' x_{ij}}`` on its rate.
 3. Build the pairwise survival likelihood as a racing-hazard competing node.
-4. Fit the Hagelloch data and recover the parameters, ``R_0`` and the
-   within-household hazard ratio.
+4. Fit the Hagelloch data and recover the transmission coefficients ``\beta``,
+   ``R_0`` and the within-household effect.
 
 ### What might I need to know before starting
 
@@ -54,29 +56,49 @@ CensoredDistributions.jl](@ref getting-started) and the composer reference,
 
 ## The method
 
-The contact-interval distribution we use is the `transtat` Weibull
-parameterisation [kenah2011contact](@cite): a rate ``\lambda`` and a shape
-``\gamma`` with cumulative hazard
+Kenah models the **hazard of infectious contact** for an ordered pair as a
+*regression* on pair covariates, not as a handful of free rates
+[kenah2011contact](@cite).
+The contact interval of pair ``(i, j)`` has hazard
 
 ```math
-H(\tau) = (\lambda \tau)^\gamma,
-\qquad S(\tau) = e^{-(\lambda \tau)^\gamma},
-\qquad h(\tau) = \lambda \gamma (\lambda \tau)^{\gamma - 1}.
+\lambda_{ij}(\tau \mid x_{ij}) = \lambda_0(\tau)\, e^{\beta' x_{ij}},
 ```
 
-``\gamma > 1`` gives an increasing hazard of infectious contact (infectiousness
-that builds after onset), ``\gamma < 1`` a decreasing one.
-This cumulative hazard ``(\lambda\tau)^\gamma`` is exactly a Weibull, so the
-contact-interval leaf is a stock `Distributions.Weibull(γ, 1/λ)` — the
-`transtat` rate/shape ``(\lambda, \gamma)`` map onto the Weibull shape ``\gamma``
-and scale ``1/\lambda``.
+a baseline hazard ``\lambda_0(\tau)`` shared by every pair times a
+**proportional** factor ``e^{\beta' x_{ij}}`` set by the pair's covariates
+``x_{ij}`` (does the pair share a household, a school class, …).
+The vector ``\beta`` holds the **transmission coefficients**: each ``\beta_m`` is
+the log-hazard-ratio of infectious contact for covariate ``m`` (a unit increase
+in ``x_m`` multiplies the contact hazard by ``e^{\beta_m}``), and ``\beta`` is
+what we estimate.
+
+We take the baseline as the `transtat` Weibull, a rate ``\lambda_0`` and a shape
+``\gamma`` with baseline cumulative hazard
+
+```math
+H_0(\tau) = (\lambda_0 \tau)^\gamma,
+\qquad S_0(\tau) = e^{-(\lambda_0 \tau)^\gamma},
+\qquad h_0(\tau) = \lambda_0 \gamma (\lambda_0 \tau)^{\gamma - 1}.
+```
+
+``\gamma > 1`` gives an increasing baseline hazard (infectiousness that builds
+after onset), ``\gamma < 1`` a decreasing one.
+The Weibull is the rare family that is both a proportional-hazards and an
+accelerated-failure-time model, so the log-rate regression
+``\lambda_{ij} = \lambda_0\, e^{\beta' x_{ij}}`` keeps each pair's contact
+interval a Weibull: a stock `Distributions.Weibull(γ, 1/λ_{ij})` whose rate
+carries the linear predictor.
+A single binary household covariate recovers the two-rate special case exactly,
+``\log(\lambda_w / \lambda_b) = \beta_\text{household}``, but the same structure
+takes any number of pair covariates.
 Any `UnivariateDistribution` that reports a `logpdf` and a `logccdf` is a valid
-cause-specific delay for the racing-hazard node, so a richer hazard family — a
+cause-specific delay for the racing-hazard node, so a richer baseline — a
 [SurvivalDistributions.jl](@ref survival-delay-families) leaf
 (`GeneralizedGamma`, `PowerGeneralizedWeibull`) or a piecewise-constant hazard —
-drops in unchanged with no new package feature; we use the plain Weibull here
-because the `transtat` contact interval *is* a Weibull and nothing is gained by
-dressing it up.
+drops in unchanged with no new package feature; we use the Weibull baseline here
+because the `transtat` contact interval *is* a Weibull and the regression rides
+on its rate.
 
 For a susceptible ``j`` infected at time ``t_j``, let ``R(j)`` be the set of
 sources infectious before ``t_j`` and write ``g_{ij} = t_j - o_i`` for the gap
@@ -106,37 +128,53 @@ binomial secondary-attack-rate calculation [kenah2011contact](@cite).
 using CSV, DataFramesMeta, Dates
 using CensoredDistributions, Distributions
 using Turing, Random, Statistics
+using LinearAlgebra: dot, I
 import Mooncake
 using ADTypes: AutoMooncake
 import Distributions: logpdf, logccdf, pdf, cdf, ccdf, quantile
 import Base: minimum, maximum, rand
 
 md"""
-## The contact-interval leaf
+## The contact-interval leaf and its rate regression
 
-The cumulative hazard ``H(\tau) = (\lambda\tau)^\gamma`` is a Weibull, so the
-contact-interval leaf is a stock `Distributions.Weibull`: a `transtat` rate
-``\lambda`` and shape ``\gamma`` are a Weibull of shape ``\gamma`` and scale
-``1/\lambda``.
-`contact_interval` is just that mapping, so the rest of the page keeps working in
-the natural ``(\lambda, \gamma)`` hazard parameterisation while the leaf itself
-is a tested library distribution with AD-safe `logpdf`/`logccdf` (the survival
-the racing-hazard node needs) and a `quantile`/`rand` for simulation.
+A contact interval with cumulative hazard ``(\lambda\tau)^\gamma`` is a stock
+`Distributions.Weibull`: a `transtat` rate ``\lambda`` and shape ``\gamma`` are a
+Weibull of shape ``\gamma`` and scale ``1/\lambda``.
+`contact_interval` is just that mapping, so the rest of the page works in the
+natural ``(\lambda, \gamma)`` hazard parameterisation while the leaf is a tested
+library distribution with AD-safe `logpdf`/`logccdf` (the survival the
+racing-hazard node needs) and a `quantile`/`rand` for simulation.
+
+Kenah's regression rides on the rate: a pair's rate is the baseline rate scaled
+by its linear predictor, ``\lambda_{ij} = \lambda_0\, e^{\beta' x_{ij}}``.
+`pair_rate` evaluates that log-rate regression, so a pair leaf is
+`contact_interval(pair_rate(log_lambda0, beta, x), gamma)`.
 """
 
 contact_interval(lambda::Real, gamma::Real) = Weibull(gamma, 1 / lambda)
 
+## Pair rate λ_ij = exp(log λ0 + β'x): the baseline log-rate plus the linear
+## predictor over the pair covariates, exponentiated to a positive rate.
+function pair_rate(log_lambda0::Real, beta::AbstractVector, x::AbstractVector)
+    return exp(log_lambda0 + dot(beta, x))
+end
+
 md"""
-We can read off the hazard form directly from the Weibull to confirm the
-mapping: the survival ``S(\tau) = e^{-(\lambda\tau)^\gamma}`` and the cumulative
-hazard ``-\log S(\tau) = (\lambda\tau)^\gamma`` are exactly the `transtat`
-parameterisation.
+We can read the hazard form straight off the Weibull to confirm the mapping: the
+survival ``S(\tau) = e^{-(\lambda\tau)^\gamma}`` and the cumulative hazard
+``-\log S(\tau) = (\lambda\tau)^\gamma`` are exactly the `transtat`
+parameterisation, and a unit covariate scales the rate by ``e^{\beta_m}``.
 """
 
-let d = contact_interval(0.4, 1.6), tau = 3.0
+let log_lambda0 = log(0.1), beta = [1.4], gamma = 1.6, tau = 3.0
+    rate_within = pair_rate(log_lambda0, beta, [1.0])  # share covariate
+    rate_between = pair_rate(log_lambda0, beta, [0.0])  # baseline
+    d = contact_interval(rate_within, gamma)
     (; survival = ccdf(d, tau),
         cumhazard = -logccdf(d, tau),
-        transtat_cumhazard = (0.4 * tau)^1.6)
+        transtat_cumhazard = (rate_within * tau)^gamma,
+        rate_ratio = rate_within / rate_between,
+        exp_beta = exp(beta[1]))
 end
 
 md"""
@@ -211,8 +249,11 @@ md"""
 
 The 1861 Hagelloch measles outbreak (n = 188 children) is the standard test
 bed for transmission survival methods [kenah2011contact, neal2004statistical](@cite):
-every case carries a household (`family_ID`), a putative infector
-(`infector`), and dated symptom milestones.
+every case carries a household (`family_ID`), a school class (`class`), a
+putative infector (`infector`), and dated symptom milestones.
+The household and class give us two **pair covariates** — does a source and
+susceptible share a household, do they share a school class — the regressors
+``x_{ij}`` of the contact-hazard regression.
 We take the **date of prodrome** as the onset of infectiousness — the event
 that starts each source's contact-interval clock — and measure time in days
 from the first prodrome in the outbreak.
@@ -258,8 +299,10 @@ The study horizon `T_end` closes the at-risk window for the last infections.
 
 onset = collect(cases.onset)
 household = collect(cases.household)
+class = collect(cases.class)
 T_end = maximum(onset)
-(; T_end, mean_household_size = n / length(unique(household)))
+(; T_end, mean_household_size = n / length(unique(household)),
+    n_classes = length(unique(class)))
 
 md"""
 ## The pairwise likelihood
@@ -269,11 +312,13 @@ For each infected susceptible ``j`` we assemble its at-risk source set
 source's contact interval at its onset, and score ``j`` through a racing-hazard
 [`competing`](@ref) node over those anchored sources, evaluated at ``j``'s
 infection time ``t_j``.
-The contact-interval scale depends on whether the pair shares a household: a
-within-household rate ``\lambda_w`` and a between-household rate
-``\lambda_b``, with a shared shape ``\gamma``.
-Their ratio is the **within-household hazard ratio**, the central covariate
-estimand.
+Each pair ``(i, j)`` carries a covariate vector ``x_{ij}`` (does the pair share a
+household, a school class) and its contact-interval rate is the log-rate
+regression ``\lambda_{ij} = \lambda_0\, e^{\beta' x_{ij}}``, with a baseline rate
+``\lambda_0`` and shape ``\gamma`` shared across pairs.
+The coefficients ``\beta`` are the **transmission coefficients**: ``\beta_m`` is
+the log-hazard-ratio of infectious contact for covariate ``m``, the central
+estimands.
 
 `pairwise_loglik` walks the cases once.
 Each susceptible's term is the racing-hazard node's marginal `logpdf` at
@@ -287,22 +332,33 @@ The first case has no prior source and seeds the outbreak, so it contributes no
 pairwise term (its introduction is exogenous).
 """
 
-function source_scale(lambda_w, lambda_b, household, i, j)
-    return household[i] == household[j] ? lambda_w : lambda_b
+## Pair covariates x_ij for the contact-hazard regression: a share-household
+## indicator and a share-(non-zero)-class indicator. Class 0 is "no school
+## class", so a shared class only counts when both children are in the same
+## actual class. Extend `x_ij` here to add more pair covariates (age gap,
+## spatial distance, …) and `beta` grows to match.
+function pair_covariates(household, class, i, j)
+    same_household = household[i] == household[j] ? 1.0 : 0.0
+    same_class = (class[i] == class[j] && class[i] != 0) ? 1.0 : 0.0
+    return [same_household, same_class]
 end
 
-function source_delays(lambda_w, lambda_b, gamma, onset, household, sources, j)
+function source_delays(
+        log_lambda0, beta, gamma, onset, household, class, sources, j)
     return Tuple(
         Anchored(
             contact_interval(
-                source_scale(lambda_w, lambda_b, household, i, j), gamma),
+                pair_rate(log_lambda0, beta,
+                    pair_covariates(household, class, i, j)),
+                gamma),
             onset[i])
     for i in sources)
 end
 
-function source_node(lambda_w, lambda_b, gamma, onset, household, sources, j)
+function source_node(
+        log_lambda0, beta, gamma, onset, household, class, sources, j)
     delays = source_delays(
-        lambda_w, lambda_b, gamma, onset, household, sources, j)
+        log_lambda0, beta, gamma, onset, household, class, sources, j)
     names = ntuple(k -> Symbol(:src, k), length(sources))
     return competing((names[k] => delays[k] for k in eachindex(sources))...)
 end
@@ -314,32 +370,33 @@ end
 
 md"""
 The at-risk structure — which sources can infect each susceptible, the gap to
-each, and whether the pair shares a household — does not depend on the
-parameters, so we precompute it once.
+each, and the pair covariates ``x_{ij}`` — does not depend on the parameters, so
+we precompute it once.
 `atrisk_pairs` returns, per infected susceptible, the vector of source gaps
-``g_{ij} = t_j - o_i`` and a matching within-household flag; the seed case (no
-prior source) is dropped.
+``g_{ij} = t_j - o_i`` and a matching vector of covariate vectors ``x_{ij}``; the
+seed case (no prior source) is dropped.
 """
 
-function atrisk_pairs(onset, household)
-    pairs = Vector{Tuple{Vector{Float64}, Vector{Bool}}}()
+function atrisk_pairs(onset, household, class)
+    pairs = Vector{Tuple{Vector{Float64}, Vector{Vector{Float64}}}}()
     for j in eachindex(onset)
         tj = onset[j]
         gaps = Float64[]
-        within = Bool[]
+        covs = Vector{Float64}[]
         for i in eachindex(onset)
             (i == j || onset[i] >= tj) && continue
             push!(gaps, tj - onset[i])
-            push!(within, household[i] == household[j])
+            push!(covs, pair_covariates(household, class, i, j))
         end
-        isempty(gaps) || push!(pairs, (gaps, within))
+        isempty(gaps) || push!(pairs, (gaps, covs))
     end
     return pairs
 end
 
-pairs = atrisk_pairs(onset, household)
+pairs = atrisk_pairs(onset, household, class)
 (; n_susceptibles_scored = length(pairs),
-    n_ordered_pairs = sum(length(first(p)) for p in pairs))
+    n_ordered_pairs = sum(length(first(p)) for p in pairs),
+    n_covariates = length(first(first(pairs)[2])))
 
 md"""
 For one susceptible the racing-hazard marginal at ``t_j`` is the log-sum-exp of
@@ -356,7 +413,7 @@ of records in one `~` — against a composed distribution) covers a *fixed* reco
 graph scored against observed events, where the node structure and its event
 names are the same for every record. The pairwise likelihood here is not that shape: the
 racing node is *rebuilt per susceptible* over a different at-risk source set
-``R(j)`` (a different arity, different onsets, different within-household flags),
+``R(j)`` (a different arity, different onsets, different pair covariates),
 and the susceptible's infection time is scored as the node's marginal rather than
 as a named-event record. So the right composed primitive is the racing-hazard
 [`competing`](@ref) node — which the package *does* supply and which the
@@ -365,12 +422,13 @@ remains is only the per-susceptible loop and the log-sum-exp reduction.
 We write that reduction out directly so the likelihood evaluates the leaf
 `logpdf`/`logccdf` without allocating a fresh `competing` node on every gradient
 step (the closed Hagelloch fit scores every ordered at-risk pair).
-The within-household flag picks the rate ``\lambda_w`` or ``\lambda_b``; the
-shared shape ``\gamma`` carries the hazard's time shape.
+Each source's rate is the regression ``\lambda_0\, e^{\beta' x_{ij}}`` evaluated
+at the pair's covariates; the shared shape ``\gamma`` carries the hazard's time
+shape.
 """
 
-function susceptible_loglik(lambda_w, lambda_b, gamma, gaps, within)
-    leaf(k) = contact_interval(within[k] ? lambda_w : lambda_b, gamma)
+function susceptible_loglik(log_lambda0, beta, gamma, gaps, covs)
+    leaf(k) = contact_interval(pair_rate(log_lambda0, beta, covs[k]), gamma)
     ## joint survival ∏ S_k(g_kj) = Σ logccdf, shared by every cause term
     total_logsurv = sum(logccdf(leaf(k), gaps[k]) for k in eachindex(gaps))
     ## cause-resolved term for source k: log f_k - log S_k + Σ_i log S_i.
@@ -404,12 +462,14 @@ node with `source_node` and check its marginal at ``t_j`` against
 let j = findfirst(j -> n_sources_at_risk(onset, j) >= 3, eachindex(onset)),
     srcs = [i for i in eachindex(onset) if i != j && onset[i] < onset[j]]
 
-    node = source_node(0.2, 0.05, 1.3, onset, household, srcs, j)
+    log_lambda0, beta, gamma = log(0.05), [1.4, 0.5], 1.3
+    node = source_node(
+        log_lambda0, beta, gamma, onset, household, class, srcs, j)
     gaps = [onset[j] - onset[i] for i in srcs]
-    within = [household[i] == household[j] for i in srcs]
+    covs = [pair_covariates(household, class, i, j) for i in srcs]
     (; n_sources = length(srcs),
         node_logpdf = logpdf(node, onset[j]),
-        direct_logpdf = susceptible_loglik(0.2, 0.05, 1.3, gaps, within))
+        direct_logpdf = susceptible_loglik(log_lambda0, beta, gamma, gaps, covs))
 end
 
 md"""
@@ -418,10 +478,10 @@ likelihood), so the fit can use the fast direct form. The full likelihood sums
 the per-susceptible term over the precomputed at-risk pairs.
 """
 
-function pairwise_loglik(lambda_w, lambda_b, gamma, pairs)
-    lp = zero(lambda_w)
-    for (gaps, within) in pairs
-        lp += susceptible_loglik(lambda_w, lambda_b, gamma, gaps, within)
+function pairwise_loglik(log_lambda0, beta, gamma, pairs)
+    lp = zero(log_lambda0)
+    for (gaps, covs) in pairs
+        lp += susceptible_loglik(log_lambda0, beta, gamma, gaps, covs)
     end
     return lp
 end
@@ -440,48 +500,66 @@ term — the no-event branch of the racing-hazard likelihood.
 md"""
 ## Fit with Turing
 
-We put weakly-informative positive priors on the two rates and the shape and
-score the whole line list with `Turing.@addlogprob!`.
-The shape prior is centred at one (a constant hazard, the exponential special
-case) so the data drive any departure.
+We put a weakly-informative prior on the baseline log-rate ``\log\lambda_0``,
+mean-zero Normal priors on the transmission coefficients ``\beta`` (so the data
+drive each log-hazard-ratio away from no effect), and a positive prior on the
+shape, and score the whole line list with `Turing.@addlogprob!`.
+The shape prior is centred at one (a constant baseline hazard, the exponential
+special case) so the data drive any departure.
 The likelihood is differentiated with Mooncake reverse mode (`AutoMooncake`),
 the package's preferred reverse-mode backend: the pairwise loglik is a pure-Julia
 log-sum-exp over the Weibull `logpdf`/`logccdf`, with no string or control-flow
 operations that Mooncake cannot trace, so it compiles a rule cleanly here.
 """
 
-@model function hagelloch_pairwise(pairs)
-    lambda_w ~ truncated(Normal(0.2, 0.2); lower = 1e-3)
-    lambda_b ~ truncated(Normal(0.03, 0.05); lower = 1e-3)
+@model function hagelloch_pairwise(pairs, n_cov)
+    log_lambda0 ~ Normal(log(0.03), 1.0)
+    beta ~ MvNormal(zeros(n_cov), 1.5^2 * I)
     gamma ~ truncated(Normal(1.0, 0.5); lower = 0.2)
-    Turing.@addlogprob! pairwise_loglik(lambda_w, lambda_b, gamma, pairs)
+    Turing.@addlogprob! pairwise_loglik(log_lambda0, beta, gamma, pairs)
 end
 
+n_cov = length(first(first(pairs)[2]))
 rng = MersenneTwister(2024)
-chain = sample(rng, hagelloch_pairwise(pairs),
+chain = sample(rng, hagelloch_pairwise(pairs, n_cov),
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)), 400; progress = false)
 
 md"""
-The posterior summaries for the contact-interval parameters:
+The posterior summaries for the baseline rate, the transmission coefficients
+``\beta`` (household, class), and the shape:
 """
 
-post = (; lambda_w = mean(chain[:lambda_w]),
-    lambda_b = mean(chain[:lambda_b]),
+## The chain stores `beta` as one vector-valued draw per sample, so `vec(chain
+## [:beta])` is a vector of `[β₁, …]` vectors; pull covariate m's marginal out.
+covariate_names = (:household, :class)
+beta_draws(m) = getindex.(vec(chain[:beta]), m)
+post = (; log_lambda0 = mean(chain[:log_lambda0]),
+    beta = [mean(beta_draws(m)) for m in 1:n_cov],
     gamma = mean(chain[:gamma]))
 
 md"""
-## Estimands: hazard ratio and ``R_0``
+## Estimands: transmission coefficients and ``R_0``
 
-The **within-household hazard ratio** is the ratio of the two rates raised to
-the shape, ``(\lambda_w / \lambda_b)^\gamma`` for the cumulative-hazard
-parameterisation — children in the same household experience a much higher
-hazard of infectious contact than between households.
+The **transmission coefficients** ``\beta`` are the headline estimands.
+``\beta_m`` is the log-hazard-ratio of infectious contact for covariate ``m``, so
+``e^{\beta_m}`` is the multiplicative effect on the contact *rate*: sharing a
+household (or a school class) multiplies the rate of infectious contact by
+``e^{\beta_\text{household}}`` (or ``e^{\beta_\text{class}}``).
+Because a Weibull's cumulative hazard scales as the rate raised to the shape, the
+same effect on the *cumulative-hazard* scale (the within-window contact
+probability) is ``e^{\gamma \beta_m}``; the single-covariate special case
+recovers the old within-household hazard ratio ``(\lambda_w/\lambda_b)^\gamma =
+e^{\gamma\beta_\text{household}}``.
 """
 
-hr_samples = (vec(chain[:lambda_w]) ./ vec(chain[:lambda_b])) .^
-             vec(chain[:gamma])
-(; hazard_ratio_mean = mean(hr_samples),
-    hazard_ratio_90 = quantile(hr_samples, (0.05, 0.95)))
+beta_chains = [beta_draws(m) for m in 1:n_cov]
+gamma_chain = vec(chain[:gamma])
+beta_summary = [(; covariate = covariate_names[m],
+                    beta_mean = mean(beta_chains[m]),
+                    beta_90 = quantile(beta_chains[m], (0.05, 0.95)),
+                    rate_hazard_ratio = mean(exp.(beta_chains[m])),
+                    cumhazard_ratio = mean(exp.(gamma_chain .* beta_chains[m])))
+                for m in 1:n_cov]
 
 md"""
 ``R_0`` in the pairwise framework is the expected number of infectious contacts
@@ -490,19 +568,22 @@ a case makes with *susceptible* others over its infectious period
 For each susceptible the per-pair probability of an infectious contact within an
 infectious window of length ``w`` is the contact-interval cdf ``F(w)``, so the
 **household reproduction number** — the expected secondary infections within a
-case's own household — is ``F_w(w)`` (within-household rate) times the mean
-number of household susceptibles.
+case's own household — is ``F(w)`` at the within-household rate
+``\lambda_0\, e^{\beta_\text{household}}`` times the mean number of household
+susceptibles.
 We take a measles-typical infectious window of `w = 8` days
 [neal2004statistical](@cite); a community ``R_0`` would add the between-household
-contacts over the larger susceptible pool, governed by ``\lambda_b``.
+contacts over the larger susceptible pool, governed by the baseline rate
+``\lambda_0``.
 """
 
 mean_hh_susc = n / length(unique(household)) - 1
 window = 8.0                            # measles infectious window (days)
-R_household_samples = map(eachindex(vec(chain[:lambda_w]))) do s
-    lw = vec(chain[:lambda_w])[s]
-    g = vec(chain[:gamma])[s]
-    cdf(contact_interval(lw, g), window) * mean_hh_susc
+log_lambda0_chain = vec(chain[:log_lambda0])
+beta_hh_chain = beta_chains[1]          # household is the first covariate
+R_household_samples = map(eachindex(log_lambda0_chain)) do s
+    rate_within = exp(log_lambda0_chain[s] + beta_hh_chain[s])
+    cdf(contact_interval(rate_within, gamma_chain[s]), window) * mean_hh_susc
 end
 (; R_household_mean = mean(R_household_samples),
     R_household_90 = quantile(R_household_samples, (0.05, 0.95)))
@@ -543,7 +624,7 @@ function argmin_source_probs(rng, node_delays, draws)
 end
 
 function recorded_infector_mass(
-        rng, post, cases, onset, household; draws = 2000)
+        rng, post, cases, onset, household, class; draws = 2000)
     id_to_pos = Dict(id => k for (k, id) in enumerate(cases.case_ID))
     masses = Float64[]
     for j in 1:nrow(cases)
@@ -552,8 +633,8 @@ function recorded_infector_mass(
         tj = onset[j]
         sources = [i for i in eachindex(onset) if i != j && onset[i] < tj]
         isempty(sources) && continue
-        delays = source_delays(post.lambda_w, post.lambda_b, post.gamma,
-            onset, household, sources, j)
+        delays = source_delays(post.log_lambda0, post.beta, post.gamma,
+            onset, household, class, sources, j)
         probs = argmin_source_probs(rng, delays, draws)
         k = findfirst(==(id_to_pos[inf_id]), sources)
         isnothing(k) && continue
@@ -562,7 +643,7 @@ function recorded_infector_mass(
     return masses
 end
 
-masses = recorded_infector_mass(rng, post, cases, onset, household)
+masses = recorded_infector_mass(rng, post, cases, onset, household, class)
 chance = [1 / n_sources_at_risk(onset, j)
           for j in eachindex(onset) if n_sources_at_risk(onset, j) > 0]
 (; n_pairs_checked = length(masses),
@@ -572,19 +653,20 @@ chance = [1 / n_sources_at_risk(onset, j)
 md"""
 The model places more ``\arg\min`` mass on the *recorded* infector than the
 chance baseline (one over the number of at-risk sources), so the fitted
-contact-interval distribution — driven only by timing and household structure —
-recovers a transmission tree consistent with the outbreak reconstruction
-without ever being shown it.
+contact-hazard regression — driven only by timing and the household/class
+covariates — recovers a transmission tree consistent with the outbreak
+reconstruction without ever being shown it.
 
 ## Mapping back to `transtat`
 
 This page is a faithful but deliberately compact rendering of Kenah's pairwise
 survival method [kenah2011contact](@cite) on the composer stack:
 
-- the **contact interval** is a stock `Weibull` leaf — the `transtat`
-  parameterisation *is* a Weibull — and because the racing node needs only a
-  `logpdf` and a `logccdf`, any richer parametric or semiparametric hazard family
-  (a [SurvivalDistributions.jl](@ref survival-delay-families) leaf such as
+- the **contact interval** is a stock `Weibull` baseline whose rate carries
+  Kenah's log-rate regression ``\lambda_0\, e^{\beta' x_{ij}}``, so the
+  transmission coefficients ``\beta`` are estimated directly; because the racing
+  node needs only a `logpdf` and a `logccdf`, any richer baseline (a
+  [SurvivalDistributions.jl](@ref survival-delay-families) leaf such as
   `GeneralizedGamma`, a piecewise-constant hazard) drops in unchanged;
 - the **racing across sources** is the racing-hazard [`competing`](@ref) node,
   whose cause-resolved marginal is the pairwise likelihood and whose
@@ -602,10 +684,11 @@ left for the maintainer's specific integration:
 - The **external / community hazard** (infection from outside the close-contact
   groups) is a further competing source with its own constant hazard, scored as
   an extra racing branch per susceptible.
-- `transtat` fits an **accelerated failure time** regression with arbitrary
-  covariates on the contact-interval scale; the household indicator here is the
-  simplest such covariate and generalises to age, class, and spatial distance
-  via the same per-pair scale.
+- the **contact-hazard regression** here carries two pair covariates (household
+  and school class); `transtat` allows arbitrary covariates on the
+  contact-interval scale, and adding more (age gap, spatial distance from
+  `x_loc`/`y_loc`) is just a longer `x_{ij}` and a longer ``\beta`` — the rest of
+  the likelihood is unchanged.
 - The **left-truncation** of pairs observed only after the source became
   infectious enters `transtat`'s likelihood as a conditioning survival; the
   closed-outbreak Hagelloch data sidestep it, but a real-time line list would
