@@ -354,7 +354,7 @@ model = epinowcast_model(case_obs, death_obs, base_case_pmf, base_death_pmf, now
 
 chain = sample(Xoshiro(1), model,
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 400, 4; chain_type = VNChain, progress = false)
+    MCMCThreads(), 300, 4; chain_type = VNChain, progress = false)
 
 md"""
 ## Recovery

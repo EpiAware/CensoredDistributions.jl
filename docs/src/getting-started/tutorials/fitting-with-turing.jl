@@ -309,7 +309,7 @@ end
 
 naive_fit = sample(Xoshiro(1),
     fit_model(naive_template, naive_priors, naive_data),
-    NUTS(0.8; adtype = AutoForwardDiff()), MCMCThreads(), 500, 2;
+    NUTS(0.8; adtype = AutoForwardDiff()), MCMCThreads(), 300, 2;
     chain_type = VNChain, progress = false)
 
 md"""
@@ -359,7 +359,7 @@ end
 
 interval_fit = sample(Xoshiro(1),
     fit_model(interval_template, interval_priors, censored_data),
-    NUTS(0.8; adtype = AutoForwardDiff()), MCMCThreads(), 500, 2;
+    NUTS(0.8; adtype = AutoForwardDiff()), MCMCThreads(), 300, 2;
     chain_type = VNChain, progress = false)
 
 interval_recovered = params_table(
@@ -387,7 +387,7 @@ recovery when the censoring process is properly modelled.
 
 full_fit = sample(Xoshiro(1),
     fit_model(full_template, full_priors, censored_data),
-    NUTS(0.8; adtype = AutoForwardDiff()), MCMCThreads(), 500, 2;
+    NUTS(0.8; adtype = AutoForwardDiff()), MCMCThreads(), 300, 2;
     chain_type = VNChain, progress = false)
 
 full_recovered = params_table(update(full_template, full_fit; prefix = :delays))
