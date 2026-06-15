@@ -1,5 +1,5 @@
 md"""
-# Stratified onset-to-test delays in the 2014-2016 Sierra Leone Ebola outbreak
+# [Stratified onset-to-test delays in the 2014-2016 Sierra Leone Ebola outbreak](@id ebola-stratified-delays)
 
 ## Introduction
 

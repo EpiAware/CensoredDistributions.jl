@@ -103,13 +103,14 @@ else
         "fitting-with-turing.md" => "# Fitting with Turing.jl",
         "composer-toolkit.md" => "# [Composing censored distributions](@id composer-toolkit)",
         "survival-delay-families.md" => "# [Delay families from SurvivalDistributions.jl](@id survival-delay-families)",
-        "fit-marginal-sample-event-based.md" => "# Fit marginal, sample event based",
-        "bdbv-linelist-analysis.md" => "# Bundibugyo Ebola delays from the 2012 Isiro line list",
-        "andv-linelist-analysis.md" => "# Real-time Andes virus delays from the Epuyén line list",
-        "ebola-stratified-delays.md" => "# Stratified onset-to-test delays in the 2014-2016 Sierra Leone Ebola outbreak",
-        "rt-renewal-convolution.md" => "# An Rt renewal model with delay convolution",
+        "fit-marginal-sample-event-based.md" => "# [Fit marginal, sample event based](@id fit-marginal-sample-event-based)",
+        "bdbv-linelist-analysis.md" => "# [Bundibugyo Ebola delays from the 2012 Isiro line list](@id bdbv-linelist-analysis)",
+        "andv-linelist-analysis.md" => "# [Real-time Andes virus delays from the Epuyén line list](@id andv-linelist-analysis)",
+        "ebola-stratified-delays.md" => "# [Stratified onset-to-test delays in the 2014-2016 Sierra Leone Ebola outbreak](@id ebola-stratified-delays)",
+        "rt-renewal-convolution.md" => "# [An Rt renewal model with delay convolution](@id rt-renewal-convolution)",
         "linear-chain-sir.md" => "# [A composed delay as ODE compartments: the linear chain trick](@id linear-chain-sir)",
         "epinowcast-nowcasting.md" => "# [An epinowcast-style hazard nowcasting model](@id epinowcast-nowcasting)",
+        "branching-competing.md" => "# [A branching-process-like natural history with competing outcomes](@id branching-competing)",
         "pairwise-survival-transmission.md" => "# [Pairwise survival analysis of transmission (Kenah)](@id pairwise-survival-transmission)"
     ]
     for (file, heading) in tutorial_stubs

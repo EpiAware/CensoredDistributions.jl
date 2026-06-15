@@ -1,5 +1,5 @@
 md"""
-# A branching-process-like natural history with competing outcomes
+# [A branching-process-like natural history with competing outcomes](@id branching-competing)
 
 ## Introduction
 
@@ -10,8 +10,14 @@ an earlier event. Some events occur only with a probability, some outcomes are
 mutually exclusive, and which-and-when can be hazard-driven.
 
 The composed stack expresses that whole pattern as one distribution, sampled and
-scored from a single object. This tutorial builds one natural-history object for
-a case and exercises the enriched competing-outcome composition:
+scored from a single object.
+
+### What are we going to do in this exercise
+
+We build one natural-history object for a case and exercise the enriched
+competing-outcome composition:
+
+1. Map each modelling concept onto a composed primitive:
 
 | Modelling concept | Composed primitive |
 |---|---|
@@ -21,6 +27,17 @@ a case and exercises the enriched competing-outcome composition:
 | competing risks, which-and-when hazard-driven | racing-hazard [`competing`](@ref) |
 | aggregate ascertainment on expected counts | [`thin`](@ref) on the forward series |
 
+2. Build a toy single-type branching process as a stand-in for any
+   individual-based simulator.
+3. Assemble the per-case natural history as one composed distribution and
+   sample event timelines from it.
+4. Score the composed object in a Turing model and recover the parameters.
+
+### What might I need to know before starting
+
+This tutorial builds on [Getting Started with
+CensoredDistributions.jl](@ref getting-started) and the composer reference,
+[Composing censored distributions](@ref composer-toolkit).
 The toy branching process below is a stand-in for any individual-based
 simulator: it is illustrative only and uses plain `Distributions`.
 

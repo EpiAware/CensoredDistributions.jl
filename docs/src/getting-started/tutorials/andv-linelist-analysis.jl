@@ -1,4 +1,6 @@
-# # Real-time Andes virus delays from the Epuyén line list
+# # [Real-time Andes virus delays from the Epuyén line list](@id andv-linelist-analysis)
+#
+# ## Introduction
 #
 # The 2018-19 Epuyén outbreak of Andes hantavirus (ANDV) in Argentina was the
 # first documented sustained person-to-person spread of a hantavirus.
@@ -53,12 +55,23 @@
 # the primary integral is analytical, so neither is appreciably faster; the choice
 # is one of style.
 #
-# This page fits BOTH and compares them.
+# ### What are we going to do in this exercise
+#
+# This page fits BOTH the latent and marginal forms and compares them:
+#
+# 1. Read the Epuyén line list and express each delay as a day offset from its
+#    origin.
+# 2. Fit the latent form (the primary fit) over the mutually exclusive
+#    index/sourced split, recovering the incubation period and transmission
+#    timing.
+# 3. Fit the marginal form on the same data.
+# 4. Set the two recovered delay parameter sets side by side against the
+#    published targets so the marginal-versus-latent agreement can be read
+#    directly.
+#
 # The latent form is the primary fit, used for every downstream result; the
-# marginal form is then fitted on the same data, and a closing section sets the
-# two recovered delay parameter sets side by side against the published targets so
-# the marginal-versus-latent agreement can be read directly. Both forms share the
-# same mutually exclusive index/sourced split, so they fit the SAME 34 incubation
+# marginal form is then fitted on the same data. Both forms share the same
+# mutually exclusive index/sourced split, so they fit the SAME 34 incubation
 # terms and recover the same posterior.
 #
 # The split is keyed on a `:kind` field. A `:sourced` case is its two observed
@@ -67,9 +80,28 @@
 # leaf off a broad-prior infection. Because the split is mutually exclusive, the
 # index branch fits only the single zoonotic index case and the sourced branch
 # fits the rest, so the incubation period is scored once per case.
+#
+# ### What might I need to know before starting
+#
+# This tutorial builds on [Getting Started with
+# CensoredDistributions.jl](@ref getting-started).
 # The composer tools used to build the branches are covered in the
 # [composer toolkit tutorial](@ref composer-toolkit); here the focus is the
 # delay model and the Bayesian workflow.
+
+# ## Packages used
+#
+# We use CSV, DataFramesMeta and Dates for the line-list pipeline, Turing with
+# DynamicPPL and ADTypes for inference, PairPlots with CairoMakie for the
+# posterior and plots, and CensoredDistributions for the composed delay model.
+
+using CSV, DataFramesMeta, Dates
+using CensoredDistributions, Distributions
+using CensoredDistributions: latent
+using Turing, Random, Statistics
+using DynamicPPL: prefix, to_submodel, InitFromPrior
+using ADTypes: AutoForwardDiff
+using CairoMakie, PairPlots
 
 # ## Data
 #
@@ -80,14 +112,6 @@
 # We read the dates, express each delay as a day offset from its origin, and
 # drop the two alternative-source sensitivity rows that the upstream main fit
 # excludes.
-
-using CSV, DataFramesMeta, Dates
-using CensoredDistributions, Distributions
-using CensoredDistributions: latent
-using Turing, Random, Statistics
-using DynamicPPL: prefix, to_submodel, InitFromPrior
-using ADTypes: AutoForwardDiff
-using CairoMakie, PairPlots
 
 datadir = joinpath(@__DIR__, "andv-data")
 ll = CSV.read(joinpath(datadir, "linelist.csv"), DataFrame;

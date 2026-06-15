@@ -1,5 +1,5 @@
 md"""
-# An Rt renewal model with delay convolution
+# [An Rt renewal model with delay convolution](@id rt-renewal-convolution)
 
 ## Introduction
 
