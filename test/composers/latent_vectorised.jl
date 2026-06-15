@@ -198,6 +198,55 @@ end
     @test logjoint(cv, (;)) ≈ logjoint(cp, (;))
 end
 
+@testitem "vectorised latent chain floors the shift on an interval edge (#443)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: @model, to_submodel, prefix, logjoint, @addlogprob!,
+                      condition, @varname
+    using CensoredDistributions: latent, latent_primary_priors,
+                                 latent_observed_logpdf
+
+    # A SINGLE-edge chain whose edge carries SECONDARY interval censoring
+    # (double_censored). The origin is the latent primary; the terminal is
+    # observed. The per-record path floors the sampled origin to the edge's
+    # interval (#423); the vectorised path used to reconstruct from the CONTINUOUS
+    # origin without flooring, diverging for an interval edge (#443). Floored and
+    # continuous shifts disagree here, so this guards the flooring.
+    e1 = double_interval_censored(Gamma(2.0, 1.0); primary_event = Uniform(0, 1),
+        interval = 1.0)
+    chain = latent(Sequential((e1,), (:onset_admit,)))
+    rows = [(onset = missing, admit = 6.3), (onset = missing, admit = 9.1)]
+
+    @model function vectorised(d, rows)
+        primaries ~ product_distribution(latent_primary_priors(d, rows))
+        @addlogprob! latent_observed_logpdf(d, rows, primaries)
+        return primaries
+    end
+    @model function per_record(d, rows)
+        n = length(rows)
+        parts = Vector(undef, n)
+        for i in 1:n
+            parts[i] ~ to_submodel(
+                prefix(composed_distribution_model(d, rows[i]),
+                    Symbol("r", i)), false)
+        end
+    end
+
+    # Each row's only latent is its origin draw; pin FRACTIONAL origins so the
+    # floor changes the scored gap (floor(0.7) = 0, floor(0.4) = 0).
+    o1, o2 = 0.7, 0.4
+    cv = condition(vectorised(chain, rows), (@varname(primaries) => [o1, o2],))
+    cp = condition(per_record(chain, rows),
+        (@varname(r1.e[1]) => o1, @varname(r2.e[1]) => o2))
+    @test logjoint(cv, (;)) ≈ logjoint(cp, (;))
+
+    # The vectorised score equals the FLOORED-shift edge score, NOT the
+    # continuous-shift score (which would be the pre-#461 bug).
+    floored = logpdf(e1, 6.3 - floor(o1)) + logpdf(e1, 9.1 - floor(o2))
+    continuous = logpdf(e1, 6.3 - o1) + logpdf(e1, 9.1 - o2)
+    @test latent_observed_logpdf(chain, rows, [o1, o2]) ≈ floored
+    @test !isapprox(floored, continuous)
+end
+
 @testitem "vectorised mixed table: latent leaf + latent chain + marginal" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, prefix, logjoint, @addlogprob!,

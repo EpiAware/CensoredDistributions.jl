@@ -106,3 +106,43 @@ end
         end
     end
 end
+
+@testitem "latent leaf reaches through interval/truncation wrappers (#430)" begin
+    using Distributions
+    using CensoredDistributions: get_primary_event, get_dist
+
+    # A bare double_interval_censored leaf wraps its PrimaryCensored node in an
+    # IntervalCensored (and a Truncated when bounds are given). latent over such a
+    # leaf used to error in `get_primary_event` (#430). It must now build, sample
+    # and score, reaching the primary event and the bare continuous delay THROUGH
+    # the wrappers.
+    delay = LogNormal(1.5, 0.75)
+    pe = Uniform(0, 1)
+
+    # Interval-censored leaf.
+    dic = double_interval_censored(delay; primary_event = pe, interval = 1)
+    @test dic isa CensoredDistributions.IntervalCensored
+    lic = latent(dic)
+    @test get_primary_event(lic) === pe
+    # The latent conditional scores the BARE continuous delay (#461 sampled-origin
+    # rule): no secondary interval reapplied. So it equals the latent
+    # primary-censored leaf carrying the same primary and continuous delay.
+    lpc = latent(primary_censored(delay, pe))
+    for (p, y) in [(0.3, 2.7), (0.1, 1.0), (0.9, 5.4)]
+        @test logpdf(lic, [p, y]) ≈ logpdf(lpc, [p, y])
+        @test logpdf(lic, [p, y]) ≈ logpdf(pe, p) + logpdf(delay, y - p)
+    end
+    # `rand` runs (no MethodError) and is in support.
+    r = rand(lic)
+    @test r.observed > r.primary
+    @test get_dist(lic) === delay
+    @test marginal(lic) == dic
+
+    # Truncated + interval-censored leaf: get_primary_event reaches through both.
+    dtic = double_interval_censored(
+        delay; primary_event = pe, upper = 10, interval = 1)
+    ltic = latent(dtic)
+    @test get_primary_event(ltic) === pe
+    @test get_dist(ltic) === delay
+    @test logpdf(ltic, [0.3, 2.7]) ≈ logpdf(pe, 0.3) + logpdf(delay, 2.7 - 0.3)
+end
