@@ -228,6 +228,24 @@ end
     @test_throws ArgumentError convolve_distributions(ne, series; events = (:none,))
 end
 
+@testitem "racing-hazard: SurvivalDistributions leaves race (#470)" begin
+    using Distributions
+    import SurvivalDistributions as SD
+
+    # The racing-hazard node consumes the survival surface (`logccdf`/`logpdf`) of
+    # its leaves, so a SurvivalDistributions family races alongside a stock leaf.
+    haz = competing(:death => SD.LogLogistic(2.0, 1.5),
+        :recover => Gamma(3.0, 2.0))
+    t = 2.5
+    # The marginal survival is the product of the two leaf survivals, and the
+    # cause-resolved sub-density uses each leaf's logpdf + the other's logccdf.
+    S = ccdf(SD.LogLogistic(2.0, 1.5), t) * ccdf(Gamma(3.0, 2.0), t)
+    @test ccdf(haz, t) ≈ S
+    @test isfinite(logpdf(haz, t))
+    @test CensoredDistributions._hazard_cause_logpdf(haz, 1, t) ≈
+          logpdf(SD.LogLogistic(2.0, 1.5), t) + logccdf(Gamma(3.0, 2.0), t)
+end
+
 @testitem "competing: introspection works for both node types" begin
     using Distributions
 
