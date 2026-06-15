@@ -11,6 +11,80 @@
 # [`Sequential`](@ref) / [`Parallel`](@ref) as an ordinary child. This layer adds
 # NO censored-internal behaviour: the generic composition only.
 
+# ----------------------------------------------------------------------------
+# AbstractCompeting: the shared supertype for the competing-outcome composers
+# ----------------------------------------------------------------------------
+#
+# Two competing-outcome composers share one event-tree behaviour and so one
+# supertype: the fixed-probability MIXTURE [`Competing`](@ref) (cause and timing
+# independent) and the racing-hazard [`HazardCompeting`](@ref) (the branch
+# probability DERIVED from the hazards, timing coupled). The shared `competing(
+# ...)` constructor builds the right one: a `HazardCompeting` when NO branch
+# probabilities are given, a `Competing` when they are. The tree walkers
+# (`tree_events.jl` name layout, `nesting.jl` `_event_child_nleaves`,
+# `censored_specialisations.jl` scoring / `rand`, the introspection) dispatch on
+# `AbstractCompeting` wherever the behaviour is shared (one event slot per
+# outcome, the shared origin, the per-outcome `rand`), and on the concrete type
+# only where the SCORING arithmetic differs (mixture weight vs hazard survival).
+abstract type AbstractCompeting <: UnivariateDistribution{Continuous} end
+
+# Outcome names, one per competing outcome. Both concrete types store `names`.
+component_names(c::AbstractCompeting) = c.names
+_n_branches(c::AbstractCompeting) = length(c.names)
+
+@doc "
+
+Marker distribution for a NO-EVENT (absorbing) outcome of a [`competing`](@ref)
+node: the outcome where *nothing happens* and no event time is written.
+
+A `none => (NoEvent(), q)` branch carries no delay; its mass `q` is the
+probability that no event occurs. On `rand` a no-event win yields `missing` (no
+time recorded). On `logpdf` an OBSERVED non-occurrence (an explicit `no event by
+the horizon` record) scores the survival term `log q` (mixture) or the
+racing-hazard survival `∏ S_k`; a latent non-occurrence (a record whose no-event
+slot is simply missing) contributes no competing term.
+
+`NoEvent` is a degenerate placeholder, not a sampling distribution: it has no
+support and errors if asked for a density or a draw. It exists only to MARK the
+absorbing branch so the competing node carries its mass `q`.
+
+# See also
+- [`competing`](@ref): the shared constructor.
+- [`Competing`](@ref): the mixture competing node.
+"
+struct NoEvent <: UnivariateDistribution{Continuous} end
+
+# `NoEvent` is a marker, not a sampleable density: every density / draw / support
+# query errors with a clear message so a stray use surfaces immediately rather
+# than silently scoring a degenerate term. The competing scorers special-case the
+# no-event branch (its mass is a survival term, never `logpdf(NoEvent(), .)`).
+function _no_event_error()
+    throw(ArgumentError(
+        "NoEvent is a marker for a competing no-event branch and has no density or " *
+        "support; its mass is scored as a survival term by the competing node"))
+end
+logpdf(::NoEvent, ::Real) = _no_event_error()
+pdf(::NoEvent, ::Real) = _no_event_error()
+cdf(::NoEvent, ::Real) = _no_event_error()
+Base.minimum(::NoEvent) = _no_event_error()
+Base.maximum(::NoEvent) = _no_event_error()
+Base.rand(::AbstractRNG, ::NoEvent) = _no_event_error()
+# An EMPTY param tuple (no free parameters): the marker carries no delay, so the
+# tree's `_param_eltype` / `_tree_core_eltype` promotions skip it cleanly.
+params(::NoEvent) = ()
+
+# Whether an outcome's delay payload is the no-event marker. Used by the scorers
+# and the tree walkers to skip a no-event slot's density and treat its mass as a
+# survival term.
+_is_no_event(::NoEvent) = true
+_is_no_event(::Any) = false
+
+# Whether a competing node carries a no-event branch (one of its delays is the
+# marker). Such a node is a DEFECTIVE marginal (the observed-time mass is `< 1`),
+# so its scalar `logpdf` / `mean` / `as_mixture` error: it is multivariate /
+# sub-stochastic, scored only through the event-vector path.
+_has_no_event(c::AbstractCompeting) = any(_is_no_event, c.delays)
+
 @doc "
 
 Competing outcomes composed from any univariate distributions: exactly one of
@@ -37,8 +111,7 @@ selection and censoring are not part of this type.
 - [`Sequential`](@ref): a chain of additive steps
 - [`Parallel`](@ref): independent branches
 "
-struct Competing{C <: Tuple, D <: Tuple, P <: Tuple} <:
-       UnivariateDistribution{Continuous}
+struct Competing{C <: Tuple, D <: Tuple, P <: Tuple} <: AbstractCompeting
     "Tuple of the competing outcome names (`Symbol`s)."
     names::C
     "Tuple of the competing outcome delay distributions."
@@ -142,7 +215,36 @@ mean(node)
 - [`compose`](@ref): the front-end that nests a `Competing` as a branch
 - [`Sequential`](@ref), [`Parallel`](@ref): the sibling composers
 "
-competing(outcomes::Pair...) = Competing(outcomes...)
+function competing(outcomes::Pair...)
+    length(outcomes) >= 2 ||
+        throw(ArgumentError("competing needs at least two outcomes"))
+    payloads = Tuple(o.second for o in outcomes)
+    # The SHARED constructor builds the right type from the payload SHAPE: a
+    # `(delay, branch_prob)` tuple per outcome gives the fixed-probability
+    # MIXTURE `Competing` (cause and timing independent); a BARE delay per
+    # outcome (no branch probability) gives the racing-hazard `HazardCompeting`
+    # (the winning probability is DERIVED from the hazards, timing coupled).
+    # Mixing the two shapes is rejected: a node is one or the other.
+    if all(_is_prob_payload, payloads)
+        return Competing(outcomes...)
+    elseif all(_is_bare_payload, payloads)
+        return HazardCompeting(outcomes...)
+    end
+    throw(ArgumentError(
+        "competing outcomes must ALL carry a branch probability " *
+        "(`name => (delay, prob)`, the fixed-probability mixture) OR ALL omit " *
+        "it (`name => delay`, the racing-hazard node); a mix of the two shapes " *
+        "is ambiguous"))
+end
+
+# A `(delay, branch_prob)` mixture payload vs a bare-delay hazard payload. A
+# `NoEvent` marker is admitted only in the mixture (it carries the no-event mass
+# `q`); a bare `NoEvent` in a hazard node has no hazard and is rejected by the
+# `HazardCompeting` constructor.
+_is_prob_payload(::Tuple{<:UnivariateDistribution, <:Real}) = true
+_is_prob_payload(::Any) = false
+_is_bare_payload(::UnivariateDistribution) = true
+_is_bare_payload(::Any) = false
 
 function _competing_delay(payload::Tuple{<:UnivariateDistribution, <:Real})
     return payload[1]
@@ -182,8 +284,6 @@ function _validate_branch_probs_sum(branch_probs::Tuple)
             "competing branch probabilities sum to $total, not one"))
     return nothing
 end
-
-_n_branches(c::Competing) = length(c.names)
 
 # ---------------------------------------------------------------------------
 # Shared self-dispatch scoring
@@ -297,6 +397,11 @@ as_mixture(node)
 - [`Competing`](@ref): the composer type
 "
 function as_mixture(c::Competing)
+    # A no-event branch makes the OBSERVED-time mass `< 1` (a defective marginal),
+    # so there is no proper `MixtureModel` over the observed delays: the node is
+    # multivariate / sub-stochastic and is scored only through the event-vector
+    # path. Reject the scalar lowering with a clear message.
+    _has_no_event(c) && _no_event_marginal_error("as_mixture")
     # The `Categorical` inside the `MixtureModel` needs a normalised weight set,
     # so reject an unnormalised `Competing` (e.g. one built directly with
     # branch probabilities that do not sum to one) with a clear error rather
@@ -306,10 +411,17 @@ function as_mixture(c::Competing)
         collect(c.delays), collect(float.(c.branch_probs)))
 end
 
-params(c::Competing) = (map(params, c.delays), c.branch_probs)
+# A defective-marginal (no-event) competing node has no scalar `logpdf` / `mean`
+# / `as_mixture`: its observed-time mass is `< 1`, so it is multivariate and
+# scored only through the event-vector path. Errors with a clear message.
+function _no_event_marginal_error(what::AbstractString)
+    throw(ArgumentError(
+        "a Competing node with a no-event branch is a defective marginal " *
+        "(its observed-time mass is < 1) and has no scalar `$(what)`; score it " *
+        "through the event-vector path (its observed-outcome / no-event record)"))
+end
 
-# Outcome names, one per competing delay.
-component_names(c::Competing) = c.names
+params(c::Competing) = (map(params, c.delays), c.branch_probs)
 
 # The univariate interface delegates to the mixture lowering, so a `Competing`
 # behaves as the marginal time-to-resolution wherever a distribution is needed.
@@ -333,7 +445,10 @@ propagates exactly as on the censored-tree scorer.
 
 See also: [`as_mixture`](@ref)
 "
-logpdf(c::Competing, x::Real) = _competing_logmix(c.branch_probs, c.delays, x)
+function logpdf(c::Competing, x::Real)
+    _has_no_event(c) && _no_event_marginal_error("logpdf")
+    return _competing_logmix(c.branch_probs, c.delays, x)
+end
 
 @doc "
 
@@ -358,6 +473,7 @@ a differentiated path (e.g. a censored-survival term), matching `logpdf`.
 See also: [`as_mixture`](@ref)
 "
 function cdf(c::Competing, x::Real)
+    _has_no_event(c) && _no_event_marginal_error("cdf")
     return sum(ntuple(
         i -> c.branch_probs[i] * cdf(c.delays[i], x), length(c.branch_probs)))
 end
@@ -398,6 +514,9 @@ See also: [`Competing`](@ref), [`rand`](@ref)
 "
 function rand_outcome(rng::AbstractRNG, c::Competing)
     i = _sample_branch(rng, c.branch_probs)
+    # A no-event win yields `missing` (no event time recorded); a real outcome
+    # draws its own delay.
+    _is_no_event(c.delays[i]) && return c.names[i], missing
     return c.names[i], rand(rng, c.delays[i])
 end
 
@@ -419,5 +538,374 @@ end
 function Base.show(io::IO, c::Competing)
     parts = ["$(c.names[k])@$(c.branch_probs[k])" for k in 1:_n_branches(c)]
     print(io, "Competing(", join(parts, " | "), ")")
+    return nothing
+end
+
+# ============================================================================
+# HazardCompeting: competing risks by racing hazards (dual to convolve)
+# ============================================================================
+#
+# Where `convolve_distributions` SUMS independent delays (events in series, the
+# total time through a chain), competing RISKS take the MINIMUM of racing latent
+# delays (events compete, the first wins). `HazardCompeting` is that combinator:
+# given cause-specific delays `D_1..D_n` it represents
+#
+#   - the marginal `any-event` time `T = min_k D_k`, a univariate with survival
+#     `S(t) = ∏_k S_k(t)` and density `f(t) = ∑_j f_j(t) ∏_{k≠j} S_k(t)` (so it
+#     nests as a leaf like a convolved chain), and
+#   - the cause-resolved split (named outcomes) for the multivariate / event view:
+#     observing `(cause j, time t)` scores `f_j(t) ∏_{k≠j} S_k(t)`.
+#
+# Unlike the mixture `Competing` (pick a branch by a FIXED probability, then draw
+# its delay; cause and timing INDEPENDENT) the winning probability here is DERIVED
+# from the hazards (`P(cause = j) = ∫ f_j ∏_{k≠j} S_k`) and timing is COUPLED.
+#
+# The three duals that MUST agree (the acceptance test):
+#   - `rand`: draw a latent time per cause, return `(argmin cause, min time)`.
+#   - `logpdf`: the competing-risks likelihood, marginal `log ∑_j f_j ∏_{k≠j} S_k`
+#     or cause-resolved `log f_j + ∑_{k≠j} log S_k`.
+#   - forward `convolve_distributions(stack, series)`: per-outcome sub-density
+#     stream `series ⊛ pmf(f_j ∏_{k≠j} S_k)`, sub-stochastic (NOT renormalised).
+#
+# Ships against plain `Distributions.ccdf` / `logccdf` / `logpdf`, so a stock
+# `Gamma`/`LogNormal` leaf AND a #470 SurvivalDistributions leaf both race. The
+# logpdf is a log-sum-exp of `logpdf` + `logccdf` terms (AD-safe, no `float`
+# stripping).
+
+@doc "
+
+Competing risks by racing hazards: the dual of [`convolve_distributions`](@ref)
+under MINIMUM instead of sum.
+
+Given cause-specific delay distributions `D_1, ..., D_n`, `HazardCompeting`
+represents the first-event time `T = min_k D_k` together with which cause won.
+The marginal `any-event` survival is `∏_k S_k(t)` and density
+`∑_j f_j(t) ∏_{k≠j} S_k(t)`, so it nests as a univariate leaf. Observing a
+resolved `(cause j, time t)` scores `f_j(t) ∏_{k≠j} S_k(t)`. The winning
+probability of each cause is DERIVED from the hazards
+(`P(cause = j) = ∫ f_j ∏_{k≠j} S_k`), NOT a free parameter — this is the key
+difference from the fixed-probability mixture [`Competing`](@ref).
+
+Build it with the shared [`competing`](@ref) constructor by giving BARE delays
+(no branch probabilities): `competing(:death => D1, :recover => D2)`.
+
+# Fields
+- `names`: tuple of the competing outcome names (`Symbol`s).
+- `delays`: tuple of the cause-specific delay distributions.
+
+# See also
+- [`competing`](@ref): the shared constructor (omit probabilities for this type).
+- [`Competing`](@ref): the fixed-probability mixture sibling.
+- [`winning_probabilities`](@ref): the derived per-cause winning probabilities.
+- [`convolve_distributions`](@ref): the sum dual (events in series).
+"
+struct HazardCompeting{C <: Tuple, D <: Tuple} <: AbstractCompeting
+    "Tuple of the competing outcome names (`Symbol`s)."
+    names::C
+    "Tuple of the cause-specific delay distributions."
+    delays::D
+
+    function HazardCompeting(names::C, delays::D) where {C <: Tuple, D <: Tuple}
+        length(names) >= 2 ||
+            throw(ArgumentError("HazardCompeting needs at least two outcomes"))
+        length(names) == length(delays) || throw(ArgumentError(
+            "HazardCompeting names and delays must have equal length; got " *
+            "$(length(names)) and $(length(delays))"))
+        all(n -> n isa Symbol, names) ||
+            throw(ArgumentError("each competing outcome name must be a Symbol"))
+        any(_is_no_event, delays) && throw(ArgumentError(
+            "a racing-hazard competing node has no no-event branch: the " *
+            "no-event probability is DERIVED as the survival ∏ S_k(horizon). " *
+            "Use the fixed-probability `Competing` for an explicit no-event mass"))
+        return new{C, D}(names, delays)
+    end
+end
+
+@doc "
+
+Build a racing-hazard [`HazardCompeting`](@ref) node from `name => delay`
+outcomes (bare delays, NO branch probabilities).
+
+Each outcome is `name => delay`. The winning probability of each cause is derived
+from the hazards, so no branch probability is supplied (that is what selects this
+type over the fixed-probability mixture [`Competing`](@ref)). At least two
+outcomes are required.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+node = HazardCompeting(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
+winning_probabilities(node)
+```
+
+# See also
+- [`competing`](@ref): the shared constructor.
+- [`Competing`](@ref): the fixed-probability mixture sibling.
+"
+function HazardCompeting(outcomes::Pair...)
+    length(outcomes) >= 2 ||
+        throw(ArgumentError("HazardCompeting needs at least two outcomes"))
+    names = Tuple(o.first for o in outcomes)
+    delays = Tuple(o.second for o in outcomes)
+    all(d -> d isa UnivariateDistribution, delays) || throw(ArgumentError(
+        "each racing-hazard outcome payload must be a bare delay distribution " *
+        "(no branch probability); got a `(delay, prob)` tuple? use `Competing`"))
+    return HazardCompeting(names, delays)
+end
+
+params(c::HazardCompeting) = map(params, c.delays)
+
+# The marginal any-event distribution `T = min_k D_k` is univariate: its survival
+# is `∏_k S_k(t)` and its support is the intersection of the cause supports'
+# lower bounds (the soonest any cause can fire) up to the largest cause maximum.
+Base.minimum(c::HazardCompeting) = maximum(map(minimum, c.delays))
+Base.maximum(c::HazardCompeting) = maximum(map(maximum, c.delays))
+function insupport(c::HazardCompeting, x::Real)
+    return minimum(c) <= x <= maximum(c)
+end
+
+# Survival of the marginal any-event time: `log ∏_k S_k(t) = Σ_k logccdf_k(t)`,
+# summed directly so a `Dual`/tracked leaf param propagates (no `float` strip).
+# Each term goes through `_logccdf_ad_safe` so a `Gamma` survival differentiates
+# w.r.t. its shape/scale (the stock `logccdf(::Gamma)` has no `Dual`-shape rule).
+function _hazard_logsurvival(c::HazardCompeting, t::Real)
+    return sum(ntuple(k -> _logccdf_ad_safe(c.delays[k], t), _n_branches(c)))
+end
+
+# Cause-resolved log sub-density `log f_j(t) ∏_{k≠j} S_k(t) = log f_j(t) +
+# Σ_{k≠j} logccdf_k(t)`, the likelihood term for an observed `(cause j, time t)`.
+# Equivalently `logpdf_j(t) - logccdf_j(t) + Σ_k logccdf_k(t)` (the hazard form),
+# but written as the explicit `≠ j` sum to avoid an `Inf - Inf` when a cause's
+# survival underflows. AD-safe (`_logccdf_ad_safe` per term; the leaf params flow
+# through).
+function _hazard_cause_logpdf(c::HazardCompeting, j::Int, t::Real)
+    n = _n_branches(c)
+    return logpdf(c.delays[j], t) +
+           sum(ntuple(
+        k -> k == j ? zero(_logccdf_ad_safe(c.delays[k], t)) :
+             _logccdf_ad_safe(c.delays[k], t), n))
+end
+
+@doc "
+
+Log density of the racing-hazard marginal any-event time `T = min_k D_k`.
+
+The marginal density is `∑_j f_j(t) ∏_{k≠j} S_k(t)`; this is its log via the
+log-sum-exp of the cause-resolved sub-densities, AD-safe (the leaf params
+propagate, no `float` stripping).
+
+See also: [`HazardCompeting`](@ref), [`winning_probabilities`](@ref)
+"
+function logpdf(c::HazardCompeting, t::Real)
+    n = _n_branches(c)
+    terms = ntuple(j -> _hazard_cause_logpdf(c, j, t), n)
+    m = maximum(terms)
+    isfinite(m) || return m
+    s = zero(m)
+    @inbounds for term in terms
+        s += exp(term - m)
+    end
+    return m + log(s)
+end
+
+pdf(c::HazardCompeting, t::Real) = exp(logpdf(c, t))
+
+@doc "
+
+Survival of the racing-hazard marginal any-event time at `t`: `∏_k S_k(t)`.
+
+See also: [`HazardCompeting`](@ref)
+"
+ccdf(c::HazardCompeting, t::Real) = exp(_hazard_logsurvival(c, t))
+logccdf(c::HazardCompeting, t::Real) = _hazard_logsurvival(c, t)
+
+# A racing-hazard node is a univariate leaf for the survival surface (#465 / the
+# forward path): its AD-safe survival is just `_hazard_logsurvival`, so an outer
+# `_logccdf_ad_safe`/`_ccdf_ad_safe` query (e.g. a parent racing node) recurses
+# through the already-AD-safe terms rather than the stock `logccdf`.
+_logccdf_ad_safe(c::HazardCompeting, t::Real) = _hazard_logsurvival(c, t)
+_ccdf_ad_safe(c::HazardCompeting, t::Real) = exp(_hazard_logsurvival(c, t))
+cdf(c::HazardCompeting, t::Real) = -expm1(_hazard_logsurvival(c, t))
+function logcdf(c::HazardCompeting, t::Real)
+    return log1mexp(_hazard_logsurvival(c, t))
+end
+
+@doc "
+
+Sample the racing-hazard marginal any-event time `min_k D_k`.
+
+See also: [`rand_outcome`](@ref) to retain WHICH cause won.
+"
+function Base.rand(rng::AbstractRNG, c::HazardCompeting)
+    return rand_outcome(rng, c)[2]
+end
+Base.rand(c::HazardCompeting) = rand(default_rng(), c)
+
+@doc "
+
+Sample a racing-hazard outcome AND its time, returning `(name, time)`: draw a
+latent time per cause and return the `argmin` cause with its `min` time.
+
+This is the generative dual of the [`logpdf`](@ref) (`f_j ∏_{k≠j} S_k`) and of
+the forward `convolve_distributions` stream: the Monte Carlo winning-cause
+frequencies match the derived [`winning_probabilities`](@ref) and the forward
+per-outcome stream masses.
+
+See also: [`HazardCompeting`](@ref), [`winning_probabilities`](@ref)
+"
+function rand_outcome(rng::AbstractRNG, c::HazardCompeting)
+    n = _n_branches(c)
+    best_i = 1
+    best_t = rand(rng, c.delays[1])
+    @inbounds for k in 2:n
+        t = rand(rng, c.delays[k])
+        if t < best_t
+            best_t = t
+            best_i = k
+        end
+    end
+    return c.names[best_i], best_t
+end
+rand_outcome(c::HazardCompeting) = rand_outcome(default_rng(), c)
+
+@doc "
+
+The DERIVED per-cause winning probabilities of a racing-hazard
+[`HazardCompeting`](@ref) node: `P(cause = j) = ∫ f_j(t) ∏_{k≠j} S_k(t) dt`,
+returned as a `NamedTuple` keyed by the outcome names.
+
+Computed by AD-safe fixed-node Gauss-Legendre quadrature of the cause-resolved
+sub-density over the marginal support. The probabilities are sub-stochastic-free
+(they sum to one for proper, eventually-certain causes); a node whose causes can
+leave residual survival at `+∞` (a defective cause) sums to less than one, the
+deficit being the never-resolved mass.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+node = competing(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
+winning_probabilities(node)
+```
+
+See also: [`HazardCompeting`](@ref), [`occurrence_probability`](@ref)
+"
+function winning_probabilities(c::HazardCompeting)
+    lo = float(minimum(c))
+    hi = float(maximum(c))
+    isfinite(hi) || (hi = lo + _hazard_quad_window(c))
+    n = _n_branches(c)
+    probs = ntuple(n) do j
+        gl_integrate(lo, hi, _PRIMARY_GL) do t
+            exp(_hazard_cause_logpdf(c, j, t))
+        end
+    end
+    return NamedTuple{c.names}(probs)
+end
+
+# A finite quadrature window for a cause with unbounded support: a high quantile
+# of the soonest-firing marginal. Uses the largest cause `0.9999` quantile so the
+# tail beyond it carries negligible mass for the winning-probability integral.
+function _hazard_quad_window(c::HazardCompeting)
+    return maximum(map(d -> quantile(d, 0.9999), c.delays))
+end
+
+@doc "
+
+The probability that ANY event occurs for a racing-hazard
+[`HazardCompeting`](@ref) node: the sum of the derived
+[`winning_probabilities`](@ref). For proper (eventually-certain) causes this is
+one; a defective node returns the resolved mass.
+
+See also: [`winning_probabilities`](@ref)
+"
+function occurrence_probability(c::HazardCompeting)
+    return sum(values(winning_probabilities(c)))
+end
+
+@doc "
+
+The probability that the named outcome occurs for a fixed-probability
+[`Competing`](@ref) node: its branch probability (the no-event branch's mass is
+the non-occurrence probability), returned as a `NamedTuple`.
+
+See also: [`occurrence_probability`](@ref)
+"
+function winning_probabilities(c::Competing)
+    return NamedTuple{c.names}(c.branch_probs)
+end
+
+@doc "
+
+The probability that ANY (non-no-event) outcome occurs for a fixed-probability
+[`Competing`](@ref) node: one minus the no-event branch mass.
+
+See also: [`winning_probabilities`](@ref)
+"
+function occurrence_probability(c::Competing)
+    total = zero(float(eltype(c.branch_probs)))
+    @inbounds for k in 1:_n_branches(c)
+        _is_no_event(c.delays[k]) && continue
+        total += c.branch_probs[k]
+    end
+    return total
+end
+
+# ----------------------------------------------------------------------------
+# Cause-resolved sub-density leaf (for the forward convolve stream)
+# ----------------------------------------------------------------------------
+#
+# The forward `convolve_distributions(stack, series)` per-outcome stream of a
+# racing-hazard node is `series ⊛ pmf(f_j ∏_{k≠j} S_k)`, sub-stochastic: each
+# outcome's mass equals its DERIVED winning probability, the deficit being the
+# competing fraction. `_HazardCauseDelay` is the cause-resolved sub-density of one
+# cause `j` of a [`HazardCompeting`](@ref) node as a (defective) univariate
+# distribution: its `pdf` is `f_j(t) ∏_{k≠j} S_k(t)` and its `cdf` is that
+# sub-density integrated from the support floor to `t` (the cause-`j` winning
+# probability accumulated by time `t`). The convolve layer discretises it through
+# `interval_censored`, so the resulting masses are EXACTLY the sub-stochastic
+# per-outcome stream (no renormalise). AD-safe: the leaf params flow through the
+# log-sum / quadrature.
+struct _HazardCauseDelay{H <: HazardCompeting} <: UnivariateDistribution{Continuous}
+    node::H
+    cause::Int
+end
+
+Base.minimum(d::_HazardCauseDelay) = minimum(d.node)
+Base.maximum(d::_HazardCauseDelay) = maximum(d.node)
+function insupport(d::_HazardCauseDelay, x::Real)
+    return insupport(d.node, x)
+end
+function logpdf(d::_HazardCauseDelay, t::Real)
+    return _hazard_cause_logpdf(d.node, d.cause, t)
+end
+pdf(d::_HazardCauseDelay, t::Real) = exp(logpdf(d, t))
+
+# The cause-`j` winning probability accumulated by `t`: `∫_lo^t f_j ∏_{k≠j} S_k`.
+# Fixed-node Gauss-Legendre over the support floor to `t` (AD-safe; the leaf
+# params flow through the integrand). A `t` at or below the floor has zero mass.
+function cdf(d::_HazardCauseDelay, t::Real)
+    lo = float(minimum(d.node))
+    t <= lo && return zero(float(t))
+    return gl_integrate(lo, float(t), _PRIMARY_GL) do u
+        exp(_hazard_cause_logpdf(d.node, d.cause, u))
+    end
+end
+
+@doc "
+
+Print a [`HazardCompeting`](@ref) node as a recursive indented tree.
+
+See also: [`HazardCompeting`](@ref)
+"
+function Base.show(io::IO, ::MIME"text/plain", c::HazardCompeting)
+    _show_composer_tree(io, c)
+    return nothing
+end
+
+function Base.show(io::IO, c::HazardCompeting)
+    parts = ["$(c.names[k])~$(c.delays[k])" for k in 1:_n_branches(c)]
+    print(io, "HazardCompeting(", join(parts, " | "), ")")
     return nothing
 end

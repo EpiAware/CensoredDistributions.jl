@@ -14,6 +14,14 @@ function Base.:(==)(a::Competing, b::Competing)
     return a.names == b.names && a.delays == b.delays &&
            a.branch_probs == b.branch_probs
 end
+# A racing-hazard node has no branch probabilities (derived), so its identity is
+# its names and racing delays. A mixture and a racing-hazard node are never equal.
+function Base.:(==)(a::HazardCompeting, b::HazardCompeting)
+    return a.names == b.names && a.delays == b.delays
+end
+Base.:(==)(::Competing, ::HazardCompeting) = false
+Base.:(==)(::HazardCompeting, ::Competing) = false
+Base.:(==)(::NoEvent, ::NoEvent) = true
 function Base.:(==)(a::Select, b::Select)
     return a.names == b.names && a.alternatives == b.alternatives &&
            a.selector == b.selector
@@ -25,6 +33,10 @@ function Base.hash(c::Competing, h::UInt)
     return hash(c.branch_probs,
         hash(c.delays, hash(c.names, hash(:Competing, h))))
 end
+function Base.hash(c::HazardCompeting, h::UInt)
+    return hash(c.delays, hash(c.names, hash(:HazardCompeting, h)))
+end
+Base.hash(::NoEvent, h::UInt) = hash(:NoEvent, h)
 function Base.hash(d::Select, h::UInt)
     return hash(d.selector,
         hash(d.alternatives, hash(d.names, hash(:Select, h))))

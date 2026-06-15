@@ -146,7 +146,7 @@ function _collect_shared!(acc, seen, d::Select)
     end
     return nothing
 end
-function _collect_shared!(acc, seen, c::Competing)
+function _collect_shared!(acc, seen, c::AbstractCompeting)
     for g in c.delays
         _collect_shared!(acc, seen, g)
     end

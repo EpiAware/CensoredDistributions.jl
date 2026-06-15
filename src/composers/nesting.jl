@@ -80,7 +80,11 @@ end
 # as `_child_nleaves`, so the value and event layouts coincide for Competing-free
 # trees and `length`/the generic value path are untouched.
 _event_child_nleaves(c) = _child_nleaves(c)
-_event_child_nleaves(c::Competing) = _n_branches(c)
+# Both competing nodes (the mixture `Competing` and the racing-hazard
+# `HazardCompeting`) expose one EVENT slot per outcome, including any no-event
+# slot (an OBSERVED non-occurrence record fills it). Dispatch on the shared
+# supertype so the layout is identical.
+_event_child_nleaves(c::AbstractCompeting) = _n_branches(c)
 _event_child_nleaves(c::Union{Sequential, Parallel}) = _event_nleaves(c.components)
 # A nested `Select` occupies its (common) alternative's EVENT-slot width: every
 # alternative must expose the same number of event slots to share one flat slot,
