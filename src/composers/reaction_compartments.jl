@@ -50,6 +50,17 @@ A `NamedTuple` `(species, reactions)`: the generated sub-compartment `species`
 `to`. Pass the reactions to a `ReactionSystem`, alongside `from`/`to` and the
 returned `species`.
 
+# Examples
+```@example
+using CensoredDistributions, Distributions, Catalyst
+
+t = Catalyst.default_t()
+@species From(t) To(t)
+# An Erlang(3, 1.5) infectious period -> 3 sub-compartments on the From -> To edge.
+chain = linear_chain_reactions(Gamma(3.0, 1.5), From, To; prefix = :I)
+length(chain.species)
+```
+
 # See also
 - [`linear_chain_stages`](@ref): the Catalyst-free `(rate, stages)` lowering
 - [`seir_reaction_network`](@ref): an SEIR built from two composed delays
@@ -91,10 +102,20 @@ lives in the package extension so the core stays free of the SciML stack.
 - `name`: the `ReactionSystem` name (defaults to `:seir`).
 
 # Returns
-A complete Catalyst `ReactionSystem` with a transmission-rate parameter `β`, the
-boundary species `S`/`R`, and the E and I sub-compartment chains. The infectious
-sub-compartments are returned (alongside the system) so transmission can be
-wired and the I total read back; see the linear-chain tutorial.
+A `NamedTuple` `(system, exposed, infectious)`: a complete Catalyst
+`ReactionSystem` (`system`) with a transmission-rate parameter `β`, the boundary
+species `S`/`R`, and the E and I sub-compartment chains; plus the `exposed` and
+`infectious` sub-compartment species, returned so the I total can be read back
+and the initial state seeded (see the linear-chain tutorial).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, Catalyst
+
+# Erlang(2, 2) latent period, Erlang(3, 1.5) infectious period.
+seir = seir_reaction_network(Gamma(2.0, 2.0), Gamma(3.0, 1.5))
+(length(seir.exposed), length(seir.infectious))
+```
 
 # See also
 - [`linear_chain_reactions`](@ref): the per-transition primitive this composes
