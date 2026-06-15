@@ -662,6 +662,37 @@ struct _LeafPlan{C}
     always_bare::Bool
 end
 
+# A nested `Competing` node in the latent sampling plan: the node itself, the event
+# slot `shift_idx` its outcomes hang off (its anchor: the parent origin / preceding
+# terminal), and the event slot `outcome_start` where its first outcome slice
+# begins. The latent form CONDITIONS on the observed outcome (the recorded outcome
+# is DATA, exactly like the marginal `Competing` model and the bdbv tutorial
+# workaround): the observed branch's edge conditions on the anchor (bare when the
+# anchor is a sampled latent, declared when observed, via `_latent_edge`) and the
+# branch-probability term `log p[i]` is added. The unobserved outcomes contribute
+# nothing and are NOT sampled (sampling them would imply every outcome occurred),
+# so the latent integrates to the same marginal `log p[i] + logpdf(delay[i], gap)`.
+# Sampling WHICH outcome occurs (the generative direction) is a distinct
+# construction not built here; the data-conditioned direction is what fits.
+struct _CompetingPlan{C}
+    node::C
+    shift_idx::Int
+    outcome_start::Int
+end
+
+# The full latent sampling plan: the per-leaf edge entries (sampled/conditioned via
+# `~`/`@addlogprob!`) and the nested-Competing entries (conditioned on the observed
+# outcome). Kept as two separately-typed vectors so each processing loop sees a
+# concrete element type (the per-leaf `~` loop stays the shape the AD backends
+# already differentiate; the Competing loop is data-conditioned `@addlogprob!`).
+struct _LatentPlan
+    leaves::Vector{_LeafPlan}
+    competings::Vector{_CompetingPlan}
+end
+_LatentPlan() = _LatentPlan(_LeafPlan[], _CompetingPlan[])
+Base.push!(p::_LatentPlan, x::_LeafPlan) = (push!(p.leaves, x); p)
+Base.push!(p::_LatentPlan, x::_CompetingPlan) = (push!(p.competings, x); p)
+
 # Build the per-leaf sampling plan for a composer rooted with origin at event slot
 # `origin_idx` and its first leaf event at `event_start`, appending to `plan`.
 # Mirrors the marginal `_tree_score` layout (origin shared with the parent, leaf
@@ -696,18 +727,88 @@ function _latent_plan!(plan, d::Parallel, origin_idx::Int, event_start::Int,
     return plan
 end
 
-# A nested `Competing` in a LATENT-wrapped composer is out of scope: the
-# latent turn-on must SAMPLE which outcome occurs and its time, a distinct
-# multivariate construction not built here. Reject it clearly rather than
-# mis-index the event slots. The MARGINAL composer model handles a nested
-# Competing (conditioning / per-row branch_probs); turn the latent flow on for
-# the rest of the tree, not for a Competing node.
-function _latent_plan_step!(plan, ::Competing, o_idx::Int, ev_idx::Int,
+# A nested `Competing` node in a LATENT-wrapped composer emits a `_CompetingPlan`:
+# its outcomes begin at `ev_idx`, anchored at the parent origin / preceding
+# terminal `o_idx`. The latent form CONDITIONS on the observed outcome (the
+# recorded outcome is data), so the plan only records the node + indices; the model
+# body reads the row's observed outcome, conditions its branch on the (possibly
+# sampled) anchor, and adds the branch-probability term. Each outcome here must be
+# a LEAF delay (the standalone-Competing latent path): a composer-subtree outcome
+# (#466 F3) would itself carry latents, a distinct construction handled by the
+# marginal model. Mis-indexing is avoided because the cursor advances by the
+# Competing's full event-slot width in `_latent_plan!`.
+function _latent_plan_step!(plan, node::Competing, o_idx::Int, ev_idx::Int,
         always_bare::Bool)
-    throw(ArgumentError(
-        "a latent-wrapped composer with a nested Competing node is not " *
-        "supported; score it through the marginal composed model " *
-        "(condition on the observed outcome / pass per-record branch_probs)"))
+    _reject_nonleaf_competing_outcomes(node)
+    push!(plan, _CompetingPlan(node, o_idx, ev_idx))
+    return plan
+end
+
+# A latent-wrapped Competing supports LEAF outcome delays only: a composer-subtree
+# outcome carries its own internal latents (a distinct multivariate construction),
+# so it is rejected clearly rather than mis-scored. The marginal composed model
+# handles a composer-subtree Competing outcome.
+function _reject_nonleaf_competing_outcomes(node::Competing)
+    all(d -> d isa UnivariateDistribution, node.delays) || throw(ArgumentError(
+        "a latent-wrapped composer with a nested Competing whose outcome is " *
+        "itself a composed subtree is not supported; score it through the " *
+        "marginal composed model, or keep the Competing outcomes as leaf delays"))
+    return nothing
+end
+
+# Score a nested `Competing` in a LATENT-wrapped composer for one record, CONDITION-
+# ing on the observed outcome (the recorded outcome is DATA). Mirrors the marginal
+# `_competing_logprob` / `_competing_tree_logpdf` so latent == marginal: the
+# observed branch contributes `log p[i] + logpdf(edge_i, gap)` and the unobserved
+# outcomes contribute nothing (they are not sampled). The anchor is the filled event
+# slot `e[c.shift_idx]` (an observed reference, or a latent sampled by the leaf
+# loop): when the anchor was SAMPLED (and is not the chain origin) the branch edge
+# scores BARE, exactly as the marginal convolves bare cores across a sampled run, so
+# integrating the sampled anchor reproduces the marginal mixture-conditioned term.
+# Branch probabilities follow the row (`branch_probs` override) else the node's
+# stored probs, shared with the marginal `Competing` path. Weight `w` scales the
+# likelihood.
+function _latent_competing_logprob(c::_CompetingPlan, e, sampled, row, w)
+    node = c.node
+    probs = _competing_outcome_probs(node, row)
+    anchor = e[c.shift_idx]
+    pred_sampled = sampled[c.shift_idx]
+    pred_is_origin = c.shift_idx == 1
+    obs_i, obs_slot = _latent_observed_outcome(node, e, sampled, c.outcome_start)
+    obs_i == 0 && return _scale(zero(eltype(probs)), w)
+    delay = node.delays[obs_i]
+    # An OBSERVED non-occurrence (a no-event slot present) scores the no-event mass
+    # `log q` alone (no delay term), matching the marginal Competing path.
+    if CensoredDistributions._is_no_event(delay)
+        return _scale(log(probs[obs_i]), w)
+    end
+    anchor === missing && throw(ArgumentError(
+        "a latent nested Competing with an observed outcome needs its anchor " *
+        "(the parent event) observed or sampled; got a missing anchor"))
+    edge = _latent_edge(delay, anchor, pred_sampled, pred_is_origin, false, false)
+    lp = log(probs[obs_i]) + logpdf(edge, e[obs_slot])
+    return _scale(lp, w)
+end
+
+# Resolve WHICH leaf outcome a latent Competing record observes, returning
+# `(outcome_index, slot_index)` with `0` when none is observed (a fully latent
+# resolution contributes nothing). An outcome's slot was OBSERVED iff its original
+# row value was present (`!sampled[slot]`); two distinct observed outcomes are
+# rejected (a record resolves to one outcome), mirroring the marginal resolver.
+# Leaf outcomes only (one slot each), guaranteed by `_reject_nonleaf_competing_outcomes`.
+function _latent_observed_outcome(node::Competing, e, sampled, outcome_start::Int)
+    obs_i = 0
+    obs_slot = 0
+    @inbounds for k in eachindex(node.delays)
+        slot = outcome_start + (k - 1)
+        sampled[slot] && continue
+        obs_i == 0 || throw(ArgumentError(
+            "a latent nested Competing record may observe at most one outcome; " *
+            "got outcomes $(node.names[obs_i]) and $(node.names[k])"))
+        obs_i = k
+        obs_slot = slot
+    end
+    return obs_i, obs_slot
 end
 
 # A nested composer step/branch recurses on the same shared event vector: its
@@ -769,7 +870,7 @@ end
     # across the sampled run); an edge whose target is OBSERVED keeps its declared
     # censoring (see `_latent_edge`). Captured before any `~` fills a slot.
     sampled = [v === missing for v in e]
-    plan = _latent_plan!(_LeafPlan[], chain, 1, 2, false)
+    plan = _latent_plan!(_LatentPlan(), chain, 1, 2, false)
     # Origin E_0. A MISSING origin must be SAMPLED, so the chain needs a primary
     # prior to sample it from (a bare-edge chain offers none -> reject). An OBSERVED
     # origin is a fixed continuous reference: it conditions through its primary prior
@@ -786,7 +887,7 @@ end
     elseif origin !== nothing
         DynamicPPL.@addlogprob! logpdf(origin, e[1])
     end
-    for p in plan
+    for p in plan.leaves
         edge = _latent_edge(p.edge, e[p.shift_idx],
             sampled[p.shift_idx], p.shift_idx == 1,
             sampled[p.event_idx], p.always_bare)
@@ -795,6 +896,13 @@ end
         else
             DynamicPPL.@addlogprob! _scale(logpdf(edge, e[p.event_idx]), w)
         end
+    end
+    # Nested Competing nodes: condition on each record's observed outcome (data),
+    # added after the leaf loop so a sampled anchor (`e[shift_idx]`) is filled. The
+    # branch-probability override (covariate CFR) rides the row's `branch_probs`.
+    for c in plan.competings
+        DynamicPPL.@addlogprob! _latent_competing_logprob(
+            c, e, sampled, row, w)
     end
     return e
 end
@@ -833,7 +941,7 @@ end
     sampled = [v === missing for v in e]
     # Root flat Parallel branches are always bare (the marginal conditional scores
     # each branch on the continuous core).
-    plan = _latent_plan!(_LeafPlan[], tree, 1, 2, true)
+    plan = _latent_plan!(_LatentPlan(), tree, 1, 2, true)
     # Shared origin. A MISSING origin must be SAMPLED, so the branches need a shared
     # primary prior; bare branches with an observed origin reference need none. NOT
     # weighted (weight scales the observed conditionals, not the prior).
@@ -846,7 +954,7 @@ end
     elseif shared !== nothing
         DynamicPPL.@addlogprob! logpdf(shared, e[1])
     end
-    for p in plan
+    for p in plan.leaves
         edge = _latent_edge(p.edge, e[p.shift_idx],
             sampled[p.shift_idx], p.shift_idx == 1,
             sampled[p.event_idx], p.always_bare)
@@ -855,6 +963,11 @@ end
         else
             DynamicPPL.@addlogprob! _scale(logpdf(edge, e[p.event_idx]), w)
         end
+    end
+    # Nested Competing nodes: condition on each record's observed outcome (data).
+    for c in plan.competings
+        DynamicPPL.@addlogprob! _latent_competing_logprob(
+            c, e, sampled, row, w)
     end
     return e
 end

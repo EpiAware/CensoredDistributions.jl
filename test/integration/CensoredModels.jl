@@ -675,6 +675,58 @@ end
     @test any(!iszero, g)
 end
 
+@testitem "latent Nested Competing: AD through sampled admit + per-row prob (#363)" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent
+    using Turing: Turing, @model, to_submodel, AutoForwardDiff
+    using DynamicPPL: DynamicPPL, LogDensityFunction
+    import DynamicPPL.LogDensityProblems as LDP
+
+    _logistic(z) = 1 / (1 + exp(-z))
+    # Latent-wrapped chain onset -> admit -> {death, discharge}; the admission is
+    # SAMPLED per record (a latent), the recorded outcome conditions its branch,
+    # and the per-record CFR is logistic(beta * x). The gradient over (sh, beta)
+    # flows through the sampled-admit latent edges and the conditioned branch.
+    specs = [
+        (kind = :death, t = 12.0, x = 0.4),
+        (kind = :discharge, t = 11.0, x = -0.7)
+    ]
+
+    function _row(spec, beta)
+        p = _logistic(beta * spec.x)
+        bp = (branch_probs = (death = p, discharge = 1 - p),)
+        d_ev = spec.kind === :death ? spec.t : missing
+        c_ev = spec.kind === :discharge ? spec.t : missing
+        # admit (event_2) is MISSING -> sampled as a latent per record.
+        return merge(
+            (onset = 0.0, admit = missing, death = d_ev, discharge = c_ev), bp)
+    end
+
+    @model function fit(specs)
+        sh ~ truncated(Normal(2.0, 0.5); lower = 0.2)
+        beta ~ Normal(0.0, 1.0)
+        e_oa = double_interval_censored(LogNormal(1.4, 0.4);
+            primary_event = Uniform(0, 1), interval = 1.0)
+        cmp = Competing(:death => (Gamma(sh, 3.0), 0.5),
+            :discharge => (Gamma(2.0, 1.0), 0.5))
+        d = latent(Sequential((e_oa, cmp), (:onset_admit, :admit)))
+        for i in eachindex(specs)
+            y ~ to_submodel(
+                DynamicPPL.prefix(
+                    composed_distribution_model(d, _row(specs[i], beta)),
+                    Symbol(:rec, i)), false)
+        end
+    end
+
+    ldf = LogDensityFunction(fit(specs); adtype = AutoForwardDiff())
+    # 2 params + 2 sampled admit latents (one per record).
+    x0 = [2.0, 0.8, 3.0, 3.0]
+    v, g = LDP.logdensity_and_gradient(ldf, x0)
+    @test length(g) == 4
+    @test all(isfinite, g)
+    @test any(!iszero, g)
+end
+
 @testitem "Nested Competing: covariate CFR recovers beta in bdbv tree (#333)" begin
     using CensoredDistributions, Distributions, Random
     using Turing: Turing, NUTS, sample, @model, to_submodel
@@ -758,22 +810,58 @@ end
     @test only(logjoint(demo_w(seq, row, 6), (;))) ≈ 6 * base
 end
 
-@testitem "Nested Competing: latent-wrapped tree is rejected (#333)" begin
+@testitem "Nested Competing: latent-wrapped tree conditions on outcome (#363)" begin
     using CensoredDistributions, Distributions
+    using CensoredDistributions: latent
     using DynamicPPL: @model, to_submodel, logjoint
 
     edge(mu,
         sigma) = double_interval_censored(LogNormal(mu, sigma);
         primary_event = Uniform(0, 1), interval = 1.0)
-    cmp = Competing(:death => (Gamma(2.0, 3.0), 0.3),
-        :discharge => (Gamma(2.0, 1.0), 0.7))
-    # A latent-wrapped composer with a nested Competing is out of scope: the
-    # latent turn-on would need to sample the outcome, a distinct construction.
-    ld = latent(Sequential(edge(1.4, 0.4), cmp))
+    e_oa = edge(1.4, 0.4)
+    cfr = 0.3
+    death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
+    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    # A latent-wrapped composer with a nested Competing conditions on the recorded
+    # outcome (data), exactly like the marginal Competing path: the observed admit
+    # anchors the conditioned branch (both endpoints observed -> declared edge), so
+    # the latent contribution equals the marginal `log p[i] + logpdf(delay[i], gap)`.
+    seq = Sequential(e_oa, cmp)
+    md = seq
+    ld = latent(seq)
 
     @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
-    row = (event_1 = 0.0, event_2 = 4.0, death = 12.0, discharge = missing)
-    @test_throws ArgumentError logjoint(demo(ld, row), (;))
+
+    # Death observed (admit observed -> declared onset->admit edge + conditioned
+    # death branch at its gap from admit).
+    death_row = (event_1 = 0.0, event_2 = 4.0, death = 12.0, discharge = missing)
+    ref_death = logpdf(e_oa, 4.0) + log(cfr) + logpdf(death_d, 8.0)
+    @test only(logjoint(demo(ld, death_row), (;))) ≈ ref_death
+    # The latent form matches the marginal form on the same record.
+    @test only(logjoint(demo(ld, death_row), (;))) ≈
+          only(logjoint(demo(md, death_row), (;)))
+
+    # Discharge observed.
+    disch_row = (event_1 = 0.0, event_2 = 4.0, death = missing, discharge = 11.0)
+    ref_disch = logpdf(e_oa, 4.0) + log(1 - cfr) + logpdf(disch_d, 7.0)
+    @test only(logjoint(demo(ld, disch_row), (;))) ≈ ref_disch
+    @test only(logjoint(demo(ld, disch_row), (;))) ≈
+          only(logjoint(demo(md, disch_row), (;)))
+
+    # Per-record branch_probs override (covariate CFR) flows in for the latent path
+    # exactly as for the marginal.
+    bp_row = (event_1 = 0.0, event_2 = 4.0, death = 12.0, discharge = missing,
+        branch_probs = (death = 0.6, discharge = 0.4))
+    @test only(logjoint(demo(ld, bp_row), (;))) ≈
+          logpdf(e_oa, 4.0) + log(0.6) + logpdf(death_d, 8.0)
+
+    # A composer-subtree Competing outcome is still out of scope for the latent
+    # path (its outcome carries internal latents); rejected clearly.
+    sub = Competing(:death => (Sequential(e_oa, edge(1.0, 0.3)), 0.3),
+        :discharge => (disch_d, 0.7))
+    ld_sub = latent(Sequential(e_oa, sub))
+    sub_row = (event_1 = 0.0, event_2 = 4.0, death = missing, discharge = 11.0)
+    @test_throws ArgumentError logjoint(demo(ld_sub, sub_row), (;))
 end
 
 @testitem "composer model: varying-data batch (mixed missing patterns)" begin
