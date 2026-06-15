@@ -284,13 +284,14 @@ break gradients on the batched path. `eltype(d)` reports the support type
 enough; we promote in the actual CDF result type from `_cdf_ad_safe`.
 """
 function _interval_cdf_eltype(d::IntervalCensored, x::AbstractVector{<:Real})
-    # A representative differentiable CDF evaluation carries the promoted
-    # parameter type (e.g. a ForwardDiff `Dual`) even when the argument is a
-    # plain `Float64` boundary, mirroring the AD-safe seeding used elsewhere.
-    # Seed at the distribution minimum so the probe is always in-support and
-    # never depends on `x` being non-empty.
-    probe = float(minimum(get_dist(d)))
-    cdf_t = typeof(_cdf_ad_safe(get_dist(d), probe))
+    # The CDF value type follows the distribution's PARAMETER type (carrying any
+    # AD `Dual`/tracked number, #403). `partype` reads it directly from the
+    # parameters without EVALUATING the CDF, so the type probe never traces a
+    # computation onto the AD tape. An earlier probe that evaluated `cdf` at the
+    # distribution minimum tripped ReverseDiff: `cdf(LogNormal, 0.0)` has a NaN
+    # gradient at the support edge, and tracing it (even just for `typeof`)
+    # poisoned the batched gradient with NaN.
+    cdf_t = float(Distributions.partype(get_dist(d)))
     return promote_type(eltype(x), eltype(d.boundaries), cdf_t)
 end
 
@@ -353,9 +354,19 @@ function pdf(d::IntervalCensored, x::AbstractVector{<:Real})
     # Compute CDFs once for all unique boundaries using functional approach.
     # `_cdf_ad_safe` keeps the `Gamma` path differentiable; converting to the
     # promoted value type preserves any AD numbers rather than stripping them.
+    #
+    # Boundaries at/below the distribution minimum or at/above its maximum are
+    # SKIPPED: `_compute_pdfs_with_cache` substitutes the `0`/`1` seeds for those
+    # cases and never looks them up, exactly mirroring the scalar `pdf` guard
+    # (`lower <= dist_min ? 0.0 : ...`). Differentiating `cdf` AT such a
+    # degenerate boundary (e.g. `cdf(LogNormal, 0.0)`, whose support starts at 0)
+    # produces a NaN gradient under ReverseDiff, so leaving them out of the cache
+    # keeps the batched path AD-safe and value-identical to the scalar loop.
+    dist_min = minimum(get_dist(d))
+    dist_max = maximum(get_dist(d))
     cdf_lookup = Dict(
         boundary => convert(Tval, _cdf_ad_safe(get_dist(d), boundary))
-    for boundary in boundaries)
+    for boundary in boundaries if dist_min < boundary < dist_max)
 
     # Use cached values to compute PDFs efficiently
     return _compute_pdfs_with_cache(d, x, cdf_lookup)
