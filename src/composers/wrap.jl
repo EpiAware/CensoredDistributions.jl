@@ -133,8 +133,23 @@ The chain is collapsed to its observed total (see
 
 See also: [`double_interval_censored`](@ref)
 "
-function double_interval_censored(d::Sequential; kwargs...)
-    return double_interval_censored(observed_distribution(d); kwargs...)
+# Explicit keyword signature (NOT `; kwargs...`): forwarding a `kwargs...`
+# splat lowers to a dynamic `Core.kwcall`, which Enzyme cannot specialise. It
+# falls to `runtime_generic_augfwd` and then fails to allocate a shadow for the
+# freshly-built `Convolved` observed total (`EnzymeNoShadowError`, #444). Naming
+# the keywords keeps the inner call statically dispatched, so Enzyme (and every
+# other backend) differentiates the `double_interval_censored(Sequential)` path.
+function double_interval_censored(
+        d::Sequential;
+        primary_event::UnivariateDistribution = Uniform(0, 1),
+        lower::Union{Real, Nothing} = nothing,
+        upper::Union{Real, Nothing} = nothing,
+        interval::Union{Real, Nothing} = nothing,
+        force_numeric::Bool = false)
+    return double_interval_censored(
+        observed_distribution(d);
+        primary_event = primary_event, lower = lower, upper = upper,
+        interval = interval, force_numeric = force_numeric)
 end
 
 # ---------------------------------------------------------------------------

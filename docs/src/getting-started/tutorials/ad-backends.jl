@@ -152,9 +152,9 @@ md"""
 (backend, scenario) pair. We pass every backend and scenario so broken
 combinations show up as gaps rather than being hidden, except for the
 per-backend scenarios `ADFixtures.backend_skip_scenarios()` flags as
-uncatchable crashes (Enzyme aborts the whole process on the heterogeneous
-composer-tree recursion, issue #319); those pairs are dropped before the run
-so the benchmark cannot take the process down with it.
+uncatchable crashes (Enzyme aborts the whole process on the vectorised
+per-record tree-rebuild scenario, issue #319); those pairs are dropped before
+the run so the benchmark cannot take the process down with it.
 
 The benchmark executed on this page excludes the Enzyme backends, because
 running Enzyme inside the documentation build can abort the whole process
@@ -187,8 +187,8 @@ md"""
 """
 
 ## Some (backend, scenario) pairs crash the process uncatchably (Enzyme on the
-## heterogeneous composer-tree recursion, #319), so a `try`/`catch` cannot save
-## the build. We therefore drop those pairs per backend before timing, mirroring
+## vectorised per-record tree-rebuild scenario, #319), so a `try`/`catch` cannot
+## save the build. We therefore drop those pairs per backend before timing, mirroring
 ## `test/ad/setup.jl`, and benchmark each backend over only its runnable
 ## scenarios. Backends with no skip list still see the full scenario set.
 skip_map = ADFixtures.backend_skip_scenarios()

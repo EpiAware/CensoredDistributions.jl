@@ -160,38 +160,43 @@ backend `name` from [`working_backends`](@ref).
 
 """
 function backend_broken_scenarios()
-    # The nested-composer (irregular tree) scoring recurses through a
-    # heterogeneous tree of differing censored edge types. Enzyme (both modes)
-    # cannot statically prove the type of the recursively-built tree walk and
-    # either errors (`EnzymeNoTypeError`, reverse) or returns a wrong gradient
-    # (forward): the heterogeneous-edge gap (#319). ForwardDiff, ReverseDiff and
-    # Mooncake (both modes) all differentiate it correctly, so it is registered
-    # broken for Enzyme only rather than worked around.
-    nested_tree = "Nested tree censored observed logpdf"
-    # The nested-Competing tree (#333) recurses through the SAME heterogeneous
-    # censored-edge walk plus the conditioned competing branch, so it shares the
-    # Enzyme heterogeneous-edge gap (#319); ForwardDiff / ReverseDiff / Mooncake
-    # differentiate it correctly.
+    # NOTE (#319/#444): the nested-tree heterogeneous-edge family no longer fails
+    # WHOLESALE on Enzyme. The recursion built a fresh `Vector{Union{Missing,
+    # Float64}}` sub-event view per node (`_subevent_slice`); Enzyme's type
+    # analysis could not prove the layout of that non-bits-union `Array`
+    # allocation inside the differentiated walk (`EnzymeNoTypeError`). The slice
+    # is pure constant-data shuffling (it copies observed event TIMES, which carry
+    # no gradient -- only the leaf distribution PARAMS do), so it is now marked
+    # `EnzymeRules.inactive` in `CensoredDistributionsEnzymeExt`. With that shield
+    # the plain nested tree and `double_interval_censored(Sequential)` (#444, fixed
+    # by replacing a kwargs-splat dynamic `Core.kwcall` with an explicit-keyword
+    # signature in `wrap.jl`) differentiate on BOTH Enzyme modes; the Competing /
+    # hazard trees differentiate on Enzyme FORWARD. The residual reverse-only and
+    # non-terminal gaps below are SEPARATE, deeper Enzyme limitations (documented
+    # per scenario). ForwardDiff / ReverseDiff / Mooncake differentiate every one
+    # of these correctly.
+
+    # The nested-Competing tree (#333) and the nested racing-hazard tree (#466)
+    # recurse through the heterogeneous censored-edge walk plus a competing /
+    # racing branch. With the `_subevent_slice` shield they now differentiate on
+    # Enzyme FORWARD (verified against the ForwardDiff reference). Enzyme REVERSE
+    # still fails with `EnzymeNoShadowError`: building the reverse shadow for the
+    # `MixtureModel` / `HazardCompeting` branch struct nested inside the
+    # `Parallel{Tuple{Sequential{...}, PrimaryCensored{...}}}` tree hits Enzyme's
+    # mixed-activity shadow construction (the #278/#319-family struct-shadow gap),
+    # which is upstream and not reachable from a value-level rule. Registered
+    # broken for Enzyme REVERSE only.
     nested_comp = "Nested Competing tree conditioned logpdf"
-    # The nested racing-hazard tree (#466) recurses through the SAME heterogeneous
-    # censored-edge walk plus the cause-resolved sub-density (logpdf + logccdf
-    # terms), so it shares the Enzyme heterogeneous-edge gap (#319); ForwardDiff /
-    # ReverseDiff / Mooncake differentiate it correctly.
     nested_hazard = "Nested racing-hazard tree conditioned logpdf"
-    # The non-terminal whole-tree Competing (#466 Feature 3) recurses through the
-    # SAME heterogeneous censored-edge walk: a composer-valued outcome's subtree is
-    # scored by the nested `_tree_score`, so it shares the Enzyme heterogeneous-edge
-    # gap (#319). ForwardDiff / ReverseDiff / Mooncake differentiate it correctly.
+    # The non-terminal whole-tree Competing (#466 Feature 3) scores a
+    # composer-VALUED competing outcome's subtree through the nested `_tree_score`,
+    # AND carries a differentiated branch probability `θ[7]` whose complement
+    # `1 - θ[7]` feeds the racing/competing weighting. It still fails on BOTH
+    # Enzyme modes with `IllegalTypeAnalysisException` -- a deeper upstream Enzyme
+    # type-analysis gap on this combined composer-subtree-plus-active-branch-prob
+    # path, distinct from the `_subevent_slice` allocation that #319 fixed.
+    # Registered broken for both Enzyme modes.
     nonterminal_comp = "Non-terminal Competing whole-tree conditioned logpdf"
-    # `double_interval_censored(Sequential ...)` collapses the Sequential to its
-    # observed total (`observed_distribution`), a `Convolved{Tuple{Gamma,
-    # LogNormal}}`, then double-censors it. Enzyme (both modes) cannot find a
-    # shadow for that `Convolved` quadrature-window struct inside the
-    # differentiated `double_interval_censored` call (`EnzymeNoShadowError`): the
-    # same class of Enzyme gap as the heterogeneous-edge tree (#319). ForwardDiff,
-    # ReverseDiff and Mooncake all differentiate it correctly, so it is registered
-    # broken for Enzyme only (#444).
-    convolved_dic = "double_interval_censored(Sequential) over total"
     # The vectorised path runs an AD-FREE pre-pass that collects the table rows
     # (`Tables.rows` iteration, vector building, validation `throw`s) before the
     # AD-traced build/evaluate. ForwardDiff and ReverseDiff trace straight through
@@ -220,13 +225,17 @@ function backend_broken_scenarios()
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => copy(compiled_broken),
         "Mooncake forward" => copy(compiled_broken),
+        # Enzyme REVERSE: the Competing/hazard trees (reverse shadow construction)
+        # and the non-terminal Competing remain broken; the plain nested tree and
+        # `double_interval_censored(Sequential)` are now fixed (#319/#444).
         "Enzyme reverse" => union(
-            Set{String}([nested_tree, nested_comp, nested_hazard,
-                nonterminal_comp, convolved_dic]),
+            Set{String}([nested_comp, nested_hazard, nonterminal_comp]),
             compiled_broken),
+        # Enzyme FORWARD: only the non-terminal Competing remains broken; the
+        # plain nested tree, the Competing/hazard trees, and
+        # `double_interval_censored(Sequential)` are now fixed (#319/#444).
         "Enzyme forward" => union(
-            Set{String}([nested_tree, nested_comp, nested_hazard,
-                nonterminal_comp, convolved_dic]),
+            Set{String}([nonterminal_comp]),
             compiled_broken)
     )
 end
