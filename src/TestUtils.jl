@@ -31,7 +31,8 @@ using Distributions: Distributions, mean, var, std, logpdf, cdf, params,
 import Tables
 
 using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
-                               Competing, Select, Latent, compose, latent,
+                               Competing, AbstractCompeting, HazardCompeting,
+                               Select, Latent, compose, latent,
                                double_interval_censored, primary_censored,
                                event, event_names, event_tree, params_table,
                                observed_distribution, endpoint
@@ -319,11 +320,13 @@ function _fill_insupport_step!(
            out[idx + CensoredDistributions._terminal_offset(step)]
     return next, term
 end
-function _fill_insupport_step!(out, step::Competing, origin, idx)
-    # Observe the FIRST outcome (a positive in-support gap off the anchor) and
+function _fill_insupport_step!(out, step::AbstractCompeting, origin, idx)
+    # Observe the FIRST REAL outcome (a positive in-support gap off the anchor) and
     # leave the others missing, the one-observed-outcome record the scorer
-    # expects; the unobserved slots exercise the `missing` path.
-    out[idx] = origin + _insupport_gap(step.delays[1])
+    # expects; the unobserved slots exercise the `missing` path. A no-event branch
+    # carries no delay, so the first non-no-event outcome is observed.
+    k = findfirst(d -> !CensoredDistributions._is_no_event(d), step.delays)
+    out[idx + k - 1] = origin + _insupport_gap(step.delays[k])
     return idx + CensoredDistributions._n_branches(step), origin
 end
 function _fill_insupport_step!(out, step::UnivariateDistribution, origin, idx)
@@ -395,7 +398,7 @@ end
 # share one flat event slot, so the tree-vs-flat leaf-count equality is relaxed).
 _contains_select(::Select) = true
 _contains_select(c::Union{Sequential, Parallel}) = any(_contains_select, c.components)
-_contains_select(c::Competing) = any(_contains_select, c.delays)
+_contains_select(c::AbstractCompeting) = any(_contains_select, c.delays)
 _contains_select(c::Latent) = _contains_select(c.dist)
 _contains_select(::Any) = false
 

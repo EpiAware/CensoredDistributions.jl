@@ -91,6 +91,16 @@ function _node_params(c::Competing, lookup, prefix, path)
     return merge(base, (; branch_probs = NamedTuple{c.names}(Tuple(bp))))
 end
 
+# A racing-hazard node has only its outcome-delay params in the chain (no
+# branch_probs block, since the winning probability is derived).
+function _node_params(c::CensoredDistributions.HazardCompeting, lookup, prefix,
+        path)
+    delays = map(zip(c.names, c.delays)) do (name, delay)
+        _node_params(delay, lookup, prefix, (path..., name))
+    end
+    return NamedTuple{c.names}(Tuple(delays))
+end
+
 # A `Select` walks its alternatives by name (mirroring the core
 # `params`/`update` traversal), so a posterior reads back onto a Select
 # template. The nested
