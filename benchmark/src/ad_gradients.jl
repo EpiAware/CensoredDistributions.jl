@@ -22,7 +22,20 @@ import DifferentiationInterfaceTest as DIT
 
 SUITE["AD gradients"] = BenchmarkGroup()
 
-for scen in ADFixtures.scenarios()
+# `ADFixtures.scenarios()` builds distributions with the current package
+# API. AirspeedVelocity stages these fixtures against both the PR and the
+# `main` baseline; when the baseline predates an API change (e.g. the
+# `method` keyword), scenario construction throws. Skip the AD suite there
+# rather than aborting the whole benchmark run, so the non-AD comparisons
+# still report.
+ad_scenarios = try
+    ADFixtures.scenarios()
+catch err
+    @warn "Skipping AD gradient benchmarks: scenario construction failed" err
+    DIT.Scenario{:gradient, :out}[]
+end
+
+for scen in ad_scenarios
     SUITE["AD gradients"][scen.name] = BenchmarkGroup()
     for entry in ADFixtures.backends()
         grad_ok = try

@@ -139,17 +139,21 @@ See also: [`double_interval_censored`](@ref)
 # freshly-built `Convolved` observed total (`EnzymeNoShadowError`, #444). Naming
 # the keywords keeps the inner call statically dispatched, so Enzyme (and every
 # other backend) differentiates the `double_interval_censored(Sequential)` path.
+# `method` selects the primary-censoring solver (the migrated replacement for
+# the deprecated `force_numeric` flag); `force_numeric` is still forwarded so the
+# deprecation path keeps working through the composer wrapper.
 function double_interval_censored(
         d::Sequential;
         primary_event::UnivariateDistribution = Uniform(0, 1),
         lower::Union{Real, Nothing} = nothing,
         upper::Union{Real, Nothing} = nothing,
         interval::Union{Real, Nothing} = nothing,
-        force_numeric::Bool = false)
+        method::Union{AbstractSolverMethod, Nothing} = nothing,
+        force_numeric = nothing)
     return double_interval_censored(
         observed_distribution(d);
         primary_event = primary_event, lower = lower, upper = upper,
-        interval = interval, force_numeric = force_numeric)
+        interval = interval, method = method, force_numeric = force_numeric)
 end
 
 # ---------------------------------------------------------------------------

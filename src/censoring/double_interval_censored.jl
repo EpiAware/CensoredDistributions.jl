@@ -18,7 +18,8 @@ The order of operations ensures mathematical correctness, particularly that trun
 - `lower`: Lower truncation bound. If `nothing`, no lower truncation is applied.
 - `upper`: Upper truncation bound (e.g., observation time `D`). If `nothing`, no upper truncation is applied.
 - `interval`: Secondary censoring interval width (e.g., daily reporting). If `nothing`, no interval censoring is applied.
-- `force_numeric`: Force numerical integration for primary censoring even when analytical solutions exist.
+- `method`: Primary-censoring solver method, an [`AnalyticalSolver`](@ref) or [`NumericSolver`](@ref). Defaults to `AnalyticalSolver()`. Passing a concrete method keeps the return type concrete when the delay parameters are runtime values.
+- `force_numeric`: Deprecated. Pass `method = NumericSolver()` instead.
 
 # Returns
 A composed distribution that can be used with all standard `Distributions.jl` methods (`rand`, `pdf`, `cdf`, etc.).
@@ -68,10 +69,12 @@ function double_interval_censored(
         lower::Union{Real, Nothing} = nothing,
         upper::Union{Real, Nothing} = nothing,
         interval::Union{Real, Nothing} = nothing,
-        force_numeric::Bool = false
+        method::Union{AbstractSolverMethod, Nothing} = nothing,
+        force_numeric = nothing
 )
     # Start with primary censoring (always applied)
-    result = primary_censored(dist, primary_event; force_numeric = force_numeric)
+    result = primary_censored(dist, primary_event; method = method,
+        force_numeric = force_numeric)
 
     # Apply truncation if specified
     if !isnothing(lower) || !isnothing(upper)

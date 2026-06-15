@@ -552,3 +552,33 @@ end
         end
     end
 end
+
+@testitem "Type stability at non-constant-folded call sites" begin
+    using Distributions, Test
+
+    # Regression for #367: the analytic-vs-numeric solver choice must be a
+    # type-level decision so the return type stays concrete even when the
+    # delay parameters arrive as runtime values (as in a Turing model). The
+    # default resolves to a concrete `AnalyticalSolver` via dispatch, with no
+    # reliance on constant-folding through the nested keyword call chain.
+    build(shape,
+        scale,
+        nmax) = double_interval_censored(
+        Gamma(shape, scale); interval = 1.0, upper = float(nmax))
+    rt = only(Base.return_types(build, Tuple{Float64, Float64, Int}))
+    @test isconcretetype(rt)
+
+    # Passing a concrete solver method object is also concrete.
+    build_num(shape,
+        scale,
+        nmax) = double_interval_censored(
+        Gamma(shape, scale); interval = 1.0, upper = float(nmax),
+        method = NumericSolver())
+    rt_num = only(Base.return_types(build_num, Tuple{Float64, Float64, Int}))
+    @test isconcretetype(rt_num)
+
+    # `primary_censored` stays concrete at a non-folded call site too.
+    build_pc(shape, scale) = primary_censored(Gamma(shape, scale))
+    rt_pc = only(Base.return_types(build_pc, Tuple{Float64, Float64}))
+    @test isconcretetype(rt_pc)
+end

@@ -16,10 +16,9 @@ public ChainStage
 # and reuses across a vector of reference dates / records (the nowcasting path).
 public DelayPMF, discretise_pmf
 
-# Primary censoring utilities and solver methods (public but not exported)
+# Primary censoring solver supertype (public but not exported).
+# `AnalyticalSolver` and `NumericSolver` are exported in the main module.
 public AbstractSolverMethod
-public AnalyticalSolver
-public NumericSolver
 
 # Extension helper for user-defined analytical CDF pairs (public but not exported)
 public primarycensored_uniform_cdf_formula

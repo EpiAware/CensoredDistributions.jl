@@ -51,6 +51,9 @@ export latent, marginal, PrimaryConditional, primary_conditional_logpdf
 # Export underlying methods for user extension
 export primarycensored_cdf, primarycensored_logcdf
 
+# Exported solver methods for selecting the primary-censoring CDF backend
+export AnalyticalSolver, NumericSolver
+
 # Exported distributions
 export ExponentiallyTilted
 
@@ -267,9 +270,9 @@ else
 end
 
 # Precompile workload covering the double_interval_censored pipeline for
-# representative delay distributions, toggling force_numeric to hit both the
-# analytical and numeric primary-censored CDF paths in a single entry point.
-# See https://github.com/EpiAware/CensoredDistributions.jl/issues/212.
+# representative delay distributions, toggling the solver method to hit both
+# the analytical and numeric primary-censored CDF paths in a single entry
+# point. See https://github.com/EpiAware/CensoredDistributions.jl/issues/212.
 @setup_workload begin
     delays = (
         Gamma(2.0, 1.5),
@@ -282,10 +285,10 @@ end
 
     @compile_workload begin
         for d in delays
-            for force_numeric in (false, true)
+            for method in (AnalyticalSolver(), NumericSolver())
                 dic = double_interval_censored(
                     d; primary_event = primary, upper = 10.0,
-                    interval = 1.0, force_numeric = force_numeric)
+                    interval = 1.0, method = method)
                 cdf(dic, x)
                 logcdf(dic, x)
                 pdf(dic, x)
