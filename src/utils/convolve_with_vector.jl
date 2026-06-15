@@ -153,12 +153,26 @@ function _chain_inner!(specs, edge_name, child::Parallel, prefix, ops, counter)
 end
 
 # A Competing chain edge: one event per outcome, each thinned by its branch
-# probability; terminal (continues from the shared prefix).
+# probability; terminal (continues from the shared prefix). A no-event outcome
+# produces NO event series and is skipped (its mass leaves the observed stream).
 function _chain_inner!(specs, edge_name, c::Competing, prefix, ops, counter)
     for i in eachindex(c.names)
+        _is_no_event(c.delays[i]) && continue
         delay, fops = _peel_forward(c.delays[i])
         _collect_branch!(specs, c.names[i], delay, prefix,
             (ops..., fops..., ThinOp(c.branch_probs[i])), counter)
+    end
+    return prefix, ops
+end
+
+# A racing-hazard chain edge: one event per cause, each the cause-resolved
+# SUB-density `f_j ∏_{k≠j} S_k` (sub-stochastic, NOT renormalised; its mass is
+# the derived winning probability). No thinning op — the winning mass is already
+# in the sub-density. Terminal (continues from the shared prefix).
+function _chain_inner!(specs, edge_name, c::HazardCompeting, prefix, ops, counter)
+    for i in eachindex(c.names)
+        cause = _HazardCauseDelay(c, i)
+        _collect_branch!(specs, c.names[i], cause, prefix, ops, counter)
     end
     return prefix, ops
 end
@@ -175,7 +189,7 @@ function _collect_branch!(specs, bname, delay::Union{Sequential, Parallel},
     _collect_specs!(specs, delay, prefix, ops, counter)
     return nothing
 end
-function _collect_branch!(specs, bname, c::Competing, prefix, ops, counter)
+function _collect_branch!(specs, bname, c::AbstractCompeting, prefix, ops, counter)
     _chain_inner!(specs, bname, c, prefix, ops, counter)
     return nothing
 end
@@ -193,9 +207,12 @@ function _event_specs(stack::UnivariateDistribution)
     return _EventSpec[_EventSpec(:event_1, (delay,), ops)]
 end
 
-# A standalone Competing fans an event out per outcome (each thinned by its
-# branch probability), the renewal layer's per-outcome partition.
-function _event_specs(c::Competing)
+# A standalone Competing / HazardCompeting fans an event out per outcome (each
+# thinned by its branch probability, resp. the cause-resolved sub-density), the
+# renewal layer's per-outcome partition. Dispatches on `AbstractCompeting` so
+# both competing nodes use the same standalone entry; the per-outcome arithmetic
+# is selected inside `_chain_inner!`.
+function _event_specs(c::AbstractCompeting)
     specs = _EventSpec[]
     _chain_inner!(specs, :competing, c, (), (), Ref(0))
     return specs

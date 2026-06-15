@@ -44,7 +44,8 @@ if !skip_notebooks
         "ebola-stratified-delays.jl",
         "rt-renewal-convolution.jl",
         "epinowcast-nowcasting.jl",
-        "linear-chain-sir.jl"
+        "linear-chain-sir.jl",
+        "branching-competing.jl"
     ]
 
     println(

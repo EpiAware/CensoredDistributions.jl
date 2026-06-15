@@ -63,8 +63,13 @@ export Affine, affine
 # stack to selected event series), so it needs no separate export.
 export convolve_distributions
 
-# Exported generic composers and front-end constructor
-export Sequential, Parallel, Competing, competing, compose, as_mixture
+# Exported generic composers and front-end constructor. The shared `competing(
+# ...)` builds the fixed-probability mixture `Competing` (branch probs given) or
+# the racing-hazard `HazardCompeting` (bare delays). `NoEvent` marks an absorbing
+# no-event branch; `winning_probabilities` / `occurrence_probability` read the
+# per-cause winning / any-event probabilities of either competing node.
+export Sequential, Parallel, Competing, HazardCompeting, NoEvent, competing,
+       compose, as_mixture, winning_probabilities, occurrence_probability
 
 # Exported composed-distribution introspection: the flat prior table and
 # name introspection. `event_names` is the FLAT per-event name tuple (the data-

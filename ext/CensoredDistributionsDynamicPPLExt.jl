@@ -426,9 +426,14 @@ end
 function _competing_logprob(d::Competing, row::NamedTuple, probs, w, horizon)
     obs = _observed_outcomes(d, row)
     if length(obs) == 1
-        # Observed outcome: condition on that branch through the SHARED core
-        # arithmetic (the per-record horizon right-truncates the branch delay).
         i, gap = obs[1]
+        # An OBSERVED non-occurrence (the no-event slot present) scores the
+        # no-event mass `log q` alone (no delay term); a real outcome conditions
+        # on its branch through the SHARED core arithmetic (the per-record horizon
+        # right-truncates the branch delay).
+        if CensoredDistributions._is_no_event(d.delays[i])
+            return _scale(log(probs[i]), w)
+        end
         branch = _maybe_truncate(d.delays[i], horizon)
         lp = CensoredDistributions._competing_condition_logpdf(
             probs, branch, gap, i)
@@ -1129,6 +1134,23 @@ end
     return Competing(c.names, Tuple(delays), Tuple(probs))
 end
 
+# A racing-hazard `HazardCompeting`: sample each racing outcome delay through a
+# prefixed child submodel and rebuild with the SAME outcome names. There is NO
+# `branch_probs` block (the winning probability is derived from the hazards).
+@model function _hazard_competing_params_model(
+        c::CensoredDistributions.HazardCompeting, priors::NamedTuple, shared)
+    _check_composer_prior_keys(priors, c.names, :HazardCompeting, shared)
+    delays = Vector{Any}(undef, length(c.names))
+    for i in 1:length(c.names)
+        name = c.names[i]
+        sub = DynamicPPL.prefix(
+            _params_submodel(c.delays[i], _child_priors(priors, name), shared),
+            Val(name))
+        delays[i] ~ to_submodel(sub, false)
+    end
+    return CensoredDistributions.HazardCompeting(c.names, Tuple(delays))
+end
+
 # Sample the competing branch probabilities from their named priors. Returns the
 # tuple in outcome order; `tilde_assume!!` names each by its outcome name so the
 # chain names are `branch_probs.<outcome>`.
@@ -1188,6 +1210,10 @@ function _params_submodel(d::Union{Sequential, Parallel}, priors, shared)
 end
 _params_submodel(d::Select, priors, shared) = _select_params_model(d, priors, shared)
 _params_submodel(c::Competing, priors, shared) = _competing_params_model(c, priors, shared)
+function _params_submodel(
+        c::CensoredDistributions.HazardCompeting, priors, shared)
+    return _hazard_competing_params_model(c, priors, shared)
+end
 _params_submodel(leaf, priors, shared) = _leaf_params_model(leaf, priors, shared)
 
 # `_rebuild` (preserve composer type + names) is shared with the core `update`

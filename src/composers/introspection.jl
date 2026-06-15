@@ -34,9 +34,12 @@
 _node_header(d::Sequential) = "Sequential ($(length(d.components)) steps)"
 _node_header(d::Parallel) = "Parallel ($(length(d.components)) branches)"
 _node_header(c::Competing) = "Competing ($(_n_branches(c)) outcomes)"
+function _node_header(c::HazardCompeting)
+    return "HazardCompeting ($(_n_branches(c)) racing outcomes)"
+end
 
 # Is a child a composer (has named children) or a leaf?
-_is_composer_dist(::Union{Sequential, Parallel, Competing}) = true
+_is_composer_dist(::Union{Sequential, Parallel, AbstractCompeting}) = true
 _is_composer_dist(::Any) = false
 
 # Named children of a composer as `(name, child[, note])` triples. The note is
@@ -50,6 +53,13 @@ end
 function _named_children(c::Competing)
     return ntuple(length(c.names)) do i
         (c.names[i], c.delays[i], "p = $(c.branch_probs[i])")
+    end
+end
+# A racing-hazard node has no per-outcome branch probability (it is derived), so
+# its children carry the `racing` annotation instead.
+function _named_children(c::HazardCompeting)
+    return ntuple(length(c.names)) do i
+        (c.names[i], c.delays[i], "racing")
     end
 end
 
@@ -112,8 +122,15 @@ end
 
 _child_params(c::Union{Sequential, Parallel}) = _composed_params(c)
 _child_params(c::Competing) = _competing_params(c)
+_child_params(c::HazardCompeting) = _hazard_competing_params(c)
 _child_params(c::Select) = _select_params(c)
 _child_params(c) = params(c)
+
+# A racing-hazard node's nested params: each outcome name -> its delay's params.
+# There is NO `branch_probs` entry (the winning probability is derived).
+function _hazard_competing_params(c::HazardCompeting)
+    return NamedTuple{c.names}(map(params, c.delays))
+end
 
 # A `Competing` node's nested params: each outcome name -> its delay's params,
 # plus a `branch_probs` entry carrying the (free) outcome probabilities.
@@ -324,7 +341,8 @@ tbl.edge  # a column; wrap the table in `DataFrame(tbl)` for a DataFrame
 - [`params`](@ref): the nested name-keyed values
 - [`event_names`](@ref), [`event`](@ref): name introspection
 "
-function params_table(d::Union{Sequential, Parallel, Competing, Select})
+function params_table(
+        d::Union{Sequential, Parallel, AbstractCompeting, Select})
     edges = Symbol[]
     params_col = Symbol[]
     values = Any[]
@@ -364,6 +382,7 @@ end
 function _walk_rows!(edges, params_col, values, supports, seen,
         c::Competing, path)
     for (name, delay) in zip(c.names, c.delays)
+        _is_no_event(delay) && continue
         _walk_rows!(edges, params_col, values, supports, seen, delay,
             (path..., name))
     end
@@ -374,6 +393,17 @@ function _walk_rows!(edges, params_col, values, supports, seen,
         push!(params_col, Symbol(c.names[k]))
         push!(values, p)
         push!(supports, sup)
+    end
+    return nothing
+end
+
+# A racing-hazard node emits only its outcome delays' parameter rows; there is
+# NO branch-probability block (the winning probability is derived, not free).
+function _walk_rows!(edges, params_col, values, supports, seen,
+        c::HazardCompeting, path)
+    for (name, delay) in zip(c.names, c.delays)
+        _walk_rows!(edges, params_col, values, supports, seen, delay,
+            (path..., name))
     end
     return nothing
 end
@@ -453,7 +483,7 @@ event(tree2, :onset_admit)
 - [`params_table`](@ref): the flat inventory whose `param` names key the leaves
 - [`chain_to_params`](@ref): build the NamedTuple from a fitted chain
 "
-function update(d::Union{Sequential, Parallel, Competing, Select},
+function update(d::Union{Sequential, Parallel, AbstractCompeting, Select},
         params::NamedTuple)
     return _update(d, params, params)
 end
@@ -501,6 +531,19 @@ function _update(c::Competing, params::NamedTuple, shared)
     end
     return Competing(c.names, delays, probs)
 end
+
+# A racing-hazard node updates each outcome delay; there is no `branch_probs`
+# block to update (the winning probability is derived).
+function _update(c::HazardCompeting, params::NamedTuple, shared)
+    _check_child_keys(params, c.names, :HazardCompeting, shared)
+    delays = ntuple(length(c.names)) do i
+        _update(c.delays[i], _child_params(params, c.names[i]), shared)
+    end
+    return HazardCompeting(c.names, delays)
+end
+
+# A no-event marker carries no parameters, so `update` leaves it unchanged.
+_update(d::NoEvent, ::NamedTuple, shared) = d
 
 # Leaf: take the new parameter values in `_leaf_param_names` order and rebuild. A
 # shared-tagged leaf reads its values from the top-level `shared` entry under its
@@ -812,7 +855,9 @@ event_names(tree)
 - [`event`](@ref): fetch a child or subtree by name path
 - [`params_table`](@ref): the parameter table
 "
-event_names(d::Union{Sequential, Parallel, Competing}) = _flat_event_names(d)
+function event_names(d::Union{Sequential, Parallel, AbstractCompeting})
+    return _flat_event_names(d)
+end
 # A `Select` has no single flat layout (the active alternative is data-selected),
 # so its flat event names are its alternative names.
 event_names(d::Select) = d.names
@@ -850,7 +895,7 @@ function event_tree(d::Union{Sequential, Parallel})
     return NamedTuple{names}(vals)
 end
 
-function event_tree(c::Competing)
+function event_tree(c::AbstractCompeting)
     vals = ntuple(i -> _event_tree_child(c.names[i], c.delays[i]),
         length(c.names))
     return NamedTuple{c.names}(vals)
@@ -864,7 +909,8 @@ end
 
 # A composer child recurses to its own nested NamedTuple; a leaf is keyed by its
 # parent under its own name, so its value is just that name (the leaf event).
-function _event_tree_child(::Symbol, c::Union{Sequential, Parallel, Competing, Select})
+function _event_tree_child(
+        ::Symbol, c::Union{Sequential, Parallel, AbstractCompeting, Select})
     event_tree(c)
 end
 _event_tree_child(name::Symbol, ::Any) = name
@@ -878,7 +924,7 @@ function _event_child(d::Union{Sequential, Parallel}, name::Symbol)
     return d.components[idx]
 end
 
-function _event_child(c::Competing, name::Symbol)
+function _event_child(c::AbstractCompeting, name::Symbol)
     idx = findfirst(==(name), c.names)
     idx === nothing && throw(KeyError(name))
     return c.delays[idx]

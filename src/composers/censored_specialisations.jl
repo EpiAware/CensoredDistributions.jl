@@ -101,7 +101,7 @@ end
 # leaving the origin continuous.
 _origin_interval(d::Sequential) = _origin_interval(d.components[1])
 _origin_interval(d::Parallel) = _shared_origin_interval(d.components)
-_origin_interval(d::Competing) = _shared_origin_interval(d.delays)
+_origin_interval(d::AbstractCompeting) = _shared_origin_interval(d.delays)
 # A nested `Select` / `Latent` anchors its origin within the routed alternative /
 # wrapped node; the alternatives share one origin interval, so the first is
 # representative. Mirrors the `_tree_primary_event` recursion so a Parallel whose
@@ -163,7 +163,8 @@ _nested_trait(components::C) where {C <: Tuple} = _nested_trait(C)
     # not by the flat one-level segment scoring that would silently commit to a
     # single alternative.
     has_nested = any(
-        t -> t <: Sequential || t <: Parallel || t <: Competing || t <: Select,
+        t -> t <: Sequential || t <: Parallel || t <: AbstractCompeting ||
+             t <: Select,
         fieldtypes(C))
     return has_nested ? :(_Nested()) : :(_Flat())
 end
@@ -257,7 +258,7 @@ _terminal_offset(::UnivariateDistribution) = 0
 # A `Competing` is a terminal node (the chain does not continue through a single
 # outcome); like a `Parallel` its terminal for a following step is the shared
 # origin it hangs off, offset -1 from its own first (outcome) event slot.
-_terminal_offset(::Competing) = -1
+_terminal_offset(::AbstractCompeting) = -1
 _terminal_offset(d::Sequential) = _seq_terminal_offset(d.components)
 _terminal_offset(::Parallel) = -1
 # A nested `Select` swaps in ONE alternative per row; the alternatives share one
@@ -422,6 +423,10 @@ end
 # Score a nested `Competing` against its outcome-slot slice given the anchor
 # value `o` and branch probabilities `probs` (stored or row-overridden). Pure
 # Turing-free arithmetic shared by the numeric path and the DynamicPPL extension.
+# A no-event branch's slot is a PRESENCE marker (its value is not a time): a
+# non-missing no-event slot is an OBSERVED non-occurrence scoring `log q` (no
+# delay term), a missing no-event slot is a latent non-occurrence contributing
+# nothing. An observed real outcome conditions on that branch as before.
 function _competing_tree_logpdf(c::Competing, probs, o, events, ev_idx::Int,
         ::Type{T}) where {T}
     n = _n_branches(c)
@@ -433,14 +438,53 @@ function _competing_tree_logpdf(c::Competing, probs, o, events, ev_idx::Int,
         obs_i == 0 || throw(ArgumentError(
             "a nested Competing record may observe at most one outcome time; " *
             "got outcomes $(c.names[obs_i]) and $(c.names[k])"))
+        # A real-outcome slot needs an observed anchor for its gap; a no-event
+        # slot is a presence marker and needs no anchor (no delay term).
+        if !_is_no_event(c.delays[k])
+            o === missing && throw(ArgumentError(
+                "a nested Competing with an observed outcome needs an observed " *
+                "anchor (its parent event); got a missing anchor"))
+            obs_gap = convert(T, y) - convert(T, o)
+        end
+        obs_i = k
+    end
+    obs_i == 0 && return zero(T)
+    # An OBSERVED non-occurrence scores the no-event mass `log q` alone.
+    _is_no_event(c.delays[obs_i]) && return log(probs[obs_i])
+    return _competing_condition_logpdf(probs, c.delays[obs_i], obs_gap, obs_i)
+end
+
+# A nested racing-hazard `HazardCompeting` node SELF-DISPATCHES on which outcome
+# slot is observed, anchored at the parent event `events[o_idx]`. Exactly one
+# outcome observed at gap `t` -> the cause-resolved sub-density `log f_j(t) +
+# Σ_{k≠j} log S_k(t)`; no outcome observed -> the marginal any-event survival
+# `Σ_k log S_k(window)` IF an OBSERVED non-occurrence horizon rides the record
+# (the `none` survival term the transtat pairwise-survival use case needs), else
+# (a fully latent record) no factor. The winning probability is DERIVED, so there
+# is no branch-probability term. Shared core arithmetic with the standalone node.
+function _tree_step(step::HazardCompeting, events, o_idx::Int, ev_idx::Int,
+        primary, ::Type{T}) where {T}
+    o = events[o_idx]
+    n = _n_branches(step)
+    obs_i = 0
+    obs_gap = zero(T)
+    @inbounds for k in 1:n
+        y = events[ev_idx + k - 1]
+        y === missing && continue
+        obs_i == 0 || throw(ArgumentError(
+            "a nested HazardCompeting record may observe at most one outcome " *
+            "time; got $(step.names[obs_i]) and $(step.names[k])"))
         o === missing && throw(ArgumentError(
-            "a nested Competing with an observed outcome needs an observed " *
-            "anchor (its parent event); got a missing anchor"))
+            "a nested HazardCompeting with an observed outcome needs an " *
+            "observed anchor (its parent event); got a missing anchor"))
         obs_i = k
         obs_gap = convert(T, y) - convert(T, o)
     end
     obs_i == 0 && return zero(T)
-    return _competing_condition_logpdf(probs, c.delays[obs_i], obs_gap, obs_i)
+    # The log density carries any AD `Dual`/tracked type from the racing delays'
+    # params, so it must NOT be narrowed to the data type `T` (only the `obs_gap`,
+    # which is data, is `T`).
+    return _hazard_cause_logpdf(step, obs_i, obs_gap)
 end
 
 # --- per-record branch-probability override for a nested Competing -----
@@ -1262,7 +1306,7 @@ _tree_primary_event(d::UnivariateDistribution) = _origin_primary_event(d)
 # own origin primary (if censored) is any outcome's primary (they share it). A
 # `Select` shares the origin of its alternatives. Both recurse so a nested
 # censored child still surfaces the tree's shared latent origin.
-_tree_primary_event(d::Competing) = _shared_tree_primary_event(d.delays)
+_tree_primary_event(d::AbstractCompeting) = _shared_tree_primary_event(d.delays)
 _tree_primary_event(d::Select) = _shared_tree_primary_event(d.alternatives)
 _tree_primary_event(d::Latent) = _tree_primary_event(d.dist)
 
@@ -1308,7 +1352,7 @@ end
 # over the fixed-length component tuple (the same shape the flat `_composer_rand`
 # uses) keeps the type computation inferable, where a `mapreduce` with an `init`
 # does not constant-fold here.
-_tree_core_eltype(d::Competing) = promote_type(map(_param_eltype, d.delays)...)
+_tree_core_eltype(d::AbstractCompeting) = promote_type(map(_param_eltype, d.delays)...)
 _tree_core_eltype(d::UnivariateDistribution) = _param_eltype(_marginal_core(d))
 function _tree_core_eltype(d::Union{Sequential, Parallel})
     return promote_type(map(_tree_core_eltype, d.components)...)
@@ -1359,11 +1403,34 @@ function _tree_rand_step!(out, rng::AbstractRNG, step::Competing, origin, idx,
         ::Type{T}) where {T}
     # Draw the resolved outcome from the branch probabilities, fill only its
     # slot; the others stay missing so the record scores as the conditioned
-    # (one-outcome) Competing.
+    # (one-outcome) Competing. A no-event win leaves EVERY slot missing (no time
+    # recorded), so the record scores as a latent non-occurrence.
     i = _sample_branch(rng, step.branch_probs)
-    delay = rand(rng, _marginal_core(step.delays[i]))
-    out[idx + i - 1] = origin + convert(T, delay)
+    if !_is_no_event(step.delays[i])
+        delay = rand(rng, _marginal_core(step.delays[i]))
+        out[idx + i - 1] = origin + convert(T, delay)
+    end
     return idx + _n_branches(step), origin
+end
+
+# Racing-hazard `HazardCompeting`: draw a latent time per cause, fill the
+# argmin-cause slot with its (absolute) min time; the others stay missing so the
+# record scores as the cause-resolved sub-density. The terminal for a following
+# step is the shared origin (like a Parallel/Competing).
+function _tree_rand_step!(out, rng::AbstractRNG, step::HazardCompeting, origin,
+        idx, ::Type{T}) where {T}
+    n = _n_branches(step)
+    best_i = 1
+    best_t = convert(T, rand(rng, _marginal_core(step.delays[1])))
+    @inbounds for k in 2:n
+        t = convert(T, rand(rng, _marginal_core(step.delays[k])))
+        if t < best_t
+            best_t = t
+            best_i = k
+        end
+    end
+    out[idx + best_i - 1] = origin + best_t
+    return idx + n, origin
 end
 
 # Sample an outcome index from the branch probabilities by inverse-CDF (a single
@@ -1434,7 +1501,7 @@ function _discretise_step!(out, step::Union{Sequential, Parallel}, idx::Int)
     return _discretise_event_record!(out, step, idx)
 end
 
-function _discretise_step!(out, step::Competing, idx::Int)
+function _discretise_step!(out, step::AbstractCompeting, idx::Int)
     n = _n_branches(step)
     @inbounds for k in 1:n
         out[idx + k - 1] === missing && continue

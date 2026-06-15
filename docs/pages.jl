@@ -14,7 +14,8 @@ getting_started_pages = Any[
         "Fit marginal, sample event based" => "getting-started/tutorials/fit-marginal-sample-event-based.md",
         "Bundibugyo Ebola delays" => "getting-started/tutorials/bdbv-linelist-analysis.md",
         "Real-time Andes virus delays" => "getting-started/tutorials/andv-linelist-analysis.md",
-        "Stratified Sierra Leone Ebola delays" => "getting-started/tutorials/ebola-stratified-delays.md"
+        "Stratified Sierra Leone Ebola delays" => "getting-started/tutorials/ebola-stratified-delays.md",
+        "Branching-process competing outcomes" => "getting-started/tutorials/branching-competing.md"
     ],
     "Julia" => "getting-started/julia.md",
     "FAQ" => "getting-started/faq.md"

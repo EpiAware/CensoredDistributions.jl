@@ -91,7 +91,7 @@ end
 # A standalone `Competing` node has only a positional origin; its OUTCOME event
 # names anchor at the parent event when nested (see `_walk_edge!` below), so on
 # its own it exposes the origin plus one slot per outcome named by its outcomes.
-_flat_event_names(c::Competing) = (:event_1, c.names...)
+_flat_event_names(c::AbstractCompeting) = (:event_1, c.names...)
 
 # The root origin event name E_0: derived from the FIRST edge's name split, else
 # positional. For a `Sequential` the first edge is `components[1]`; for a
@@ -172,7 +172,7 @@ end
 # outcomes, see `params_table`). A Competing is a terminal node (the chain does
 # not continue through a single outcome), so its terminal name for a following
 # step is the shared origin it hangs off.
-function _walk_edge!(names, edge_name::Symbol, child::Competing,
+function _walk_edge!(names, edge_name::Symbol, child::AbstractCompeting,
         origin::Symbol, counter)
     for name in child.names
         push!(names, name)

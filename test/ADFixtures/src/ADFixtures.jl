@@ -173,6 +173,11 @@ function backend_broken_scenarios()
     # Enzyme heterogeneous-edge gap (#319); ForwardDiff / ReverseDiff / Mooncake
     # differentiate it correctly.
     nested_comp = "Nested Competing tree conditioned logpdf"
+    # The nested racing-hazard tree (#466) recurses through the SAME heterogeneous
+    # censored-edge walk plus the cause-resolved sub-density (logpdf + logccdf
+    # terms), so it shares the Enzyme heterogeneous-edge gap (#319); ForwardDiff /
+    # ReverseDiff / Mooncake differentiate it correctly.
+    nested_hazard = "Nested racing-hazard tree conditioned logpdf"
     # `double_interval_censored(Sequential ...)` collapses the Sequential to its
     # observed total (`observed_distribution`), a `Convolved{Tuple{Gamma,
     # LogNormal}}`, then double-censors it. Enzyme (both modes) cannot find a
@@ -211,10 +216,10 @@ function backend_broken_scenarios()
         "Mooncake reverse" => copy(compiled_broken),
         "Mooncake forward" => copy(compiled_broken),
         "Enzyme reverse" => union(
-            Set{String}([nested_tree, nested_comp, convolved_dic]),
+            Set{String}([nested_tree, nested_comp, nested_hazard, convolved_dic]),
             compiled_broken),
         "Enzyme forward" => union(
-            Set{String}([nested_tree, nested_comp, convolved_dic]),
+            Set{String}([nested_tree, nested_comp, nested_hazard, convolved_dic]),
             compiled_broken)
     )
 end
@@ -963,6 +968,31 @@ function scenarios(; with_reference::Bool = false)
                         discharge = 1 - 1 / (1 + exp(-θ[9] - θ[10])))]),
             [1.4, 0.4, 2.0, 3.0, 2.0, 1.0, 1.9, 0.5, 0.2, -0.3],
             (Constant(bdbv_rows),))
+
+        # Nested racing-hazard tree (#466): onset -> {Hazard(death, recover),
+        # notif}, the death outcome observed. The Sequential's first step targets
+        # `onset`, then the HazardCompeting exposes one event slot per outcome, so
+        # the event vector is [origin, onset, death, recover, notif] with recover
+        # `Missing` (inactive). The observed death conditions on the cause-resolved
+        # sub-density f_death(gap) ∏_{k≠death} S_k(gap), so the gradient over the
+        # racing shape/scale + the surrounding edge params flows through the
+        # AD-safe Gamma logpdf/logccdf, differentiating on the analytic backends.
+        haz_ev = Vector{Union{Missing, Float64}}(
+            [0.0, 4.0, 12.0, missing, 9.0])
+        _push!("Nested racing-hazard tree conditioned logpdf",
+            (θ,
+                ev) -> logpdf(
+                Parallel(
+                    Sequential(
+                        primary_censored(
+                            LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                        HazardCompeting(
+                            :death => Gamma(θ[3], θ[4]),
+                            :recover => Gamma(θ[5], θ[6]))),
+                    primary_censored(
+                        LogNormal(θ[7], θ[8]), Uniform(0.0, 1.0))),
+                ev),
+            [1.4, 0.4, 2.0, 3.0, 2.0, 1.0, 1.9, 0.5], (Constant(haz_ev),))
 
         # Vectorised Select (hanta) top: each record selects its alternative by
         # `:kind` and scores its single observed value, right-truncated at its
