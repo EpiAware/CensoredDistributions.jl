@@ -39,9 +39,8 @@ core package stays Turing-free.
 
 We sample with non-Enzyme AD: ForwardDiff here (see [Automatic differentiation
 backends](@ref ad-backends) for the support matrix and per-backend benchmarks).
-Standardising the fitting tutorials on Mooncake reverse-mode AD throughout
-follows [#409](https://github.com/EpiAware/CensoredDistributions.jl/issues/409),
-so the backend choice here is left unchanged for now.
+ForwardDiff is a safe default; the AD backends tutorial covers when a
+reverse-mode backend such as Mooncake is the better choice.
 
 ## Packages used
 We use CairoMakie for plotting, Turing for probabilistic programming,

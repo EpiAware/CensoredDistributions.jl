@@ -498,7 +498,7 @@ md"""
   effects; a [`competing`](@ref) onset branch (case versus death as competing
   outcomes) would tie the branch probability to a case-fatality term.
 - Whole-compose right-truncation through the composed stack
-  ([issue #366](https://github.com/EpiAware/CensoredDistributions.jl/issues/366))
+  ([a tracked enhancement](https://github.com/EpiAware/CensoredDistributions.jl/issues/366))
   is handled here at the hazard-matrix level (`now`) rather than through the
   per-record `truncate_chain` path.
 """
