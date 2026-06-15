@@ -168,9 +168,9 @@ function backend_broken_scenarios()
     # is pure constant-data shuffling (it copies observed event TIMES, which carry
     # no gradient -- only the leaf distribution PARAMS do), so it is now marked
     # `EnzymeRules.inactive` in `CensoredDistributionsEnzymeExt`. With that shield
-    # the plain nested tree and `double_interval_censored(Sequential)` (#444, fixed
-    # by replacing a kwargs-splat dynamic `Core.kwcall` with an explicit-keyword
-    # signature in `wrap.jl`) differentiate on BOTH Enzyme modes; the Competing /
+    # the plain nested tree differentiates on BOTH Enzyme modes;
+    # `double_interval_censored(Sequential)` (#444, the explicit-keyword `wrap.jl`
+    # signature replacing a kwargs-splat dynamic `Core.kwcall`) and the Competing /
     # hazard trees differentiate on Enzyme FORWARD. The residual reverse-only and
     # non-terminal gaps below are SEPARATE, deeper Enzyme limitations (documented
     # per scenario). ForwardDiff / ReverseDiff / Mooncake differentiate every one
@@ -188,6 +188,16 @@ function backend_broken_scenarios()
     # broken for Enzyme REVERSE only.
     nested_comp = "Nested Competing tree conditioned logpdf"
     nested_hazard = "Nested racing-hazard tree conditioned logpdf"
+    # The external censoring wrapper over a `Sequential` (#363). #319/#444 fixed
+    # this on Enzyme FORWARD (the explicit-keyword `wrap.jl` signature avoids the
+    # dynamic kwargs splat there), and it differentiates on every analytic backend
+    # and on Mooncake (both modes). Enzyme REVERSE still fails: the augmented
+    # primal pass re-introduces a `Core.kwcall` and cannot build a reverse shadow
+    # for the freshly-allocated `Convolved{Gamma,LogNormal}` observed total
+    # (`EnzymeNoShadowError`). This is the same reverse-only upstream struct-shadow
+    # gap as nested_comp/nested_hazard, not reachable from a value-level rule.
+    # Registered broken for Enzyme REVERSE only.
+    dic_seq_total = "double_interval_censored(Sequential) over total"
     # The non-terminal whole-tree Competing (#466 Feature 3) scores a
     # composer-VALUED competing outcome's subtree through the nested `_tree_score`,
     # AND carries a differentiated branch probability `θ[7]` whose complement
@@ -225,15 +235,19 @@ function backend_broken_scenarios()
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => copy(compiled_broken),
         "Mooncake forward" => copy(compiled_broken),
-        # Enzyme REVERSE: the Competing/hazard trees (reverse shadow construction)
-        # and the non-terminal Competing remain broken; the plain nested tree and
-        # `double_interval_censored(Sequential)` are now fixed (#319/#444).
+        # Enzyme REVERSE: the Competing/hazard trees (reverse shadow construction),
+        # the non-terminal Competing, and `double_interval_censored(Sequential)`
+        # (#363, reverse-only `EnzymeNoShadowError` on the freshly-built `Convolved`
+        # observed total via a re-introduced `Core.kwcall`) remain broken; the
+        # plain nested tree is fixed (#319/#444).
         "Enzyme reverse" => union(
-            Set{String}([nested_comp, nested_hazard, nonterminal_comp]),
+            Set{String}(
+                [nested_comp, nested_hazard, nonterminal_comp, dic_seq_total]),
             compiled_broken),
         # Enzyme FORWARD: only the non-terminal Competing remains broken; the
         # plain nested tree, the Competing/hazard trees, and
-        # `double_interval_censored(Sequential)` are now fixed (#319/#444).
+        # `double_interval_censored(Sequential)` are now fixed (#319/#444 fixed
+        # forward; reverse stays broken, see above).
         "Enzyme forward" => union(
             Set{String}([nonterminal_comp]),
             compiled_broken)
