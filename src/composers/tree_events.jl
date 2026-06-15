@@ -164,20 +164,59 @@ function _walk_edge!(names, edge_name::Symbol,
     return _nested_terminal_name(child, names, origin)
 end
 
-# A nested `Competing` edge contributes one EVENT name per OUTCOME,
-# anchored at the parent `origin`: the death/discharge columns of a record are
-# each their own event slot, so the observed outcome is identified by which slot
-# is present. The outcome names replace the single opaque resolution event; the
-# edge/parameter names are unaffected (params still belong to the Competing
-# outcomes, see `params_table`). A Competing is a terminal node (the chain does
-# not continue through a single outcome), so its terminal name for a following
-# step is the shared origin it hangs off.
+# A nested `Competing` edge contributes EVENT name(s) per OUTCOME, anchored at the
+# parent `origin`. A LEAF outcome (a plain delay) is one event slot named by the
+# outcome: the death/discharge columns of a record are each their own slot, so the
+# observed outcome is identified by which slot is present. A NON-TERMINAL outcome
+# whose payload is a composer SUBTREE (#466 Feature 3) instead emits the SUBTREE's
+# event names, anchored at the outcome's resolution event (the subtree origin),
+# sharing that slot exactly like a nested-composer origin: the outcome's resolution
+# IS the subtree origin, so the subtree's `_walk_targets!` hangs off it rather than
+# introducing a fresh origin slot. The edge/parameter names are unaffected (params
+# still belong to the Competing outcomes, see `params_table`). A Competing is a
+# terminal node for a FOLLOWING chain step (the chain does not continue through a
+# single outcome), so its terminal name is the shared origin it hangs off.
 function _walk_edge!(names, edge_name::Symbol, child::AbstractCompeting,
         origin::Symbol, counter)
-    for name in child.names
-        push!(names, name)
+    for k in eachindex(child.names)
+        _walk_competing_outcome!(names, child.names[k], child.delays[k],
+            origin, counter)
     end
     return origin
+end
+
+# Append the event name(s) of ONE competing outcome. A leaf outcome pushes its
+# single name; a composer outcome walks its subtree anchored at the outcome's
+# resolution event (the subtree origin). The outcome name itself is NOT pushed for
+# a composer outcome: that name labels the resolution event, which IS the parent
+# anchor shared into the subtree (no extra slot), so the subtree's own target
+# events fill the outcome's slice.
+function _walk_competing_outcome!(names, oname::Symbol,
+        delay::UnivariateDistribution, origin::Symbol, counter)
+    push!(names, oname)
+    return nothing
+end
+
+function _walk_competing_outcome!(names, oname::Symbol,
+        delay::Union{Sequential, Parallel}, origin::Symbol, counter)
+    _walk_targets!(names, delay, oname, counter)
+    return nothing
+end
+
+# A `Select` outcome routes to one alternative of a shared event-slot width; its
+# default alternative names the slot(s), anchored at the outcome's resolution.
+function _walk_competing_outcome!(names, oname::Symbol, delay::Select,
+        origin::Symbol, counter)
+    return _walk_competing_outcome!(names, oname, first(delay.alternatives),
+        origin, counter)
+end
+
+# A nested `Competing` outcome (a competing node as a competing branch) recurses
+# through the competing walk, anchored at the outcome's resolution event.
+function _walk_competing_outcome!(names, oname::Symbol, delay::AbstractCompeting,
+        origin::Symbol, counter)
+    _walk_edge!(names, oname, delay, oname, counter)
+    return nothing
 end
 
 # A nested `Select` edge contributes the event name(s) of its DEFAULT (first)

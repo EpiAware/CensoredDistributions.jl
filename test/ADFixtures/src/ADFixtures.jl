@@ -178,6 +178,11 @@ function backend_broken_scenarios()
     # terms), so it shares the Enzyme heterogeneous-edge gap (#319); ForwardDiff /
     # ReverseDiff / Mooncake differentiate it correctly.
     nested_hazard = "Nested racing-hazard tree conditioned logpdf"
+    # The non-terminal whole-tree Competing (#466 Feature 3) recurses through the
+    # SAME heterogeneous censored-edge walk: a composer-valued outcome's subtree is
+    # scored by the nested `_tree_score`, so it shares the Enzyme heterogeneous-edge
+    # gap (#319). ForwardDiff / ReverseDiff / Mooncake differentiate it correctly.
+    nonterminal_comp = "Non-terminal Competing whole-tree conditioned logpdf"
     # `double_interval_censored(Sequential ...)` collapses the Sequential to its
     # observed total (`observed_distribution`), a `Convolved{Tuple{Gamma,
     # LogNormal}}`, then double-censors it. Enzyme (both modes) cannot find a
@@ -216,7 +221,8 @@ function backend_broken_scenarios()
         "Mooncake reverse" => copy(compiled_broken),
         "Mooncake forward" => copy(compiled_broken),
         "Enzyme reverse" => union(
-            Set{String}([nested_tree, nested_comp, nested_hazard, convolved_dic]),
+            Set{String}([nested_tree, nested_comp, nested_hazard,
+                nonterminal_comp, convolved_dic]),
             compiled_broken),
         "Enzyme forward" => union(
             Set{String}([nested_tree, nested_comp, nested_hazard, convolved_dic]),
@@ -933,6 +939,35 @@ function scenarios(; with_reference::Bool = false)
                         LogNormal(θ[7], θ[8]), Uniform(0.0, 1.0))),
                 ev),
             [1.4, 0.4, 2.0, 3.0, 2.0, 1.0, 1.9, 0.5], (Constant(comp_ev),))
+
+        # Non-terminal whole-tree Competing (#466 Feature 3): onset ->
+        # Competing(death => admit_burial CHAIN, recover => leaf), the death
+        # SUBTREE observed. A composer-valued outcome spans its subtree's event
+        # slots, so the event vector is [onset, admit, burial, recover] with
+        # recover `Missing` (inactive). The death branch scores
+        # log p_death + (subtree chain density), so the gradient over the subtree
+        # leaf params + the branch probability is all-continuous arithmetic,
+        # differentiating on every analytic backend (Enzyme shares the #319
+        # heterogeneous-edge gap, registered broken below).
+        nt_comp_ev = Vector{Union{Missing, Float64}}(
+            [0.0, 4.0, 12.0, missing])
+        _push!("Non-terminal Competing whole-tree conditioned logpdf",
+            (θ,
+                ev) -> logpdf(
+                Parallel(
+                    (Competing(
+                        :death => (
+                            Sequential(
+                                (
+                                    primary_censored(
+                                        Gamma(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                                    Gamma(θ[3], θ[4])),
+                                (:onset_admit, :admit_burial)),
+                            θ[7]),
+                        :recover => (Gamma(θ[5], θ[6]), 1 - θ[7])),),
+                    (:resolution,)),
+                ev),
+            [2.0, 1.0, 1.5, 1.2, 3.0, 2.0, 0.4], (Constant(nt_comp_ev),))
 
         # Vectorised nested-Competing (bdbv) with a PER-RECORD covariate CFR
         # (#333): each record's Competing branch probability comes from a

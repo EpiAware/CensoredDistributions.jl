@@ -85,6 +85,11 @@ _is_no_event(::Any) = false
 # sub-stochastic, scored only through the event-vector path.
 _has_no_event(c::AbstractCompeting) = any(_is_no_event, c.delays)
 
+# `_is_composer_outcome` / `_is_nonterminal` (the non-terminal competing predicate,
+# #466 Feature 3) reference `Sequential` / `Parallel` / `Select`, which are loaded
+# AFTER this file, so they are defined in `nesting.jl` (loaded once all composer
+# types exist) rather than here.
+
 @doc "
 
 Competing outcomes composed from any univariate distributions: exactly one of
@@ -238,15 +243,23 @@ function competing(outcomes::Pair...)
 end
 
 # A `(delay, branch_prob)` mixture payload vs a bare-delay hazard payload. A
+# competing OUTCOME delay may be a plain univariate leaf OR a composer SUBTREE
+# (`Sequential` / `Parallel` / `Select` / nested `Competing`, the non-terminal
+# branch of #466 Feature 3); `_is_competing_branch` (defined in `nesting.jl`, once
+# those types exist) is the runtime admit-check, so the predicates stay value-based
+# rather than referencing the later-loaded composer types in their signatures. A
 # `NoEvent` marker is admitted only in the mixture (it carries the no-event mass
 # `q`); a bare `NoEvent` in a hazard node has no hazard and is rejected by the
 # `HazardCompeting` constructor.
-_is_prob_payload(::Tuple{<:UnivariateDistribution, <:Real}) = true
+_is_prob_payload(p::Tuple{Any, <:Real}) = _is_competing_branch(p[1])
 _is_prob_payload(::Any) = false
-_is_bare_payload(::UnivariateDistribution) = true
-_is_bare_payload(::Any) = false
+_is_bare_payload(x) = _is_competing_branch(x)
 
-function _competing_delay(payload::Tuple{<:UnivariateDistribution, <:Real})
+function _competing_delay(payload::Tuple{Any, <:Real})
+    _is_competing_branch(payload[1]) || throw(ArgumentError(
+        "each competing outcome payload must be a `(delay, branch_prob)` tuple " *
+        "whose delay is a univariate distribution or a composer subtree; got " *
+        "$(typeof(payload[1]))"))
     return payload[1]
 end
 function _competing_delay(payload)
@@ -255,7 +268,7 @@ function _competing_delay(payload)
         "tuple; got $(typeof(payload))"))
 end
 
-_competing_prob(payload::Tuple{<:UnivariateDistribution, <:Real}) = payload[2]
+_competing_prob(payload::Tuple{Any, <:Real}) = payload[2]
 
 # Each branch probability must lie in `[0, 1]`. The bounds carry a small
 # tolerance so a saturating covariate prob (`logistic(Xβ)` evaluating to a hair
@@ -401,7 +414,24 @@ as_mixture(node)
 # See also
 - [`Competing`](@ref): the composer type
 "
+# A NON-TERMINAL (composer-outcome) competing node is MULTIVARIATE: an outcome's
+# subtree spans several event slots, so there is no single marginal
+# time-to-resolution and no scalar `logpdf` / `mean` / `as_mixture`. It is scored
+# only through the event-vector path (its outcome subtree's slice), so the scalar
+# methods error with a clear message pointing at the event-vector / NamedTuple
+# path. (#466 Feature 3.)
+function _nonterminal_marginal_error(what::AbstractString)
+    throw(ArgumentError(
+        "a non-terminal Competing node (an outcome whose payload is a composer " *
+        "subtree) is multivariate and has no scalar `$(what)`; score it through " *
+        "the event-vector path (nest it in a `compose(...)` tree and pass the " *
+        "outcome subtree's event slots, or use `event_names` / NamedTuple I/O)"))
+end
+
 function as_mixture(c::Competing)
+    # A non-terminal node (a composer-valued outcome) is multivariate: no single
+    # marginal time-to-resolution exists, so the scalar lowering is rejected.
+    _is_nonterminal(c) && _nonterminal_marginal_error("as_mixture")
     # A no-event branch makes the OBSERVED-time mass `< 1` (a defective marginal),
     # so there is no proper `MixtureModel` over the observed delays: the node is
     # multivariate / sub-stochastic and is scored only through the event-vector
@@ -451,6 +481,7 @@ propagates exactly as on the censored-tree scorer.
 See also: [`as_mixture`](@ref)
 "
 function logpdf(c::Competing, x::Real)
+    _is_nonterminal(c) && _nonterminal_marginal_error("logpdf")
     _has_no_event(c) && _no_event_marginal_error("logpdf")
     return _competing_logmix(c.branch_probs, c.delays, x)
 end
@@ -478,6 +509,7 @@ a differentiated path (e.g. a censored-survival term), matching `logpdf`.
 See also: [`as_mixture`](@ref)
 "
 function cdf(c::Competing, x::Real)
+    _is_nonterminal(c) && _nonterminal_marginal_error("cdf")
     _has_no_event(c) && _no_event_marginal_error("cdf")
     return sum(ntuple(
         i -> c.branch_probs[i] * cdf(c.delays[i], x), length(c.branch_probs)))
@@ -653,9 +685,10 @@ function HazardCompeting(outcomes::Pair...)
         throw(ArgumentError("HazardCompeting needs at least two outcomes"))
     names = Tuple(o.first for o in outcomes)
     delays = Tuple(o.second for o in outcomes)
-    all(d -> d isa UnivariateDistribution, delays) || throw(ArgumentError(
+    all(_is_competing_branch, delays) || throw(ArgumentError(
         "each racing-hazard outcome payload must be a bare delay distribution " *
-        "(no branch probability); got a `(delay, prob)` tuple? use `Competing`"))
+        "or composer subtree (no branch probability); got a `(delay, prob)` " *
+        "tuple? use `Competing`"))
     return HazardCompeting(names, delays)
 end
 
@@ -703,6 +736,7 @@ propagate, no `float` stripping).
 See also: [`HazardCompeting`](@ref), [`winning_probabilities`](@ref)
 "
 function logpdf(c::HazardCompeting, t::Real)
+    _is_nonterminal(c) && _nonterminal_marginal_error("logpdf")
     n = _n_branches(c)
     terms = ntuple(j -> _hazard_cause_logpdf(c, j, t), n)
     m = maximum(terms)
@@ -728,6 +762,7 @@ function _hazard_marginal_window(c::HazardCompeting)
 end
 
 function mean(c::HazardCompeting)
+    _is_nonterminal(c) && _nonterminal_marginal_error("mean")
     hi = _hazard_marginal_window(c)
     return gl_integrate(zero(hi), hi, _PRIMARY_GL) do t
         exp(_hazard_logsurvival(c, t))
@@ -824,6 +859,7 @@ winning_probabilities(node)
 See also: [`HazardCompeting`](@ref), [`occurrence_probability`](@ref)
 "
 function winning_probabilities(c::HazardCompeting)
+    _is_nonterminal(c) && _nonterminal_marginal_error("winning_probabilities")
     lo = float(minimum(c))
     hi = float(maximum(c))
     isfinite(hi) || (hi = lo + _hazard_quad_window(c))

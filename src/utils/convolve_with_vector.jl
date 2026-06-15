@@ -152,9 +152,13 @@ function _chain_inner!(specs, edge_name, child::Parallel, prefix, ops, counter)
     return prefix, ops
 end
 
-# A Competing chain edge: one event per outcome, each thinned by its branch
-# probability; terminal (continues from the shared prefix). A no-event outcome
-# produces NO event series and is skipped (its mass leaves the observed stream).
+# A Competing chain edge: one event per LEAF outcome, each thinned by its branch
+# probability; a NON-TERMINAL outcome whose payload is a composer SUBTREE (#466
+# Feature 3) fans the subtree's own events out, each carrying the outcome's
+# branch-probability thinning in the forward op PREFIX so its sub-stream is the
+# outcome's mass times the subtree convolution. Terminal (continues from the
+# shared prefix). A no-event outcome produces NO event series and is skipped (its
+# mass leaves the observed stream).
 function _chain_inner!(specs, edge_name, c::Competing, prefix, ops, counter)
     for i in eachindex(c.names)
         _is_no_event(c.delays[i]) && continue

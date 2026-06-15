@@ -208,6 +208,34 @@ death, `3.0` for recover) within Monte Carlo error.
     recover_shape = mean(chain[:recover_shape]))
 
 md"""
+## Non-terminal whole-tree outcomes
+
+A competing branch is not limited to a single leaf delay: an outcome may be a
+WHOLE composer subtree (Feature 3). Here the `death` outcome carries its own
+sub-chain `death -> burial`, so winning the death cause unfolds a further event,
+while `recover` stays a leaf. The composer outcome contributes its subtree's
+event slots, so `event_names` interleaves the sub-chain's `burial` event where
+the death outcome sits.
+"""
+
+burial = primary_censored(Gamma(1.5, 1.0), Uniform(0, 1))
+death_chain = Sequential((Gamma(2.0, 3.0), burial), (:onset_death, :death_burial))
+severity_tree = competing(:death => (death_chain, 0.4),
+    :recover => (Gamma(3.0, 2.0), 0.6))
+
+history_tree = compose((onset = incubation, severity = severity_tree))
+event_names(history_tree)
+
+md"""
+A single `rand` draws the whole path: a death case fills the `death` and
+`burial` slots (its sub-chain), a recover case fills `recover` (the others
+`missing`). The drawn record scores straight back through `logpdf`.
+"""
+
+tree_draw = rand(rng, history_tree)
+(; tree_draw, tree_logpdf = logpdf(history_tree, tree_draw))
+
+md"""
 ## Mapping back to a hand-rolled layer
 
 Each step of this tutorial maps onto a row of the table in the introduction:
