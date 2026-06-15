@@ -29,12 +29,17 @@
         #   public-by-convention tape value type, neither marked `public`.
         # - _primal, _window_quantile: internal Convolved quadrature helpers
         #   marked `@non_differentiable` by the ChainRulesCore extension.
+        # - _cdf_ad_safe, _ccdf_ad_safe, _logcdf_ad_safe, _logccdf_ad_safe:
+        #   internal AD-safe CDF/CCDF hooks the SurvivalDistributions
+        #   extension overloads for its leaf families (#465/#487); the ext
+        #   imports them to add methods, the standard internal-import pattern.
         ignore = (
             :Censored, :_in_closed_interval, :_gamma_cdf, :_grad_p_a_series,
             :_gamma_cdf_value_and_partials,
             :Dual, :value, :partials,
             Symbol("@grad_from_chainrules"), :TrackedReal,
-            :_primal, :_window_quantile
+            :_primal, :_window_quantile,
+            :_cdf_ad_safe, :_ccdf_ad_safe, :_logcdf_ad_safe, :_logccdf_ad_safe
         )
     ) === nothing
 
