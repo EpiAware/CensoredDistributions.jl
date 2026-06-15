@@ -1,11 +1,27 @@
 module CensoredDistributionsEnzymeExt
 
 using CensoredDistributions: _gamma_cdf, _gamma_cdf_value_and_partials,
-                             _window_quantile
+                             _window_quantile, _subevent_slice
 using Distributions: UnivariateDistribution
 using Enzyme: Enzyme
 using Enzyme.EnzymeRules: EnzymeRules
 using SpecialFunctions: gamma, digamma
+
+# `_subevent_slice(events, o_idx, ev_idx, n)` gathers a nested tree node's
+# `[origin, leaf_events...]` sub-view from the CONSTANT event vector by pure
+# index bookkeeping (`src/composers/censored_specialisations.jl`). Its output is
+# a freshly-allocated `Vector{eltype(events)}` of event VALUES (data); the gradient
+# flows only through the leaf distribution PARAMS at each `_tree_step`, never
+# through these copied event times. On a multi-edge tree the event vector has a
+# non-bits `Union{Missing, Float64}` element type, and Enzyme's reverse type
+# analysis cannot statically prove the layout of that `Array` allocation inside the
+# differentiated recursion (`EnzymeNoTypeError` at the `Array` ctor, #319). Marking
+# the gather inactive runs it on the primal unchanged and treats the returned slice
+# as `Const`, so Enzyme never type-analyses the union-array allocation while the
+# leaf-param gradients still flow. This is the Enzyme analogue of the Mooncake
+# `@zero_adjoint` shields on the event-name helpers. Correct because the slice
+# depends only on inactive inputs (the Const event vector and `Int` indices).
+EnzymeRules.inactive(::typeof(_subevent_slice), args...) = nothing
 
 # `_window_quantile(comp, p)` returns a quadrature-window endpoint — the
 # *location* at which to clamp an infinite integration limit
