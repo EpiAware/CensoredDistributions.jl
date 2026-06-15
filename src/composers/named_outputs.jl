@@ -85,7 +85,10 @@ function _append_value_names!(out, path::Tuple, ::Any)
 end
 
 # Join a value-name path into one `Symbol`: a single-level path keeps its bare
-# name (`:a`); a nested path joins with `_` (`:r1_step_1`).
+# name (`:a`); a nested path joins with `_` (`:r1_step_1`). This is the
+# UNDERSCORED ("_" separator) EVENT/VALUE namespace (output value names),
+# distinct from the DOTTED ("." separator) parameter-path namespace
+# (`_join_path` / `_split_edge` in introspection.jl).
 function _join_value_path(path::Tuple)
     length(path) == 1 ? path[1] :
     Symbol(join(string.(path), "_"))

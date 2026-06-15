@@ -48,7 +48,9 @@ end
 # Split an underscore-joined edge name `:onset_admit` into its `(:onset, :admit)`
 # origin/target event names. A name with no single internal split (or a
 # positional default) has no derivable split and returns `nothing`, so the caller
-# falls back to positional event names.
+# falls back to positional event names. This is the UNDERSCORED ("_" separator)
+# EVENT/VALUE namespace, distinct from the DOTTED ("." separator) parameter-path
+# namespace (`_join_path` / `_split_edge` in introspection.jl).
 function _split_edge_name(name::Symbol)
     _is_positional_edge_name(name) && return nothing
     s = string(name)

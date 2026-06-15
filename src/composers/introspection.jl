@@ -433,7 +433,10 @@ function _walk_rows!(edges, params_col, values, supports, seen, leaf, path)
 end
 
 # Join a name path to a single dotted `Symbol` (e.g. `(:a, :b)` -> `:a.b`); a
-# single-element path keeps its bare name.
+# single-element path keeps its bare name. This is the DOTTED ("." separator)
+# PARAMETER-PATH namespace (params_table edges / priors), distinct from the
+# UNDERSCORED ("_" separator) event/value namespace (`_join_value_path`,
+# `_split_edge_name`).
 _join_path(path::Tuple) = Symbol(join(string.(path), "."))
 
 # --- update: nested NamedTuple -> reconstructed distribution ----------------
@@ -616,6 +619,8 @@ _rebuild(d::Parallel, components::Tuple) = Parallel(components, d.names)
 # --- build_priors: params_table + flat priors -> nested NamedTuple ----------
 
 # Split a dotted edge `Symbol` (`:a.b`) back into its name path (`(:a, :b)`).
+# The DOTTED ("." separator) PARAMETER-PATH namespace (inverse of `_join_path`),
+# distinct from the UNDERSCORED event/value namespace (`_split_edge_name`).
 function _split_edge(edge::Symbol)
     parts = split(string(edge), '.')
     return Tuple(Symbol.(parts))

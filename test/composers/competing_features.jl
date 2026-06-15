@@ -364,6 +364,7 @@ end
     @test CensoredDistributions._is_nonterminal(haz)
     @test_throws ArgumentError logpdf(haz, 1.0)
     @test_throws ArgumentError mean(haz)
+    @test_throws ArgumentError var(haz)
     @test_throws ArgumentError winning_probabilities(haz)
 end
 
