@@ -136,21 +136,14 @@ flat table.
 The Gamma shapes and scales are the free delay parameters; the competing node's
 branch probabilities are not estimated as free parameters here, because the
 case-fatality ratio is covariate-driven (below) and enters per record.
-We drop the branch-probability rows from the table, then [`build_priors`](@ref)
-turns the remaining rows into the nested prior NamedTuple that
-[`composed_parameters_model`](@ref) consumes.
+We read the table into a DataFrame and drop the branch-probability rows with a
+single `@rsubset`, then [`build_priors`](@ref) turns the remaining rows into the
+nested prior NamedTuple that [`composed_parameters_model`](@ref) consumes.
 """
 
-param_inventory = params_table(template)
+param_inventory = DataFrame(params_table(template))
 
-is_cfr_row(edge) = endswith(string(edge), "branch_probs")
-
-delay_table = let keep = [!is_cfr_row(e) for e in param_inventory.edge]
-    (edge = param_inventory.edge[keep],
-        param = param_inventory.param[keep],
-        value = param_inventory.value[keep],
-        support = param_inventory.support[keep])
-end
+delay_table = @rsubset param_inventory !endswith(string(:edge), "branch_probs")
 
 md"""
 [`build_priors`](@ref) gives every row a support-derived default: a
@@ -158,18 +151,21 @@ positive-support Gamma shape or scale becomes a positive-truncated Normal centre
 on the template value with a width that scales with its magnitude, so the data
 dominate.
 We override only the four Gamma shapes, recentring them near one (the shape of an
-exponential-like delay) rather than on the template, a brms-style partial
-override that leaves the scales on their defaults.
+exponential-like delay) rather than on the template.
+[`build_priors`](@ref) takes the overrides as a flat `(edge, param) => prior`
+mapping keyed against the table's `edge` column (the dotted path
+[`params_table`](@ref) prints), so we name only the four rows we care about and
+every other parameter keeps its support-derived default, a brms-style partial
+override.
 """
 
 shape_prior = truncated(Normal(1.0, 1.5); lower = 0.05)
 
-shape_overrides = (
-    admit_path = (
-        onset_admit = (shape = shape_prior,),
-        admit_resolution = (death = (shape = shape_prior,),
-            discharge = (shape = shape_prior,))),
-    onset_notif = (shape = shape_prior,))
+shape_overrides = Dict(
+    (Symbol("admit_path.onset_admit"), :shape) => shape_prior,
+    (Symbol("admit_path.admit_resolution.death"), :shape) => shape_prior,
+    (Symbol("admit_path.admit_resolution.discharge"), :shape) => shape_prior,
+    (Symbol("onset_notif"), :shape) => shape_prior)
 
 priors = build_priors(delay_table; priors = shape_overrides)
 
@@ -184,17 +180,26 @@ The per-case death probability is passed in through the reserved `:branch_probs`
 row field, and the node conditions on the observed outcome, so the
 death-versus-discharge split carries the case-fatality information without a
 separate likelihood.
+
+`death_prob` is the one place the covariates enter, shared by the fit and the
+simulation below so the two cannot drift: it maps a coefficient NamedTuple and a
+record to the case's death probability.
 """
 
 logistic(z) = 1 / (1 + exp(-z))
 
-md"""
-## Scoring through the vectorised interface
+function death_prob(β, r)
+    logistic(β.β0 + β.β_hcw * r.hcw + β.β_def * r.probable +
+             β.β_age * r.age_z)
+end
 
-The whole record set scores through one [`composed_distribution_model`](@ref)
-call on a vector of rows.
-Each row carries the event columns, the per-case `:branch_probs`, and (when
-present) a `weight`; the same object fits and generates.
+md"""
+## Fitting through the vectorised interface
+
+The whole record set fits through one [`composed_distribution_model`](@ref) call
+on a vector of rows.
+Each row carries the event columns, the per-case `:branch_probs` from
+`death_prob`, and (when present) a `weight`.
 The competing node self-dispatches on which outcome column is present, and
 unobserved delays for a case are marginalised internally.
 """
@@ -206,10 +211,10 @@ unobserved delays for a case are marginalised internally.
     β_hcw ~ Normal(0, 1)
     β_def ~ Normal(0, 1)
     β_age ~ Normal(0, 1)
+    β = (; β0, β_hcw, β_def, β_age)
 
     obs_rows = map(rows) do r
-        p = logistic(β0 + β_hcw * r.hcw + β_def * r.probable +
-                     β_age * r.age_z)
+        p = death_prob(β, r)
         (onset = r.onset, admit = r.admit, death = r.death,
             discharge = r.discharge, notif = r.notif,
             branch_probs = (death = p, discharge = 1 - p))
@@ -220,9 +225,9 @@ end
 md"""
 ## Step 1: simulate from the model
 
-The composed distribution is used in both directions: scoring walks it to read a
-record's likelihood, and `rand(d)` walks the same object to draw a full event
-path for a new case.
+The composed distribution is the model's generative half: the `obs` likelihood in
+`bdbv` walks it to read a record, and `rand(d)` walks the SAME object to draw a
+full event path for a new case.
 A single draw returns the named event record (a labelled `NamedTuple`), with
 exactly one of death or discharge populated by the competing node.
 """
@@ -230,27 +235,24 @@ exactly one of death or discharge populated by the competing node.
 rand(MersenneTwister(1), delay_tree(cfr = 0.6))
 
 md"""
-We build a synthetic line list this way.
-Each simulated case has covariates and a known case-fatality ratio, set through
-the `cfr` of its own draw, so the simulation and the fit share the same
-mechanism.
-The true delay parameters and regression coefficients are known, which is what
-lets the next step check recovery.
+We build a synthetic line list with the same two pieces the model uses: the
+shared `death_prob` maps each case's covariates through the known coefficients to
+its case-fatality ratio, and a draw from `delay_tree(cfr = p)` is the same object
+the `obs` block scores. Simulation and fit therefore cannot drift, and the known
+delay parameters and coefficients are what the next step checks recovery against.
 """
 
 sim_truth = (β0 = -0.2, β_hcw = -0.8, β_def = 1.0, β_age = 0.6)
 
 sim_rows = let rng = MersenneTwister(20260609), n = 200
     map(1:n) do _
-        hcw = rand(rng) < 0.25
-        probable = rand(rng) < 0.3
-        age_z = randn(rng)
-        p = logistic(sim_truth.β0 + sim_truth.β_hcw * hcw +
-                     sim_truth.β_def * probable + sim_truth.β_age * age_z)
+        cov = (hcw = rand(rng) < 0.25, probable = rand(rng) < 0.3,
+            age_z = randn(rng))
+        p = death_prob(sim_truth, cov)
         s = rand(rng, delay_tree(cfr = p))
         (onset = s.onset, admit = s.admit, death = s.death,
             discharge = s.discharge, notif = s.notif,
-            hcw = hcw, probable = probable, age_z = age_z)
+            hcw = cov.hcw, probable = cov.probable, age_z = cov.age_z)
     end
 end
 
@@ -268,10 +270,11 @@ NamedTuple (keyed by [`event_names`](@ref)) then reads each delay's mean
 off the updated distribution, so there is no manual chain indexing.
 
 The likelihood is differentiated with forward mode (`AutoForwardDiff`).
-Mooncake reverse mode is the preferred backend for a tree this size, but it
-cannot compile a rule here: the tree's dotted edge-name handling compiles a
-`Regex`, and Mooncake does not differentiate the try/catch inside regex
-compilation, so we fall back to forward mode for this page.
+Mooncake reverse mode (`AutoMooncake`) would usually be the faster backend, but
+it cannot build a rule for this model: the nested [`Competing`](@ref) resolution
+gives the composed object a heterogeneous edge type, and Mooncake's reverse pass
+hits a missing `increment!!` method on that mixed-type reverse data, so we fall
+back to forward mode for this page.
 The same backend is used for both the simulation fit and the real fit.
 """
 
@@ -604,12 +607,18 @@ recorded the segments simply condition on it. The marginal and latent forms are
 one family on the same parameters (the latent representation integrates to the
 marginal `logpdf`), so a latent fit recovers the same delays; this section runs
 it alongside the marginal fit and compares.
+"""
 
+# TODO: when `latent`-wrapped `Competing` lands in the Turing extension (the
+# capability tracked alongside this review), drop the by-outcome routing below
+# and score the resolution through a single `latent(Competing(...))` chain.
+
+md"""
 The composed tree carries a [`Competing`](@ref) resolution node, and a
-`latent`-wrapped composer with a nested `Competing` is out of scope: the latent
-composer model treats every event slot as a per-record latent, so it would
-demand BOTH outcome columns at once rather than scoring the one that occurred
-(sampling which outcome occurs would be a distinct construction). The
+`latent`-wrapped composer with a nested `Competing` is not yet supported: the
+latent composer model treats every event slot as a per-record latent, so it
+would demand BOTH outcome columns at once rather than scoring the one that
+occurred (sampling which outcome occurs would be a distinct construction). The
 latent form therefore handles the resolution the same way the data do: a
 record's recorded outcome is observed, so we route by it. For each resolved
 record we build a two-edge [`latent`](@ref) chain onset → admission → outcome
@@ -623,16 +632,18 @@ outcome is scored. The notification delay has no intermediate event, so it score
 through its ordinary marginal leaf in both forms.
 
 `delay_leaves` pulls the four fitted leaves off the reconstructed composed object
-by [`event`](@ref) name, so the latent chain reuses exactly the delays the
-[`composed_parameters_model`](@ref) block sampled, with no second parameter set.
+with [`event`](@ref), which descends a name path in one call (the same dotted
+path [`params_table`](@ref) prints), so the latent chain reuses exactly the
+delays the [`composed_parameters_model`](@ref) block sampled, with no second
+parameter set.
 """
 
 function delay_leaves(d)
-    ap = event(d, :admit_path)
-    res = event(ap, :admit_resolution)
-    return (onset_admit = event(ap, :onset_admit),
-        admit_death = event(res, :death),
-        admit_discharge = event(res, :discharge),
+    return (
+        onset_admit = event(d, :admit_path, :onset_admit),
+        admit_death = event(d, :admit_path, :admit_resolution, :death),
+        admit_discharge = event(d, :admit_path, :admit_resolution,
+            :discharge),
         onset_notif = event(d, :onset_notif))
 end
 
@@ -670,14 +681,14 @@ namespaced by `prefix` so the chain stays readable.
     β_hcw ~ Normal(0, 1)
     β_def ~ Normal(0, 1)
     β_age ~ Normal(0, 1)
+    β = (; β0, β_hcw, β_def, β_age)
 
     leaves = delay_leaves(delays)
     for (k, r) in enumerate(rows)
         resolved = r.death !== missing || r.discharge !== missing
         if resolved
             died = r.death !== missing
-            p = logistic(β0 + β_hcw * r.hcw + β_def * r.probable +
-                         β_age * r.age_z)
+            p = death_prob(β, r)
             Turing.@addlogprob! died ? log(p) : log(1 - p)
             outcome = died ? :death : :discharge
             y = died ? r.death : r.discharge
@@ -829,16 +840,16 @@ md"""
 
 The natural-history delay from onset to death is the convolution of the
 onset-to-admission and admission-to-death delays.
-We take the two fitted edges from the updated composed object and convolve their
-inner delays, with no re-fitting.
+We pull the two fitted edges straight off the updated composed object with
+[`event`](@ref) (descending each delay's dotted name path in one call) and
+convolve their inner delays, with no re-fitting.
 """
 
 onset_to_death = let
-    ap = event(real_fit, :admit_path)
-    res = event(ap, :admit_resolution)
     inner(leaf) = CensoredDistributions.free_leaf(leaf)
-    convolve_distributions(inner(event(ap, :onset_admit)),
-        inner(event(res, :death)))
+    convolve_distributions(
+        inner(event(real_fit, :admit_path, :onset_admit)),
+        inner(event(real_fit, :admit_path, :admit_resolution, :death)))
 end
 
 (mean = mean(onset_to_death), std = std(onset_to_death))
@@ -866,7 +877,8 @@ md"""
 - The same delay model is fit in both the MARGINAL form (admission integrated
   out, the cheap default) and the LATENT form (admission sampled per record,
   matching the original Isiro analysis), routing the resolution by the observed
-  outcome because a `latent`-wrapped [`Competing`](@ref) is out of scope. Both
+  outcome because a `latent`-wrapped [`Competing`](@ref) is not yet supported.
+  Both
   recover the same delays and case-fatality coefficients within uncertainty, so
   the marginal form is preferred for speed and the latent form for the
   intermediate event times or to reproduce the original analysis.
