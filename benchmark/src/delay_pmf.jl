@@ -1,6 +1,13 @@
 # Build-once delay PMF (#371): discretise the delay PMF ONCE and reuse it across
 # a vector of reference-date series, vs rebuilding it on every call. The
 # nowcasting shape: one delay, many reference-date count series.
+#
+# `discretise_pmf`/`DelayPMF` are not a redundant wrapper over
+# `double_interval_censored` + `pdf`: the renewal `convolve_distributions(delay,
+# series)` rediscretises the delay PMF on every call, so this benchmark measures
+# lifting that (relatively expensive) discretisation out of the per-series loop.
+# `DelayPMF` is the immutable, AD-safe, cache-free value object that holds the
+# discretised masses once for reuse across the whole reference-date vector.
 
 SUITE["DelayPMF"] = BenchmarkGroup()
 
