@@ -71,8 +71,10 @@
 #
 # The latent form is the primary fit, used for every downstream result; the
 # marginal form is then fitted on the same data. Both forms share the same
-# mutually exclusive index/sourced split, so they fit the SAME 34 incubation
-# terms and recover the same posterior.
+# mutually exclusive index/sourced split (1 index + 33 sourced = 34 real cases),
+# so they fit the SAME 34 incubation terms and recover the same posterior. The
+# simulation below also totals 34 records but with a different split (4 index + 30
+# sourced) to exercise the index branch on more than one case.
 #
 # The split is keyed on a `:kind` field. A `:sourced` case is its two observed
 # delays (transmission from source onset to the recorded exposure, then incubation
@@ -223,14 +225,18 @@ end
 # The model routes each record to its branch by its `:kind`, so both kinds share
 # one `inc` and one `delta`. Because the index/sourced split is mutually
 # exclusive, the index branch fits only the single zoonotic index case and the
-# sourced branch fits the rest, so the incubation period is scored exactly 34
-# times (once per case), not twice.
+# sourced branch fits the other 33, so the incubation period is scored exactly 34
+# times (once per case), not twice. (The simulation below uses the same total but
+# a 4 index + 30 sourced split.)
 
 # Index branch: a single-edge latent incubation chain off a broad-prior
 # infection. The incubation leaf carries a `Uniform(0, inc_window)` primary smear
 # standing in for the unobserved infection position, and `latent` samples that
 # infection so the incubation is scored as a bare density off it, the
 # single-infection-time index case.
+# Put plainly: the index case's infection IS the sampled latent primary event;
+# the dense `Uniform(0, inc_window)` smear and the broad infection prior together
+# let the sampler place that unobserved infection across the plausible window.
 function index_branch(inc)
     return latent(Sequential(
         (primary_censored(inc, Uniform(0, inc_window)),),

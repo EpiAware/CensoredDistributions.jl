@@ -56,6 +56,10 @@ posterior: our credible interval against theirs.
 | admission → discharge | 15 | 8.10 | 4.81, 13.82 |
 | onset → notification | 38 | 20.37 | 13.64, 29.99 |
 
+The admission-to-discharge `n` is the upstream count; our mutually exclusive
+outcome assignment leaves a smaller resolved-discharge subset (n = 11), explained
+at the end of the comparison below.
+
 ## Packages used
 
 We use DataFramesMeta and CSV with Dates for the line-list pipeline, Turing for

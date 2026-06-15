@@ -27,6 +27,13 @@ We will cover the mathematical formulation of the problem, demonstrate the usage
 
 ## Packages used in this getting started guide
 
+Alongside `CensoredDistributions.jl` itself, this guide uses a small set of supporting packages:
+
+- `Distributions.jl` supplies the base distributions (such as `LogNormal` and `Gamma`) that we censor and truncate.
+- `Random` seeds the generators so the sampled values and plots are reproducible.
+- `CairoMakie` and `AlgebraOfGraphics` render the figures.
+- `DataFramesMeta` builds and reshapes the data frames used for plotting.
+
 ## Loading the packages
 
 ```@example getting-started
