@@ -30,10 +30,14 @@ right-truncated to the window still open before the analysis horizon, exactly as
 in the epidist vignette.
 
 We follow the same Bayesian workflow as the other line-list pages on this site.
-We build one composed censored-and-truncated delay leaf, simulate a stratified
-line list from it and check the known per-stratum delays are recovered, then fit
-the real Sierra Leone line list with a partially pooled stratified model and read
-the recovered district and sex delays back off the fitted object.
+We build one composed onset-to-test delay, simulate a stratified line list from
+it and check the known per-stratum delays are recovered, then fit the real
+Sierra Leone line list with a partially pooled stratified model and read the
+recovered district and sex delays back off the fitted object.
+
+How the composer stack is built, scored, and simulated from in general is
+covered in the [composer toolkit tutorial](@ref composer-toolkit); here we use
+the stack and focus on the delay model and the Bayesian workflow.
 
 ### Replication target
 
@@ -51,45 +55,56 @@ We reproduce that structure and check our estimates sit in the same place.
 
 We use CSV and DataFramesMeta with Dates for the line-list pipeline, Turing for
 inference, FlexiChains for the posterior, CairoMakie for the plots, and
-CensoredDistributions for the composed censored delay leaf.
+CensoredDistributions for the composed censored delay.
 """
 
 using CSV, DataFramesMeta, Dates
 using CensoredDistributions, Distributions
 using Turing, Random, Statistics
+using DynamicPPL: to_submodel
 using FlexiChains: VNChain
 import Mooncake
 using ADTypes: AutoMooncake
 using CairoMakie
 
 md"""
-## The delay leaf
+## The delay
 
 A single composed object describes one onset-to-test delay.
 The delay itself is a LogNormal; [`double_interval_censored`](@ref) wraps it with
-a one-day primary-event window (the day-resolution onset), a per-record upper
-truncation bound (the real-time horizon), and a one-day secondary interval (the
-day-resolution test date), so the whole censoring and truncation pipeline is part
-of the object rather than applied as separate steps.
+a one-day primary-event window (the day-resolution onset) and a one-day secondary
+interval (the day-resolution test date), so the day-level censoring is part of
+the object rather than applied as a separate step.
 
-`delay_leaf` builds this leaf for given LogNormal parameters and a per-record
-truncation horizon `D`.
-The same builder serves simulation (a known `mu`, `sigma`) and the per-record
+The onset-to-test gap is a one-edge composed chain: [`Sequential`](@ref) names the
+edge `onset_test`, so the flat event slots come out `onset, test`, exactly the
+columns a record row supplies.
+A row sets `onset = 0` (the case's own onset is the origin) and `test = delay`
+(the observed gap), and carries its real-time horizon in the reserved `obs_time`
+field, so the right-truncation is applied per record by the package's truncation
+rather than baked into the object.
+
+`delay_chain` builds this composed delay for given LogNormal parameters.
+The same builder serves simulation (a known `mu`, `sigma`) and the per-stratum
 likelihood inside the fit (a stratified `mu`).
 """
 
-function delay_leaf(mu, sigma, D)
-    double_interval_censored(LogNormal(mu, sigma);
-        primary_event = Uniform(0, 1), upper = D, interval = 1.0)
+function delay_chain(mu, sigma)
+    leaf = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    return Sequential((leaf,), (:onset_test,))
 end
 
 md"""
-The leaf is an ordinary `Distributions.jl` object: it has a `logpdf` we score
-records against and a `rand` we simulate from, both running the full censoring
-and truncation pipeline.
+The recursive `show` lays out the one-edge chain, and the flat event names are
+the columns a data row supplies.
 """
 
-delay_leaf(1.6, 0.5, 30.0)
+template = delay_chain(1.6, 0.5)
+
+#-
+
+event_names(template)
 
 md"""
 ## Data
@@ -196,7 +211,7 @@ the END of the cutoff day: the horizon carries a `+ 1` day for the daily test
 interval.
 Without it a case tested exactly on the cutoff would have its censored interval
 fall entirely at the truncation bound and score zero probability.
-Each record's truncation bound is then `D = horizon - onset_day`.
+Each record's truncation bound is then `obs_time = horizon - onset_day`.
 """
 
 horizon = Float64(Dates.value(cutoff - t0)) + 1.0
@@ -206,13 +221,37 @@ horizon = Float64(Dates.value(cutoff - t0)) + 1.0
     horizon = horizon)
 
 md"""
-Each kept record becomes a row carrying its delay, its stratum indices, and its
-real-time truncation horizon `D = horizon - onset_day`.
+## Strata and records
+
+The log mean delay varies by a `(male, district)` stratum, so each kept record
+carries an integer stratum id that indexes the per-stratum delays the model
+builds.
+The strata are the observed `(male, district)` combinations; their count is the
+number of distinct delays the model reads.
 """
 
+strata = sort(unique([(r.male, district_index[r.district])
+                      for r in eachrow(clean)]))
+
+stratum_index = Dict(s => i for (i, s) in enumerate(strata))
+
+n_stratum = length(strata)
+
+md"""
+Each kept record becomes a row in the composed delay's event layout: `onset = 0`
+(the case's own onset is the origin), `test = delay` (the observed gap), and the
+reserved `obs_time` horizon `horizon - onset_day` that right-truncates the record
+to the window still open at the analysis date.
+Each record's integer stratum id is held alongside in `group`, which the grouped
+scorer uses to pick that record's per-stratum delay.
+"""
+
+group = map(eachrow(clean)) do r
+    stratum_index[(r.male, district_index[r.district])]
+end
+
 records = map(eachrow(clean)) do r
-    (delay = r.delay, male = r.male, district = district_index[r.district],
-        D = horizon - r.onset_day)
+    (onset = 0.0, test = r.delay, obs_time = horizon - r.onset_day)
 end
 
 md"""
@@ -221,7 +260,7 @@ md"""
 The log mean of the LogNormal delay is a partially pooled linear predictor:
 
 ```
-mu_record = intercept + male_effect * is_male + district_effect[district]
+mu_stratum = intercept + male_effect * is_male + district_effect[district]
 ```
 
 The intercept is the female, baseline-district log mean delay; the male effect is
@@ -232,15 +271,19 @@ data-rich districts move freely.
 The LogNormal scale `sigma` is shared across strata, matching the epidist
 sex-district model.
 
-Each record builds its own censored, truncated delay leaf from its stratified
-`mu` and its horizon `D`, and is scored directly with `logpdf`, so the
-stratification enters through the per-record parameters while the censoring and
-truncation stay inside the composed leaf.
+The model samples the predictor coefficients and the shared `sigma`, then builds
+one composed delay per `(male, district)` stratum from that stratum's `mu` (and
+the shared `sigma`) with `delay_chain`.
+The whole record table scores in one `~` through the grouped
+[`composed_distribution_model`](@ref)`(ds, records; group)`: `ds` is the vector
+of per-stratum delays and `group` the integer stratum id per record, so each
+record scores under its own stratum's delay while the censoring and per-record
+truncation stay inside the composed object.
 The district effects are sampled non-centred (a standard-Normal `z` scaled by
 `tau`) so the sampler sees a clean geometry.
 """
 
-@model function ebola_stratified(records, n_district)
+@model function ebola_stratified(template, records, group, strata)
     intercept ~ Normal(1.6, 0.5)
     male_effect ~ Normal(0.0, 0.5)
     sigma ~ truncated(Normal(0.0, 0.5); lower = 0.05)
@@ -248,29 +291,36 @@ The district effects are sampled non-centred (a standard-Normal `z` scaled by
     z ~ filldist(Normal(0.0, 1.0), n_district)
     district_effect = tau .* z
 
-    for r in records
-        mu = intercept + male_effect * r.male + district_effect[r.district]
-        Turing.@addlogprob! logpdf(delay_leaf(mu, sigma, r.D), r.delay)
+    ## One composed delay per (male, district) stratum, built from that stratum's
+    ## partially pooled log mean and the shared sigma. `update` rebuilds the
+    ## template's inner LogNormal with the stratum's (mu, sigma), keeping the
+    ## censoring structure.
+    ds = map(strata) do (male, d)
+        mu = intercept + male_effect * male + district_effect[d]
+        update(template, (onset_test = (mu = mu, sigma = sigma),))
     end
+
+    obs ~ to_submodel(composed_distribution_model(ds, records; group = group))
     return (; district_effect)
 end
 
 md"""
-## Step 1: simulate a stratified line list and check recovery
+## Simulate a stratified line list and check recovery
 
 Before touching the data we check the model recovers known per-stratum delays.
-We draw a synthetic line list from the same composed leaf with a known intercept,
+We draw a synthetic line list from the same composed delay with a known intercept,
 male effect, district effects, and `sigma`, applying the same day-level censoring
 (`floor(test) - floor(onset)`) and real-time truncation the scorer assumes.
 """
 
 sim_truth = (intercept = 1.6, male_effect = 0.1, sigma = 0.5, tau = 0.2)
 
-sim_records = let rng = MersenneTwister(20260614), n_per = 60, nd = n_district,
+sim_setup = let rng = MersenneTwister(20260614), n_per = 60, nd = n_district,
     sim_horizon = 60.0
 
     deffect = sim_truth.tau .* randn(rng, nd)
     out = NamedTuple[]
+    keys = Tuple{Bool, Int}[]
     for d in 1:nd, _ in 1:n_per
 
         male = rand(rng) < 0.5
@@ -281,26 +331,43 @@ sim_records = let rng = MersenneTwister(20260614), n_per = 60, nd = n_district,
         ## window; the leaf's truncation then corrects for the kept-only bias.
         delay = floor(rand(rng, LogNormal(mu, sim_truth.sigma)) + rand(rng))
         delay <= D || continue
-        push!(out, (delay = delay, male = male, district = d, D = D))
+        push!(out, (onset = 0.0, test = delay, D = D))
+        push!(keys, (male, d))
     end
-    (records = out, deffect = deffect)
+    (rows = out, keys = keys, deffect = deffect)
 end
 
-(n = length(sim_records.records), districts = n_district)
+md"""
+The synthetic strata are the observed `(male, district)` combinations of the
+simulated line list, and each simulated record carries its own stratum id and
+real-time horizon, exactly as the real records do.
+"""
+
+sim_strata = sort(unique(sim_setup.keys))
+
+sim_stratum_index = Dict(s => i for (i, s) in enumerate(sim_strata))
+
+sim_group = [sim_stratum_index[k] for k in sim_setup.keys]
+
+sim_records = map(sim_setup.rows) do r
+    (onset = r.onset, test = r.test, obs_time = r.D)
+end
+
+(n = length(sim_records), districts = n_district, strata = length(sim_strata))
 
 md"""
 We fit the synthetic line list at a modest sampler budget (two chains, 300 warmup
 and 300 draws each) and check the known parameters come back.
 The likelihood is differentiated with Mooncake reverse mode
 (`AutoMooncake`), which scales better than forward mode across the many
-per-record `logpdf` terms here; the per-record censored `logpdf` runs the
-primary-event integral analytically, so the gradient stays cheap.
+per-record terms here; the per-record censored density runs the primary-event
+integral analytically, so the gradient stays cheap.
 """
 
 adbackend = AutoMooncake(; config = nothing)
 
 sim_chain = sample(Xoshiro(1),
-    ebola_stratified(sim_records.records, n_district),
+    ebola_stratified(template, sim_records, sim_group, sim_strata),
     NUTS(300, 0.8; adtype = adbackend), MCMCThreads(), 300, 2;
     chain_type = VNChain, progress = false)
 
@@ -344,25 +411,26 @@ end
 
 sim_district = let
     qs = district_effect_draws(
-        ebola_stratified(sim_records.records, n_district), sim_chain)
-    covered = count(d -> qs[d].lower <= sim_records.deffect[d] <= qs[d].upper,
+        ebola_stratified(template, sim_records, sim_group, sim_strata),
+        sim_chain)
+    covered = count(d -> qs[d].lower <= sim_setup.deffect[d] <= qs[d].upper,
         1:n_district)
     (covered = covered, of = n_district)
 end
 
 md"""
-## Step 2: fit the real line list
+## Fit the real line list
 
 The same model and priors fit the real Sierra Leone records.
 """
 
 real_chain = sample(Xoshiro(20260614),
-    ebola_stratified(records, n_district),
+    ebola_stratified(template, records, group, strata),
     NUTS(300, 0.8; adtype = adbackend), MCMCThreads(), 300, 2;
     chain_type = VNChain, progress = false)
 
 md"""
-## Step 3: the fitted delays
+## The fitted delays
 
 ### Fixed effects against the epidist target
 
@@ -396,23 +464,46 @@ from onset to test than women, the direction the vignette reports.
 
 ### Per-district mean delays
 
-The recovered delay for each district is the mean of the LogNormal at that
-district's log mean (female baseline), read off every posterior draw so it
-carries a credible interval.
+The recovered delay for each district is read off the fitted composed delay.
+For each posterior draw we rebuild the model with [`update`](@ref) at that draw,
+pull the baseline-district `(male = false)` delay for each district off the
+composed object with [`event`](@ref) and [`free_leaf`](@ref CensoredDistributions.free_leaf),
+and take its LogNormal mean, so the reported delay comes straight from the
+composer rather than from a hand-built distribution.
 We report the mean delay in days per district, ordered from fastest to slowest.
 """
 
-district_means = let
-    gq = generated_quantities(ebola_stratified(records, n_district),
-        real_chain)
+## The baseline (female) stratum id of each district, or `nothing` if that
+## district has no female records in the subsample (then we fall back to the
+## intercept + district effect directly).
+baseline_stratum = map(1:n_district) do d
+    get(stratum_index, (false, d), nothing)
+end
+
+function district_mean_draws(chain)
+    ic = draws(chain, :intercept)
+    sig = draws(chain, :sigma)
+    gq = generated_quantities(
+        ebola_stratified(template, records, group, strata), chain)
     deff = reduce(hcat, [g.district_effect for g in vec(gq)])
-    ic = draws(real_chain, :intercept)
-    sig = draws(real_chain, :sigma)
+    means = Matrix{Float64}(undef, n_district, length(ic))
+    for i in eachindex(ic)
+        fit = update(template,
+            (onset_test = (mu = ic[i], sigma = sig[i]),))
+        baseline = CensoredDistributions.free_leaf(event(fit, :onset_test))
+        for d in 1:n_district
+            ## Baseline-district delay: the female intercept plus this district's
+            ## random effect, read through the composed leaf's LogNormal.
+            mu = ic[i] + deff[d, i]
+            means[d, i] = mean(LogNormal(mu, baseline.σ))
+        end
+    end
+    return means
+end
+
+district_means = let means = district_mean_draws(real_chain)
     rows = map(1:n_district) do d
-        ## Mean of LogNormal(intercept + district_effect, sigma) per draw.
-        m = [mean(LogNormal(ic[i] + deff[d, i], sig[i]))
-             for i in eachindex(ic)]
-        q = ci(m)
+        q = ci(means[d, :])
         (district = districts[d], mean = q.mean, lower = q.lower,
             upper = q.upper)
     end
@@ -452,35 +543,37 @@ A posterior predictive check confirms the censored, truncated model reproduces
 the observed delay distribution.
 We overlay the empirical delay histogram with the posterior predictive density
 averaged over the strata and the posterior draws, each density evaluated through
-the same censored leaf the model fitted.
+the same composed delay the model fitted.
 """
 
 ppc_fig = let
-    obs = [r.delay for r in records]
+    obs = [r.test for r in records]
     edges = -0.5:1.0:(maximum(obs) + 0.5)
     grid = 0.0:1.0:maximum(obs)
     ic = draws(real_chain, :intercept)
     me = draws(real_chain, :male_effect)
     sig = draws(real_chain, :sigma)
-    gq = generated_quantities(ebola_stratified(records, n_district),
-        real_chain)
+    gq = generated_quantities(
+        ebola_stratified(template, records, group, strata), real_chain)
     deff = reduce(hcat, [g.district_effect for g in vec(gq)])
     ## The predictive averages the per-record censored pmf over the posterior and
     ## over the observed strata. Records sharing a (male, district) stratum give
-    ## the same leaf for a given draw, so we count the strata once and weight the
-    ## predictive by those counts rather than walking every record.
-    Dmax = maximum(r.D for r in records)
-    strata = Dict{Tuple{Bool, Int}, Int}()
-    for r in records
-        k = (r.male, r.district)
-        strata[k] = get(strata, k, 0) + 1
+    ## the same delay for a given draw, so we count the strata once and weight the
+    ## predictive by those counts rather than walking every record. The per-record
+    ## truncation horizon enters through the maximal `obs_time` across records.
+    Dmax = maximum(r.obs_time for r in records)
+    stratum_counts = Dict{Int, Int}()
+    for sid in group
+        stratum_counts[sid] = get(stratum_counts, sid, 0) + 1
     end
     thin = 1:5:length(ic)
     dens = zeros(length(grid))
     for i in thin
-        for ((male, d), w) in strata
+        for (sid, w) in stratum_counts
+            (male, d) = strata[sid]
             mu = ic[i] + me[i] * male + deff[d, i]
-            leaf = delay_leaf(mu, sig[i], Dmax)
+            leaf = double_interval_censored(LogNormal(mu, sig[i]);
+                primary_event = Uniform(0, 1), upper = Dmax, interval = 1.0)
             for (j, x) in enumerate(grid)
                 dens[j] += w * pdf(leaf, x)
             end
@@ -507,19 +600,28 @@ onset-to-test delay across the strata.
 
 ## Summary
 
-- The onset-to-test delay is one composed [`double_interval_censored`](@ref)
-  LogNormal leaf: a one-day primary-event window, a per-record right-truncation
-  horizon, and a one-day secondary interval, so the day-level censoring and the
-  real-time truncation are baked into the object.
+- The onset-to-test delay is one composed object: a one-edge
+  [`Sequential`](@ref) `onset → test` whose leaf is a
+  [`double_interval_censored`](@ref) LogNormal (a one-day primary-event window and
+  a one-day secondary interval), with the per-record right-truncation horizon
+  supplied as the reserved `obs_time` row field, so the day-level censoring and
+  the real-time truncation are handled by the composed object.
 - The log mean delay is a partially pooled linear predictor: a female baseline
   intercept, a male fixed effect, and district random effects shrunk toward the
   mean through an estimated scale `tau`, with a shared LogNormal `sigma`.
-- The workflow simulates a stratified line list from the same leaf and recovers
+- One composed delay is built per `(male, district)` stratum with
+  [`update`](@ref), and the whole record table scores in one `~` through the
+  grouped [`composed_distribution_model`](@ref)`(ds, records; group)`, so the
+  stratification enters through the integer stratum id while the censoring and
+  truncation stay inside the composed object.
+- The workflow simulates a stratified line list from the same delay and recovers
   the intercept, male effect, `sigma`, `tau`, and the per-district effects within
   uncertainty, then fits the real Sierra Leone line list.
-- The fitted fixed effects sit close to the epidist sex-district model (intercept
-  near 1.63, a small positive male effect), and the per-district mean delays
-  reproduce the between-district spread the vignette's random effects capture.
-- A posterior predictive check through the same censored leaf confirms the fit
+- The fitted delays are read back off the composed object with [`update`](@ref),
+  [`event`](@ref), and [`free_leaf`](@ref CensoredDistributions.free_leaf): the
+  fixed effects sit close to the epidist sex-district model (intercept near 1.63,
+  a small positive male effect), and the per-district mean delays reproduce the
+  between-district spread the vignette's random effects capture.
+- A posterior predictive check through the same composed delay confirms the fit
   reproduces the observed delay distribution.
 """
