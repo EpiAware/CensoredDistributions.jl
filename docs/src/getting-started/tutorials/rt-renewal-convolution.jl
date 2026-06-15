@@ -331,7 +331,7 @@ model = rt_renewal(cases_obs, deaths_obs, g, incubation, onset_report,
 
 chain = sample(Xoshiro(1), model,
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 400, 4; chain_type = VNChain, progress = false)
+    MCMCThreads(), 300, 4; chain_type = VNChain, progress = false)
 
 md"""
 ## Recovery
