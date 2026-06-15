@@ -319,8 +319,9 @@ rand(Xoshiro(11), ld)
 # Because both share the same parameters, a posterior fitted in the cheap
 # marginal form drops straight into the latent form for event-based prediction.
 # The [Fit marginal, sample event based](@ref) tutorial works this through end
-# to end, and [Fitting CensoredDistributions.jl modified distributions with
-# Turing.jl](@ref) compares the two fits directly.
+# to end, and the [Real-time Andes virus delays from the Epuyén line
+# list](@ref andv-linelist-analysis) case study fits both forms on the same data
+# and compares the two fits directly.
 
 # ## Parameters and priors
 #
