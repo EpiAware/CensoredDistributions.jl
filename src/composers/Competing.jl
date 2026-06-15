@@ -840,12 +840,24 @@ end
 
 @doc "
 
-The probability that ANY event occurs for a racing-hazard
-[`HazardCompeting`](@ref) node: the sum of the derived
-[`winning_probabilities`](@ref). For proper (eventually-certain) causes this is
-one; a defective node returns the resolved mass.
+The probability that ANY (non-no-event) outcome occurs for a competing node.
 
-See also: [`winning_probabilities`](@ref)
+For a racing-hazard [`HazardCompeting`](@ref) node `occurrence_probability` is the
+sum of the derived [`winning_probabilities`](@ref) (one for proper,
+eventually-certain causes; the resolved mass for a defective node). For a
+fixed-probability [`Competing`](@ref) node it is one minus the no-event branch
+mass.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+node = competing(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
+occurrence_probability(node)
+```
+
+# See also
+- [`winning_probabilities`](@ref): the per-outcome winning split.
 "
 function occurrence_probability(c::HazardCompeting)
     return sum(values(winning_probabilities(c)))
