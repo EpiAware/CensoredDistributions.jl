@@ -15,6 +15,17 @@
 # density contract only: its upstream `logcdf` throws in v0.1.1 (an unimported
 # `log1mexp`), so it cannot yet route the numeric censoring quadrature, which
 # the analytic families cover.
+#
+# The CENSORED GeneralizedGamma path additionally routes its leaf CDF/survival
+# through the package's AD-safe `_gamma_cdf` helper via the
+# `CensoredDistributionsSurvivalDistributions` weak-dep extension (the GG inner
+# `Gamma`'s stock `logccdf` → `StatsFuns._gammalogccdf` has no Dual/Tracked
+# method). The gradient-parity testitem at the end of this file locks that in.
+# `LogLogistic` cannot carry AD-tracked parameters at all: its constructor stores
+# `Logistic{eltype(X)}` where `eltype(Logistic{Dual}) == Float64`, so the struct
+# is forced to `LogLogistic{Float64}` and `convert`ing the `Dual` Logistic into
+# it throws — an upstream bug no package-side routing can fix, so the survival
+# AD coverage is GeneralizedGamma only.
 
 @testitem "SurvivalDistributions families satisfy the leaf interface" begin
     using CensoredDistributions
@@ -163,4 +174,99 @@ end
     cs = [cdf(leaf, x) for x in range(0.0, 6.0; length = 13)]
     @test issorted(cs)
     @test all(c -> 0.0 - 1e-9 <= c <= 1.0 + 1e-9, cs)
+end
+
+@testitem "SurvivalDistributions GeneralizedGamma censored AD parity" begin
+    using CensoredDistributions
+    import SurvivalDistributions as SD
+    using Distributions: logpdf, logccdf, Uniform
+    import ForwardDiff
+
+    # The censored GeneralizedGamma path routes its leaf survival/CDF through the
+    # package's AD-safe `_gamma_cdf` (the SurvivalDistributions extension), so the
+    # interval-, primary- and double-interval-censored pipelines differentiate
+    # w.r.t. the three GG parameters (shape σ, scale ν, power γ). Without the
+    # extension the inner Gamma's `logccdf` hits `StatsFuns._gammalogccdf`, which
+    # has no `ForwardDiff.Dual` method and errors.
+    #
+    # Central finite-difference gradient of `f` at `θ` (reference of the primal).
+    function fd_grad(f, θ; h = 1e-6)
+        g = similar(θ)
+        for i in eachindex(θ)
+            θp = copy(θ)
+            θp[i] += h
+            θm = copy(θ)
+            θm[i] -= h
+            g[i] = (f(θp) - f(θm)) / (2h)
+        end
+        return g
+    end
+
+    θ₀ = [1.0, 1.5, 2.0]
+    obs = [0.5, 1.2, 2.5, 3.8, 5.1]
+    obs_int = [0.0, 1.0, 2.0, 3.0, 4.0]
+    # Interior support points for the exact-primitive FD reference: deep-tail
+    # `logccdf` values (e.g. at t = 5.1, where t^γ ≈ 26) lose precision to
+    # catastrophic cancellation in a central difference, so the FD reference is
+    # unstable there even though the AD gradient is exact. Points near the mode
+    # keep the FD reference well-conditioned.
+    obs_in = [0.4, 0.7, 1.0, 1.3]
+
+    # Exact parity on the AD-safe primitives the fix adds. `_logccdf_ad_safe` and
+    # `_cdf_ad_safe` for a GeneralizedGamma route through `_gamma_cdf` with NO
+    # internal finite-differencing, so their ForwardDiff gradient must match a
+    # central FD reference of the same primal to tight tolerance. These are the
+    # actual functions the censoring integrands call; matching FD here proves the
+    # gradient is correct, not merely finite.
+    safe_lccdf(θ) = sum(
+        t -> CensoredDistributions._logccdf_ad_safe(
+            SD.GeneralizedGamma(θ[1], θ[2], θ[3]), t),
+        obs_in)
+    safe_cdf(θ) = sum(
+        t -> CensoredDistributions._cdf_ad_safe(
+            SD.GeneralizedGamma(θ[1], θ[2], θ[3]), t),
+        obs_in)
+    for (nm, f) in (("_logccdf_ad_safe", safe_lccdf), ("_cdf_ad_safe", safe_cdf))
+        gf = ForwardDiff.gradient(f, θ₀)
+        gref = fd_grad(f, θ₀; h = 1e-5)
+        @test all(isfinite, gf)
+        @test gf≈gref rtol=1e-4 atol=1e-6
+    end
+
+    # Interval-censored pipeline: its CDF differences are exact (no internal FD),
+    # so its ForwardDiff gradient also matches a central FD reference exactly.
+    ic(θ) = sum(
+        x -> logpdf(
+            interval_censored(SD.GeneralizedGamma(θ[1], θ[2], θ[3]), 1.0), x),
+        obs_int)
+    gf_ic = ForwardDiff.gradient(ic, θ₀)
+    @test all(isfinite, gf_ic)
+    @test gf_ic≈fd_grad(ic, θ₀) rtol=1e-4 atol=1e-6
+
+    # Numeric quadrature pipelines (primary-/double-interval-censored over GG).
+    # Their `logpdf` finite-differences the CDF internally with a hardcoded
+    # `h = 1e-8`, so an external central FD of the whole logpdf is not a reliable
+    # reference (the two FD steps compound). ForwardDiff's Dual propagation
+    # through the internal FD is the exact gradient of the package's own logpdf,
+    # and is cross-checked against ReverseDiff / Mooncake / Enzyme in `test/ad`.
+    # Here we lock that these paths differentiate at all (finite gradient) — the
+    # property that was broken before the AD-safe routing.
+    pc(θ) = sum(
+        x -> logpdf(
+            primary_censored(
+                SD.GeneralizedGamma(θ[1], θ[2], θ[3]), Uniform(0.0, 1.0)),
+            x),
+        obs)
+    dic(θ) = sum(
+        x -> logpdf(
+            double_interval_censored(
+                SD.GeneralizedGamma(θ[1], θ[2], θ[3]);
+                primary_event = Uniform(0.0, 1.0), upper = 10.0, interval = 1.0),
+            x),
+        obs)
+    for (nm, f) in (("primary_censored", pc), ("double_interval_censored", dic))
+        g = ForwardDiff.gradient(f, θ₀)
+        @test all(isfinite, g)
+        @test !all(iszero, g)
+    end
 end

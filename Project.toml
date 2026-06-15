@@ -28,6 +28,7 @@ ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 Integrals = "de52edbc-65ea-441a-8357-d3a637375a31"
 Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
 ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
+SurvivalDistributions = "7121986e-ae89-4673-ae4e-1cb822919a18"
 Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [extensions]
@@ -39,6 +40,7 @@ CensoredDistributionsForwardDiffExt = "ForwardDiff"
 CensoredDistributionsIntegralsExt = "Integrals"
 CensoredDistributionsMooncakeExt = ["ChainRulesCore", "Mooncake"]
 CensoredDistributionsReverseDiffExt = "ReverseDiff"
+CensoredDistributionsSurvivalDistributionsExt = "SurvivalDistributions"
 
 [compat]
 AbstractTrees = "0.4.5"
@@ -60,6 +62,7 @@ Random = "1"
 ReverseDiff = "1"
 SpecialFunctions = "2"
 Statistics = "1"
+SurvivalDistributions = "0.1"
 Tables = "1"
 Test = "1"
 Turing = "0.42, 0.43, 0.44, 0.45"

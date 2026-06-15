@@ -578,18 +578,44 @@ function scenarios(; with_reference::Bool = false)
     # scored through its own `logpdf` — the gradient a sampler takes when fitting
     # one of these families. GeneralizedGamma's `logpdf` differentiates on every
     # backend (ForwardDiff / ReverseDiff / Mooncake reverse+forward / Enzyme
-    # reverse+forward), so it is a full (non-broken) scenario. The CENSORED path
-    # for this family is NOT an AD fixture: its `logcdf` routes through
-    # `StatsFuns._gammalogccdf`, which has no Dual/Tracked method, so no backend
-    # differentiates the censored CDF (the same incomplete-gamma gap stock Gamma
-    # avoids via the package's `_gamma_cdf` helper, which the upstream family
-    # does not use). Three params (shape σ, scale, power). Guarded on the
-    # AirspeedVelocity baseline: the fixtures module is loaded when benchmarking
-    # the PR against `main`, and `SD` is a fixtures dep there too, so the literal
-    # constructor is safe; the scenario verifies leaf gradients on every backend.
+    # reverse+forward), so it is a full (non-broken) scenario. Three params
+    # (shape σ, scale, power). Guarded on the AirspeedVelocity baseline: the
+    # fixtures module is loaded when benchmarking the PR against `main`, and `SD`
+    # is a fixtures dep there too, so the literal constructor is safe; the
+    # scenario verifies leaf gradients on every backend.
     _push!("SurvivalDistributions GeneralizedGamma logpdf",
         (θ, obs) -> sum(
             x -> logpdf(SD.GeneralizedGamma(θ[1], θ[2], θ[3]), x), obs),
+        [1.0, 1.5, 2.0], (Constant(obs),))
+
+    # CENSORED GeneralizedGamma paths (#465 follow-up). The censoring integrands
+    # query the leaf CDF/survival via `_cdf_ad_safe` / `_logccdf_ad_safe`. For a
+    # GeneralizedGamma those route through the inner `Gamma(nu/gamma,
+    # sigma^gamma)` at the transformed point `t^gamma` and into the package's
+    # AD-safe `_gamma_cdf` helper (the `CensoredDistributionsSurvivalDistributions`
+    # extension), instead of the stock `logccdf(::Gamma)` → `StatsFuns._gammalogccdf`
+    # path, which has no Dual/Tracked/Mooncake method. Both interval- and
+    # primary-censored variants differentiate on every backend (ForwardDiff /
+    # ReverseDiff / Mooncake reverse+forward / Enzyme reverse+forward) and match
+    # the ForwardDiff reference. Same three params as the leaf scenario.
+    _push!("IntervalCensored GeneralizedGamma regular",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(
+                interval_censored(
+                    SD.GeneralizedGamma(θ[1], θ[2], θ[3]), 1.0),
+                x),
+            obs),
+        [1.0, 1.5, 2.0], (Constant(obs_int),))
+    _push!("PrimaryCensored GeneralizedGamma+Uniform numerical",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(
+                primary_censored(
+                    SD.GeneralizedGamma(θ[1], θ[2], θ[3]),
+                    Uniform(0.0, 1.0)),
+                x),
+            obs),
         [1.0, 1.5, 2.0], (Constant(obs),))
 
     # Convolved (sum of independent delays). The analytic Normal+Normal
