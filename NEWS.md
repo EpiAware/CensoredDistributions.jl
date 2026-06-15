@@ -2,6 +2,23 @@
 
 ### Features
 
+- Varying / partially-pooled per-stratum parameters for composed models. The
+  batched record path previously assumed ONE shared composed distribution with
+  global parameters (only `obs_time`/`weight` and the missingness pattern varied
+  per record). `record_distributions(ds, rows; group)` now lets each record's
+  edge use DIFFERENT (sampled) parameters: `ds` is a vector of composed
+  distributions (one per stratum) and `group` is an integer stratum id per
+  record. The grouping key is an integer from an AD-free data pass, so the
+  sampled parameters (carried inside `ds`) never key a lookup, keeping the path
+  AD-safe (ForwardDiff/ReverseDiff); records are bucketed by stratum and each
+  stratum's segment construction is built once. A single stratum is bit-identical
+  to the shared-`d` fast path. `batched_event_logpdf(ds, rows; group)` returns the
+  grouped log density directly. The matching Turing entries are
+  `composed_distribution_model(ds, table; group)` and
+  `composed_parameters_model(template, strata_priors)` (a vector of per-stratum
+  prior NamedTuples, each sampled under a `:stratumK` prefix), which lets the user
+  encode no-pooling, full-pooling, or partial pooling (per-stratum parameters
+  drawn off a shared hyperprior) freely.
 - `linear_chain_stages`: lower an Exponential or Erlang (integer-shape Gamma)
   delay, or a `Sequential` chain of such leaves, to its linear-chain-trick
   `(rate, stages)` compartment structure (a `ChainStage` per step). This is the

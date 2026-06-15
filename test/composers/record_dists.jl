@@ -487,3 +487,101 @@ end
     recs = CensoredDistributions.record_distributions(d, homog)
     @test length(recs) == 2
 end
+
+# ---------------------------------------------------------------------------
+# Grouped per-stratum assembly (varying-params primitive)
+# ---------------------------------------------------------------------------
+
+@testitem "grouped record_distributions equals the per-stratum loop" begin
+    using Distributions
+
+    mk(scale) = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, scale), Uniform(0, 1)))
+    ds = [mk(1.0), mk(2.0), mk(0.5)]
+    rows = [(onset = 0.0, admit = 2.0, death = 5.0),
+        (onset = 1.0, admit = 3.0, death = 9.0),
+        (onset = 0.5, admit = 2.5, death = 6.0),
+        (onset = 0.2, admit = 1.8, death = 4.0)]
+    group = [1, 2, 1, 3]
+    obs = [[0.0, 2.0, 5.0], [1.0, 3.0, 9.0], [0.5, 2.5, 6.0], [0.2, 1.8, 4.0]]
+
+    recs = CensoredDistributions.record_distributions(ds, rows; group = group)
+    # The grouped scoring equals the per-record loop over each record's OWN
+    # stratum distribution (the invariant).
+    grouped = sum(logpdf(recs[i], obs[i]) for i in eachindex(recs))
+    manual = sum(
+        CensoredDistributions.event_logpdf(
+            ds[group[i]], Vector{Union{Missing, Float64}}(obs[i]))
+    for i in eachindex(obs))
+    @test grouped ≈ manual
+
+    # `batched_event_logpdf` is the same value as a direct call (no model).
+    @test CensoredDistributions.batched_event_logpdf(ds, rows; group = group) ≈
+          grouped
+end
+
+@testitem "grouped record_distributions one stratum == shared-d path" begin
+    using Distributions
+
+    d = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    rows = [(onset = 0.0, admit = 2.0, death = 5.0),
+        (onset = 1.0, admit = missing, death = 7.0),
+        (onset = 0.5, admit = 2.5, death = 6.0)]
+    obs = [[0.0, 2.0, 5.0], [1.0, 0.0, 7.0], [0.5, 2.5, 6.0]]
+    group = [1, 1, 1]
+
+    grouped = CensoredDistributions.record_distributions([d], rows; group = group)
+    shared = CensoredDistributions.record_distributions(d, rows)
+    # Degenerate single stratum is bit-identical to the shared-`d` fast path.
+    @test all(logpdf(grouped[i], obs[i]) == logpdf(shared[i], obs[i])
+    for i in eachindex(obs))
+end
+
+@testitem "grouped record_distributions validates group ids" begin
+    using Distributions
+
+    mk(scale) = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, scale), Uniform(0, 1)))
+    ds = [mk(1.0), mk(2.0)]
+    rows = [(onset = 0.0, admit = 2.0, death = 5.0),
+        (onset = 1.0, admit = 3.0, death = 9.0)]
+
+    # Wrong-length group.
+    @test_throws ArgumentError CensoredDistributions.record_distributions(
+        ds, rows; group = [1])
+    # Out-of-range stratum id.
+    @test_throws ArgumentError CensoredDistributions.record_distributions(
+        ds, rows; group = [1, 3])
+    # Non-integer (float) id - the AD footgun guard.
+    @test_throws ArgumentError CensoredDistributions.record_distributions(
+        ds, rows; group = [1.0, 2.0])
+end
+
+@testitem "grouped record_distributions AD-safe gradient" tags=[:turing] begin
+    using CensoredDistributions, Distributions, ForwardDiff
+
+    # The grouped scoring must differentiate w.r.t. the per-stratum params (the
+    # group key is an integer data-pass id, never keyed on a float). Build `ds`
+    # from a Dual-carrying parameter vector and check a finite gradient.
+    rows = [(onset = 0.0, admit = 2.0, death = 5.0),
+        (onset = 1.0, admit = 3.0, death = 9.0),
+        (onset = 0.5, admit = 2.5, death = 6.0)]
+    group = [1, 2, 1]
+
+    function nll(theta)
+        mk(scale) = Sequential(
+            primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, scale), Uniform(0, 1)))
+        ds = [mk(theta[1]), mk(theta[2])]
+        return -CensoredDistributions.batched_event_logpdf(ds, rows; group = group)
+    end
+
+    g = ForwardDiff.gradient(nll, [1.0, 2.0])
+    @test length(g) == 2
+    @test all(isfinite, g)
+    @test any(!iszero, g)
+end

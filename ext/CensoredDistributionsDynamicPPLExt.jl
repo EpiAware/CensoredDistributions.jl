@@ -338,6 +338,30 @@ function composed_distribution_model(
     return _vectorised_records_model(recs, _record_obs_matrix(recs))
 end
 
+# --- GROUPED entry: per-stratum (varying / partially-pooled) params ----------
+#
+# `composed_distribution_model(ds, table; group)` is the VARYING-PARAMS entry:
+# `ds` is a VECTOR of composed distributions (one per stratum) and `group` is the
+# integer stratum id per record (a 1-based index into `ds`). Each record is built
+# from `ds[group[i]]`, so records in different strata score under DIFFERENT
+# (sampled) params, while the shared single-`d` fast path is recovered exactly
+# when `length(ds) == 1`. The per-stratum params are produced by the USER (a
+# `composed_parameters_model` per stratum, an independent prior per stratum for
+# NO pooling, or per-stratum draws off a shared hyperprior for PARTIAL pooling),
+# so the pooling structure is entirely the user's to encode; this entry only does
+# the AD-safe integer-keyed grouped scoring. The table scores AND samples with the
+# standard `obs ~ product_distribution(...)` tilde, dual-purpose like the shared
+# entry. `ds` is built ONCE per stratum (its sampled params carried inside),
+# never keyed by a float, so the #321 Enzyme footgun is avoided.
+function composed_distribution_model(
+        ds::AbstractVector, table; group, weight = nothing)
+    weight === nothing || throw(ArgumentError(
+        "the grouped composed model takes per-row weights via a reserved " *
+        "`weight`/`count` row field, not the `weight` keyword"))
+    recs = CensoredDistributions.record_distributions(ds, table; group = group)
+    return _vectorised_records_model(recs, _record_obs_matrix(recs))
+end
+
 # The inner vectorised submodel: `obs` is a MODEL ARGUMENT, so a supplied matrix
 # is observed (scores) and `missing` is sampled (generates the full event paths).
 @model function _vectorised_records_model(recs, obs)
@@ -1265,5 +1289,47 @@ end
     d ~ to_submodel(_params_submodel(template, priors, shared), false)
     return d
 end
+
+# --- per-stratum (varying / partially-pooled) parameter sampling -------------
+#
+# `composed_parameters_model(template, strata_priors)` with `strata_priors` a
+# VECTOR (one nested prior NamedTuple per stratum) returns the VECTOR `ds` of
+# reconstructed composed distributions, one per stratum, each sampled under a
+# `:stratumK` prefix so the chain names stay grouped and readable
+# (`d.stratum1.onset_admit.shape`, ...). It feeds straight into the grouped
+# `composed_distribution_model(ds, table; group)`.
+#
+# POOLING is entirely the user's to encode, in HOW they build `strata_priors`:
+#   - NO pooling: an independent fixed prior per stratum (each entry a plain
+#     prior NamedTuple);
+#   - PARTIAL pooling: each stratum's prior is parameterised by a HYPERPARAMETER
+#     sampled ONCE in the user's enclosing model (e.g.
+#     `(scale = truncated(Normal(mu_hyper, tau_hyper); lower = 0),)` for every
+#     stratum), so the per-stratum params are drawn from a shared hyperprior;
+#   - FULL pooling: one stratum (`length(strata_priors) == 1`), recovering the
+#     shared-`d` path.
+# Each stratum is reconstructed through the same `composed_parameters_model`
+# machinery (so shared-tagged leaves, Competing branch_probs, censored leaves all
+# round-trip per stratum); the prefixing keeps the strata's parameters distinct
+# in the VarInfo. AD flows through every stratum's sampled params.
+@model function composed_parameters_model(
+        template, strata_priors::AbstractVector)
+    isempty(strata_priors) && throw(ArgumentError(
+        "composed_parameters_model needs at least one stratum's priors; got an " *
+        "empty `strata_priors` vector"))
+    ds = Vector{Any}(undef, length(strata_priors))
+    for k in eachindex(strata_priors)
+        sub = DynamicPPL.prefix(
+            composed_parameters_model(template, strata_priors[k]),
+            Symbol(:stratum, k))
+        ds[k] ~ to_submodel(sub, false)
+    end
+    return _narrow_ds(ds)
+end
+
+# Narrow the per-stratum `ds` to its concrete element type so the grouped record
+# assembly and `product_distribution` see a typed vector. A single stratum keeps
+# its element type (the full-pooling / shared-`d` degenerate case).
+_narrow_ds(ds::Vector) = CensoredDistributions._narrow(ds)
 
 end

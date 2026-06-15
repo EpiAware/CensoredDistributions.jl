@@ -763,3 +763,118 @@ end
     @test update(template, chain) ==
           update(template, chain_to_params(template, chain))
 end
+
+# ---------------------------------------------------------------------------
+# Varying / partially-pooled per-stratum params (the grouped primitive)
+# ---------------------------------------------------------------------------
+
+@testitem "grouped model entry equals the per-record stratum loop" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL
+
+    # `composed_distribution_model(ds, table; group)` must score the same as the
+    # explicit per-record loop over each record's OWN stratum distribution.
+    mk(scale) = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, scale), Uniform(0, 1)))
+    ds = [mk(1.0), mk(2.0)]
+    rows = [(onset = 0.0, admit = 2.0, death = 5.0),
+        (onset = 1.0, admit = 3.0, death = 9.0),
+        (onset = 0.5, admit = 2.5, death = 6.0)]
+    group = [1, 2, 1]
+
+    @model function grouped(ds, t, g)
+        obs ~ to_submodel(composed_distribution_model(ds, t; group = g))
+        return obs
+    end
+
+    lp_model = only(logjoint(grouped(ds, rows, group), (;)))
+    lp_loop = CensoredDistributions.batched_event_logpdf(ds, rows; group = group)
+    @test lp_model ≈ lp_loop
+end
+
+@testitem "grouped model one stratum equals the shared-d model" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL
+
+    # A single stratum recovers the shared-`d` vectorised model exactly.
+    d = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    rows = [(onset = 0.0, admit = 2.0, death = 5.0),
+        (onset = 1.0, admit = missing, death = 7.0)]
+
+    @model function grouped(ds, t, g)
+        obs ~ to_submodel(composed_distribution_model(ds, t; group = g))
+        return obs
+    end
+    @model function shared(d, t)
+        obs ~ to_submodel(composed_distribution_model(d, t))
+        return obs
+    end
+
+    @test only(logjoint(grouped([d], rows, [1, 1]), (;))) ≈
+          only(logjoint(shared(d, rows), (;)))
+end
+
+@testitem "partial-pooling submodel recovers hierarchical strata" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: Prefixed, VNChain
+    import Statistics
+
+    # Per-stratum scale ~ a shared hyperprior (partial pooling). The grouped fit
+    # samples a hyper-mean and per-stratum scales drawn off it, and should
+    # recover both the hyper-mean and the per-stratum truth from grouped data.
+    # The template carries a CENSORED edge (the vectorised record path needs a
+    # shared primary event); only the inner Gamma scale is free.
+    pc(scale) = primary_censored(Gamma(2.0, scale), Uniform(0, 1))
+    template = compose((onset_admit = pc(1.0),))
+    nstrata = 3
+    true_scales = [1.0, 2.0, 3.0]
+
+    # The user's enclosing model encodes the pooling: a hyper-mean `mu`, then each
+    # stratum's prior is parameterised by `mu` (a shared hyperprior over the
+    # stratum scales), assembled into the per-stratum priors vector the primitive
+    # consumes.
+    @model function pooled_fit(t, rows, group, nstrata)
+        mu ~ truncated(Normal(2.0, 1.0); lower = 0)
+        strata_priors = [(onset_admit = (
+                             shape = truncated(Normal(2.0, 0.3); lower = 0),
+                             scale = truncated(Normal(mu, 0.5); lower = 0)),)
+                         for _ in 1:nstrata]
+        ds ~ to_submodel(composed_parameters_model(t, strata_priors))
+        obs ~ to_submodel(composed_distribution_model(ds, rows; group = group))
+        return ds
+    end
+
+    # Simulate grouped data: per stratum, draw onset/admit from the true scale.
+    Random.seed!(440)
+    rows = NamedTuple[]
+    group = Int[]
+    for k in 1:nstrata
+        truth = compose((onset_admit = pc(true_scales[k]),))
+        for _ in 1:40
+            s = rand(truth)
+            push!(rows, (onset = s[1], admit = s[2]))
+            push!(group, k)
+        end
+    end
+
+    chain = sample(Xoshiro(7), pooled_fit(template, rows, group, nstrata),
+        NUTS(0.8), 200; chain_type = VNChain, progress = false)
+
+    # Per-stratum scales recover their truth (the hierarchy is identified). The
+    # per-stratum scale lives under `ds.stratumK.onset_admit.scale`; read each by
+    # its dotted varname.
+    scales = (
+        Statistics.mean(chain[Prefixed(@varname(ds.stratum1.onset_admit.scale))]),
+        Statistics.mean(chain[Prefixed(@varname(ds.stratum2.onset_admit.scale))]),
+        Statistics.mean(chain[Prefixed(@varname(ds.stratum3.onset_admit.scale))]))
+    for k in 1:nstrata
+        @test isapprox(scales[k], true_scales[k]; atol = 0.8)
+    end
+    # The per-stratum scales are ORDERED like the truth (the hierarchy is
+    # identified, not pooled flat).
+    @test scales[1] < scales[2] < scales[3]
+    # The hyper-mean sits in the bulk of the per-stratum scales.
+    mu_post = Statistics.mean(chain[Prefixed(@varname(mu))])
+    @test 0.5 < mu_post < 4.0
+end
