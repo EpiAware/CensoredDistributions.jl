@@ -238,8 +238,8 @@ Sample the SELECTED alternative.
 With a `kind` the draw is that alternative's own `rand` (a full named event
 record if the alternative is a composed tree). WITHOUT a `kind` — the
 forward-simulation path, where no data names the branch — an alternative is
-sampled uniformly and its draw returned, so `rand`/[`predict_events`](@ref)
-produces a full path for a `Select` top with no manual selection.
+sampled uniformly and its draw returned, so `rand` produces a full path for a
+`Select` top with no manual selection.
 
 See also: [`Select`](@ref)
 "

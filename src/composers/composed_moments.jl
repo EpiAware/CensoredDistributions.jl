@@ -107,12 +107,16 @@ Take `std(latent(d))` for the FULL per-event std Vector.
 std(d::Sequential) = sqrt(var(d))
 
 # A `Parallel` is genuinely multivariate: its overall moment is the per-ENDPOINT
-# Vector, one overall moment per branch endpoint (a nested `Parallel` flattens
-# its own endpoints in). The origin / intermediate events are NOT included; take
-# `latent(d)` for the full per-event vector.
-mean(d::Parallel) = _endpoint_moment_vector(d, _leaf_mean)
-var(d::Parallel) = _endpoint_moment_vector(d, _leaf_var)
-std(d::Parallel) = sqrt.(var(d))
+# NamedTuple, one overall moment per branch endpoint keyed by `_endpoint_names`
+# (a nested `Parallel` flattens its own endpoints in). The origin / intermediate
+# events are NOT included; take `latent(d)` for the full per-event NamedTuple.
+function mean(d::Parallel)
+    return _as_named(_endpoint_names(d), _endpoint_moment_vector(d, _leaf_mean))
+end
+function var(d::Parallel)
+    return _as_named(_endpoint_names(d), _endpoint_moment_vector(d, _leaf_var))
+end
+std(d::Parallel) = map(sqrt, var(d))
 
 # `Competing` already defines the scalar univariate moment (the marginal
 # time-to-resolution, `mean(as_mixture(c))`) in `Competing.jl`, matching the
@@ -209,16 +213,16 @@ event_names(d::_ComposerLatent) = event_names(d.dist)
 
 @doc "
 
-Per-event means of a composed distribution, as a `Vector`.
+Per-event means of a composed distribution, as a labelled `NamedTuple`.
 
-`mean(latent(d))` returns the per-event means of a composed tree in the SAME flat
-layout as `rand(latent(d))` and [`event_names`](@ref): for a censored tree the
-origin event's mean followed by one mean per leaf edge; for a plain (uncensored)
-tree the per-step value means. Each edge's mean is that of its underlying FREE
-delay, so a censored leaf (e.g. `double_interval_censored(Gamma(2, 3.5))`)
-reports the inner delay mean (`7.0`). Pair with [`event_names`](@ref) for a
-labelled NamedTuple. For the overall (scalar) mean delay use [`mean`](@ref)`(d)`
-on the bare composer instead.
+`mean(latent(d))` returns the per-event means of a composed tree as a
+`NamedTuple` keyed by [`event_names`](@ref), in the SAME flat layout as
+`rand(latent(d))`: for a censored tree the origin event's mean followed by one
+mean per leaf edge; for a plain (uncensored) tree the per-step value means. Each
+edge's mean is that of its underlying FREE delay, so a censored leaf (e.g.
+`double_interval_censored(Gamma(2, 3.5))`) reports the inner delay mean (`7.0`).
+For the overall (scalar) mean delay use [`mean`](@ref)`(d)` on the bare composer
+instead.
 
 # Examples
 ```@example
@@ -227,7 +231,7 @@ using CensoredDistributions, Distributions
 tree = compose((onset_admit = double_interval_censored(Gamma(2.0, 3.5);
         primary_event = Uniform(0, 1), interval = 1.0),
     onset_notif = Gamma(0.7, 20.0)))
-NamedTuple{event_names(tree)}(Tuple(mean(latent(tree))))
+mean(latent(tree))
 ```
 
 # See also
@@ -235,32 +239,40 @@ NamedTuple{event_names(tree)}(Tuple(mean(latent(tree))))
 - [`var`](@ref), [`std`](@ref): the matching per-event variance / std
 - [`event_names`](@ref): the flat per-event labels
 "
-mean(d::_ComposerLatent) = _event_moment_vector(d.dist, _leaf_mean)
+function mean(d::_ComposerLatent)
+    return _as_named(_output_names(d.dist),
+        _event_moment_vector(d.dist, _leaf_mean))
+end
 
 @doc "
 
-Per-event variances of a composed distribution, as a `Vector`.
+Per-event variances of a composed distribution, as a labelled `NamedTuple`.
 
 `var(latent(d))` mirrors `mean(latent(d))`, returning the variance of each
-event's underlying FREE delay in the same flat per-event layout as
-`rand(latent(d))` / [`event_names`](@ref).
+event's underlying FREE delay as a `NamedTuple` keyed by [`event_names`](@ref),
+in the same flat per-event layout as `rand(latent(d))`.
 
 # See also
 - `mean(latent(d))`, `std(latent(d))`, [`var`](@ref)
 "
-var(d::_ComposerLatent) = _event_moment_vector(d.dist, _leaf_var)
+function var(d::_ComposerLatent)
+    return _as_named(_output_names(d.dist),
+        _event_moment_vector(d.dist, _leaf_var))
+end
 
 @doc "
 
-Per-event standard deviations of a composed distribution, as a `Vector`.
+Per-event standard deviations of a composed distribution, as a labelled
+`NamedTuple`.
 
-`std(latent(d))` is the elementwise square root of `var(latent(d))`, in the same
-flat per-event layout as `rand(latent(d))` / [`event_names`](@ref).
+`std(latent(d))` is the elementwise square root of `var(latent(d))`, a
+`NamedTuple` keyed by [`event_names`](@ref) in the same flat per-event layout as
+`rand(latent(d))`.
 
 # See also
 - `mean(latent(d))`, `var(latent(d))`, [`std`](@ref)
 "
-std(d::_ComposerLatent) = sqrt.(var(d))
+std(d::_ComposerLatent) = map(sqrt, var(d))
 
 # --- flat per-event moment vector -------------------------------------------
 #

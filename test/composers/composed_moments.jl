@@ -13,60 +13,65 @@
     @test std(seq) ≈ sqrt(var(seq))
 end
 
-@testitem "mean(latent(seq)) is the full per-event vector" begin
+@testitem "mean(latent(seq)) is the full per-event NamedTuple" begin
     using CensoredDistributions, Distributions
 
     dic(d) = double_interval_censored(
         d; primary_event = Uniform(0, 1), interval = 1.0)
 
-    # A censored chain's latent view exposes the full per-event vector matching
-    # rand(latent(d)) / event_names(d): the origin event then one free-delay
-    # moment per leaf edge (censoring seen through).
+    # A censored chain's latent view exposes the full per-event NamedTuple keyed
+    # by event_names(d), in the same layout as rand(latent(d)): the origin event
+    # then one free-delay moment per leaf edge (censoring seen through).
     seq = Sequential((dic(Gamma(1.2, 3.0)), dic(Gamma(2.0, 3.5))),
         (:onset_admit, :admit_death))
     lat = latent(seq)
-    m = mean(lat)
-    @test m isa Vector
-    @test length(m) == length(rand(lat)) == length(event_names(seq))
-    em = NamedTuple{event_names(seq)}(Tuple(m))
+    em = mean(lat)
+    @test em isa NamedTuple
+    @test keys(em) == keys(rand(lat)) == event_names(seq)
     @test em.onset ≈ mean(Uniform(0, 1))
     @test em.admit ≈ mean(Gamma(1.2, 3.0))
     @test em.death ≈ mean(Gamma(2.0, 3.5)) ≈ 7.0
 
-    ev = NamedTuple{event_names(seq)}(Tuple(var(latent(seq))))
+    ev = var(latent(seq))
+    @test ev isa NamedTuple
     @test ev.admit ≈ var(Gamma(1.2, 3.0))
     @test ev.death ≈ var(Gamma(2.0, 3.5))
-    @test std(latent(seq)) ≈ sqrt.(var(latent(seq)))
+    es = std(latent(seq))
+    @test es.admit ≈ sqrt(ev.admit)
+    @test es.death ≈ sqrt(ev.death)
 end
 
-@testitem "mean(par) is the per-endpoint vector, latent the full path" begin
+@testitem "mean(par) is the per-endpoint NamedTuple, latent the full path" begin
     using CensoredDistributions, Distributions
 
     dic(d) = double_interval_censored(
         d; primary_event = Uniform(0, 1), interval = 1.0)
 
-    # A Parallel is genuinely multivariate: mean(par) is the per-ENDPOINT vector
-    # (one overall moment per branch endpoint, NOT the origin), seeing through
-    # censoring.
+    # A Parallel is genuinely multivariate: mean(par) is the per-ENDPOINT
+    # NamedTuple (one overall moment per branch endpoint, NOT the origin), seeing
+    # through censoring, keyed by the branch endpoint names.
     par = Parallel(dic(Gamma(2.0, 1.0)), dic(Gamma(1.5, 2.0)))
     m = mean(par)
-    @test m isa Vector
-    @test length(m) == length(par.components)
-    @test m[1] ≈ mean(Gamma(2.0, 1.0))
-    @test m[2] ≈ mean(Gamma(1.5, 2.0))
+    @test m isa NamedTuple
+    @test length(keys(m)) == length(par.components)
+    @test m.branch_1 ≈ mean(Gamma(2.0, 1.0))
+    @test m.branch_2 ≈ mean(Gamma(1.5, 2.0))
 
     v = var(par)
-    @test v[1] ≈ var(Gamma(2.0, 1.0))
-    @test v[2] ≈ var(Gamma(1.5, 2.0))
-    @test std(par) ≈ sqrt.(var(par))
+    @test v.branch_1 ≈ var(Gamma(2.0, 1.0))
+    @test v.branch_2 ≈ var(Gamma(1.5, 2.0))
+    s = std(par)
+    @test s.branch_1 ≈ sqrt(v.branch_1)
+    @test s.branch_2 ≈ sqrt(v.branch_2)
 
-    # latent(par) is the FULL per-event vector incl. the shared origin.
+    # latent(par) is the FULL per-event NamedTuple incl. the shared origin.
     lat = latent(par)
     lm = mean(lat)
-    @test length(lm) == length(rand(lat)) == length(event_names(par))
-    @test lm[1] ≈ mean(Uniform(0, 1))   # origin slot
-    @test lm[2] ≈ mean(Gamma(2.0, 1.0))
-    @test lm[3] ≈ mean(Gamma(1.5, 2.0))
+    @test keys(lm) == keys(rand(lat)) == event_names(par)
+    origin, admit, death = event_names(par)
+    @test lm[origin] ≈ mean(Uniform(0, 1))   # origin slot
+    @test lm[admit] ≈ mean(Gamma(2.0, 1.0))
+    @test lm[death] ≈ mean(Gamma(1.5, 2.0))
 end
 
 @testitem "latent per-event vector sees through censored leaves" begin
@@ -84,16 +89,15 @@ end
         onset_notif = dic(Gamma(0.7, 20.0))))
 
     lat = latent(tree)
-    m = mean(lat)
-    @test length(m) == length(rand(lat)) == length(event_names(tree))
-    em = NamedTuple{event_names(tree)}(Tuple(m))
+    em = mean(lat)
+    @test keys(em) == keys(rand(lat)) == event_names(tree)
     @test em.onset ≈ mean(Uniform(0, 1))
     @test em.admit ≈ mean(Gamma(1.2, 3.0))
     @test em.death ≈ mean(Gamma(2.0, 3.5)) ≈ 7.0
     @test em.discharge ≈ mean(Gamma(1.0, 8.0))
     @test em.notif ≈ mean(Gamma(0.7, 20.0))
 
-    ev = NamedTuple{event_names(tree)}(Tuple(var(lat)))
+    ev = var(lat)
     @test ev.death ≈ var(Gamma(2.0, 3.5))
     @test ev.discharge ≈ var(Gamma(1.0, 8.0))
 end
@@ -112,7 +116,7 @@ end
     chain = Sequential((dic(Gamma(1.2, 3.0)), inner),
         (:onset_admit, :admit_resolution))
 
-    em = NamedTuple{event_names(chain)}(Tuple(mean(latent(chain))))
+    em = mean(latent(chain))
     @test em.fast ≈ mean(Gamma(1.0, 1.0))
     @test em.slow ≈ mean(Gamma(2.0, 2.0))
 
@@ -130,15 +134,17 @@ end
     @test mean(seq) isa Real
     @test mean(seq) ≈ mean(Gamma(2.0, 1.0)) + mean(LogNormal(0.5, 0.4))
 
-    # Its latent view is the per-step value vector (no censored origin event).
+    # Its latent view is the per-step value NamedTuple keyed by the step names
+    # (no censored origin event for a plain tree).
     m = mean(latent(seq))
-    @test length(m) == length(rand(latent(seq)))
-    @test m[1] ≈ mean(Gamma(2.0, 1.0))
-    @test m[2] ≈ mean(LogNormal(0.5, 0.4))
+    @test m isa NamedTuple
+    @test keys(m) == keys(rand(latent(seq))) == (:a, :b)
+    @test m.a ≈ mean(Gamma(2.0, 1.0))
+    @test m.b ≈ mean(LogNormal(0.5, 0.4))
 
     v = var(latent(seq))
-    @test v[1] ≈ var(Gamma(2.0, 1.0))
-    @test v[2] ≈ var(LogNormal(0.5, 0.4))
+    @test v.a ≈ var(Gamma(2.0, 1.0))
+    @test v.b ≈ var(LogNormal(0.5, 0.4))
 end
 
 @testitem "latent walks Convolved and weighted leaves through free-leaf" begin
@@ -149,18 +155,18 @@ end
 
     # A Convolved edge reuses its additive mean (sum of component means). This
     # tree is PLAIN (uncensored), so the latent view is the per-step value
-    # vector (no censored origin event).
+    # NamedTuple keyed by the step names (no censored origin event).
     conv = convolve_distributions(Gamma(2.0, 1.0), Gamma(3.0, 1.0))
     ct = compose((c = conv, n = Gamma(1.0, 1.0)))
     cm = mean(latent(ct))
-    @test length(cm) == length(rand(latent(ct)))
-    @test cm[1] ≈ mean(conv) ≈ mean(Gamma(2.0, 1.0)) + mean(Gamma(3.0, 1.0))
-    @test cm[2] ≈ mean(Gamma(1.0, 1.0))
+    @test keys(cm) == keys(rand(latent(ct))) == (:c, :n)
+    @test cm.c ≈ mean(conv) ≈ mean(Gamma(2.0, 1.0)) + mean(Gamma(3.0, 1.0))
+    @test cm.n ≈ mean(Gamma(1.0, 1.0))
 
     # A weighted censored leaf reports its inner free-delay moment.
     wt = compose((onset_admit = weight(dic(Gamma(2.0, 3.5)), 2.0),
         onset_notif = Gamma(0.7, 20.0)))
-    wm = NamedTuple{event_names(wt)}(Tuple(mean(latent(wt))))
+    wm = mean(latent(wt))
     @test wm.admit ≈ 7.0
 end
 

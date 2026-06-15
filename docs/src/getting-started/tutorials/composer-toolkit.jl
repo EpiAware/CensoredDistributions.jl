@@ -258,10 +258,10 @@ latent_lp = logpdf(ld, path)
 (marginal = marginal_lp, latent_joint = latent_lp)
 
 # Prediction samples every internal event time directly from the latent form via
-# [`predict_events`](@ref): a full `[primary, observed]` path with no model and
-# no conditioning.
+# `rand(latent(d))`: a full `(primary, observed)` record with no model and no
+# conditioning.
 
-predict_events(ld; rng = Xoshiro(11))
+rand(Xoshiro(11), ld)
 
 # Prefer the LATENT form when the marginal integral is impractical: very complex
 # delay distributions where the convolution has no closed form and numeric

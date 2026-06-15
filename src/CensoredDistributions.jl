@@ -45,8 +45,8 @@ using OptimizationOptimJL: NelderMead
 export primary_censored, interval_censored, double_interval_censored,
        double_censored
 
-# Exported latent representation
-export latent, PrimaryConditional, primary_conditional_logpdf
+# Exported latent representation and its inverse
+export latent, marginal, PrimaryConditional, primary_conditional_logpdf
 
 # Export underlying methods for user extension
 export primarycensored_cdf, primarycensored_logcdf
@@ -132,11 +132,6 @@ export primary_censored_model, interval_censored_model,
        double_interval_censored_model, composed_distribution_model,
        composed_parameters_model
 
-# Exported Turing-side convenience to sample event-based draws (the internal
-# event times) from a marginal-fit posterior. No methods until DynamicPPL (or
-# Turing) is loaded; the method lives in the package extension.
-export predict_events
-
 # Exported linear chain trick lowering: read the (rate, stages) Erlang-stage
 # compartment structure off an Exponential/Erlang delay or Sequential chain, the
 # distributions -> compartments bridge an ODE/compartment model consumes.
@@ -217,6 +212,12 @@ include("utils/hazard.jl")
 # (utils/get_dist.jl) and the integration helpers.
 include("composers/censored_specialisations.jl")
 
+# Labelled NamedTuple OUTPUTS for multivariate composed distributions: an
+# output/interface layer over the vector-valued scored representation. After the
+# censored specialisations (`_composer_rand`, `_tree_primary_event`) and
+# tree_events (`_row_event_vector`) it wraps, and the composers it names.
+include("composers/named_outputs.jl")
+
 # Per-record composed distributions for vectorised scoring + sampling: depends on
 # the censored specialisations (`event_logpdf`, `_sequential_segment`,
 # `_composer_rand`) and the row-parsing helpers in `tree_events.jl`.
@@ -225,11 +226,6 @@ include("composers/record_dists.jl")
 # Turing-free `primary_censored_model` function stub. Has no methods
 # until DynamicPPL is loaded; the methods live in the package extension.
 include("turing_models.jl")
-
-# Turing-free `predict_events` raw-distribution methods: forward-simulate
-# event paths from a latent/composed distribution. The fitted-model
-# `predict_events(chain, model)` method lives in the DynamicPPL extension.
-include("utils/predict_events.jl")
 
 # Public interface-conformance harness (a public submodule). Included last so it
 # can reference the whole public surface; uses `Test` only inside its functions.

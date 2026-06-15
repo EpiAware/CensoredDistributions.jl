@@ -1,69 +1,73 @@
-# Tests for `predict_events` (#350), the event-based draw convenience with two
-# dispatch paths:
-#   - raw distribution (Turing-free, core): forward-simulate full event paths
-#     from a latent/composed distribution via `rand`;
-#   - fitted Turing model (extension): recover the observed records'
-#     integrated-out latent event times from a marginal-fit posterior.
-# Turing/DynamicPPL/FlexiChains are test dependencies; the core path needs none
-# of them.
+# Event-based simulation and posterior event recovery now use the standard
+# entry points (the `predict_events` convenience was dropped, #425):
+#   - forward-simulating full event paths: `rand(latent(d))` (a single labelled
+#     event record) and a comprehension `[rand(latent(d)) for _ in 1:n]` for a
+#     batch;
+#   - recovering observed records' integrated-out latent event times from a
+#     marginal-fit posterior: `DynamicPPL.predict(model, chain)` directly.
+# Turing/DynamicPPL/FlexiChains are test dependencies; the simulation path needs
+# none of them.
 
 # ===========================================================================
-# Raw-distribution path (Turing-free, core)
+# Forward simulation via `rand(latent(d))` (Turing-free, core)
 # ===========================================================================
 
-@testitem "predict_events: raw single draw is a full event path" begin
+@testitem "rand(latent(d)): single draw is a labelled event record" begin
     using CensoredDistributions, Distributions, Random
 
     ld = latent(primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1)))
-    path = predict_events(ld; rng = MersenneTwister(1))
+    path = rand(MersenneTwister(1), ld)
 
-    # The latent leaf draws `[primary, observed]`: the primary lies in the unit
-    # window and the observed time exceeds it (a positive delay).
-    @test length(path) == 2
-    @test 0 <= path[1] <= 1
-    @test path[2] > path[1]
+    # The latent leaf draws the labelled record `(primary, observed)`: the
+    # primary lies in the unit window and the observed time exceeds it.
+    @test path isa NamedTuple
+    @test keys(path) == (:primary, :observed)
+    @test 0 <= path.primary <= 1
+    @test path.observed > path.primary
 end
 
-@testitem "predict_events: raw n draws give n event paths" begin
+@testitem "rand(latent(d)): a batch of draws via a comprehension" begin
     using CensoredDistributions, Distributions, Random
 
     ld = latent(primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)))
-    paths = predict_events(ld, 200; rng = MersenneTwister(2))
+    rng = MersenneTwister(2)
+    paths = [rand(rng, ld) for _ in 1:200]
 
     @test length(paths) == 200
-    @test all(p -> 0 <= p[1] <= 1 && p[2] > p[1], paths)
+    @test all(p -> 0 <= p.primary <= 1 && p.observed > p.primary, paths)
 end
 
-@testitem "predict_events: raw is reproducible under a seeded rng" begin
+@testitem "rand(latent(d)): reproducible under a seeded rng" begin
     using CensoredDistributions, Distributions, Random
 
     ld = latent(primary_censored(LogNormal(1.0, 0.4), Uniform(0, 1)))
-    a = predict_events(ld, 50; rng = MersenneTwister(99))
-    b = predict_events(ld, 50; rng = MersenneTwister(99))
+    a = [rand(MersenneTwister(99), ld) for _ in 1:1]
+    b = [rand(MersenneTwister(99), ld) for _ in 1:1]
     @test a == b
 end
 
-@testitem "predict_events: raw over parameter draws rebuilds per draw" begin
+@testitem "rand(latent(d)): rebuild per parameter set, simulate each" begin
     using CensoredDistributions, Distributions, Random
 
     build(p) = latent(
         primary_censored(LogNormal(p.mu, p.sigma), Uniform(0, 1)))
     draws = [(mu = 1.4, sigma = 0.5), (mu = 1.6, sigma = 0.4),
         (mu = 1.2, sigma = 0.6)]
-    paths = predict_events(build, draws; rng = MersenneTwister(3))
+    rng = MersenneTwister(3)
+    paths = [rand(rng, build(p)) for p in draws]
 
     @test length(paths) == length(draws)
-    @test all(p -> 0 <= p[1] <= 1 && p[2] > p[1], paths)
+    @test all(p -> 0 <= p.primary <= 1 && p.observed > p.primary, paths)
 end
 
 # ===========================================================================
-# Fitted-model path (extension): observed-record latent recovery
+# Posterior event recovery via `DynamicPPL.predict` (extension territory)
 # ===========================================================================
 
-@testitem "predict_events: recovers observed records' latent primaries" begin
+@testitem "DynamicPPL.predict recovers observed records' latent primaries" begin
     using CensoredDistributions, Distributions, Random
     using Turing: Turing, NUTS, sample, @model, to_submodel
-    using DynamicPPL: prefix, @varname
+    using DynamicPPL: DynamicPPL, predict, prefix, @varname
     using FlexiChains: Parameter
 
     rng = Random.MersenneTwister(42)
@@ -97,7 +101,8 @@ end
         end
     end
 
-    events = predict_events(chain, latent_recovery(ys))
+    # Posterior event recovery is `DynamicPPL.predict(model, chain)` directly.
+    events = predict(latent_recovery(ys), chain)
 
     # The recovered variables are the per-record latent primaries `rec_i.p`
     # (only `p` is sampled; the observed `y` is conditioned), one per record.
@@ -111,10 +116,10 @@ end
     end
 end
 
-@testitem "predict_events: new-record posterior predictive via the model" begin
+@testitem "DynamicPPL.predict samples new-record event paths" begin
     using CensoredDistributions, Distributions, Random
     using Turing: Turing, NUTS, sample, @model, to_submodel
-    using DynamicPPL: prefix
+    using DynamicPPL: DynamicPPL, predict, prefix
     using FlexiChains: Parameter
 
     rng = Random.MersenneTwister(7)
@@ -134,7 +139,7 @@ end
     chain = sample(rng, fit_marginal(ys), NUTS(), 40; progress = false)
 
     # New-record predictive: a latent model with `missing` events samples the
-    # full event path per posterior draw.
+    # full event path per posterior draw, recovered with `DynamicPPL.predict`.
     @model function new_records(nrec)
         mu ~ Normal(1.4, 0.5)
         d = latent(primary_censored(LogNormal(mu, 0.5), Uniform(0, 1)))
@@ -145,7 +150,7 @@ end
         end
     end
 
-    events = predict_events(chain, new_records(4))
+    events = predict(new_records(4), chain)
     arr = Array(events)
     @test all(isfinite, arr)
     @test size(arr, 1) == size(Array(chain), 1)

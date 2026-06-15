@@ -217,13 +217,13 @@ md"""
 ## Step 1: simulate from the model
 
 The composed distribution is used in both directions: scoring walks it to read a
-record's likelihood, and [`predict_events`](@ref) walks the same object to draw a
-full event path for a new case.
-A single draw returns the named event record, with exactly one of death or
-discharge populated by the competing node.
+record's likelihood, and `rand(d)` walks the same object to draw a full event
+path for a new case.
+A single draw returns the named event record (a labelled `NamedTuple`), with
+exactly one of death or discharge populated by the competing node.
 """
 
-predict_events(delay_tree(cfr = 0.6); rng = MersenneTwister(1))
+rand(MersenneTwister(1), delay_tree(cfr = 0.6))
 
 md"""
 We build a synthetic line list this way.
@@ -243,7 +243,7 @@ sim_rows = let rng = MersenneTwister(20260609), n = 200
         age_z = randn(rng)
         p = logistic(sim_truth.β0 + sim_truth.β_hcw * hcw +
                      sim_truth.β_def * probable + sim_truth.β_age * age_z)
-        s = predict_events(delay_tree(cfr = p); rng = rng)
+        s = rand(rng, delay_tree(cfr = p))
         (onset = s.onset, admit = s.admit, death = s.death,
             discharge = s.discharge, notif = s.notif,
             hcw = hcw, probable = probable, age_z = age_z)
@@ -260,7 +260,7 @@ md"""
 We fit the synthetic line list and read the posterior back onto the composed
 object with [`update`](@ref), passing the fitted chain directly.
 The per-event [`mean`](@ref CensoredDistributions.mean)`(latent(fit))`
-Vector (labelled with [`event_names`](@ref)) then reads each delay's mean
+NamedTuple (keyed by [`event_names`](@ref)) then reads each delay's mean
 off the updated distribution, so there is no manual chain indexing.
 
 The likelihood is differentiated with forward mode (`AutoForwardDiff`).
@@ -281,17 +281,16 @@ sim_fit = update(template, sim_chain; prefix = :delays)
 
 md"""
 The per-event [`mean`](@ref CensoredDistributions.mean)`(latent(fit))`
-Vector reads every delay mean off any fitted composed object at once, in
-the same flat layout as [`event_names`](@ref)
-and seeing through each censored leaf to its inner free delay. `flat_means`
-labels that Vector and picks the four delays we report, and `delay_mean_draws`
+NamedTuple reads every delay mean off any fitted composed object at once, keyed
+by [`event_names`](@ref) and seeing through each censored leaf to its inner free
+delay. `flat_means` picks the four delays we report, and `delay_mean_draws`
 applies it to every posterior draw, giving the posterior distribution of each
 delay mean through repeated [`update`](@ref) on the chain (one draw at a time)
 rather than any manual chain indexing.
 """
 
 function flat_means(fit)
-    em = NamedTuple{event_names(fit)}(Tuple(mean(latent(fit))))
+    em = mean(latent(fit))
     return (onset_admit = em.admit, admit_death = em.death,
         admit_discharge = em.discharge, onset_notif = em.notif)
 end
@@ -851,13 +850,13 @@ md"""
 - Priors come from [`params_table`](@ref) and [`build_priors`](@ref), which
   derives weakly informative defaults from each parameter's support; the records
   score through the vectorised [`composed_distribution_model`](@ref).
-- The workflow simulates from the model with [`predict_events`](@ref), whose
-  draws are unbiased now that the censoring is applied as `floor(target) -
-  floor(origin)`, fits the real line list, and overlaps the re-estimated study
-  delays within uncertainty for all four delays.
+- The workflow simulates from the model with `rand(d)`, whose draws are unbiased
+  now that the censoring is applied as `floor(target) - floor(origin)`, fits the
+  real line list, and overlaps the re-estimated study delays within uncertainty
+  for all four delays.
 - The posterior is read back with [`update`](@ref) applied to the fitted chain
   and the per-event
-  [`mean`](@ref CensoredDistributions.mean)`(latent(fit))` Vector, so delay
+  [`mean`](@ref CensoredDistributions.mean)`(latent(fit))` NamedTuple, so delay
   means and the onset-to-death convolution come straight from the fitted
   object.
 - The same delay model is fit in both the MARGINAL form (admission integrated

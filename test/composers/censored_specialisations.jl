@@ -282,13 +282,16 @@ end
     chain = Sequential(primary_censored(LogNormal(1.2, 0.5), pe),
         primary_censored(Gamma(2.0, 1.0), pe))
 
-    # Full event-time path [E0, E1, E2]: origin draw plus cumulative delays, so
-    # every internal event time is returned (not a summary).
+    # Full event-time path [E0, E1, E2] as a labelled NamedTuple: origin draw
+    # plus cumulative delays, so every internal event time is returned.
     r = rand(chain)
+    @test r isa NamedTuple
     @test length(r) == 3
-    @test issorted(r)              # monotone: each step adds a positive delay
-    # The simulated all-observed path scores finitely under the chain.
-    @test isfinite(logpdf(chain, convert(Vector{Union{Missing, Float64}}, r)))
+    rv = collect(values(r))
+    @test issorted(rv)             # monotone: each step adds a positive delay
+    # The simulated all-observed labelled path scores finitely under the chain
+    # (the NamedTuple is matched to the event vector by name internally).
+    @test isfinite(logpdf(chain, r))
 end
 
 @testitem "rand simulates the shared origin and every branch of a Parallel" begin
@@ -299,11 +302,13 @@ end
     par = Parallel(primary_censored(Gamma(2.0, 1.0), pe),
         primary_censored(LogNormal(1.0, 0.5), pe))
 
-    # Full event-time vector [O, Y1, Y2]: one shared origin draw then each branch
-    # observation as origin plus an independent branch delay.
+    # Full event-time record [O, Y1, Y2] as a labelled NamedTuple: one shared
+    # origin draw then each branch observation as origin plus a branch delay.
     r = rand(par)
+    @test r isa NamedTuple
     @test length(r) == 3
-    @test all(r[2:end] .>= r[1])   # each observation is after the shared origin
+    rv = collect(values(r))
+    @test all(rv[2:end] .>= rv[1])  # each observation is after the shared origin
 end
 
 @testitem "rand on plain composers keeps the per-leaf realisation" begin
@@ -568,7 +573,7 @@ end
     @test logpdf(d, evd) ≈ refd rtol=1e-10
 end
 
-# --- Nested/Competing-aware full-path rand / predict_events -----------------
+# --- Nested/Competing-aware full-path rand ----------------------------------
 
 @testitem "rand on a nested tree returns a named shared-origin path" begin
     using Distributions, Random
@@ -663,19 +668,19 @@ end
         (:onset_x_seq, :onset_notif))
     sel = selecting(:index => idx, :sourced => src)
 
-    # With a kind, the selected branch's own draw (a named record for the nested
-    # sourced branch, a vector for the flat index branch).
+    # With a kind, the selected branch's own labelled draw (both the flat index
+    # chain and the nested sourced tree now yield a NamedTuple event record).
     rs = rand(Xoshiro(3), sel; kind = :sourced)
     @test rs isa NamedTuple
     @test keys(rs) == event_names(src)
     ri = rand(Xoshiro(3), sel; kind = :index)
-    @test ri isa AbstractVector && length(ri) == 3
+    @test ri isa NamedTuple && length(ri) == 3
     # Without a kind (forward simulation), a branch is sampled.
     r = rand(Xoshiro(5), sel)
-    @test r isa NamedTuple || r isa AbstractVector
+    @test r isa NamedTuple
 end
 
-@testitem "predict_events matches rand on a nested tree" begin
+@testitem "rand simulates a labelled record over a nested tree" begin
     using Distributions, Random
 
     edge(mu,
@@ -686,10 +691,14 @@ end
     seq = Sequential((edge(1.4, 0.4), cmp), (:onset_admit, :admit_resolve))
     d = Parallel((seq, edge(1.9, 0.5)), (:onset_notif_seq, :onset_notif))
 
-    a = predict_events(d; rng = Xoshiro(9))
-    b = rand(Xoshiro(9), d)
-    @test isequal(a, b)                    # same seeded draw (missing-safe)
-    paths = predict_events(d, 5; rng = Xoshiro(9))
+    # `rand(latent(d))` forward-simulates a full labelled event path; `rand(d)`
+    # is the same labelled record (a composed tree already rands the full path).
+    a = rand(Xoshiro(9), d)
+    @test a isa NamedTuple
+    @test keys(a) == event_names(d)
+    # A batch of independent draws shares the same event labels.
+    rng = Xoshiro(9)
+    paths = [rand(rng, d) for _ in 1:5]
     @test length(paths) == 5
     @test all(p -> keys(p) == keys(a), paths)
 end

@@ -16,13 +16,13 @@ parameters, together with the marginal-equals-latent equivalence (the latent
 representation integrates to the marginal `logpdf`). The marginal-fit posterior
 therefore drops straight into the latent form.
 
-`predict_events` provides this in two flavours, dispatched by what you pass:
+Two standard entry points cover this:
 
-1. **Forward simulation (Turing-free):** `predict_events(d, ...)` simulates full
-   event paths directly from a latent distribution via `rand`. No `@model`
-   needed. Use this to generate fresh event paths from parameters (the
-   new-record posterior-predictive path).
-2. **Latent recovery (Turing):** `predict_events(chain, model)` recovers the
+1. **Forward simulation (Turing-free):** `rand(latent(d))` simulates a full
+   event path directly from a latent distribution. No `@model` needed. Use this
+   to generate fresh event paths from parameters (the new-record
+   posterior-predictive path); a comprehension batches the draws.
+2. **Latent recovery (Turing):** `DynamicPPL.predict(model, chain)` recovers the
    observed records' integrated-out latent event times by running the latent
    form of the fitted model over the posterior chain.
 
@@ -42,7 +42,7 @@ using CensoredDistributions
 using Distributions
 using Turing
 using ADTypes: AutoForwardDiff
-using DynamicPPL: prefix, @varname
+using DynamicPPL: prefix, @varname, predict
 using FlexiChains: Parameter
 using Random
 using Statistics
@@ -99,10 +99,10 @@ mu_post = vec(chain[Parameter(@varname(mu))]);
 md"""
 ## Flavour 1: forward-simulate fresh event paths (Turing-free)
 
-`predict_events(d, ...)` draws full event paths `[primary, observed]` directly
-from a latent distribution. Build the latent distribution from a posterior draw
-and simulate, with no model or conditioning. This is the new-record
-posterior-predictive path.
+`rand(latent(d))` draws a full event path as a labelled
+`(primary = ..., observed = ...)` record directly from a latent distribution.
+Build the latent distribution from a posterior draw and simulate, with no model
+or conditioning. This is the new-record posterior-predictive path.
 """
 
 sigma_post = vec(chain[Parameter(@varname(sigma))]);
@@ -112,24 +112,26 @@ post_draw = (mu = mean(mu_post), sigma = mean(sigma_post));
 ld = latent(primary_censored(
     LogNormal(post_draw.mu, post_draw.sigma), Uniform(0, 1)));
 
-one_path = predict_events(ld; rng = MersenneTwister(1))
+one_path = rand(MersenneTwister(1), ld)
 
 md"""
-A single path is `[primary, observed]`: the primary lies in the window and the
-observed time exceeds it (a positive delay).
+A single path is the record `(primary, observed)`: the primary lies in the
+window and the observed time exceeds it (a positive delay).
 """
 
-@assert 0 <= one_path[1] <= 1
-@assert one_path[2] > one_path[1]
+@assert 0 <= one_path.primary <= 1
+@assert one_path.observed > one_path.primary
 
 md"""
-We can draw many paths at once, or push a set of posterior draws through the
-latent form by rebuilding the distribution per draw.
+We can draw many paths with a comprehension, or push a set of posterior draws
+through the latent form by rebuilding the distribution per draw.
 """
 
-many_paths = predict_events(ld, 500; rng = MersenneTwister(2));
+rng2 = MersenneTwister(2);
 
-@assert all(p -> p[2] > p[1], many_paths)
+many_paths = [rand(rng2, ld) for _ in 1:500];
+
+@assert all(p -> p.observed > p.primary, many_paths)
 
 build(p) = latent(primary_censored(
     LogNormal(p.mu, p.sigma), Uniform(0, 1)))
@@ -137,18 +139,20 @@ build(p) = latent(primary_censored(
 param_draws = [(mu = m, sigma = s)
                for (m, s) in zip(mu_post[1:50], sigma_post[1:50])];
 
-per_draw_paths = predict_events(build, param_draws; rng = MersenneTwister(3));
+rng3 = MersenneTwister(3);
+
+per_draw_paths = [rand(rng3, build(p)) for p in param_draws];
 
 @assert length(per_draw_paths) == length(param_draws)
 
 md"""
 ## Flavour 2: recover the observed records' latent event times (Turing)
 
-`predict_events(chain, model)` takes the marginal-fit `chain` and the **latent**
-form of the same model carrying the observed data. It runs the latent model
-conditioned on each posterior draw, re-sampling the integrated-out latents (here
-the per-record primary event time). The latent model uses the same parameter
-names as the marginal fit, so the posterior drops straight in.
+`DynamicPPL.predict(model, chain)` takes the **latent** form of the same model
+carrying the observed data and the marginal-fit `chain`. It runs the latent
+model conditioned on each posterior draw, re-sampling the integrated-out latents
+(here the per-record primary event time). The latent model uses the same
+parameter names as the marginal fit, so the posterior drops straight in.
 """
 
 @model function latent_recovery(y)
@@ -161,7 +165,7 @@ names as the marginal fit, so the posterior drops straight in.
     end
 end
 
-events = predict_events(chain, latent_recovery(observed))
+events = predict(latent_recovery(observed), chain)
 
 md"""
 The recovered variables are the per-record latent primaries `rec_i.p` (only the
@@ -191,10 +195,10 @@ requires.
 ## Summary
 
 - Fit once in the cheap marginal form.
-- `predict_events(d, ...)` forward-simulates fresh event paths from parameters,
-  Turing-free.
-- `predict_events(chain, model)` recovers the latent event times of the records
-  you fit, conditioned on the data over the posterior.
+- `rand(latent(d))` forward-simulates fresh event paths from parameters,
+  Turing-free (a comprehension batches them).
+- `DynamicPPL.predict(model, chain)` recovers the latent event times of the
+  records you fit, conditioned on the data over the posterior.
 - Both rely on the marginal and latent forms being one family that share
   parameters, so a marginal-fit posterior drops straight into the latent form.
 """

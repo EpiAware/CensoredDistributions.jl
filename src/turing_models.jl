@@ -199,7 +199,8 @@ only(logjoint(demo(seq, row), (;))), logpdf(seq, ev)
 # See also
 - [`primary_censored_model`](@ref), [`interval_censored_model`](@ref),
   [`double_interval_censored_model`](@ref): the leaf building blocks.
-- [`latent`](@ref), [`predict_events`](@ref).
+- [`latent`](@ref): the per-event form whose `rand(latent(d))` forward-simulates
+  full event paths; posterior prediction uses `DynamicPPL.predict(model, chain)`.
 "
 function composed_distribution_model end
 

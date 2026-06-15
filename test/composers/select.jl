@@ -149,7 +149,9 @@ end
     @test logpdf(s, [1.0, 2.0]; kind = :joint) ≈ logpdf(tree, [1.0, 2.0])
     @test logpdf(s, 1.5; kind = :leaf) ≈ logpdf(Gamma(3.0, 1.0), 1.5)
     @test rand(s; kind = :leaf) isa Real
-    @test rand(s; kind = :joint) isa AbstractVector
+    # The joint alternative is a multivariate composer, so its draw is a
+    # labelled NamedTuple.
+    @test rand(s; kind = :joint) isa NamedTuple
 end
 
 @testitem "nested selecting scores and samples via model entry" begin
