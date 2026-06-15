@@ -173,6 +173,11 @@ function backend_broken_scenarios()
     # Enzyme heterogeneous-edge gap (#319); ForwardDiff / ReverseDiff / Mooncake
     # differentiate it correctly.
     nested_comp = "Nested Competing tree conditioned logpdf"
+    # The nested racing-hazard tree (#466) recurses through the SAME heterogeneous
+    # censored-edge walk plus the cause-resolved sub-density (logpdf + logccdf
+    # terms), so it shares the Enzyme heterogeneous-edge gap (#319); ForwardDiff /
+    # ReverseDiff / Mooncake differentiate it correctly.
+    nested_hazard = "Nested racing-hazard tree conditioned logpdf"
     # `double_interval_censored(Sequential ...)` collapses the Sequential to its
     # observed total (`observed_distribution`), a `Convolved{Tuple{Gamma,
     # LogNormal}}`, then double-censors it. Enzyme (both modes) cannot find a
@@ -211,10 +216,10 @@ function backend_broken_scenarios()
         "Mooncake reverse" => copy(compiled_broken),
         "Mooncake forward" => copy(compiled_broken),
         "Enzyme reverse" => union(
-            Set{String}([nested_tree, nested_comp, convolved_dic]),
+            Set{String}([nested_tree, nested_comp, nested_hazard, convolved_dic]),
             compiled_broken),
         "Enzyme forward" => union(
-            Set{String}([nested_tree, nested_comp, convolved_dic]),
+            Set{String}([nested_tree, nested_comp, nested_hazard, convolved_dic]),
             compiled_broken)
     )
 end
