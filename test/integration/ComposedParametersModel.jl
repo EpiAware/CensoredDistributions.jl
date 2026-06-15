@@ -878,3 +878,97 @@ end
     mu_post = Statistics.mean(chain[Prefixed(@varname(mu))])
     @test 0.5 < mu_post < 4.0
 end
+
+@testitem "strip_prefix drops the submodel prefix from chain names" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: VNChain, parameters
+    import Statistics
+
+    # `d ~ to_submodel(composed_parameters_model(...))` prefixes every sampled
+    # parameter with the submodel variable name (`d.onset_admit.shape`).
+    # `strip_prefix` removes that leading prefix so the user-facing chain names
+    # drop to the edge path (`onset_admit.shape`) while staying unambiguous.
+    template = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    priors = build_priors(params_table(template))
+
+    @model function fit(t, p, ys)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        for y in ys
+            DynamicPPL.@addlogprob! logpdf(d, y)
+        end
+        return d
+    end
+
+    Random.seed!(214)
+    ys = [[0.5, 2.0], [1.0, 3.0], [0.8, 2.5]]
+    chain = sample(fit(template, priors, ys), NUTS(), 40;
+        chain_type = VNChain, progress = false)
+
+    # Before: every parameter carries the `d.` prefix.
+    before = Set(string.(collect(parameters(chain))))
+    @test "d.onset_admit.shape" in before
+
+    stripped = strip_prefix(chain)
+    names = Set(string.(collect(parameters(stripped))))
+    # After: the prefix is gone; the edge path remains (no collisions).
+    @test names == Set(["onset_admit.shape", "onset_admit.scale",
+        "admit_death.mu", "admit_death.sigma"])
+    @test !any(startswith(n, "d.") for n in names)
+
+    # The draws round-trip: a stripped name indexes the same column.
+    @test vec(stripped[@varname(onset_admit.shape)]) ==
+          vec(chain[@varname(d.onset_admit.shape)])
+
+    # The stripped chain still reconstructs via update at the empty prefix.
+    ready = update(template, stripped; prefix = Symbol(""))
+    @test ready isa CensoredDistributions.Parallel
+    @test event_names(ready) == event_names(template)
+
+    # A non-default prefix is honoured.
+    @model function fit2(t, p, ys)
+        delays ~ to_submodel(composed_parameters_model(t, p))
+        for y in ys
+            DynamicPPL.@addlogprob! logpdf(delays, y)
+        end
+    end
+    Random.seed!(215)
+    chain2 = sample(fit2(template, priors, ys), NUTS(), 40;
+        chain_type = VNChain, progress = false)
+    stripped2 = strip_prefix(chain2; prefix = :delays)
+    names2 = Set(string.(collect(parameters(stripped2))))
+    @test "onset_admit.shape" in names2
+    @test !any(startswith(n, "delays.") for n in names2)
+end
+
+@testitem "strip_prefix leaves non-prefixed parameters untouched" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: VNChain, parameters
+
+    # A model mixing a prefixed submodel parameter with a plain top-level one.
+    # `strip_prefix(:d)` must drop only the `d.` prefix and leave `theta`
+    # untouched rather than erroring on it.
+    template = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    priors = build_priors(params_table(template))
+
+    @model function fit(t, p, ys)
+        theta ~ Normal(0, 1)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        for y in ys
+            DynamicPPL.@addlogprob! logpdf(d, y) + theta * 0
+        end
+    end
+
+    Random.seed!(216)
+    ys = [[0.5, 2.0], [1.0, 3.0]]
+    chain = sample(fit(template, priors, ys), NUTS(), 40;
+        chain_type = VNChain, progress = false)
+
+    stripped = strip_prefix(chain)
+    names = Set(string.(collect(parameters(stripped))))
+    # The plain `theta` survives unchanged; the prefixed ones lose `d.`.
+    @test "theta" in names
+    @test "onset_admit.shape" in names
+    @test !("d.onset_admit.shape" in names)
+end

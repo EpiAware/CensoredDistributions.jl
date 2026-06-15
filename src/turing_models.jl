@@ -330,3 +330,64 @@ event(ready, :onset_admit)
 - [`composed_parameters_model`](@ref): the submodel that produced the chain.
 "
 function chain_to_params end
+
+@doc "
+
+Strip the submodel prefix from a fitted chain's parameter names.
+
+`composed_parameters_model` is scored as a submodel (`d ~
+to_submodel(composed_parameters_model(template, priors))`), so every sampled
+parameter carries the `~`-bound variable name as a leading prefix (e.g.
+`d.onset_admit.shape`). `strip_prefix(chain)` removes that one leading prefix
+from each parameter, leaving the edge-path names that disambiguate the
+parameters (`onset_admit.shape`), so the user-facing chain reads cleanly.
+
+The edge-path prefixes that namespace nested edges/events (`onset_admit.shape`,
+`resolution.death.scale`) are KEPT; only the single outer submodel prefix is
+removed. A parameter that does not carry the prefix (a plain top-level variable
+sampled alongside the submodel) is left unchanged rather than erroring.
+
+`strip_prefix` uses `FlexiChains.map_parameters`, so it acts only on the
+parameter VarNames and leaves the chain's extras (log-densities, sampler stats)
+untouched. The result is an ordinary chain, so [`chain_to_params`](@ref) /
+[`update`](@ref) read it back with `prefix = Symbol(\"\")`.
+
+This function has no methods until both `DynamicPPL` and `FlexiChains` are
+loaded; the method lives in the package extension so the core stays free of
+both.
+
+# Arguments
+- `chain`: the fitted `FlexiChains` chain to rename.
+
+# Keyword Arguments
+- `prefix`: the submodel variable name to strip (default `:d`), matching the
+  `~`-bound name in the user model.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+using FlexiChains: VNChain, parameters
+
+template = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+priors = build_priors(params_table(template))
+
+@model function fit(t, p, ys)
+    d ~ to_submodel(composed_parameters_model(t, p))
+    for y in ys
+        DynamicPPL.@addlogprob! logpdf(d, y)
+    end
+end
+
+Random.seed!(1)
+chain = sample(fit(template, priors, [[0.5, 2.0], [1.0, 3.0]]), NUTS(), 20;
+    chain_type = VNChain, progress = false)
+collect(parameters(strip_prefix(chain)))
+```
+
+# See also
+- [`chain_to_params`](@ref), [`update`](@ref): read the (stripped) chain back;
+  pass `prefix = Symbol(\"\")` once stripped.
+- [`composed_parameters_model`](@ref): the submodel whose prefix this removes.
+"
+function strip_prefix end

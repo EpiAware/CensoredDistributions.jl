@@ -2,6 +2,16 @@
 
 ### Features
 
+- `strip_prefix`: drop the outer submodel prefix from a fitted chain's parameter
+  names. `composed_parameters_model` is scored as a submodel (`d ~
+  to_submodel(...)`), so every sampled parameter carries the `~`-bound name as a
+  leading prefix (`d.onset_admit.shape`). `strip_prefix(chain)` removes that one
+  prefix (via `FlexiChains.map_parameters` + `AbstractPPL.unprefix`), leaving the
+  edge-path names that disambiguate the parameters (`onset_admit.shape`), so the
+  user-facing chain reads cleanly. A parameter that does not carry the prefix is
+  left unchanged. Read a stripped chain back with `chain_to_params` / `update`
+  using `prefix = Symbol("")`. Available only when both `DynamicPPL` and
+  `FlexiChains` are loaded. Closes #267.
 - Varying / partially-pooled per-stratum parameters for composed models. The
   batched record path previously assumed ONE shared composed distribution with
   global parameters (only `obs_time`/`weight` and the missingness pattern varied
