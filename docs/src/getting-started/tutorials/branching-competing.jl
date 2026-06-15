@@ -23,12 +23,13 @@ competing-outcome composition:
 |---|---|
 | event as a delay from a prior event | [`Sequential`](@ref) step |
 | several events from one anchor | [`Parallel`](@ref) |
+| day-resolution event recorded as a date | a [`double_interval_censored`](@ref) leaf |
 | an event that only sometimes occurs | a no-event [`competing`](@ref) branch |
 | competing risks, which-and-when hazard-driven | racing-hazard [`competing`](@ref) |
-| aggregate ascertainment on expected counts | [`thin`](@ref) on the forward series |
+| an outcome that continues into a further chain | a [`competing`](@ref) outcome holding a subtree |
 
-2. Build a toy single-type branching process as a stand-in for any
-   individual-based simulator.
+2. Run a single-type branching process (a Galton-Watson process with a
+   generation-interval delay) to get a set of infection times.
 3. Assemble the per-case natural history as one composed distribution and
    sample event timelines from it.
 4. Score the composed object in a Turing model and recover the parameters.
@@ -38,8 +39,11 @@ competing-outcome composition:
 This tutorial builds on [Getting Started with
 CensoredDistributions.jl](@ref getting-started) and the composer reference,
 [Composing censored distributions](@ref composer-toolkit).
-The toy branching process below is a stand-in for any individual-based
-simulator: it is illustrative only and uses plain `Distributions`.
+The branching process below is the transmission engine: it draws infection
+times, and the composed object handles every per-case event after infection.
+The observed delays (incubation, reporting) are recorded to the day, so their
+leaves are [`double_interval_censored`](@ref) — primary censoring on the
+unobserved sub-day timing plus daily interval censoring on the recorded date.
 
 ## Packages used
 """
@@ -48,17 +52,19 @@ using CensoredDistributions
 using Distributions
 using Turing
 using ADTypes: AutoForwardDiff
-using DynamicPPL: prefix
+using DynamicPPL: to_submodel
 using Random
 using Statistics
 
 md"""
-## A toy single-type branching process
+## A single-type branching process
 
-A minimal stand-in: each case has offspring `~ Poisson(R)`, and each offspring is
-infected a generation-interval delay after its parent. We grow a few generations
-and keep every case's infection time. This is illustrative; a real simulator's
-transmission engine stays in the simulator.
+The transmission engine is a single-type branching process (a Galton-Watson
+process): each case draws its offspring count from `Poisson(R)`, and each
+offspring is infected a generation-interval delay after its parent. We grow it
+for a fixed number of generations from a single seed and keep every case's
+infection time. This is a genuine branching process, not a placeholder: the same
+`infection_times` would come from any individual-based transmission model.
 """
 
 rng = MersenneTwister(2024)
@@ -66,7 +72,7 @@ rng = MersenneTwister(2024)
 R = 1.6
 gen_interval = Gamma(2.0, 2.5)
 
-function toy_branching(rng, R, gen_interval, n_generations)
+function branching_process(rng, R, gen_interval, n_generations)
     infection_times = [0.0]
     current = [0.0]
     for _ in 1:n_generations
@@ -84,7 +90,7 @@ function toy_branching(rng, R, gen_interval, n_generations)
     return infection_times
 end
 
-infection_times = toy_branching(rng, R, gen_interval, 9)
+infection_times = branching_process(rng, R, gen_interval, 9)
 length(infection_times)
 
 md"""
@@ -92,20 +98,26 @@ md"""
 
 Each case's natural history is one composed object anchored on its infection:
 
-- `infection -> onset`: an incubation delay (a [`Sequential`](@ref) step).
-- `onset -> report`: made OPTIONAL with a no-event [`competing`](@ref) branch — a
-  case is reported with probability `ρ`, else no report time is written
-  (Feature 1).
-- `onset -> {death, recover}`: a racing-hazard [`competing`](@ref) off onset; the
-  first of the two latent delays wins, and which-and-when is coupled (Feature 2).
+- `infection -> onset`: an incubation delay. Onset is recorded as a date, so the
+  leaf is [`double_interval_censored`](@ref): primary censoring on the unobserved
+  sub-day infection timing, then daily interval censoring on the recorded onset
+  date.
+- `onset -> report`: a reporting delay, also recorded to the day
+  ([`double_interval_censored`](@ref)), and made OPTIONAL with a no-event
+  [`competing`](@ref) branch — a case is reported with probability `ρ`, else no
+  report time is written.
+- `onset -> {death, recover}`: a racing-hazard [`competing`](@ref); the first of
+  the two latent delays wins, and which-and-when is coupled. These are the
+  cause-specific latent times that drive the competing-risk hazards, so they
+  stay continuous — the derived winning split below integrates over them.
 
-We anchor the object on a latent primary (the sub-unit timing of infection) so a
-single `rand` draws the whole event path.
+A single `rand` draws the whole event path.
 """
 
 ρ = 0.6                       # report probability
-incubation = primary_censored(LogNormal(1.5, 0.4), Uniform(0, 1))
-report = competing(:report => (Gamma(2.0, 1.5), ρ),
+incubation = double_interval_censored(LogNormal(1.5, 0.4); interval = 1)
+report = competing(
+    :report => (double_interval_censored(Gamma(2.0, 1.5); interval = 1), ρ),
     :none => (NoEvent(), 1 - ρ))
 severity = competing(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
 
@@ -189,10 +201,12 @@ md"""
 
 With the SAME object we score the line list and recover the severity delays in a
 small Turing model. We rebuild the natural-history object from sampled
-parameters and score each record through `composed_distribution_model`, which
-self-dispatches on which outcome slot is observed (and handles the optional
-report). The records are anchored at zero here (the infection time is the known
-anchor), so we re-centre each record on its own infection time.
+parameters and score the WHOLE line list in one `~` through the batch
+[`composed_distribution_model`](@ref) — pass the vector of records and the
+competing node self-dispatches per record on which outcome slot is observed (and
+handles the optional report and the missing slots internally), with no manual
+per-record loop. The records are anchored at zero here (the infection time is
+the known anchor), so we re-centre each record on its own infection time.
 """
 
 records = [map(v -> v === missing ? missing : v - t, r)
@@ -206,11 +220,7 @@ records = [map(v -> v === missing ? missing : v - t, r)
     history = compose((onset = incubation,
         reporting = report,
         severity = severity))
-    for i in eachindex(records)
-        obs ~ to_submodel(
-            prefix(composed_distribution_model(history, records[i]),
-                Symbol(:rec, i)), false)
-    end
+    obs ~ to_submodel(composed_distribution_model(history, records))
 end
 
 chain = sample(rng, fit_severity(records),
@@ -225,18 +235,19 @@ death, `3.0` for recover) within Monte Carlo error.
     recover_shape = mean(chain[:recover_shape]))
 
 md"""
-## Non-terminal whole-tree outcomes
+## Outcomes that continue into a further chain
 
-A competing branch is not limited to a single leaf delay: an outcome may be a
-WHOLE composer subtree (Feature 3). Here the `death` outcome carries its own
-sub-chain `death -> burial`, so winning the death cause unfolds a further event,
-while `recover` stays a leaf. The composer outcome contributes its subtree's
-event slots, so `event_names` interleaves the sub-chain's `burial` event where
-the death outcome sits.
+A competing outcome is not limited to a single leaf delay: an outcome can carry a
+WHOLE composer subtree, so winning that outcome unfolds further events. Here the
+`death` outcome carries its own sub-chain `death -> burial` (the burial date is
+recorded to the day, a [`double_interval_censored`](@ref) leaf), while `recover`
+stays a single leaf. The outcome contributes its subtree's event slots, so
+`event_names` shows the sub-chain's `burial` event where the death outcome sits.
 """
 
-burial = primary_censored(Gamma(1.5, 1.0), Uniform(0, 1))
-death_chain = Sequential((Gamma(2.0, 3.0), burial), (:onset_death, :death_burial))
+burial = double_interval_censored(Gamma(1.5, 1.0); interval = 1)
+death_chain = Sequential((Gamma(2.0, 3.0), burial),
+    (:onset_death, :death_burial))
 severity_tree = competing(:death => (death_chain, 0.4),
     :recover => (Gamma(3.0, 2.0), 0.6))
 
@@ -257,12 +268,15 @@ md"""
 
 Each step of this tutorial maps onto a row of the table in the introduction:
 
-- the toy branching process is the simulator's transmission engine (kept
-  separate);
+- the branching process is the simulator's transmission engine (kept separate);
 - the per-case `compose(...)` object is the natural-history / observation layer a
   simulator would otherwise hand-roll;
+- the [`double_interval_censored`](@ref) leaves are the day-resolution recorded
+  events (onset and report dates);
 - the no-event `competing` branch is the per-case detection / asymptomatic gate;
 - the racing-hazard `competing` is the competing-risk severity outcome;
+- a `competing` outcome holding a subtree is an outcome that opens a further
+  event chain (death then burial);
 - `convolve_distributions(object, series)` is the aggregate forward observation
   layer.
 
