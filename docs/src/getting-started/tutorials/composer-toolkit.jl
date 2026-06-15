@@ -12,12 +12,18 @@
 #
 # Each section is a small runnable example rather than a full analysis. We:
 #
-# 1. Compose a record from per-event delays with [`compose`](@ref).
+# 1. Compose a record from per-event delays with [`compose`](@ref), starting
+#    from plain [Distributions.jl](https://juliastats.org/Distributions.jl)
+#    leaves.
 # 2. Build the four composers directly ([`Sequential`](@ref),
 #    [`Parallel`](@ref), [`Competing`](@ref), [`Select`](@ref)) and see how they
 #    nest.
-# 3. Score and simulate from one composed object.
-# 4. Attach parameters and priors with [`params_table`](@ref) and
+# 3. Swap the plain leaves for censored ones
+#    ([`double_interval_censored`](@ref), and the rarer
+#    [`primary_censored`](@ref)) as drop-in replacements the same stack handles
+#    transparently.
+# 4. Score and simulate from one composed object.
+# 5. Attach parameters and priors with [`params_table`](@ref) and
 #    [`build_priors`](@ref).
 #
 # ### What might I need to know before starting
@@ -47,15 +53,20 @@ using Random
 # The NamedTuple form names each branch.
 # A bare distribution is a leaf branch, and a `Vector` value is a chain of steps
 # (a [`Sequential`](@ref)).
+#
+# We start from plain Distributions leaves so the composing machinery is clear
+# on its own. Censoring comes next as a drop-in swap (see
+# [Censoring is a drop-in leaf swap](@ref censoring-drop-in)), and nothing in
+# this section or the next two changes when the leaves become censored.
 
-onset_admit = primary_censored(LogNormal(1.5, 0.4), Uniform(0, 1));
+onset_admit = LogNormal(1.5, 0.4);
 
-admit_death = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1));
+admit_death = Gamma(2.0, 1.0);
 
 # Two branches off one onset: an onset-to-admission delay and an
 # onset-to-notification delay.
 parallel = compose((onset_admit = onset_admit,
-    onset_notif = primary_censored(Gamma(1.5, 1.0), Uniform(0, 1))));
+    onset_notif = Gamma(1.5, 1.0)));
 
 event_names(parallel)
 
@@ -133,22 +144,61 @@ tree = compose((
 
 event_names(tree)
 
-# ## Censoring is transparent
+# ## [Censoring is a drop-in leaf swap](@id censoring-drop-in)
 #
-# A composer holds any univariate distribution as a leaf, so the censored
-# building blocks go straight into the stack.
-# [`double_interval_censored`](@ref) layers primary censoring, truncation, and
-# interval censoring onto a delay, and the composer treats the result as an
-# ordinary leaf.
+# Everything so far used plain Distributions leaves. Real data is rarely that
+# clean: a delay is usually recorded to the DAY, so the primary event is
+# censored to its day window and the observed delay is interval censored to a
+# day. We handle this by swapping the plain leaf for a CENSORED one. Nothing
+# else about the stack changes.
+#
+# The plain stack first, for reference: two delays off a shared onset.
 
-censored_leaf = double_interval_censored(LogNormal(1.5, 0.5); interval = 1,
-    upper = 20);
+plain_stack = compose((
+    onset_admit = LogNormal(1.5, 0.5),
+    onset_death = Gamma(2.0, 1.0)));
+
+# [`double_interval_censored`](@ref) layers primary-event censoring, optional
+# truncation, and interval censoring onto a delay. It is the DEFAULT leaf for
+# line-list data, because day-resolution dates carry both a primary-event window
+# and a day-wide observation interval. Swap each plain leaf for its censored
+# counterpart and the NamedTuple keys, the tree shape, and the call site are all
+# unchanged.
 
 censored_stack = compose((
-    onset_admit = censored_leaf,
+    onset_admit = double_interval_censored(LogNormal(1.5, 0.5); interval = 1,
+        upper = 20),
     onset_death = double_interval_censored(Gamma(2.0, 1.0); interval = 1)));
 
-event_names(censored_stack)
+# A composer holds any univariate distribution as a leaf and dispatches on the
+# leaf type, so it treats a censored leaf exactly as it treated the plain one.
+# The two stacks expose the same events.
+
+event_names(plain_stack) == event_names(censored_stack)
+
+# The package handles the swap transparently: the same `compose` stack scores
+# and simulates either way, and the censoring is carried INSIDE the leaf rather
+# than bolted onto the tree. Mixing leaf kinds in one stack is fine, since each
+# leaf is scored by its own type.
+
+mixed_stack = compose((
+    onset_admit = double_interval_censored(LogNormal(1.5, 0.5); interval = 1),
+    onset_death = Gamma(2.0, 1.0)));
+
+event_names(mixed_stack)
+
+# [`primary_censored`](@ref) is the rarer drop-in: the primary event is censored
+# but the observed delay is NOT interval censored (a continuously recorded
+# observation time). It slots into the same stack the same way.
+
+primary_only_stack = compose((
+    onset_admit = primary_censored(LogNormal(1.5, 0.5), Uniform(0, 1)),
+    onset_death = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))));
+
+event_names(primary_only_stack)
+
+# From here on we build with `double_interval_censored` leaves by default, since
+# day-resolution line-list data is what we usually have.
 
 # ## Truncating the whole chain
 #
@@ -163,8 +213,8 @@ event_names(censored_stack)
 # last observed event evaluated at `horizon - origin`.
 
 obs_chain = Sequential(
-    (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
-        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+    (double_interval_censored(LogNormal(1.2, 0.5); interval = 1),
+        double_interval_censored(Gamma(2.0, 1.0); interval = 1)),
     (:onset_admit, :admit_death));
 
 ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0]);
@@ -251,14 +301,57 @@ per_record = [logpdf(recs[i],
 
 # The same object simulates.
 # A `rand` of a nested tree returns a full named event record: a shared origin
-# draw, every event hung off it, and the unsampled `Competing` outcomes left
+# draw, every event hung off it, and each `Competing` resolution SAMPLED.
+# Sampling a `Competing` node draws WHICH outcome occurs from the branch
+# probabilities and then draws that outcome's time, so exactly one outcome slot
+# is filled and the competing outcomes that did not occur are left `missing`.
+# The competing node IS sampled; the `missing` slots are the outcomes that lost,
+# not an un-sampled node.
+#
+# We build a simulation tree with the default `double_interval_censored` leaves:
+# a death-versus-discharge resolution off the admission, alongside a
+# notification branch. The named per-outcome event slots come from the competing
+# outcome names.
+
+sim_resolution = competing(
+    :death => (double_interval_censored(Gamma(1.5, 1.0); interval = 1), cfr),
+    :discharge => (double_interval_censored(Gamma(2.0, 1.5); interval = 1),
+        1 - cfr));
+
+sim_tree = compose((
+    path = Sequential(
+        (double_interval_censored(LogNormal(1.5, 0.4); interval = 1),
+            sim_resolution),
+        (:onset_admit, :admit_resolve)),
+    onset_notif = double_interval_censored(Gamma(2.0, 1.0); interval = 1)));
+
+event_names(sim_tree)
+
+# A draw fills the origin, the admission, exactly ONE of the competing
+# resolution outcomes, and the notification. The other outcome is `missing`.
+
+draw = rand(Xoshiro(7), sim_tree)
+
+# Read the sampled resolution straight off the record: the one outcome with a
+# time is the one that occurred, and its value is the sampled event time. With a
+# case-fatality ratio below one half the death branch wins less often, so this
+# draw usually resolves to discharge.
+
+resolved = only(o for o in (:death, :discharge) if !ismissing(draw[o]));
+
+(outcome = resolved, time = draw[resolved])
+
+# Exactly one resolution outcome is sampled; the other competing slot is
 # `missing`.
 
-draw = rand(Xoshiro(7), tree)
-
-# Exactly one resolution outcome is sampled.
-
 count(!ismissing, (draw.death, draw.discharge))
+
+# Sampling the `Competing` node on its own makes the draw explicit:
+# [`rand_outcome`](@ref) returns the drawn `(outcome, time)` pair directly,
+# whereas the plain `rand` of a `Competing` returns only the marginal
+# time-to-resolution and discards which outcome won.
+
+CensoredDistributions.rand_outcome(Xoshiro(7), sim_resolution)
 
 # ## Marginal versus latent
 #
@@ -275,7 +368,7 @@ count(!ismissing, (draw.death, draw.discharge))
 # against it, the same object read in the other direction.
 # [`latent`](@ref) wraps a node to select the latent representation.
 
-leaf = primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1));
+leaf = double_interval_censored(LogNormal(1.2, 0.5); interval = 1);
 
 ld = latent(leaf);
 
@@ -393,8 +486,14 @@ NamedTuple{keys(event_tree(updated))}(Tuple(mean(updated)))
 #   outcomes, and data-selected disjunctions.
 # - The composers nest, including a composer as a chain step and a
 #   `selecting` of a `selecting`.
+# - Censoring is a drop-in leaf swap: plain Distributions leaves teach the
+#   machinery, then [`double_interval_censored`](@ref) (the default for
+#   day-resolution line lists) and the rarer [`primary_censored`](@ref) replace
+#   them with no change to the stack, scored by leaf type.
 # - One object scores records and simulates them; scoring marginalises by row
-#   missingness (mixed across records), prediction is the generative `rand`.
+#   missingness (mixed across records), prediction is the generative `rand`,
+#   which SAMPLES each `Competing` resolution (one outcome drawn, losers
+#   `missing`).
 # - `event_logpdf(stack, events; horizon)` right-truncates the WHOLE composed
 #   chain at an observation horizon in one call, distinct from per-leaf
 #   truncation baked into a `double_interval_censored` leaf.
