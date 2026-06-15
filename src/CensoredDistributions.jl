@@ -147,6 +147,13 @@ export primary_censored_model, interval_censored_model,
 # distributions -> compartments bridge an ODE/compartment model consumes.
 export linear_chain_stages
 
+# Exported Catalyst reaction-network bridge: slot a composed delay onto a
+# transition of a Catalyst reaction network (`linear_chain_reactions`), or build
+# an SEIR from two composed delays (`seir_reaction_network`). No methods until
+# Catalyst is loaded; the methods live in the package extension so the core
+# stays free of the SciML stack.
+export linear_chain_reactions, seir_reaction_network
+
 include("docstrings.jl")
 
 include("utils/gamma_ad.jl")
@@ -178,6 +185,9 @@ include("composers/introspection.jl")
 # compartment structure. After introspection so it reuses `free_leaf` to peel
 # censoring; depends on `Sequential`.
 include("composers/linear_chain.jl")
+# Catalyst reaction-network bridge stubs (methods in the Catalyst extension).
+# After linear_chain.jl since the extension methods reuse `linear_chain_stages`.
+include("composers/reaction_compartments.jl")
 # Affine transform leaf: after introspection so it can extend
 # `free_leaf`/`rewrap_leaf` for transparent inner-delay introspection.
 include("distributions/Affine.jl")
