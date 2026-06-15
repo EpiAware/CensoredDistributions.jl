@@ -150,17 +150,47 @@ censored_stack = compose((
 
 event_names(censored_stack)
 
-# ## Scoring and simulation from one object
+# ## Truncating the whole chain
 #
-# The composer is dual-purpose: it scores observed records and simulates new
-# ones.
-# We build a named two-step chain over censored leaves to demonstrate both.
+# The truncation above is per leaf: `double_interval_censored(...; upper = 20)`
+# right-truncates a single delay before it enters the stack.
+# An observation horizon is different. Real-time data is observed up to one
+# cut-off, so the WHOLE composed chain is right-truncated at that horizon, not
+# each leaf in isolation.
+# `event_logpdf(stack, events; horizon)` applies that single truncation across
+# the assembled chain in one call: the factorised per-segment numerator is
+# divided by one denominator, the CDF of the convolution from the origin to the
+# last observed event evaluated at `horizon - origin`.
 
 obs_chain = Sequential(
     (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
         primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
     (:onset_admit, :admit_death));
 
+ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0]);
+
+# Without a horizon the chain scores the full density. Passing `horizon` adds the
+# whole-chain right-truncation correction in the same call.
+
+full_lp = CensoredDistributions.event_logpdf(obs_chain, ev)
+
+horizon_lp = CensoredDistributions.event_logpdf(obs_chain, ev; horizon = 8.0)
+
+# The correction is one denominator over the whole chain, so it holds whatever
+# the record observes. An endpoint-observed record with the intermediate
+# admission `missing` truncates the same onset-to-death total.
+
+ev_mid_missing = Vector{Union{Missing, Float64}}([0.0, missing, 5.0]);
+
+CensoredDistributions.event_logpdf(obs_chain, ev_mid_missing; horizon = 8.0)
+
+# ## Scoring and simulation from one object
+#
+# The composer is dual-purpose: it scores observed records and simulates new
+# ones.
+# We reuse the named two-step `obs_chain` over censored leaves to demonstrate
+# both.
+#
 # [`composed_distribution_model`](@ref) scores one record passed as a NamedTuple
 # keyed by event name.
 # A `missing` field is integrated out; an observed field is conditioned on.
@@ -364,6 +394,9 @@ NamedTuple{keys(event_tree(updated))}(Tuple(mean(updated)))
 #   `selecting` of a `selecting`.
 # - One object scores records and simulates them; scoring marginalises by row
 #   missingness (mixed across records), prediction is the generative `rand`.
+# - `event_logpdf(stack, events; horizon)` right-truncates the WHOLE composed
+#   chain at an observation horizon in one call, distinct from per-leaf
+#   truncation baked into a `double_interval_censored` leaf.
 # - The marginal and latent forms are one family on the same parameters. The
 #   marginal is the cheap default; the latent samples the intermediate event and
 #   suits small counts or distributions whose marginal integral is impractical.
