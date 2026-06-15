@@ -312,18 +312,14 @@ end
 # scoring. The probabilities keep their (possibly AD `Dual`) element type so a
 # covariate CFR `logistic(Xβ)` differentiates through the node.
 
-# Per-record branch probabilities must each lie in `[0, 1]` and sum to one. The
-# bounds carry a small tolerance so a saturating covariate prob (`logistic(Xβ)`
-# evaluating to a hair past 0 or 1 under AD/sampling) is accepted rather than
-# spuriously rejected mid-gradient; a genuinely out-of-range value still errors.
-# Comparisons are value-based, so an AD `Dual` is compared on its value.
+# Per-record branch probabilities must each lie in `[0, 1]` and sum to one.
+# Delegates to the same bounds and sum validators the stored `branch_probs` use
+# (`_validate_branch_prob_bounds` then `_validate_branch_probs_sum`) so the
+# per-record override and the node share ONE validation path; the tolerance and
+# AD-`Dual`-preserving, value-based comparisons live in those helpers.
 function _validate_record_probs(probs)
-    tol = 1e-6
-    all(p -> p >= -tol && p <= 1 + tol, probs) || throw(ArgumentError(
-        "each per-record branch probability must lie in [0, 1]; got " *
-        "$(collect(probs))"))
-    isapprox(sum(probs), 1; atol = 1e-6) || throw(ArgumentError(
-        "per-record branch probabilities sum to $(sum(probs)), not one"))
+    _validate_branch_prob_bounds(probs)
+    _validate_branch_probs_sum(probs)
     return nothing
 end
 
@@ -358,27 +354,21 @@ function _competing_condition_logpdf(probs, delay, gap, i::Int)
     return log(probs[i]) + logpdf(delay, gap)
 end
 
-# Marginalise an unknown outcome at the resolution time `t`: the branch-prob-
-# weighted mixture log-density `log Σ_i p_i f_i(t)`. `delays` may be pre-
-# censored/truncated by the caller (matching the conditioned path's per-record
-# horizon), else the node's delays.
+# Marginalise an unknown outcome at a resolution time `t`: the branch-prob-
+# weighted mixture log-density `log Σ_i p_i f_i(t)` via the log-sum-exp of
+# `log p_i + logpdf(delay_i, t)`. `delays` may be pre-censored/truncated by the
+# caller (matching the conditioned path's per-record horizon), else the node's
+# delays.
 #
-# Computed as `logsumexp_i (log p_i + logpdf(delay_i, t))` directly, NOT via
-# `MixtureModel(delays, float.(probs))`: `float.(probs)` strips an AD `Dual`/
-# tracked type from the probabilities, breaking the gradient through a
-# sampled / `logistic(Xβ)` branch probability on the MARGINALISED path. The
-# explicit reduction keeps the probabilities' element type, so a `Dual`
-# propagates exactly as it does on the conditioned path.
-function _competing_marginal_logpdf(probs, delays, t)
-    return _competing_logmix(probs, delays, t)
-end
-
-# `log Σ_i p_i f_i(t)` via the log-sum-exp of `log p_i + logpdf(delay_i, t)`,
-# preserving the probabilities' (possibly `Dual`) element type. A zero
-# probability contributes no term (its `log` is `-Inf`); an all-zero set returns
-# `-Inf`. A no-event branch carries no density at a finite observed time `t` (its
-# mass is the survival, not a density term), so it contributes `-Inf` and is
-# skipped here, leaving the marginal as the sum over the REAL outcomes.
+# Computed directly, NOT via `MixtureModel(delays, float.(probs))`: `float.`
+# strips an AD `Dual`/tracked type from the probabilities, breaking the gradient
+# through a sampled / `logistic(Xβ)` branch probability on the MARGINALISED path.
+# The explicit reduction keeps the probabilities' element type, so a `Dual`
+# propagates exactly as it does on the conditioned path. A zero probability
+# contributes no term (its `log` is `-Inf`); an all-zero set returns `-Inf`. A
+# no-event branch carries no density at a finite observed time `t` (its mass is
+# the survival, not a density term), so it contributes `-Inf` and is skipped
+# here, leaving the marginal as the sum over the REAL outcomes.
 function _competing_logmix(probs, delays, t)
     n = length(probs)
     terms = ntuple(
@@ -772,6 +762,7 @@ function mean(c::HazardCompeting)
 end
 
 function var(c::HazardCompeting)
+    _is_nonterminal(c) && _nonterminal_marginal_error("var")
     hi = _hazard_marginal_window(c)
     m = mean(c)
     e2 = gl_integrate(zero(hi), hi, _PRIMARY_GL) do t
@@ -820,6 +811,18 @@ This is the generative dual of the [`logpdf`](@ref) (`f_j ∏_{k≠j} S_k`) and 
 the forward `convolve_distributions` stream: the Monte Carlo winning-cause
 frequencies match the derived [`winning_probabilities`](@ref) and the forward
 per-outcome stream masses.
+
+# Arguments
+- `rng`: random number generator (the no-`rng` method uses the global default).
+- `c`: the [`HazardCompeting`](@ref) node to sample a winning cause from.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, Random
+
+node = competing(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
+name, time = rand_outcome(MersenneTwister(1), node)
+```
 
 See also: [`HazardCompeting`](@ref), [`winning_probabilities`](@ref)
 "

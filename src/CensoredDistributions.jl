@@ -219,8 +219,16 @@ include("utils/hazard.jl")
 
 # Censored specialisations of the generic composers: included last
 # as they depend on the composers, the censored types, `get_dist_recursive`
-# (utils/get_dist.jl) and the integration helpers.
+# (utils/get_dist.jl) and the integration helpers. Split across cohesive files;
+# the shared recovery helpers and the `_Nested`/`_Flat` traits live in
+# `censored_specialisations.jl` and so it is included FIRST, then the scoring
+# and simulation files that use them (their order between each other is free,
+# they only define methods over the already-defined helpers).
 include("composers/censored_specialisations.jl")
+include("composers/censored_scoring_tree.jl")
+include("composers/censored_competing.jl")
+include("composers/censored_scoring_flat.jl")
+include("composers/censored_rand.jl")
 
 # Labelled NamedTuple OUTPUTS for multivariate composed distributions: an
 # output/interface layer over the vector-valued scored representation. After the

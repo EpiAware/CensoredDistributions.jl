@@ -471,7 +471,11 @@ function _competing_logprob(d::Competing, row::NamedTuple, probs, w, horizon)
     t = _competing_resolution_time(d, row)
     t === nothing && return _scale(zero(eltype(probs)), w)
     delays = map(g -> _maybe_truncate(g, horizon), d.delays)
-    lp = CensoredDistributions._competing_marginal_logpdf(probs, delays, t)
+    # Marginalise the unknown outcome at the resolution time: the branch-prob-
+    # weighted mixture log-density `log Σ_i p_i f_i(t)`, computed by the AD-safe
+    # `_competing_logmix` reduction (preserves a `Dual`/tracked prob's element
+    # type, unlike `MixtureModel(delays, float.(probs))`).
+    lp = CensoredDistributions._competing_logmix(probs, delays, t)
     return _scale(lp, w)
 end
 
