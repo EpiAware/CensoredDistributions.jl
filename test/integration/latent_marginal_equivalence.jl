@@ -145,6 +145,84 @@ end
     end
 end
 
+@testitem "marginal == latent: nested Competing, observed anchor (#363)" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent, Sequential, Competing,
+                                 composed_distribution_model
+    using DynamicPPL: VarInfo, logjoint, @model, to_submodel
+
+    # A latent-wrapped chain onset -> admit -> {death, discharge}. The recorded
+    # outcome is data; the latent form CONDITIONS on it exactly like the marginal
+    # Competing path. With the admit anchor OBSERVED both endpoints of the
+    # conditioned branch are observed, so the latent edge keeps its declared
+    # censoring and the latent term equals the marginal term edge-for-edge.
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa = edge(1.4, 0.4)
+    cfr = 0.3
+    death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
+    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    seq = Sequential(e_oa, cmp)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    for (oc, t, dly) in ((:death, 12.0, death_d), (:discharge, 11.0, disch_d))
+        row = oc === :death ?
+              (event_1 = 0.0, event_2 = 4.0, death = t, discharge = missing) :
+              (event_1 = 0.0, event_2 = 4.0, death = missing, discharge = t)
+        p = oc === :death ? cfr : 1 - cfr
+        marg = only(logjoint(demo(seq, row), (;)))
+        lat = only(logjoint(demo(latent(seq), row), (;)))
+        ref = logpdf(e_oa, 4.0) + log(p) + logpdf(dly, t - 4.0)
+        @test isapprox(marg, ref; atol = 1e-10)
+        @test isapprox(lat, marg; atol = 1e-10)   # latent == marginal, exact
+    end
+end
+
+@testitem "latent Competing: sampled anchor integrates to bare mixture term (#363)" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent, Sequential, Competing,
+                                 convolve_distributions,
+                                 composed_distribution_model, event_names
+    using DynamicPPL: VarInfo, logjoint
+
+    # onset(observed) -> admit(SAMPLED) -> {death(observed), discharge}. The latent
+    # samples the unobserved admission; integrating it out must reproduce the
+    # branch-prob-weighted BARE convolution at the observed death time:
+    #   log p_death + logpdf(conv(bare_oa, bare_death), t_death).
+    # Both edges go bare on a sampled endpoint (#453), so the integral is the bare
+    # onset->death convolution, scaled by the death branch probability. (The
+    # marginal nested-Competing scorer needs an observed anchor, so this sampled-
+    # anchor marginalisation is a capability the latent form adds.)
+    oa = Normal(0.4, 0.5)
+    death_d = Gamma(2.0, 0.8)
+    disch_d = LogNormal(0.6, 0.3)
+    cfr = 0.3
+    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    seq = Sequential((oa, cmp), (:onset_admit, :admit))
+    en = event_names(seq)                      # (:onset, :admit, :death, :discharge)
+    chain = latent(seq)
+    conv = convolve_distributions(oa, death_d)
+
+    function latent_int(tdeath; n = 50_000)
+        xs = range(-6.0, tdeath - 1e-4; length = n)
+        dx = step(xs)
+        s = 0.0
+        for a in xs
+            row = NamedTuple{en}((0.0, a, tdeath, missing))
+            m = composed_distribution_model(chain, row)
+            s += exp(logjoint(m, VarInfo(m))) * dx
+        end
+        return log(s)
+    end
+
+    for tdeath in (3.0, 5.0)
+        ref = log(cfr) + logpdf(conv, tdeath)
+        @test isapprox(latent_int(tdeath), ref; atol = 5e-3)
+    end
+end
+
 @testitem "andv sourced: latent == marginal == bare convolution (target)" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, convolve_distributions,

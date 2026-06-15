@@ -609,23 +609,21 @@ marginal `logpdf`), so a latent fit recovers the same delays; this section runs
 it alongside the marginal fit and compares.
 """
 
-# TODO: when `latent`-wrapped `Competing` lands in the Turing extension (the
-# capability tracked alongside this review), drop the by-outcome routing below
-# and score the resolution through a single `latent(Competing(...))` chain.
-
 md"""
 The composed tree carries a [`Competing`](@ref) resolution node, and a
-`latent`-wrapped composer with a nested `Competing` is not yet supported: the
-latent composer model treats every event slot as a per-record latent, so it
-would demand BOTH outcome columns at once rather than scoring the one that
-occurred (sampling which outcome occurs would be a distinct construction). The
-latent form therefore handles the resolution the same way the data do: a
-record's recorded outcome is observed, so we route by it. For each resolved
-record we build a two-edge [`latent`](@ref) chain onset → admission → outcome
-for whichever outcome occurred, and score the case-fatality split as a Bernoulli
-on the observed outcome (the latent counterpart of the marginal `:branch_probs`
-term). The chain samples the admission time for any record whose admission is
-missing and conditions on it otherwise; in this cleaned line list a resolved
+`latent`-wrapped composer with a nested `Competing` CONDITIONS on the recorded
+outcome the same way the marginal form does: the recorded outcome is data, so the
+latent model scores the one that occurred (its branch probability times the
+observed branch's delay) rather than demanding both outcome columns at once.
+Sampling WHICH outcome occurs would be a distinct generative construction, but the
+data-conditioned direction is what fits. Below we show the resolution handled
+explicitly through a per-record two-edge [`latent`](@ref) chain onset → admission
+→ outcome for whichever outcome occurred, scoring the case-fatality split as a
+Bernoulli on the observed outcome (the latent counterpart of the marginal
+`:branch_probs` term); the same fit can equally be expressed by wrapping the whole
+composed tree in [`latent`](@ref) and letting its nested `Competing` condition on
+the outcome. The chain samples the admission time for any record whose admission
+is missing and conditions on it otherwise; in this cleaned line list a resolved
 record always carries its recorded admission, so the chain conditions there and
 the two forms coincide on those records, differing only in how the resolution
 outcome is scored. The notification delay has no intermediate event, so it scores
@@ -877,11 +875,11 @@ md"""
 - The same delay model is fit in both the MARGINAL form (admission integrated
   out, the cheap default) and the LATENT form (admission sampled per record,
   matching the original Isiro analysis), routing the resolution by the observed
-  outcome because a `latent`-wrapped [`Competing`](@ref) is not yet supported.
-  Both
-  recover the same delays and case-fatality coefficients within uncertainty, so
-  the marginal form is preferred for speed and the latent form for the
-  intermediate event times or to reproduce the original analysis.
+  outcome; a `latent`-wrapped [`Competing`](@ref) conditions on that recorded
+  outcome exactly as the marginal node does. Both recover the same delays and
+  case-fatality coefficients within uncertainty, so the marginal form is preferred
+  for speed and the latent form for the intermediate event times or to reproduce
+  the original analysis.
 - Recovery is honest about identifiability: onset-to-admission and
   admission-to-death recover well, whereas the heavy-tailed onset-to-notification
   (Gamma shape 0.7) and the small-n admission-to-discharge (n = 11) are weakly
