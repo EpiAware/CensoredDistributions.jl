@@ -212,12 +212,14 @@ end
     # keep the FD reference well-conditioned.
     obs_in = [0.4, 0.7, 1.0, 1.3]
 
-    # Exact parity on the AD-safe primitives the fix adds. `_logccdf_ad_safe` and
-    # `_cdf_ad_safe` for a GeneralizedGamma route through `_gamma_cdf` with NO
-    # internal finite-differencing, so their ForwardDiff gradient must match a
-    # central FD reference of the same primal to tight tolerance. These are the
-    # actual functions the censoring integrands call; matching FD here proves the
-    # gradient is correct, not merely finite.
+    # Exact parity on ALL FOUR AD-safe primitives the fix adds. Each
+    # GeneralizedGamma `_*_ad_safe` routes through `_gamma_cdf` with NO internal
+    # finite-differencing, so its ForwardDiff gradient must match a central FD
+    # reference of the same primal to tight tolerance. These are the actual
+    # functions the censoring integrands call; matching FD here proves the gradient
+    # is correct, not merely finite. `_logccdf_ad_safe`/`_cdf_ad_safe` and their
+    # complements `_ccdf_ad_safe`/`_logcdf_ad_safe` are all covered so the survival
+    # and CDF directions both lock in.
     safe_lccdf(θ) = sum(
         t -> CensoredDistributions._logccdf_ad_safe(
             SD.GeneralizedGamma(θ[1], θ[2], θ[3]), t),
@@ -226,7 +228,18 @@ end
         t -> CensoredDistributions._cdf_ad_safe(
             SD.GeneralizedGamma(θ[1], θ[2], θ[3]), t),
         obs_in)
-    for (nm, f) in (("_logccdf_ad_safe", safe_lccdf), ("_cdf_ad_safe", safe_cdf))
+    safe_ccdf(θ) = sum(
+        t -> CensoredDistributions._ccdf_ad_safe(
+            SD.GeneralizedGamma(θ[1], θ[2], θ[3]), t),
+        obs_in)
+    safe_lcdf(θ) = sum(
+        t -> CensoredDistributions._logcdf_ad_safe(
+            SD.GeneralizedGamma(θ[1], θ[2], θ[3]), t),
+        obs_in)
+    for (nm,
+        f) in (("_logccdf_ad_safe", safe_lccdf),
+        ("_cdf_ad_safe", safe_cdf), ("_ccdf_ad_safe", safe_ccdf),
+        ("_logcdf_ad_safe", safe_lcdf))
         gf = ForwardDiff.gradient(f, θ₀)
         gref = fd_grad(f, θ₀; h = 1e-5)
         @test all(isfinite, gf)

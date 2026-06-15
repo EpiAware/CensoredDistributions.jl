@@ -331,12 +331,35 @@ end
 # stored probs). The override's element type is preserved, so a `logistic(Xβ)`
 # `Dual` flows through the rebuilt node and differentiates.
 
-# Count the `Competing` nodes anywhere in a composed tree, so a single per-record
-# `branch_probs` field is rejected as ambiguous when more than one node exists.
-_count_competing(c::Competing) = 1
+# Count the `Competing` (mixture) nodes anywhere in a composed tree, so a single
+# per-record `branch_probs` field is rejected as ambiguous when more than one node
+# exists. The walk RECURSES through every place a node can nest: a composer's
+# `components`, an `AbstractCompeting`'s outcome `delays` (a Competing/Select can
+# legitimately nest inside a competing outcome subtree, `_is_competing_branch`),
+# a `Select`'s `alternatives`, and a `Latent`'s inner `dist`. A `Competing` counts
+# ONE and ALSO recurses into its own delays (a Competing nested as another
+# Competing's outcome). A `HazardCompeting` is NOT branch-prob-overridable (its
+# winning probabilities are derived), so it counts zero but still recurses into its
+# delays. A plain leaf counts zero. (Previously the `::UnivariateDistribution`
+# fallback swallowed an `AbstractCompeting` — `AbstractCompeting <:
+# UnivariateDistribution` — silently UNDER-counting a nested Competing and
+# bypassing the `n == 1` ambiguity guard; `Select`/`Latent` are multivariate, so
+# they hit no method and errored. Both are now handled.)
+_count_competing(c::Competing) = 1 + _count_competing_in(c.delays)
+_count_competing(c::HazardCompeting) = _count_competing_in(c.delays)
 _count_competing(::UnivariateDistribution) = 0
 function _count_competing(d::Union{Sequential, Parallel})
-    return sum(_count_competing, d.components; init = 0)
+    return _count_competing_in(d.components)
+end
+_count_competing(d::Select) = _count_competing_in(d.alternatives)
+_count_competing(d::Latent) = _count_competing(d.dist)
+
+# Sum `_count_competing` over a tuple of children (components / delays /
+# alternatives). HEAD/TAIL recursion avoids the `Any`-inference widening a
+# `sum`/`mapreduce` over a heterogeneous tuple hits on the CI compilers.
+_count_competing_in(::Tuple{}) = 0
+function _count_competing_in(xs::Tuple)
+    return _count_competing(first(xs)) + _count_competing_in(Base.tail(xs))
 end
 
 # Rebuild a composed tree with the single `Competing` node's branch probabilities
@@ -352,7 +375,23 @@ function _override_competing_outcome_probs(d, probs)
     return _replace_competing(d, probs)
 end
 
-_replace_competing(c::Competing, probs) = Competing(c.names, c.delays, probs)
+# Rebuild every node, replacing the (single) `Competing`'s probs. Recurses through
+# the SAME nesting `_count_competing` walks (composer components, AbstractCompeting
+# delays, Select alternatives, Latent inner dist), so a Competing nested inside a
+# competing-outcome subtree or a Select alternative is reached. A `Competing` also
+# rebuilds its own delays (a nested Competing outcome is reached). A
+# `HazardCompeting` is not overridable but rebuilds its delays (a Competing may
+# nest inside one of its causes). A `Select` rebuilds its alternatives; a `Latent`
+# its inner dist. The `n == 1` guard in `_override_competing_outcome_probs` ensures
+# exactly one `Competing` exists, so `probs` is applied to that single node.
+function _replace_competing(c::Competing, probs)
+    Competing(c.names,
+        map(d -> _replace_competing(d, probs), c.delays), probs)
+end
+function _replace_competing(c::HazardCompeting, probs)
+    return HazardCompeting(c.names,
+        map(d -> _replace_competing(d, probs), c.delays))
+end
 _replace_competing(d::UnivariateDistribution, probs) = d
 function _replace_competing(d::Sequential, probs)
     return Sequential(map(c -> _replace_competing(c, probs), d.components),
@@ -362,6 +401,12 @@ function _replace_competing(d::Parallel, probs)
     return Parallel(map(c -> _replace_competing(c, probs), d.components),
         d.names)
 end
+function _replace_competing(d::Select, probs)
+    return Select(
+        d.names, map(a -> _replace_competing(a, probs),
+            d.alternatives), d.selector)
+end
+_replace_competing(d::Latent, probs) = Latent(_replace_competing(d.dist, probs))
 
 # --- per-record nested-Select routing ---------------------------------------
 #
@@ -376,18 +421,34 @@ end
 # score alternative 1.
 
 # Count the nested `Select` nodes anywhere in a composed tree, so a tree with no
-# Select skips the resolution rebuild entirely.
-_count_selects(::Select) = 1
+# Select skips the resolution rebuild entirely. RECURSES through the same nesting
+# `_count_competing` walks: composer components, an `AbstractCompeting`'s outcome
+# `delays` (a Select can nest inside a competing-outcome subtree), a Select's own
+# alternatives, and a Latent's inner dist. (Previously a nested `AbstractCompeting`
+# hit the `::UnivariateDistribution` fallback — they share that supertype — so a
+# Select inside a competing outcome was never counted and the resolution rebuild
+# was skipped, leaving an unresolved Select to silently score its first
+# alternative; and a top-level `Latent` hit no method.)
+_count_selects(c::Select) = 1 + _count_selects_in(c.alternatives)
 _count_selects(::UnivariateDistribution) = 0
 function _count_selects(d::Union{Sequential, Parallel})
-    return sum(_count_selects, d.components; init = 0)
+    return _count_selects_in(d.components)
+end
+_count_selects(c::AbstractCompeting) = _count_selects_in(c.delays)
+_count_selects(d::Latent) = _count_selects(d.dist)
+
+_count_selects_in(::Tuple{}) = 0
+function _count_selects_in(xs::Tuple)
+    return _count_selects(first(xs)) + _count_selects_in(Base.tail(xs))
 end
 
 # Resolve every nested `Select` in `d` to its routed alternative for `row`,
 # returning the rebuilt (Select-free) tree. A row missing a Select's selector
 # field errors clearly (no silent commit to alternative 1). A tree with no nested
 # Select is returned unchanged. The chosen alternative may itself nest a Select,
-# so the rebuild recurses into it.
+# so the rebuild recurses into it. Recurses through the SAME nesting as
+# `_count_selects` (composer components, AbstractCompeting delays, Latent inner),
+# so a Select nested inside a competing-outcome subtree is resolved out.
 _resolve_selects(d, row::NamedTuple) = _resolve_selects_node(d, row)
 
 _resolve_selects_node(d::UnivariateDistribution, ::NamedTuple) = d
@@ -409,4 +470,15 @@ end
 function _resolve_selects_node(d::Parallel, row::NamedTuple)
     return Parallel(map(c -> _resolve_selects_node(c, row), d.components),
         d.names)
+end
+function _resolve_selects_node(c::Competing, row::NamedTuple)
+    return Competing(c.names,
+        map(d -> _resolve_selects_node(d, row), c.delays), c.branch_probs)
+end
+function _resolve_selects_node(c::HazardCompeting, row::NamedTuple)
+    return HazardCompeting(c.names,
+        map(d -> _resolve_selects_node(d, row), c.delays))
+end
+function _resolve_selects_node(d::Latent, row::NamedTuple)
+    return Latent(_resolve_selects_node(d.dist, row))
 end

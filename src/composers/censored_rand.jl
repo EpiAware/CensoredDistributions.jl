@@ -324,46 +324,63 @@ function _competing_outcome_rand!(out, rng::AbstractRNG,
     return nothing
 end
 
-# Racing-hazard `HazardCompeting`: draw a latent racing time per cause, fill the
-# argmin-cause's slice; the others stay missing so the record scores as the
+# Racing-hazard `HazardCompeting`: draw a latent racing realisation per cause, fill
+# the argmin-cause's slice; the others stay missing so the record scores as the
 # cause-resolved sub-density. A LEAF cause's racing time is a draw from its delay
 # (filling its one slot at the min time); a NON-TERMINAL (composer) cause's racing
-# time is its subtree's marginal time-to-resolution, and on a win its subtree is
-# walked (#466 Feature 3). The terminal for a following step is the shared origin.
+# realisation is a full zero-origin subtree walk whose marginal time-to-resolution
+# races the leaf causes. On a COMPOSER-cause win the SAME realisation that produced
+# the winning racing time is recorded (re-anchored on the real origin), so the
+# recorded subtree IS the race-winning draw rather than a second independent walk
+# (#466 Feature 3; fixes the rand/likelihood mismatch where the scorer reads the
+# recorded resolution time). The terminal for a following step is the shared origin.
 function _tree_rand_step!(out, rng::AbstractRNG, step::HazardCompeting, origin,
         idx, ::Type{T}) where {T}
     n = _n_branches(step)
     best_i = 1
-    best_t = _hazard_outcome_racing_time(rng, step.delays[1], T)
+    best_t, best_real = _hazard_outcome_racing_draw(rng, step.delays[1], T)
     @inbounds for k in 2:n
-        t = _hazard_outcome_racing_time(rng, step.delays[k], T)
+        t, real = _hazard_outcome_racing_draw(rng, step.delays[k], T)
         if t < best_t
             best_t = t
             best_i = k
+            best_real = real
         end
     end
     start = idx + _competing_outcome_start(step.delays, best_i)
-    _hazard_outcome_rand!(out, rng, step.delays[best_i], origin, best_t, start, T)
+    _hazard_outcome_rand!(out, rng, step.delays[best_i], origin, best_t,
+        best_real, start, T)
     return idx + _event_child_nleaves(step), origin
 end
 
-# The racing time of one outcome (for the argmin draw): a leaf delay draws its own
-# time; a composer subtree draws its marginal time-to-resolution (the gap from a
-# zero origin to the subtree's terminal event), so its first-resolution time races
-# the leaf causes. The draw is from a fresh zero-origin walk so the racing time is
-# independent of where the cause finally lands.
-function _hazard_outcome_racing_time(rng, delay::UnivariateDistribution, ::Type{T}
-) where {T}
-    convert(T, rand(rng, _marginal_core(delay)))
+# The racing draw of one outcome (for the argmin): the racing TIME plus the
+# REALISATION that produced it, so the winner's recorded subtree IS the race-
+# winning draw. A leaf delay draws its own time; its "realisation" is the time
+# itself (a leaf re-derives `origin + best_t` and ignores the carried realisation).
+# A composer subtree draws a full zero-origin walk into `tmp`, returning its
+# marginal time-to-resolution AND the realised `tmp` slots, so on a win the carried
+# `tmp` is re-anchored on the real origin instead of drawing a fresh independent
+# subtree. The draw is a fresh zero-origin walk, racing the leaf causes.
+function _hazard_outcome_racing_draw(rng, delay::UnivariateDistribution,
+        ::Type{T}) where {T}
+    t = convert(T, rand(rng, _marginal_core(delay)))
+    return t, t
 end
-function _hazard_outcome_racing_time(rng, delay::Union{Sequential, Parallel},
+function _hazard_outcome_racing_draw(rng, delay::Union{Sequential, Parallel},
         ::Type{T}) where {T}
     z = zero(T)
     nslots = _event_nleaves(delay.components)
     tmp = Vector{Union{Missing, T}}(missing, nslots + 1)
     tmp[1] = z
     _tree_rand!(tmp, rng, delay, z, 2, T)
-    return _subtree_resolution_time(delay, tmp, T)
+    return _subtree_resolution_time(delay, tmp, T), tmp
+end
+
+# The racing TIME of one outcome alone (the argmin key), dropping the realisation
+# `_hazard_outcome_racing_draw` carries for the recorded-subtree fidelity. Kept as
+# a thin wrapper for the MC racing-frequency checks (which only need the time).
+function _hazard_outcome_racing_time(rng, delay, ::Type{T}) where {T}
+    return first(_hazard_outcome_racing_draw(rng, delay, T))
 end
 
 # The marginal resolution time of a zero-origin subtree walk: a `Sequential`
@@ -384,20 +401,38 @@ function _subtree_resolution_time(d::Parallel, tmp, ::Type{T}) where {T}
     return best == convert(T, -Inf) ? convert(T, Inf) : best
 end
 
-# Fill the winning racing outcome's slice. A LEAF cause fills its single slot at
-# the (absolute) winning time; a COMPOSER cause walks its subtree off the parent
-# origin (its leaf events fill the slice; the winning racing time is implicit in
-# the drawn sub-times).
+# Fill the winning racing outcome's slice from the realisation that WON the race.
+# A LEAF cause fills its single slot at the (absolute) winning time (it ignores the
+# carried realisation, which for a leaf is just the time). A COMPOSER cause copies
+# the realised zero-origin subtree `real` (the SAME walk whose resolution time won
+# the race) into the slice, re-anchored on the real `origin`, so the recorded
+# subtree IS the race-winning draw and its resolution time matches `best_t` — the
+# density the scorer reads off the recorded slot. (Previously a second independent
+# `_tree_rand!` here drew an unrelated subtree, so samples did not follow the
+# assigned likelihood.) `rng` is unused on this path now (no fresh draw).
 function _hazard_outcome_rand!(out, rng::AbstractRNG,
-        delay::UnivariateDistribution, origin, best_t, start::Int,
+        delay::UnivariateDistribution, origin, best_t, real, start::Int,
         ::Type{T}) where {T}
     out[start] = origin + best_t
     return nothing
 end
 function _hazard_outcome_rand!(out, rng::AbstractRNG,
-        delay::Union{Sequential, Parallel}, origin, best_t, start::Int,
+        delay::Union{Sequential, Parallel}, origin, best_t, real, start::Int,
         ::Type{T}) where {T}
-    _tree_rand!(out, rng, delay, origin, start, T)
+    _reanchor_subtree!(out, real, origin, start, T)
+    return nothing
+end
+
+# Copy a zero-origin realised subtree `real` (slot 1 is the zero origin, slots
+# 2..end its depth-first leaf events) into `out` from index `start`, re-anchored on
+# the real `origin`: each filled leaf slot becomes `origin + (zero-origin time)`.
+# A missing slot (an unfired branch in a partially resolving subtree) stays missing,
+# preserving the realised missingness pattern the scorer conditions on.
+function _reanchor_subtree!(out, real, origin, start::Int, ::Type{T}) where {T}
+    @inbounds for k in 2:length(real)
+        v = real[k]
+        out[start + (k - 2)] = v === missing ? missing : origin + convert(T, v)
+    end
     return nothing
 end
 

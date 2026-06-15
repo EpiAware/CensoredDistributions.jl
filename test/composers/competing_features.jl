@@ -577,6 +577,81 @@ end
     @test count(draw -> draw.recover !== missing, draws) > 0
 end
 
+@testitem "non-terminal HazardCompeting: rand fidelity (composer-win subtree)" begin
+    using Distributions, Random, Statistics
+
+    # DISTRIBUTIONAL fidelity (the #466 F3 rand/likelihood mismatch fix): for a
+    # NON-TERMINAL racing outcome (death => a chain) drawn through the nested
+    # event-record path, the RECORDED subtree must be the SAME realisation that
+    # WON the race. Its resolution time then follows the CONDITIONAL distribution
+    # `f_death(t | death wins) ∝ f_death(t) S_recover(t)` — stochastically SMALLER
+    # than the unconditional marginal `f_death(t)`, because the winner won by
+    # resolving first. The OLD code filled the recorded subtree with a SECOND
+    # independent `_tree_rand!`, so the recorded resolution time followed the
+    # UNCONDITIONAL marginal instead (its mean is `mean(death_T)`, well above the
+    # conditional mean); this test FAILS there. A primary-censored onset gives the
+    # tree a shared latent origin, so `rand` routes through `_tree_event_record`
+    # (the path the fix touches). The racing chain hangs off that shared origin
+    # (`event_1`), so the recorded resolution gap is the burial event minus
+    # `event_1`; no secondary intervals are applied, so the gap stays continuous
+    # for a tight distributional check.
+    onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
+    chain = Sequential((Gamma(2.0, 1.0), Gamma(1.5, 1.0)),
+        (:onset_admit, :admit_burial))
+    recover = Gamma(3.0, 2.0)
+    haz = competing(:death => chain, :recover => recover)
+    d = compose((onset = onset, resolution = haz))
+    @test CensoredDistributions._is_nonterminal(haz)
+    # Layout: (:event_1 shared origin, :event_2 onset, :admit, :burial, :recover).
+    @test event_names(d) == (:event_1, :event_2, :admit, :burial, :recover)
+
+    # The death subtree resolves at the SUM of its two (zero-origin) delays.
+    death_T = convolve_distributions((Gamma(2.0, 1.0), Gamma(1.5, 1.0)))
+
+    # Reference conditional resolution-time distribution on a fine grid:
+    # f_death(t) * S_recover(t), normalised over the death-win mass.
+    ts = range(1e-4, 60.0; length = 60_001)
+    dt = step(ts)
+    w = [pdf(death_T, t) * ccdf(recover, t) for t in ts]
+    p_death = sum(w) * dt
+    cond_mean = sum(t * wt for (t, wt) in zip(ts, w)) * dt / p_death
+    uncond_mean = mean(death_T)  # what the OLD double-draw would record
+    # The conditional mean is materially below the unconditional (the test's whole
+    # point); guard the fixture so a degenerate setup cannot pass trivially.
+    @test cond_mean < uncond_mean - 0.3
+
+    # Simulate many records through the nested event-record path; collect the
+    # recorded death-subtree resolution time (burial gap from the shared origin)
+    # on every death win, and count the wins. Wrapped in a function so the loop
+    # accumulators are locals (a testitem body runs at top-level soft scope).
+    function simulate(dist, N)
+        rng = MersenneTwister(20240617)
+        res = Float64[]
+        nd = 0
+        nr = 0
+        for _ in 1:N
+            draw = rand(rng, dist)
+            if draw.burial !== missing
+                nd += 1
+                push!(res, draw.burial - draw.event_1)
+            elseif draw.recover !== missing
+                nr += 1
+            end
+        end
+        return res, nd, nr
+    end
+    res_times, n_death, n_recover = simulate(d, 60_000)
+
+    # Win fraction matches the derived death-win probability (the race is honest).
+    @test n_death / (n_death + n_recover)≈p_death atol = 5e-3
+    # The recorded resolution times follow the CONDITIONAL distribution: their mean
+    # tracks `cond_mean`, NOT the unconditional `uncond_mean`. Under the old double
+    # draw this mean would be `uncond_mean`, failing the tight conditional band.
+    smean = mean(res_times)
+    @test smean≈cond_mean atol = 0.15
+    @test smean < uncond_mean - 0.2
+end
+
 @testitem "non-terminal HazardCompeting: AD through the tree logpdf (#479)" begin
     using Distributions
     using ForwardDiff: gradient
@@ -602,6 +677,99 @@ end
     # The recover shape enters ONLY through the cross-cause survival logccdf(recover,
     # t_res); its gradient is non-zero, proving the cross-cause factor flows.
     @test g[3] != 0
+end
+
+@testitem "nested Competing inside a competing outcome: branch_probs override" begin
+    using Distributions
+    const CD = CensoredDistributions
+
+    # S2 recursion: a mixture `Competing` nested INSIDE a (racing) competing
+    # outcome's subtree must be FOUND by the per-record `branch_probs` override
+    # path and overridden. Before the fix the override helpers stopped at the outer
+    # `AbstractCompeting` (it shares the `UnivariateDistribution` supertype, so the
+    # nested Competing hit the no-op leaf fallback): the node was silently
+    # under-counted, bypassing the `n == 1` guard, and the override was never
+    # applied. The fix RECURSES through `AbstractCompeting.delays`, so the override
+    # reaches the single nested Competing.
+    inner = competing(
+        :burial => (Gamma(1.5, 1.0), 0.6), :cremation => (Gamma(2.0, 1.0), 0.4))
+    death_chain = Sequential(
+        (Gamma(2.0, 1.0), inner), (:onset_admit, :admit_outcome))
+    recover = Gamma(3.0, 2.0)
+    haz = competing(:death => death_chain, :recover => recover)
+    d = compose((resolution = haz,))
+
+    # The recursion finds exactly the one nested Competing.
+    @test CD._count_competing(d) == 1
+
+    # A death-win record observing the burial outcome, with a per-record override of
+    # the nested Competing's branch probabilities.
+    row = (event_1 = 0.0, admit = 2.0, burial = 5.0, cremation = missing,
+        recover = missing, branch_probs = (burial = 0.3, cremation = 0.7))
+    recs = CD.record_distributions(d, [row])
+    lp = logpdf(recs[1], recs[1].events)
+
+    # Reference: rebuild the nested Competing with the overridden probs by hand and
+    # score the equivalent record directly. The override path must equal this.
+    inner2 = competing(
+        :burial => (Gamma(1.5, 1.0), 0.3), :cremation => (Gamma(2.0, 1.0), 0.7))
+    death2 = Sequential(
+        (Gamma(2.0, 1.0), inner2), (:onset_admit, :admit_outcome))
+    d2 = compose((resolution = competing(:death => death2, :recover => recover),))
+    ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0, missing, missing])
+    @test lp ≈ logpdf(d2, ev)
+
+    # The override genuinely changed the score (the default stored probs differ).
+    rec0 = CD.record_distributions(d,
+        [(event_1 = 0.0, admit = 2.0, burial = 5.0, cremation = missing,
+            recover = missing)])
+    @test !(logpdf(rec0[1], rec0[1].events) ≈ lp)
+end
+
+@testitem "nested Select inside a competing outcome: per-record routing" begin
+    using Distributions
+    const CD = CensoredDistributions
+
+    # S2 recursion: a `Select` nested INSIDE a (racing) competing outcome's subtree
+    # must be FOUND and RESOLVED per record (and its selector field stripped before
+    # event matching). Before the fix the Select-resolution helpers stopped at the
+    # outer `AbstractCompeting` (a nested Select was never counted, so the
+    # resolution rebuild was skipped and the Select silently scored its FIRST
+    # alternative; `_select_fields` also missed the selector). The fix recurses
+    # through `AbstractCompeting.delays`, so the routed alternative is scored.
+    sel = selecting(:fast => Gamma(1.5, 1.0), :slow => Gamma(4.0, 1.0);
+        selector = :speed)
+    death_chain = Sequential((Gamma(2.0, 1.0), sel), (:onset_admit, :admit_outcome))
+    recover = Gamma(3.0, 2.0)
+    haz = competing(:death => death_chain, :recover => recover)
+    d = compose((resolution = haz,))
+
+    # The recursion finds exactly the one nested Select and its selector field.
+    @test CD._count_selects(d) == 1
+    @test CD._select_fields(d) == [:speed]
+
+    ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0, missing])
+    # Routing to :slow scores the slow alternative; to :fast the fast one; the two
+    # differ and each matches a hand-resolved (Select-free) reference tree.
+    function routed_lp(speed)
+        row = (event_1 = 0.0, admit = 2.0, outcome = 5.0, recover = missing,
+            speed = speed)
+        recs = CD.record_distributions(d, [row])
+        return logpdf(recs[1], recs[1].events)
+    end
+    function ref_lp(alt)
+        chain = Sequential((Gamma(2.0, 1.0), alt), (:onset_admit, :admit_outcome))
+        dref = compose((resolution = competing(
+            :death => chain, :recover => recover),))
+        return logpdf(dref, ev)
+    end
+    @test routed_lp(:slow) ≈ ref_lp(Gamma(4.0, 1.0))
+    @test routed_lp(:fast) ≈ ref_lp(Gamma(1.5, 1.0))
+    @test !(routed_lp(:slow) ≈ routed_lp(:fast))
+
+    # A record missing the selector field errors clearly (no silent first-alt).
+    @test_throws ArgumentError CD.record_distributions(d,
+        [(event_1 = 0.0, admit = 2.0, outcome = 5.0, recover = missing)])
 end
 
 @testitem "competing: introspection works for both node types" begin
