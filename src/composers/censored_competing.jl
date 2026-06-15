@@ -215,17 +215,109 @@ function _hazard_outcome_payload(step::HazardCompeting, obs_i::Int,
     return _hazard_cause_logpdf(step, obs_i, convert(T, y) - convert(T, o))
 end
 
-# A COMPOSER racing outcome (#466 F3): the racing SURVIVAL up to the subtree's
-# resolution PLUS the subtree's own censored event density. The cause-resolved
-# weighting of a non-terminal racing branch is its survival contribution; the
-# subtree then scores the within-branch path conditional on that cause winning.
+# A COMPOSER racing outcome (#466 F3 / #479): the cause-resolved density of a
+# NON-TERMINAL racing branch is its subtree's own censored event density TIMES the
+# survival of the OTHER causes up to the branch's resolution time `t`, mirroring
+# the leaf formula `f_j(t) ∏_{k≠j} S_k(t)`. The subtree replaces the within-branch
+# density `f_j(t)`; the cross-cause survival `Σ_{k≠j} logccdf_k(t)` weights it by
+# the racing causes that did NOT fire by `t`. The resolution time `t` is the gap
+# from the parent origin to the subtree's terminal/latest event (matching
+# `_subtree_resolution_time` on the rand path). AD-safe (the survival rides
+# `_logccdf_ad_safe` in log space; only the `t` gap is narrowed to the data type).
 # The anchor for the subtree is the parent origin (shared).
 function _hazard_outcome_payload(step::HazardCompeting, obs_i::Int,
         delay::Union{Sequential, Parallel}, o, o_idx::Int, events,
         obs_start::Int, obs_w::Int, primary, ::Type{T}) where {T}
     sub = _subevent_slice(events, o_idx, obs_start, obs_w)
     sub_primary = _subtree_origin_primary(delay, primary)
-    return _tree_score(delay, sub, 1, 2, sub_primary, T)
+    subtree = _tree_score(delay, sub, 1, 2, sub_primary, T)
+    t = _hazard_subtree_resolution_gap(delay, sub, T)
+    return subtree + _hazard_cross_cause_logsurvival(step, obs_i, t)
+end
+
+# The cross-cause survival `Σ_{k≠j} logccdf_k(t)` of a racing node: the log
+# survival of every cause OTHER than the winning `j` at the resolution time `t`.
+# Each term rides `_logccdf_ad_safe` so the non-winning leaf params propagate
+# their `Dual`/tracked type (no `float` strip). Unlike `_hazard_cause_logpdf`'s
+# `≠ j` sum (all-leaf, where probing the skipped cause's survival is harmless),
+# the WINNING cause `j` here may be a COMPOSER whose survival routes through the
+# non-AD-safe `Convolved` CDF, so its term is NEVER evaluated: the winner is
+# skipped in the loop rather than zeroed in place. The accumulator is seeded with
+# `zero(t)` (no survival probe) and promoted by the `+=` of each non-winning term,
+# so it never touches the winner's survival and an empty non-winning set (a
+# degenerate single-cause node) still returns a typed zero.
+function _hazard_cross_cause_logsurvival(step::HazardCompeting, j::Int, t)
+    n = _n_branches(step)
+    acc = zero(t)
+    @inbounds for k in 1:n
+        k == j && continue
+        acc += _logccdf_ad_safe(step.delays[k], t)
+    end
+    return acc
+end
+
+# The log marginal SURVIVAL of a COMPOSER racing branch at `t`: the probability
+# the branch has NOT yet resolved by `t`, matching the marginal resolution time
+# `_hazard_outcome_racing_time` draws on the rand path. A `Sequential` resolves at
+# the SUM of its components' resolution times, so its survival is that of the
+# convolved marginal resolution-time distribution (each component reduced via
+# `_branch_marginal`, convolved in series; `logccdf` gives `log P(T > t)`). A
+# `Parallel` resolves when its LATEST endpoint fires, so its survival is
+# `S_max(t) = 1 - ∏_i F_i(t)`, i.e. `log1mexp(Σ_i logcdf_i(t))`. Both let a
+# composer branch race a leaf cause as a LOSER (its survival weights another
+# cause's win) just as the leaf path's `_hazard_cause_logpdf` already queries each
+# cause's survival; the marginal cores carry the leaf params for AD (the
+# convolution CDF is analytic where the cores admit it, else AD-safe numeric).
+function _logccdf_ad_safe(d::Sequential, t::Real)
+    conv = convolve_distributions(map(_branch_marginal, d.components))
+    return logccdf(conv, t)
+end
+function _logccdf_ad_safe(d::Parallel, t::Real)
+    n = length(d.components)
+    s = sum(ntuple(k -> logcdf(_branch_marginal(d.components[k]), t), n))
+    return log1mexp(s)
+end
+
+# The marginal resolution-time delay of a racing branch's component, used to build
+# the branch survival: a leaf strips to its `_marginal_core`; a nested `Sequential`
+# reduces to the convolution of its components. A nested `Parallel`/`Competing`
+# sub-component has no closed marginal resolution time here, so it errors clearly
+# rather than scoring a wrong survival.
+_branch_marginal(d::UnivariateDistribution) = _marginal_core(d)
+function _branch_marginal(d::Sequential)
+    return convolve_distributions(map(_branch_marginal, d.components))
+end
+function _branch_marginal(d::Union{Parallel, AbstractCompeting})
+    throw(ArgumentError(
+        "a racing-branch survival convolution does not support a nested " *
+        "$(nameof(typeof(d))) sub-component; only leaf delays and Sequential " *
+        "sub-chains have a closed marginal resolution time here"))
+end
+
+# The resolution time of an observed composer outcome as the gap from the parent
+# origin (`sub[1]`) to the subtree's terminal/latest event, mirroring
+# `_subtree_resolution_time` on the rand path: a `Sequential` resolves at its
+# terminal leaf (`_terminal_offset`), a `Parallel` when its latest filled slot
+# fires. Pure data arithmetic narrowed to the event type `T`; a missing terminal
+# slot (a partially observed branch) yields `Inf`, whose cross-cause survival is
+# `-Inf` (an impossible record), keeping the score consistent.
+function _hazard_subtree_resolution_gap(d::Sequential, sub, ::Type{T}) where {T}
+    o = sub[1]
+    term = sub[2 + _terminal_offset(d)]
+    (o === missing || term === missing) && return convert(T, Inf)
+    return convert(T, term) - convert(T, o)
+end
+function _hazard_subtree_resolution_gap(d::Parallel, sub, ::Type{T}) where {T}
+    o = sub[1]
+    o === missing && return convert(T, Inf)
+    best = convert(T, -Inf)
+    @inbounds for k in 2:length(sub)
+        v = sub[k]
+        v === missing && continue
+        v > best && (best = convert(T, v))
+    end
+    best == convert(T, -Inf) && return convert(T, Inf)
+    return best - convert(T, o)
 end
 
 # --- per-record branch-probability override for a nested Competing -----

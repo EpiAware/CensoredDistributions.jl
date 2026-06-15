@@ -447,6 +447,163 @@ end
     @test isapprox(p_hat, p_true; atol = 0.08)
 end
 
+@testitem "non-terminal HazardCompeting: cross-cause survival weighting (#479)" begin
+    using Distributions
+
+    # A NON-TERMINAL racing-hazard outcome (death => a chain) must weight its
+    # subtree density by the survival of the OTHER (leaf) cause up to the
+    # subtree's resolution time, mirroring the leaf formula f_j(t) ∏_{k≠j} S_k(t).
+    admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    burial = Gamma(1.5, 1.0)
+    chain = Sequential((admit, burial), (:onset_admit, :admit_burial))
+    recover = Gamma(3.0, 2.0)
+    haz = competing(:death => chain, :recover => recover)
+    @test CensoredDistributions._is_nonterminal(haz)
+
+    d = compose((resolution = haz,))
+    enames = event_names(d)
+    @test enames == (:event_1, :admit, :burial, :recover)
+    i = Dict(n => k for (k, n) in enumerate(enames))
+
+    o, t_admit, t_burial = 0.3, 2.5, 4.0
+    t_res = t_admit + t_burial  # the death subtree's terminal (burial) gap.
+
+    # COMPOSER cause wins (death subtree observed): the score is the subtree's own
+    # density PLUS the cross-cause survival of recover at the resolution time.
+    evd = Vector{Union{Missing, Float64}}(missing, length(enames))
+    evd[i[:event_1]] = o
+    evd[i[:admit]] = o + t_admit
+    evd[i[:burial]] = o + t_admit + t_burial
+    subtree = logpdf(admit, t_admit) + logpdf(burial, t_burial)
+    expected_d = subtree + logccdf(recover, t_res)
+    @test logpdf(d, evd) ≈ expected_d
+    # The cross-cause factor is genuinely present (not a no-op): dropping it would
+    # over-score by `-logccdf(recover, t_res) > 0`.
+    @test logpdf(d, evd) < subtree
+
+    # LEAF cause wins (recover observed): the cross-cause survival is now the
+    # death SUBTREE's marginal resolution-time survival (the convolved chain).
+    evr = Vector{Union{Missing, Float64}}(missing, length(enames))
+    evr[i[:event_1]] = o
+    evr[i[:recover]] = o + 5.0
+    death_marginal = convolve_distributions((Gamma(2.0, 1.0), Gamma(1.5, 1.0)))
+    expected_r = logpdf(recover, 5.0) + logccdf(death_marginal, 5.0)
+    @test logpdf(d, evr) ≈ expected_r
+end
+
+@testitem "non-terminal HazardCompeting: three duals agree (#479)" begin
+    using Distributions, Random
+
+    # Plain (uncensored) leaves so the composer cause's marginal racing time is a
+    # clean convolution; the three consistent duals must agree for the NON-TERMINAL
+    # racing tree (death => a two-step chain, recover => a leaf).
+    chain = Sequential((Gamma(2.0, 1.0), Gamma(1.5, 1.0)),
+        (:onset_admit, :admit_burial))
+    recover = Gamma(3.0, 2.0)
+    haz = competing(:death => chain, :recover => recover)
+    @test CensoredDistributions._is_nonterminal(haz)
+
+    # The death subtree resolves at the SUM of its two delays (its marginal
+    # racing-time distribution).
+    death_T = convolve_distributions((Gamma(2.0, 1.0), Gamma(1.5, 1.0)))
+
+    # Dual A (derived winning prob): P(j wins) = ∫ f_j(t) ∏_{k≠j} S_k(t) dt over a
+    # fine grid, independent of any internal quadrature node set.
+    ts = range(0.0, 60.0; length = 60_001)
+    dt = step(ts)
+    p_death = sum(pdf(death_T, t) * ccdf(recover, t) for t in ts) * dt
+    p_recover = sum(pdf(recover, t) * ccdf(death_T, t) for t in ts) * dt
+    @test p_death + p_recover ≈ 1.0 atol = 1e-3
+
+    # Dual B (MC argmin frequency): draw each cause's racing time via the package
+    # rand path (a composer cause draws its subtree marginal resolution time) and
+    # count the death wins; matches the derived winning prob within MC error.
+    function mcfreq(node, N)
+        rng = MersenneTwister(2024)
+        nd = 0
+        for _ in 1:N
+            td = CensoredDistributions._hazard_outcome_racing_time(
+                rng, node.delays[1], Float64)
+            tr = CensoredDistributions._hazard_outcome_racing_time(
+                rng, node.delays[2], Float64)
+            td < tr && (nd += 1)
+        end
+        return nd / N
+    end
+    fd_mc = mcfreq(haz, 400_000)
+    @test fd_mc≈p_death atol = 5e-3
+
+    # Dual C (scoring-path mass): the SCORED non-terminal record reproduces the
+    # SAME cause-resolved sub-density A integrates. For a death-subtree win the
+    # scored cross-cause factor is exactly S_recover(t_res) (the survival in A's
+    # integrand), and the subtree density at its resolution is f_death's
+    # contribution. Integrating exp(scored cross-cause + subtree marginal density)
+    # over the resolution time recovers the death winning probability, tying the
+    # scoring path (the #479 fix) to the derived winning prob and the MC frequency.
+    cross(t) = CensoredDistributions._hazard_cross_cause_logsurvival(haz, 1, t)
+    @test exp(cross(2.5)) ≈ ccdf(recover, 2.5)  # the scored S_recover factor.
+    p_death_scored = sum(pdf(death_T, t) * exp(cross(t)) for t in ts) * dt
+    @test p_death_scored ≈ p_death
+    @test p_death_scored≈fd_mc atol = 5e-3
+end
+
+@testitem "non-terminal HazardCompeting: rand round-trips (#479)" begin
+    using Distributions, Random
+
+    onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
+    admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    burial = Gamma(1.5, 1.0)
+    chain = Sequential((admit, burial), (:admit_death, :death_burial))
+    recover = Gamma(3.0, 2.0)
+    haz = competing(:death => chain, :recover => recover)
+    d = compose((onset = onset, resolution = haz))
+
+    rng = MersenneTwister(11)
+    draws = [rand(rng, d) for _ in 1:80]
+    for draw in draws
+        @test draw isa NamedTuple
+        # Exactly one outcome resolved: either the death subtree slots populate
+        # (recover missing) or recover populates (subtree missing). Both wins must
+        # score a finite logpdf (composer-win uses the leaf cross-cause survival;
+        # leaf-win uses the death subtree's marginal survival).
+        death_obs = draw.death !== missing || draw.burial !== missing
+        recover_obs = draw.recover !== missing
+        @test death_obs ⊻ recover_obs
+        @test isfinite(logpdf(d, draw))
+    end
+    # Both branches are exercised (the chosen seed wins each at least once).
+    death_won(draw) = draw.death !== missing || draw.burial !== missing
+    @test count(death_won, draws) > 0
+    @test count(draw -> draw.recover !== missing, draws) > 0
+end
+
+@testitem "non-terminal HazardCompeting: AD through the tree logpdf (#479)" begin
+    using Distributions
+    using ForwardDiff: gradient
+
+    # Differentiate the NON-TERMINAL racing-tree logpdf w.r.t. the death subtree's
+    # leaf shapes AND the racing recover leaf shape. The cross-cause survival of
+    # recover must carry the recover Dual (so g[3] ≠ 0), and the subtree density
+    # the chain Duals; all finite, none all-zero.
+    onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
+    # A death-subtree-observed record: origin, admit, burial present, recover off.
+    ev = Vector{Union{Missing, Float64}}([0.3, 2.8, 6.5, missing])
+    function f(p)
+        admit = primary_censored(Gamma(p[1], 1.0), Uniform(0, 1))
+        chain = Sequential((admit, Gamma(p[2], 1.0)),
+            (:onset_admit, :admit_burial))
+        recover = Gamma(p[3], 2.0)
+        haz = competing(:death => chain, :recover => recover)
+        return logpdf(compose((resolution = haz,)), ev)
+    end
+    g = gradient(f, [2.0, 1.5, 3.0])
+    @test all(isfinite, g)
+    @test any(!=(0), g)
+    # The recover shape enters ONLY through the cross-cause survival logccdf(recover,
+    # t_res); its gradient is non-zero, proving the cross-cause factor flows.
+    @test g[3] != 0
+end
+
 @testitem "competing: introspection works for both node types" begin
     using Distributions
 
