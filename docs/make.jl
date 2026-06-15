@@ -40,6 +40,7 @@ if !skip_notebooks
         "fitting-with-turing.jl",
         "bdbv-linelist-analysis.jl",
         "andv-linelist-analysis.jl",
+        "ebola-stratified-delays.jl",
         "rt-renewal-convolution.jl",
         "epinowcast-nowcasting.jl",
         "linear-chain-sir.jl"
@@ -101,6 +102,7 @@ else
         "fit-marginal-sample-event-based.md" => "# Fit marginal, sample event based",
         "bdbv-linelist-analysis.md" => "# Bundibugyo Ebola delays from the 2012 Isiro line list",
         "andv-linelist-analysis.md" => "# Real-time Andes virus delays from the Epuyén line list",
+        "ebola-stratified-delays.md" => "# Stratified onset-to-test delays in the 2014-2016 Sierra Leone Ebola outbreak",
         "rt-renewal-convolution.md" => "# An Rt renewal model with delay convolution",
         "linear-chain-sir.md" => "# [A composed delay as ODE compartments: the linear chain trick](@id linear-chain-sir)",
         "epinowcast-nowcasting.md" => "# [An epinowcast-style hazard nowcasting model](@id epinowcast-nowcasting)"
