@@ -186,9 +186,12 @@ function primarycensored_cdf(
         x::Real,
         method::NumericSolver
 ) where {D1 <: UnivariateDistribution, D2 <: UnivariateDistribution}
-    # Edge cases; seed sentinel returns from the promoted argument type so
+    # Edge cases; seed sentinel returns from the promoted parameter type so
     # that ForwardDiff Duals survive the support-boundary branches.
-    T = float(promote_type(eltype(dist), eltype(primary_event), typeof(x)))
+    # `_param_eltype` is used because a distribution's `eltype` is its variate
+    # type and would drop a `Dual` carried by the parameters.
+    T = float(promote_type(
+        _param_eltype(dist), _param_eltype(primary_event), typeof(x)))
     if isnan(x)
         return T(NaN)
     elseif x <= minimum(dist)
@@ -495,8 +498,11 @@ function primarycensored_logcdf(
         method::AbstractSolverMethod
 ) where {D1 <: UnivariateDistribution, D2 <: UnivariateDistribution}
     # Check support first for type stability; seed sentinel returns from the
-    # promoted argument type so ForwardDiff Duals survive these branches.
-    T = float(promote_type(eltype(dist), eltype(primary_event), typeof(x)))
+    # promoted parameter type so ForwardDiff Duals survive these branches
+    # (a distribution's `eltype` is its variate type and drops parameter
+    # Duals, so `_param_eltype` is used instead).
+    T = float(promote_type(
+        _param_eltype(dist), _param_eltype(primary_event), typeof(x)))
     if isnan(x)
         return T(NaN)
     elseif x <= minimum(dist)

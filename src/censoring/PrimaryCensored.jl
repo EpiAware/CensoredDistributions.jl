@@ -150,6 +150,14 @@ end
 function Base.eltype(::Type{<:PrimaryCensored{D1, D2}}) where {D1, D2}
     return promote_type(eltype(D1), eltype(D2))
 end
+# Instance method promotes the PARAMETER element types of both inner
+# distributions: a distribution's `eltype` is its variate type (`Float64`)
+# and would drop an AD `Dual` carried by the parameters, so a Dual-typed
+# delay or primary event lifts the reported eltype here.
+function Base.eltype(d::PrimaryCensored)
+    return promote_type(
+        _param_eltype(get_dist(d)), _param_eltype(d.primary_event))
+end
 minimum(d::PrimaryCensored) = minimum(get_dist(d))
 maximum(d::PrimaryCensored) = maximum(get_dist(d))
 insupport(d::PrimaryCensored, x::Real) = insupport(get_dist(d), x)

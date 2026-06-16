@@ -42,9 +42,10 @@ end
     using DifferentiationInterface: derivative
     using ForwardDiff: ForwardDiff
 
-    # Numeric solver, x at the delay support floor. The edge branch returns
-    # `zero(T)`; differentiating w.r.t. a delay parameter must yield a finite
-    # Dual rather than a stripped Float64.
+    # Numeric solver, x AT the delay support floor (LogNormal floor = 0), so
+    # the `x <= minimum(dist)` edge branch returns `zero(T)`. The Dual lives
+    # in the delay PARAMETER, which a `Float64` literal would strip; the seed
+    # is taken from the parameter type so the branch stays a finite Dual.
     function f_num(μ)
         d = primary_censored(
             LogNormal(μ, 0.5), Uniform(0.0, 1.0); method = NumericSolver())
@@ -53,20 +54,28 @@ end
     g_num = derivative(f_num, AutoForwardDiff(), 1.0)
     @test isfinite(g_num)
 
-    # Analytical Gamma path, just above the lower edge. Differentiate the cdf
-    # w.r.t. the shape parameter near the support boundary.
+    # Analytical Gamma path BELOW the support (x < 0), hitting the `d <= 0`
+    # edge return, differentiated w.r.t. the shape parameter.
     function f_gamma(k)
         d = primary_censored(Gamma(k, 1.5), Uniform(0.0, 1.0))
-        return cdf(d, 1e-6)
+        return cdf(d, -1.0)
     end
     g_gamma = derivative(f_gamma, AutoForwardDiff(), 2.0)
     @test isfinite(g_gamma)
 
-    # logcdf below the support returns `oftype(zero(T), -Inf)`; the in-support
-    # query just above the floor must still differentiate to a finite Dual.
+    # Interior analytical query just above the floor: the normal (non-edge)
+    # path must also stay a finite Dual.
+    function f_gamma_interior(k)
+        d = primary_censored(Gamma(k, 1.5), Uniform(0.0, 1.0))
+        return cdf(d, 1e-3)
+    end
+    @test isfinite(derivative(f_gamma_interior, AutoForwardDiff(), 2.0))
+
+    # logcdf BELOW the support returns `oftype(zero(T), -Inf)`; differentiating
+    # w.r.t. the delay parameter there must still yield a finite Dual.
     function f_logcdf(μ)
         d = primary_censored(LogNormal(μ, 0.5), Uniform(0.0, 1.0))
-        return logcdf(d, 0.5)
+        return logcdf(d, -1.0)
     end
     g_logcdf = derivative(f_logcdf, AutoForwardDiff(), 1.0)
     @test isfinite(g_logcdf)
