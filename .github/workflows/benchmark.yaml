@@ -71,7 +71,7 @@ jobs:
             include("benchmark/benchmarks.jl")
             results = run(SUITE; verbose = true, seconds = 1)
             BenchmarkTools.save("results-${{ matrix.name }}.json", results)'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bench-${{ matrix.name }}
           path: results-${{ matrix.name }}.json
