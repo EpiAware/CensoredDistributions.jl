@@ -65,10 +65,10 @@ admit_death = Gamma(2.0, 1.0);
 
 # Two branches off one onset: an onset-to-admission delay and an
 # onset-to-notification delay.
-parallel = compose((onset_admit = onset_admit,
+parallel_stack = compose((onset_admit = onset_admit,
     onset_notif = Gamma(1.5, 1.0)));
 
-event_names(parallel)
+event_names(parallel_stack)
 
 # A chain step is a `Vector`: onset to admission, then admission to death.
 chain = compose((path = [onset_admit, admit_death],));
@@ -82,12 +82,16 @@ event_names(chain)
 #
 # [`Sequential`](@ref) is a conjunctive chain: each step adds an independent
 # delay onto the previous event.
+# The lowercase [`sequential`](@ref) verb is the public constructor (the
+# uppercase struct is kept for internal use); name the steps with `name => dist`
+# pairs.
 
-seq = Sequential(onset_admit, admit_death);
+seq = sequential(:onset_admit => onset_admit, :admit_death => admit_death);
 
-# [`Parallel`](@ref) places independent branches off one shared origin.
+# [`Parallel`](@ref) places independent branches off one shared origin, built
+# with the [`parallel`](@ref) verb.
 
-par = Parallel(onset_admit, admit_death);
+par = parallel(:onset_admit => onset_admit, :onset_notif => admit_death);
 
 # [`Competing`](@ref) is a set of competing outcomes: exactly one occurs,
 # governed by branch probabilities that sum to one.
@@ -136,8 +140,8 @@ select_on_select = selecting(:a => selector, :b => onset_admit);
 # Naming the chain steps gives the simulated record readable event names.
 
 tree = compose((
-    path = Sequential((onset_admit, resolution),
-        (:onset_admit, :admit_resolve)),
+    path = sequential(:onset_admit => onset_admit,
+        :admit_resolve => resolution),
     onset_notif = admit_death));
 
 # The flat event layout of a tree is derived from the edge names.
@@ -212,10 +216,9 @@ event_names(primary_only_stack)
 # divided by one denominator, the CDF of the convolution from the origin to the
 # last observed event evaluated at `horizon - origin`.
 
-obs_chain = Sequential(
-    (double_interval_censored(LogNormal(1.2, 0.5); interval = 1),
-        double_interval_censored(Gamma(2.0, 1.0); interval = 1)),
-    (:onset_admit, :admit_death));
+obs_chain = sequential(
+    :onset_admit => double_interval_censored(LogNormal(1.2, 0.5); interval = 1),
+    :admit_death => double_interval_censored(Gamma(2.0, 1.0); interval = 1));
 
 ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0]);
 
@@ -326,10 +329,10 @@ sim_resolution = competing(
         1 - cfr));
 
 sim_tree = compose((
-    path = Sequential(
-        (double_interval_censored(LogNormal(1.5, 0.4); interval = 1),
-            sim_resolution),
-        (:onset_admit, :admit_resolve)),
+    path = sequential(
+        :onset_admit =>
+            double_interval_censored(LogNormal(1.5, 0.4); interval = 1),
+        :admit_resolve => sim_resolution),
     onset_notif = double_interval_censored(Gamma(2.0, 1.0); interval = 1)));
 
 event_names(sim_tree)
@@ -484,6 +487,73 @@ updated = update(template, (onset_admit = (shape = 3.0, scale = 1.5),
 
 NamedTuple{keys(event_tree(updated))}(Tuple(mean(updated)))
 
+# ## Editing a composed tree
+#
+# [`update`](@ref) also replaces whole nodes, not just their values.
+# Passing `path => new_node` pairs swaps the node at each address for a new
+# distribution, keeping the tree shape.
+# The address is the same one [`event`](@ref) reads: a bare name, a dotted
+# `Symbol`, or a tuple of edge names.
+
+replaced = update(template, :admit_death => Gamma(3.0, 1.5));
+
+event(replaced, :admit_death)
+
+# Two edits that change the tree shape are kept separate.
+# [`prune`](@ref) drops a branch (renormalising a [`Competing`](@ref) arm), and
+# [`splice`](@ref) inserts a before/after step around a node.
+# These are the two topology edits; `update` keeps the shape and replaces
+# contents.
+
+three_way = competing(:death => (Gamma(1.5, 1.0), 0.3),
+    :discharge => (Gamma(2.0, 1.5), 0.4),
+    :transfer => (Gamma(1.0, 1.0), 0.3));
+
+resolution_tree = compose((resolution = three_way, onset = Gamma(1.0, 1.0)));
+
+pruned = prune(resolution_tree, :resolution, :transfer);
+
+event_names(event(pruned, :resolution))
+
+# `splice` wraps a node in a chain, here adding a reporting delay after the
+# notification branch.
+
+spliced = splice(template, :admit_death;
+    after = :death_report => Gamma(1.0, 2.0));
+
+event_names(event(spliced, :admit_death))
+
+# ## Syntax reference
+#
+# Every public form on one composed object, with whether it preserves the tree
+# shape:
+#
+# | Syntax | What it does | Shape-preserving? |
+# |---|---|---|
+# | `compose((a = d1, b = d2))` | NamedTuple front-end; a `Vector` value is a chain | builds |
+# | `compose(table)` | table front-end (a `name`/`dist` column source) | builds |
+# | `compose(matrix; names)` | matrix front-end | builds |
+# | `sequential(:a => d1, :b => d2)` | a [`Sequential`](@ref) chain (steps add up) | builds |
+# | `parallel(:a => d1, :b => d2)` | a [`Parallel`](@ref) branch set (shared origin) | builds |
+# | `competing(:a => (d1, p1), :b => (d2, p2))` | a [`Competing`](@ref) node (one outcome occurs) | builds |
+# | `selecting(:a => d1, :b => d2)` | a [`Select`](@ref) disjunction (data picks the branch) | builds |
+# | `primary_censored(d, pe)` | primary-event censoring leaf | leaf wrap |
+# | `interval_censored(d; interval)` | interval-censoring leaf | leaf wrap |
+# | `double_interval_censored(d; interval)` | primary + truncation + interval leaf | leaf wrap |
+# | `truncate_to_horizon(d, h)` | right-truncate a delay at a horizon | leaf wrap |
+# | `update(d, (a = (shape = 3,),))` | replace free parameter values | yes |
+# | `update(d, path => new_node)` | replace whole nodes | yes |
+# | `prune(d, path)` | drop a branch (renormalise a `Competing` arm) | no (topology) |
+# | `splice(d, path; before, after)` | insert a before/after step at a node | no (topology) |
+# | `event(d, path)` | fetch a child or descend a name path | read |
+# | `event_tree(d)` | the nested tree of event names | read |
+# | `event_names(d)` | the flat per-event names | read |
+# | `params_table(d)` | the flat free-parameter inventory | read |
+# | `update(d, chain_to_params(d, chain))` | read fitted values back onto `d` | yes |
+#
+# The address `path` in `event` / `update` / `prune` / `splice` is the same in
+# all four: a bare `Symbol`, a dotted `Symbol` (`:a.b`), or a tuple of edge names.
+
 # ## Summary
 #
 # - [`compose`](@ref) lowers a NamedTuple, table, or matrix to the same composer
@@ -510,6 +580,9 @@ NamedTuple{keys(event_tree(updated))}(Tuple(mean(updated)))
 # - [`params_table`](@ref), [`build_priors`](@ref) (support-derived defaults),
 #   [`composed_parameters_model`](@ref), and [`update`](@ref) attach parameters
 #   and priors to the same object and feed the record model.
+# - [`update`](@ref) edits the tree too: `path => new_node` replaces nodes
+#   keeping the shape, while [`prune`](@ref) and [`splice`](@ref) are the two
+#   topology edits. The syntax reference above lists every public form.
 #
 # ## Where next
 #

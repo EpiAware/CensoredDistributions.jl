@@ -246,8 +246,8 @@ stays a single leaf. The outcome contributes its subtree's event slots, so
 """
 
 burial = double_interval_censored(Gamma(1.5, 1.0); interval = 1)
-death_chain = Sequential((Gamma(2.0, 3.0), burial),
-    (:onset_death, :death_burial))
+death_chain = sequential(:onset_death => Gamma(2.0, 3.0),
+    :death_burial => burial)
 severity_tree = competing(:death => (death_chain, 0.4),
     :recover => (Gamma(3.0, 2.0), 0.6))
 

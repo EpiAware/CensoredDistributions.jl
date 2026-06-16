@@ -96,6 +96,47 @@ rand(d)
 Sequential(c1, cs...) = Sequential((c1, cs...))
 Sequential(components::AbstractVector) = Sequential(Tuple(components))
 
+@doc "
+
+Compose univariate distributions into a [`Sequential`](@ref) chain.
+
+Lowercase verb mirroring [`parallel`](@ref) / [`competing`](@ref): the public
+constructor for a [`Sequential`](@ref) chain. Pass step distributions
+positionally (default names `:step_1, :step_2, ...`) or `name => dist` pairs to
+name the steps; a step may itself be a [`Parallel`](@ref), [`Competing`](@ref) or
+nested chain. Prefer this verb over the bare struct constructor.
+
+# Arguments
+- `steps`: the step distributions, either as positional distributions or as
+  `name => dist` pairs naming each step.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+d = sequential(:onset_admit => Gamma(2.0, 1.0),
+    :admit_death => LogNormal(0.5, 0.4))
+event_names(d)
+```
+
+# See also
+- [`Sequential`](@ref): the composer type
+- [`parallel`](@ref), [`competing`](@ref): the sibling constructors
+- [`compose`](@ref): the NamedTuple/table/matrix front-end
+"
+function sequential(steps::Pair...)
+    length(steps) >= 1 ||
+        throw(ArgumentError("sequential needs at least one step"))
+    names = Tuple(s.first for s in steps)
+    all(n -> n isa Symbol, names) ||
+        throw(ArgumentError("each sequential step name must be a Symbol"))
+    dists = Tuple(s.second for s in steps)
+    return Sequential(dists, names)
+end
+
+sequential(s1, ss...) = Sequential((s1, ss...))
+sequential(steps::AbstractVector) = Sequential(Tuple(steps))
+
 # Total number of leaf values in a realisation (sum over nested children).
 Base.length(d::Sequential) = _nleaves(d.components)
 

@@ -149,39 +149,50 @@ build_priors(params_table(tree))
 
 A composed tree is immutable, so an edit returns a fresh tree rather than
 mutating in place.
-Four verbs walk the tree by name path and rebuild only the touched spine, so the
-result is still a valid composed distribution that scores and `rand`s.
-They reuse the same recursive reconstruction as [`update`](@ref), which replaces
-free parameters; the edit verbs replace whole nodes or branches instead.
+Each verb walks the tree by name path and rebuilds only the touched spine, so
+the result is still a valid composed distribution that scores and `rand`s.
+The edits split into two kinds: those that keep the tree shape and those that
+change it.
 
-- [`intervene`](@ref) replaces the node at a path with a new node.
-  Use it for a counterfactual where one delay or sub-tree changes.
-- [`swap_child`](@ref) replaces a named child of a parent node.
-  Use it when you address the parent and name the child to change, rather than
-  spell out the full path.
-- [`cut_branch`](@ref) drops a branch, renormalising the remaining `Competing`
-  probabilities.
-  Use it to remove an outcome, alternative, or step from a node.
-- [`splice`](@ref) wraps a node in a [`Sequential`](@ref) with a `before` and/or
-  `after` step.
-  Use it to insert an extra delay around a node without rebuilding the rest of
-  the tree.
+| Verb | Edit | Changes shape? |
+|---|---|---|
+| [`update`](@ref)`(d, params::NamedTuple)` | replace free parameter values | no |
+| [`update`](@ref)`(d, path => new_node)` | replace whole nodes | no |
+| [`prune`](@ref)`(d, path)` | drop a branch (renormalise a `Competing` arm) | yes |
+| [`splice`](@ref)`(d, path; before, after)` | insert a before/after step | yes |
 
-A path is a `Symbol` (a top-level child) or a tuple of edge names from the root.
+[`update`](@ref) is the single verb for both shape-preserving edits.
+A nested `NamedTuple` replaces free parameter values; `path => new_node` pairs
+replace whole nodes.
+Both dispatch on the second argument, sharing the recursive reconstruction.
+
+[`prune`](@ref) and [`splice`](@ref) are the two topology edits.
+`prune` drops a branch, renormalising the remaining [`Competing`](@ref)
+probabilities.
+`splice` wraps a node in a [`Sequential`](@ref) with a `before` and/or `after`
+step, inserting an extra delay without rebuilding the rest of the tree.
+
+A path is addressed the same way [`event`](@ref) reads it: a `Symbol` (a
+top-level child), a dotted `Symbol` (`:admit_path.admit_death`), or a tuple of
+edge names from the root.
+So the address `event` reads is the one `update` / `prune` / `splice` write.
 
 ```@example extending
 base = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
 
-# Counterfactual: a different onset-to-admission delay.
-faster = intervene(base, :onset_admit => Gamma(1.0, 1.0))
+# Counterfactual: a different onset-to-admission delay (same shape).
+faster = update(base, :onset_admit => Gamma(1.0, 1.0))
 
-# Insert a reporting step after the admission-to-death delay.
+# Insert a reporting step after the admission-to-death delay (changes shape).
 reported = splice(base, :admit_death;
     after = :death_report => Gamma(1.0, 2.0))
 
 (event_names(base), event_names(event(reported, :admit_death)))
 ```
+
+`intervene`, `swap_child`, and `cut_branch` are deprecated aliases of `update`
+and `prune`, kept during the deprecation window.
 
 ## Verifying conformance
 

@@ -108,9 +108,9 @@ function delay_tree(; cfr = 0.5)
     resolution = competing(
         :death => (double_interval_censored_delay(Gamma(2.0, 3.5)), cfr),
         :discharge => (double_interval_censored_delay(Gamma(1.0, 8.0)), 1 - cfr))
-    admit_path = Sequential(
-        (double_interval_censored_delay(Gamma(1.2, 3.0)), resolution),
-        (:onset_admit, :admit_resolution))
+    admit_path = sequential(
+        :onset_admit => double_interval_censored_delay(Gamma(1.2, 3.0)),
+        :admit_resolution => resolution)
     return compose((admit_path = admit_path,
         onset_notif = double_interval_censored_delay(Gamma(0.7, 20.0))))
 end
@@ -661,8 +661,8 @@ function latent_resolution_chain(leaves, outcome::Symbol)
     name = outcome === :death ?
            (leaves.admit_death, :admit_death) :
            (leaves.admit_discharge, :admit_discharge)
-    return latent(Sequential((leaves.onset_admit, edge),
-        (:onset_admit, name)))
+    return latent(sequential(:onset_admit => leaves.onset_admit,
+        name => edge))
 end
 
 md"""

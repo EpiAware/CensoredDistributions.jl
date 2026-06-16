@@ -126,9 +126,9 @@ struct Competing{C <: Tuple, D <: Tuple, P <: Tuple} <: AbstractCompeting
 
     # Validate the structural invariants in the INNER constructor so EVERY
     # construction path (the `Pair...` outer constructor, equality round-trips,
-    # `update`, `intervene` and direct struct calls) is checked, rather than
-    # silently building a malformed node whose failure only surfaces later as a
-    # confusing `DomainError` from `Categorical` inside `as_mixture`.
+    # `update` value- and node-edits, and direct struct calls) is checked,
+    # rather than silently building a malformed node whose failure only surfaces
+    # later as a confusing `DomainError` from `Categorical` inside `as_mixture`.
     #
     # The bounds (each prob in `[0, 1]`) and structure (at least two outcomes;
     # names, delays and branch_probs of equal length) hold on EVERY path,
