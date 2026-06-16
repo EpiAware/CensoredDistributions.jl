@@ -37,6 +37,10 @@ single-delay denominator; pass a [`Convolved`](@ref) (from
 [`truncate_chain`](@ref) helper picks between the two from a chain of
 segments and an observation mask.
 
+This is the upper-only observation-horizon form of right-truncation; a
+δ-bounded variant, truncating to a finite window of width δ, is planned and
+tracked separately.
+
 # Arguments
 - `delay`: the delay distribution to right-truncate. A single delay gives the
   single-delay denominator; a [`Convolved`](@ref) gives the convolved-chain

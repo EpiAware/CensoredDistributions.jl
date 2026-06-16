@@ -50,6 +50,12 @@
 # have methods once Catalyst is loaded.
 # This tutorial therefore needs `using Catalyst` to load the extension.
 #
+# By design the bridge is a consumer of the composers, not part of the
+# composition engine.
+# It reads a finished composed delay and lowers or assembles it onto a
+# compartment model, so it stays an optional weak-dependency extension and the
+# core composer stack carries no SciML dependency.
+#
 # We considered the alternatives.
 # [AlgebraicPetri.jl](https://algebraicjulia.github.io/AlgebraicPetri.jl/dev/)
 # builds compartmental models as open Petri nets with category-theoretic

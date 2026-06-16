@@ -1,6 +1,7 @@
 @doc "
 
-Latent wrapper turning a primary-censored node into its latent representation.
+Latent-variable wrapper turning a primary-censored node into its latent
+representation, sampling the primary event time rather than integrating it out.
 
 A latent primary-censored node is multivariate over the event times
 `[primary, observed]`: the primary event time is a sampled latent variable

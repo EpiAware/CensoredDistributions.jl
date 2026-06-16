@@ -102,6 +102,12 @@ Censoring wrappers are peeled to the inner free delay first (via
 `free_leaf`), so a chain of censored Exp/Erlang delays still lowers
 cleanly. The total number of compartments is `sum(s.stages for s in stages)`.
 
+This is the distributions-to-compartments bridge: a CONSUMER of the composers,
+not part of the composition engine. It reads a finished composed delay and hands
+its `(rate, stages)` structure to a downstream ODE/compartment view (the
+Catalyst reaction-network assembly is the optional weak-dependency extension on
+top); it does not build the ODE itself.
+
 The lowering is EXACT only for Exponential / Erlang leaves; any other family
 (general Gamma, LogNormal, ...) throws.
 
