@@ -4,6 +4,7 @@ using CensoredDistributions: _gamma_cdf
 import CensoredDistributions: _cdf_ad_safe, _ccdf_ad_safe,
                               _logcdf_ad_safe, _logccdf_ad_safe
 using Distributions: shape, scale
+import Distributions: logcdf
 import SurvivalDistributions as SD
 
 # AD-safe CDF family for `SurvivalDistributions.GeneralizedGamma`.
@@ -58,5 +59,23 @@ function _logccdf_ad_safe(d::SD.GeneralizedGamma, u::Real)
     u <= 0 && return zero(float(u))
     return log1p(-_gg_cdf(d, u))
 end
+
+# The public `logcdf(::GeneralizedGamma, t)` must be AD-safe too, not just the
+# package-internal `_*_ad_safe` helpers above. `SurvivalDistributions` defines
+# `logccdf(GG, t) = logccdf(d.G, t^gamma)` but NO `logcdf`, so a direct
+# `logcdf(GeneralizedGamma(θ...), t)` falls through to the generic
+# `Distributions.logcdf`, which evaluates the inner Gamma's `logcdf` →
+# `StatsFuns._gammalogcdf`. That has NO `ForwardDiff.Dual` /
+# `ReverseDiff.TrackedReal` / Mooncake method, so under any AD backend it strips
+# the `Dual` and throws (`no method matching _gammalogccdf(::Dual, ...)`).
+# Routing `logcdf` through the `_gamma_cdf`-backed helper makes a bare `logcdf`
+# differentiate everywhere the censored pipelines already do, closing the gap a
+# user hits scoring a GeneralizedGamma leaf directly. `cdf`/`ccdf`/`logccdf` are
+# OWNED by `SurvivalDistributions` (redefining them here is method-overwriting
+# piracy and breaks precompilation), so they are left to the package's
+# `_cdf_ad_safe` / `_ccdf_ad_safe` / `_logccdf_ad_safe` helpers, which the
+# censoring pipelines already use and which the AD-parity testitem locks in.
+# Only `logcdf` is unclaimed and so safely AD-routed at the public method.
+logcdf(d::SD.GeneralizedGamma, t::Real) = _logcdf_ad_safe(d, t)
 
 end # module

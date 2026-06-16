@@ -283,3 +283,44 @@ end
         @test !all(iszero, g)
     end
 end
+
+@testitem "SurvivalDistributions GeneralizedGamma bare logcdf is AD-safe" begin
+    using CensoredDistributions
+    import SurvivalDistributions as SD
+    using Distributions: logcdf, cdf
+    import ForwardDiff
+
+    # A DIRECT `logcdf(GeneralizedGamma(θ...), t)` (not via a censoring
+    # pipeline) must differentiate cleanly. SurvivalDistributions defines no
+    # `logcdf` for GeneralizedGamma, so the generic `Distributions.logcdf`
+    # evaluates the inner `Gamma`'s `logcdf` -> `StatsFuns._gammalogcdf`, which
+    # has no `ForwardDiff.Dual` method and STRIPS the Dual / throws. The
+    # extension routes the public `logcdf` through the AD-safe
+    # `_logcdf_ad_safe` (`_gamma_cdf`-backed) so the bare call differentiates
+    # w.r.t. the three GG parameters. Locks in #46 Task 2b.
+    function fd_grad(f, θ; h = 1e-6)
+        g = similar(θ)
+        for i in eachindex(θ)
+            θp = copy(θ)
+            θp[i] += h
+            θm = copy(θ)
+            θm[i] -= h
+            g[i] = (f(θp) - f(θm)) / (2h)
+        end
+        return g
+    end
+
+    θ₀ = [1.0, 1.5, 2.0]
+    obs_in = [0.4, 0.7, 1.0, 1.3]
+    f(θ) = sum(t -> logcdf(SD.GeneralizedGamma(θ[1], θ[2], θ[3]), t), obs_in)
+    g = ForwardDiff.gradient(f, θ₀)
+    @test all(isfinite, g)
+    @test g≈fd_grad(f, θ₀; h = 1e-5) rtol=1e-4 atol=1e-6
+
+    # The AD-routed primal equals the package's `_logcdf_ad_safe` value (and so
+    # the stock `log(cdf)`), i.e. the routing changes the gradient path only.
+    for t in obs_in
+        gg = SD.GeneralizedGamma(θ₀[1], θ₀[2], θ₀[3])
+        @test logcdf(gg, t) ≈ log(cdf(gg, t))
+    end
+end
