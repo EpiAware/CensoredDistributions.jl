@@ -75,10 +75,16 @@ end
 # subtree recurses through `_tree_score` on the outcome's slice, anchored at the
 # shared parent origin); no outcome observed -> contributes no factor (the
 # resolved-but-unknown-outcome encoding for a NESTED Competing is deferred).
+#
+# A per-record observation `horizon` (default `nothing`) RIGHT-TRUNCATES the
+# conditioned branch at the remaining window from the anchor, mirroring the
+# top-level `_maybe_truncate` so a nested Competing honours the same real-time
+# right-truncation as the top-level node (#517). With `horizon === nothing` the
+# scoring is byte-identical to the untruncated path.
 function _tree_step(step::Competing, events, o_idx::Int, ev_idx::Int,
-        primary, ::Type{T}) where {T}
+        primary, ::Type{T}, horizon = nothing) where {T}
     return _competing_tree_logpdf(step, step.branch_probs, o_idx,
-        events, ev_idx, primary, T)
+        events, ev_idx, primary, T, horizon)
 end
 
 # Score a nested `Competing` against its outcome slices given the anchor INDEX
@@ -90,8 +96,12 @@ end
 # nothing. An observed real LEAF outcome conditions on that branch; a COMPOSER
 # outcome scores `log p_k + _tree_score(subtree, slice)` (the mixture weight plus
 # its subtree's own censored event-vector density anchored at the parent origin).
+#
+# A per-record `horizon` (default `nothing`) right-truncates the branch density at
+# the remaining window from the anchor (`horizon - events[o_idx]`), matching the
+# top-level `_maybe_truncate` semantics (#517).
 function _competing_tree_logpdf(c::Competing, probs, o_idx::Int, events,
-        ev_idx::Int, primary, ::Type{T}) where {T}
+        ev_idx::Int, primary, ::Type{T}, horizon = nothing) where {T}
     obs_i,
     obs_start,
     obs_w = _resolve_competing_outcome(c.delays, c.names, events, ev_idx)
@@ -102,7 +112,24 @@ function _competing_tree_logpdf(c::Competing, probs, o_idx::Int, events,
     o = events[o_idx]
     return log(probs[obs_i]) +
            _competing_outcome_payload_logpdf(delay, o, o_idx, events,
-        obs_start, obs_w, primary, T)
+        obs_start, obs_w, primary, T, horizon)
+end
+
+# The remaining observation window for a nested Competing outcome anchored at `o`
+# (the parent origin): `horizon - o`, the time left to observe the branch from its
+# anchor. The top-level Competing node is anchored at origin 0, so its window IS
+# the horizon; a nested node hangs off a non-zero anchor, so the horizon is
+# shifted by the anchor exactly as the flat `Parallel`/`Sequential` horizon paths
+# compute `horizon - origin`. `nothing` horizon -> `nothing` window (no
+# truncation). The anchor is already validated non-missing by the caller.
+_competing_window(::Nothing, o) = nothing
+_competing_window(horizon, o) = horizon - convert(typeof(horizon), o)
+
+# Right-truncate a branch `delay` at the per-record window, or return it unchanged
+# when no horizon applies, mirroring the top-level `_maybe_truncate`.
+_competing_truncate(delay, ::Nothing) = delay
+function _competing_truncate(delay, window)
+    return truncate_to_horizon(delay, window)
 end
 
 # The payload term of an observed competing outcome: a LEAF conditions on its
@@ -110,14 +137,18 @@ end
 # its own censored event-vector density on the outcome's slice, anchored at the
 # parent origin (shared like a nested-composer origin). The mixture weight
 # `log p_k` is added by the caller, so this is the conditional `f(payload | k)`.
+# A per-record `horizon` (default `nothing`) right-truncates a LEAF branch at the
+# remaining window from the anchor (#517); the composer-subtree / nested-Competing
+# payloads thread it on into their own recursion.
 function _competing_outcome_payload_logpdf(delay::UnivariateDistribution, o,
-        o_idx::Int, events, obs_start::Int, obs_w::Int, primary, ::Type{T}
-) where {T}
+        o_idx::Int, events, obs_start::Int, obs_w::Int, primary, ::Type{T},
+        horizon = nothing) where {T}
     y = events[obs_start]
     o === missing && throw(ArgumentError(
         "a nested Competing with an observed outcome needs an observed anchor " *
         "(its parent event); got a missing anchor"))
-    return logpdf(delay, convert(T, y) - convert(T, o))
+    branch = _competing_truncate(delay, _competing_window(horizon, o))
+    return logpdf(branch, convert(T, y) - convert(T, o))
 end
 
 # A COMPOSER outcome: recurse through `_tree_score` on the `[origin, slice...]`
@@ -125,37 +156,45 @@ end
 # subtree origin slot). The subtree's leaf events occupy `obs_w` slots from
 # `obs_start`; the parent origin anchors them. The subtree may itself be censored,
 # so its own origin primary (if any) seeds the recursion; the parent-level primary
-# is passed through for a sampled-origin sub-chain.
+# is passed through for a sampled-origin sub-chain. A per-record `horizon` threads
+# on into the subtree recursion so a Competing nested inside this subtree also
+# truncates (#517); the subtree shares the parent anchor, so the same absolute
+# horizon applies.
 function _competing_outcome_payload_logpdf(
         delay::Union{Sequential, Parallel}, o, o_idx::Int, events,
-        obs_start::Int, obs_w::Int, primary, ::Type{T}) where {T}
+        obs_start::Int, obs_w::Int, primary, ::Type{T},
+        horizon = nothing) where {T}
     sub = _subevent_slice(events, o_idx, obs_start, obs_w)
     sub_primary = _subtree_origin_primary(delay, primary)
-    return _tree_score(delay, sub, 1, 2, sub_primary, T)
+    return _tree_score(delay, sub, 1, 2, sub_primary, T, horizon)
 end
 
 # A `Select` outcome routes to its committed (first) alternative on the numeric
 # path (the data path resolves Selects out before scoring); score that.
 function _competing_outcome_payload_logpdf(delay::Select, o, o_idx::Int, events,
-        obs_start::Int, obs_w::Int, primary, ::Type{T}) where {T}
+        obs_start::Int, obs_w::Int, primary, ::Type{T},
+        horizon = nothing) where {T}
     return _competing_outcome_payload_logpdf(_flat_select_alternative(delay), o,
-        o_idx, events, obs_start, obs_w, primary, T)
+        o_idx, events, obs_start, obs_w, primary, T, horizon)
 end
 
 # A nested `Competing` outcome (a competing node as a competing branch): recurse
 # through the competing scorer on the outcome's slice, anchored at the parent
-# origin (the inner competing's outcomes hang off the same shared anchor).
+# origin (the inner competing's outcomes hang off the same shared anchor). The
+# per-record `horizon` threads on so the inner Competing truncates too (#517).
 function _competing_outcome_payload_logpdf(delay::Competing, o, o_idx::Int,
-        events, obs_start::Int, obs_w::Int, primary, ::Type{T}) where {T}
+        events, obs_start::Int, obs_w::Int, primary, ::Type{T},
+        horizon = nothing) where {T}
     sub = _subevent_slice(events, o_idx, obs_start, obs_w)
     return _competing_tree_logpdf(delay, delay.branch_probs, 1, sub, 2,
-        primary, T)
+        primary, T, horizon)
 end
 
 function _competing_outcome_payload_logpdf(delay::HazardCompeting, o, o_idx::Int,
-        events, obs_start::Int, obs_w::Int, primary, ::Type{T}) where {T}
+        events, obs_start::Int, obs_w::Int, primary, ::Type{T},
+        horizon = nothing) where {T}
     sub = _subevent_slice(events, o_idx, obs_start, obs_w)
-    return _hazard_competing_tree_logpdf(delay, 1, sub, 2, primary, T)
+    return _hazard_competing_tree_logpdf(delay, 1, sub, 2, primary, T, horizon)
 end
 
 # The origin primary event seeding a COMPOSER competing outcome's subtree. A
@@ -180,34 +219,35 @@ end
 # no factor (a fully latent record). The winning probability is DERIVED, so there
 # is no branch-probability term.
 function _tree_step(step::HazardCompeting, events, o_idx::Int, ev_idx::Int,
-        primary, ::Type{T}) where {T}
-    return _hazard_competing_tree_logpdf(step, o_idx, events, ev_idx, primary, T)
+        primary, ::Type{T}, horizon = nothing) where {T}
+    return _hazard_competing_tree_logpdf(step, o_idx, events, ev_idx, primary, T,
+        horizon)
 end
 
 function _hazard_competing_tree_logpdf(step::HazardCompeting, o_idx::Int, events,
-        ev_idx::Int, primary, ::Type{T}) where {T}
+        ev_idx::Int, primary, ::Type{T}, horizon = nothing) where {T}
     obs_i,
     obs_start,
     obs_w = _resolve_competing_outcome(step.delays, step.names, events, ev_idx)
     obs_i == 0 && return zero(T)
     o = events[o_idx]
     return _hazard_outcome_payload_logpdf(step, obs_i, o, o_idx, events,
-        obs_start, obs_w, primary, T)
+        obs_start, obs_w, primary, T, horizon)
 end
 
 # A LEAF racing outcome: the cause-resolved sub-density at the observed gap. The
 # log density carries any AD `Dual`/tracked type from the racing delays' params,
 # so it is NOT narrowed to the data type `T` (only the `obs_gap`, data, is `T`).
 function _hazard_outcome_payload_logpdf(step::HazardCompeting, obs_i::Int, o,
-        o_idx::Int, events, obs_start::Int, obs_w::Int, primary, ::Type{T}
-) where {T}
+        o_idx::Int, events, obs_start::Int, obs_w::Int, primary, ::Type{T},
+        horizon = nothing) where {T}
     return _hazard_outcome_payload(step, obs_i, step.delays[obs_i], o, o_idx,
-        events, obs_start, obs_w, primary, T)
+        events, obs_start, obs_w, primary, T, horizon)
 end
 
 function _hazard_outcome_payload(step::HazardCompeting, obs_i::Int,
         delay::UnivariateDistribution, o, o_idx::Int, events, obs_start::Int,
-        obs_w::Int, primary, ::Type{T}) where {T}
+        obs_w::Int, primary, ::Type{T}, horizon = nothing) where {T}
     y = events[obs_start]
     o === missing && throw(ArgumentError(
         "a nested HazardCompeting with an observed outcome needs an observed " *
@@ -227,10 +267,11 @@ end
 # The anchor for the subtree is the parent origin (shared).
 function _hazard_outcome_payload(step::HazardCompeting, obs_i::Int,
         delay::Union{Sequential, Parallel}, o, o_idx::Int, events,
-        obs_start::Int, obs_w::Int, primary, ::Type{T}) where {T}
+        obs_start::Int, obs_w::Int, primary, ::Type{T},
+        horizon = nothing) where {T}
     sub = _subevent_slice(events, o_idx, obs_start, obs_w)
     sub_primary = _subtree_origin_primary(delay, primary)
-    subtree = _tree_score(delay, sub, 1, 2, sub_primary, T)
+    subtree = _tree_score(delay, sub, 1, 2, sub_primary, T, horizon)
     t = _hazard_subtree_resolution_gap(delay, sub, T)
     return subtree + _hazard_cross_cause_logsurvival(step, obs_i, t)
 end

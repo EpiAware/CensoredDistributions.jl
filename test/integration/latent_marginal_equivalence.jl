@@ -180,6 +180,121 @@ end
     end
 end
 
+@testitem "marginal == latent: nested Competing, right-truncated (#517)" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent, Sequential, Competing,
+                                 composed_distribution_model, event_names,
+                                 truncate_to_horizon, _nested_tree_logpdf,
+                                 _origin_primary_event, _first_origin_node
+    using DynamicPPL: logjoint, @model, to_submodel
+    using ForwardDiff: gradient
+
+    # The nested-Competing scorer must honour a per-record right-truncation
+    # `horizon` exactly as the top-level Competing path does (#517). Before the fix
+    # the nested scorer ignored the horizon, scoring the UNtruncated branch density
+    # (a likelihood mis-specification) and breaking the top-level-vs-nested
+    # symmetry. The chain is onset -> admit -> {death, discharge} with the admit
+    # anchor OBSERVED, so the conditioned branch is right-truncated at the remaining
+    # window `horizon - admit` (the time left to observe the outcome from its
+    # anchor), mirroring the top-level node truncated at the horizon from origin 0.
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa = edge(1.4, 0.4)
+    cfr = 0.3
+    death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
+    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    seq = Sequential(e_oa, cmp)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    admit = 4.0
+    horizon = 20.0
+    prim = _origin_primary_event(_first_origin_node(seq))
+
+    for (oc, t, dly) in ((:death, 12.0, death_d), (:discharge, 11.0, disch_d))
+        p = oc === :death ? cfr : 1 - cfr
+        slot = oc === :death ? 3 : 4
+        ev = Vector{Union{Missing, Float64}}([0.0, admit, missing, missing])
+        ev[slot] = t
+
+        # The marginal nested-tree scorer with vs without a horizon. (The flat
+        # public marginal entry guards nested-tree horizons separately; the SCORER
+        # itself now threads the horizon, which is what #517 fixes.)
+        marg_trunc = _nested_tree_logpdf(seq, ev, prim, Float64, horizon)
+        marg_untrunc = _nested_tree_logpdf(seq, ev, prim, Float64)
+
+        # The latent form scores the same record through the public model, which
+        # routes the nested Competing through `_latent_competing_logprob`.
+        row = oc === :death ?
+              (event_1 = 0.0, event_2 = admit, death = t, discharge = missing,
+            obs_time = horizon) :
+              (event_1 = 0.0, event_2 = admit, death = missing, discharge = t,
+            obs_time = horizon)
+        row0 = oc === :death ?
+               (event_1 = 0.0, event_2 = admit, death = t, discharge = missing) :
+               (event_1 = 0.0, event_2 = admit, death = missing, discharge = t)
+        lat_trunc = only(logjoint(demo(latent(seq), row), (;)))
+        lat_untrunc = only(logjoint(demo(latent(seq), row0), (;)))
+
+        # (a) The truncated nested contribution DIFFERS from the untruncated one
+        # (the bug scored the untruncated branch density).
+        @test !isapprox(marg_trunc, marg_untrunc)
+
+        # The expected truncated term: the onset->admit edge, the branch weight, and
+        # the death/discharge branch RIGHT-TRUNCATED at the remaining window.
+        ref_branch = logpdf(truncate_to_horizon(dly, horizon - admit), t - admit)
+        ref_trunc = logpdf(e_oa, admit) + log(p) + ref_branch
+        @test isapprox(marg_trunc, ref_trunc; atol = 1e-10)
+
+        # (b) The nested truncated branch term MATCHES the analogous top-level
+        # Competing truncation (anchored at 0, window `horizon - admit`).
+        top = Competing(:death => (death_d, cfr),
+            :discharge => (disch_d, 1 - cfr))
+        tlrow = oc === :death ?
+                (death = t - admit, discharge = missing,
+            obs_time = horizon - admit) :
+                (death = missing, discharge = t - admit,
+            obs_time = horizon - admit)
+        tl = only(logjoint(demo(top, tlrow), (;)))
+        @test isapprox(tl, log(p) + ref_branch; atol = 1e-10)
+
+        # (c) marginal == latent for the right-truncated nested node (the project
+        # invariant: the two forms must be density-identical).
+        @test isapprox(marg_trunc, lat_trunc; atol = 1e-10)
+
+        # (d) horizon = nothing reproduces today's value EXACTLY (byte-identical).
+        @test marg_untrunc ==
+              _nested_tree_logpdf(seq, ev, prim, Float64, nothing)
+        @test isapprox(lat_untrunc, marg_untrunc; atol = 1e-10)
+    end
+
+    # ForwardDiff AD smoke over the branch params through the truncated nested
+    # scorer (the horizon is DATA, the params differentiate). The truncation
+    # denominator routes through the branch `logcdf`, so the outcomes are LogNormal
+    # (its `logcdf` is ForwardDiff-friendly; a Gamma `logcdf` is not, the same
+    # restriction the whole-compose truncation AD tests document). The event vector
+    # stays the data type `Float64`; the Dual rides the branch params.
+    ev = Vector{Union{Missing, Float64}}([0.0, admit, 12.0, missing])
+    function nll(theta)
+        mu_d, mu_s = theta
+        cc = Competing(:death => (LogNormal(mu_d, 0.4), cfr),
+            :discharge => (LogNormal(mu_s, 0.5), 1 - cfr))
+        s = Sequential(e_oa, cc)
+        return -_nested_tree_logpdf(s, ev, prim, Float64, horizon)
+    end
+    g = gradient(nll, [1.5, 1.2])
+    @test all(isfinite, g)
+    # The truncation MOVES the gradient (the horizon enters the denominator).
+    g0 = gradient(
+        theta -> -_nested_tree_logpdf(
+            Sequential(e_oa,
+                Competing(:death => (LogNormal(theta[1], 0.4), cfr),
+                    :discharge => (LogNormal(theta[2], 0.5), 1 - cfr))),
+            ev, prim, Float64, nothing), [1.5, 1.2])
+    @test !isapprox(g, g0)
+end
+
 @testitem "latent Competing: sampled anchor integrates to bare mixture term (#363)" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, Competing,
