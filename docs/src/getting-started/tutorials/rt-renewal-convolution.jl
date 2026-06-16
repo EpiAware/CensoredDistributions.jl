@@ -18,7 +18,7 @@ small fraction ends in death (the infection fatality ratio).
 The renewal recursion itself is user-side; the package's job is the
 *observation layer*.
 We compose one branched delay stack with shared incubation and two reporting
-branches, then push the latent infection series through it with a SINGLE
+branches, then push the latent infection series through it with a single
 [`convolve_distributions`](@ref) call that returns both event streams at once,
 each already thinned.
 
@@ -145,7 +145,7 @@ Each delay stage is a continuous distribution discretised with
 [`double_interval_censored`](@ref), which censors the primary event, truncates,
 and interval-censors to a daily PMF in one call.
 The incubation period is shared; the case and death branches are its tails.
-We build the whole observation layer as ONE composed stack with
+We build the whole observation layer as one composed stack with
 [`compose`](@ref)`(incubation; cases = ..., deaths = ...)`: a shared origin that
 fans out into named branches.
 Each branch is wrapped in [`thin`](@ref) so its convolved count carries the
@@ -277,7 +277,7 @@ md"""
 ## The Turing fit
 
 The model puts priors on the reproduction number, the ascertainment and the
-IFR, then rebuilds the SAME combined stack inside the `@model` with the sampled
+IFR, then rebuilds the same combined stack inside the `@model` with the sampled
 scales threaded through [`thin`](@ref) and recomputes both expected streams with
 the same single [`convolve_distributions`](@ref) call used in the forward demo.
 The sampled `alpha` and `rho` are AD duals; [`thin`](@ref) carries them as
@@ -389,8 +389,8 @@ md"""
 ## Posterior-predictive fit to data
 
 Recovering the parameters is one check; a stronger one is whether the fitted
-model REPRODUCES the data it was fit to.
-We push the posterior back through the SAME forward map used in the demo and the
+model reproduces the data it was fit to.
+We push the posterior back through the same forward map used in the demo and the
 `@model`: for each draw we rebuild the Rt path, run the renewal, rebuild the
 observation stack with that draw's ascertainment and IFR, and convolve to
 expected cases and deaths.
@@ -462,7 +462,7 @@ rather than only by parameter recovery.
 ## Summary
 
 - The renewal recursion is user-side; the package supplies the observation
-  layer as ONE branched delay stack built with [`compose`](@ref) and pushed
+  layer as one branched delay stack built with [`compose`](@ref) and pushed
   through [`convolve_distributions`](@ref) in a single call that returns every
   requested event stream.
 - Two streams share one infection series and one incubation period, then branch:

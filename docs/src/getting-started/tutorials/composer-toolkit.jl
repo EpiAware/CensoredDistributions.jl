@@ -147,9 +147,9 @@ event_names(tree)
 # ## [Censoring is a drop-in leaf swap](@id censoring-drop-in)
 #
 # Everything so far used plain Distributions leaves. Real data is rarely that
-# clean: a delay is usually recorded to the DAY, so the primary event is
+# clean: a delay is usually recorded to the day, so the primary event is
 # censored to its day window and the observed delay is interval censored to a
-# day. We handle this by swapping the plain leaf for a CENSORED one. Nothing
+# day. We handle this by swapping the plain leaf for a censored one. Nothing
 # else about the stack changes.
 #
 # The plain stack first, for reference: two delays off a shared onset.
@@ -159,7 +159,7 @@ plain_stack = compose((
     onset_death = Gamma(2.0, 1.0)));
 
 # [`double_interval_censored`](@ref) layers primary-event censoring, optional
-# truncation, and interval censoring onto a delay. It is the DEFAULT leaf for
+# truncation, and interval censoring onto a delay. It is the default leaf for
 # line-list data, because day-resolution dates carry both a primary-event window
 # and a day-wide observation interval. Swap each plain leaf for its censored
 # counterpart and the NamedTuple keys, the tree shape, and the call site are all
@@ -177,7 +177,7 @@ censored_stack = compose((
 event_names(plain_stack) == event_names(censored_stack)
 
 # The package handles the swap transparently: the same `compose` stack scores
-# and simulates either way, and the censoring is carried INSIDE the leaf rather
+# and simulates either way, and the censoring is carried inside the leaf rather
 # than bolted onto the tree. Mixing leaf kinds in one stack is fine, since each
 # leaf is scored by its own type.
 
@@ -188,7 +188,7 @@ mixed_stack = compose((
 event_names(mixed_stack)
 
 # [`primary_censored`](@ref) is the rarer drop-in: the primary event is censored
-# but the observed delay is NOT interval censored (a continuously recorded
+# but the observed delay is not interval censored (a continuously recorded
 # observation time). It slots into the same stack the same way.
 
 primary_only_stack = compose((
@@ -205,7 +205,7 @@ event_names(primary_only_stack)
 # The truncation above is per leaf: `double_interval_censored(...; upper = 20)`
 # right-truncates a single delay before it enters the stack.
 # An observation horizon is different. Real-time data is observed up to one
-# cut-off, so the WHOLE composed chain is right-truncated at that horizon, not
+# cut-off, so the *whole* composed chain is right-truncated at that horizon, not
 # each leaf in isolation.
 # `event_logpdf(stack, events; horizon)` applies that single truncation across
 # the assembled chain in one call: the factorised per-segment numerator is
@@ -235,11 +235,11 @@ ev_mid_missing = Vector{Union{Missing, Float64}}([0.0, missing, 5.0]);
 CensoredDistributions.event_logpdf(obs_chain, ev_mid_missing; horizon = 8.0)
 
 # !!! note "How a partly-observed chain is scored"
-#     When only some events in a chain are seen, the package MARGINALISES over
+#     When only some events in a chain are seen, the package marginalises over
 #     the unobserved intermediate events, integrating them out as the
 #     convolution of their bare continuous delays. The day-interval (and
-#     primary) censoring on an UNOBSERVED internal node is dropped, because no
-#     date was recorded there to censor; only the OBSERVED events carry their
+#     primary) censoring on an unobserved internal node is dropped, because no
+#     date was recorded there to censor; only the observed events carry their
 #     censoring, applied once over the convolved delay between them. So with the
 #     admission `missing` above, the onset-to-admission and admission-to-death
 #     delays convolve into one onset-to-death gap whose censoring lives on the
@@ -266,8 +266,8 @@ row = (onset = 0.0, admit = 2.0, death = 5.0);
 only(logjoint(demo(obs_chain, row), (;)))
 
 # For many records, `record_distributions` assembles a vector of per-record
-# distributions and `product_distribution` scores them at once.
-# Each record bakes in its OWN missingness pattern, so one call handles a mix of
+# distributions and `batched_event_logpdf` scores them at once.
+# Each record bakes in its own missingness pattern, so one call handles a mix of
 # missingness across the dataset: where the intermediate admission is observed
 # the chain conditions on it, and where it is `missing` the same chain integrates
 # it out (the two delays convolve into one onset-to-death gap).
@@ -285,40 +285,35 @@ rows = [(onset = 0.0, admit = 2.0, death = 5.0),
 
 recs = CensoredDistributions.record_distributions(obs_chain, rows);
 
-# The event matrix is one column per record in `[onset, admit, death]` layout.
-# A `missing` admission keeps a placeholder slot (its value is ignored, since the
-# record integrates that event out); we fill it with `0.0` to keep the matrix
-# numeric.
-
-events = reduce(hcat,
-    [Float64[r.onset, coalesce(r.admit, 0.0), r.death] for r in rows]);
+length(recs)
 
 # Scoring the whole batch at once: the conditioned and integrated-out records
 # contribute to one log density, with no per-record bookkeeping at the call site.
+# `batched_event_logpdf` takes the records keyed by event name and reads each
+# row's missingness directly, so a `missing` admission stays `missing` rather
+# than being filled with a placeholder value.
 
-logpdf(product_distribution(recs), events)
+CensoredDistributions.batched_event_logpdf(obs_chain, rows)
 
 # The mix is genuine, not a relabelling: an observed-admission record scores the
 # two segments separately, while a `missing`-admission record scores a single
 # convolved onset-to-death gap.
 # We can see the two regimes by scoring each record on its own.
 
-per_record = [logpdf(recs[i],
-                  Float64[rows[i].onset, coalesce(rows[i].admit, 0.0),
-                      rows[i].death])
-              for i in eachindex(rows)];
+per_record = [CensoredDistributions.batched_event_logpdf(obs_chain, [row])
+              for row in rows];
 
 (observed_admit = round.(per_record[1:3]; digits = 3),
     integrated_out = round.(per_record[4:6]; digits = 3))
 
 # The same object simulates.
 # A `rand` of a nested tree returns a full named event record: a shared origin
-# draw, every event hung off it, and each `Competing` resolution SAMPLED.
-# Sampling a `Competing` node draws WHICH outcome occurs from the branch
+# draw, every event hung off it, and each `Competing` resolution sampled.
+# Sampling a `Competing` node draws which outcome occurs from the branch
 # probabilities and then draws that outcome's time, so exactly one outcome slot
 # is filled and the competing outcomes that did not occur are left `missing`.
-# The competing node IS sampled; the `missing` slots are the outcomes that lost,
-# not an un-sampled node.
+# The competing node is itself sampled; the `missing` slots are the outcomes
+# that lost, not an un-sampled node.
 #
 # We build a simulation tree with the default `double_interval_censored` leaves:
 # a death-versus-discharge resolution off the admission, alongside a
@@ -339,7 +334,7 @@ sim_tree = compose((
 
 event_names(sim_tree)
 
-# A draw fills the origin, the admission, exactly ONE of the competing
+# A draw fills the origin, the admission, exactly one of the competing
 # resolution outcomes, and the notification. The other outcome is `missing`.
 
 draw = rand(Xoshiro(7), sim_tree)
@@ -414,12 +409,12 @@ latent_lp = logpdf(ld, path)
 
 rand(Xoshiro(11), ld)
 
-# Prefer the LATENT form when the marginal integral is impractical: very complex
+# Prefer the latent form when the marginal integral is impractical: very complex
 # delay distributions where the convolution has no closed form and numeric
 # integration is expensive, or small-count problems where the extra latent
 # dimensions cost little and the sampler explores the joint more robustly than a
 # stiff one-dimensional marginal.
-# Prefer the MARGINAL form by default: it carries no per-record latents, so it
+# Prefer the marginal form by default: it carries no per-record latents, so it
 # is cheaper and lower-dimensional at scale.
 # Because both share the same parameters, a posterior fitted in the cheap
 # marginal form drops straight into the latent form for event-based prediction.
@@ -446,10 +441,10 @@ tbl = params_table(template)
 
 tbl.edge, tbl.param
 
-# [`build_priors`](@ref) takes that TABLE (any Tables.jl source with `edge`,
+# [`build_priors`](@ref) takes that table (any Tables.jl source with `edge`,
 # `param`, `value`, `support` columns) and turns it into the nested prior
 # NamedTuple the parameter model expects.
-# It derives a default prior per row from that leaf's SUPPORT: a positive scale
+# It derives a default prior per row from that leaf's support: a positive scale
 # parameter gets a positive-truncated prior, a location parameter an unbounded
 # one, a `[0, 1]` probability a `Uniform(0, 1)`.
 # So `build_priors(tbl)` alone yields a complete set, and a `default` function
@@ -504,9 +499,9 @@ NamedTuple{keys(event_tree(updated))}(Tuple(mean(updated)))
 #   them with no change to the stack, scored by leaf type.
 # - One object scores records and simulates them; scoring marginalises by row
 #   missingness (mixed across records), prediction is the generative `rand`,
-#   which SAMPLES each `Competing` resolution (one outcome drawn, losers
+#   which samples each `Competing` resolution (one outcome drawn, losers
 #   `missing`).
-# - `event_logpdf(stack, events; horizon)` right-truncates the WHOLE composed
+# - `event_logpdf(stack, events; horizon)` right-truncates the *whole* composed
 #   chain at an observation horizon in one call, distinct from per-leaf
 #   truncation baked into a `double_interval_censored` leaf.
 # - The marginal and latent forms are one family on the same parameters. The
@@ -518,13 +513,13 @@ NamedTuple{keys(event_tree(updated))}(Tuple(mean(updated)))
 #
 # ## Where next
 #
-# - To FIT a composed distribution to data, see [Fitting CensoredDistributions.jl
+# - To fit a composed distribution to data, see [Fitting CensoredDistributions.jl
 #   modified distributions with Turing.jl](@ref), which takes the `params_table`
 #   / `build_priors` / `composed_parameters_model` pieces shown here through a
 #   full Turing fit and posterior summary. We do not repeat fitting on this page.
 # - The [Fit marginal, sample event based](@ref) tutorial fits in the cheap
 #   marginal form and then samples event paths from the latent form.
-# - To write your OWN leaf or composer that plugs into these tools, see
+# - To write your own leaf or composer that plugs into these tools, see
 #   [Extending the composer toolkit](@ref extending-composer): the interface a
 #   custom distribution must satisfy, a worked example composed into a tree, and
 #   the public conformance harness that checks it.

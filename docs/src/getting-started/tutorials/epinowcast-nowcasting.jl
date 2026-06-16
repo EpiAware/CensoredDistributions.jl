@@ -46,7 +46,7 @@ the discrete-time hazard layer on top.
 
 epinowcast models the reporting delay as a discrete-time hazard.
 The hazard ``h_{t,d}`` is the probability that a case with reference date ``t``
-is reported at delay ``d`` GIVEN it has not been reported by delay ``d - 1``.
+is reported at delay ``d`` given it has not been reported by delay ``d - 1``.
 Writing the hazard on the logit scale lets the delay distribution vary smoothly
 by reference date and carry a calendar report-date pattern while staying a proper
 PMF per reference date:
@@ -92,7 +92,7 @@ md"""
 
 Both streams share the infection-to-onset incubation period, then branch: onset
 to case report and onset to death.
-We build the whole delay as ONE shared-origin [`compose`](@ref) stack of
+We build the whole delay as one shared-origin [`compose`](@ref) stack of
 [`double_interval_censored`](@ref) delays, exactly as in the renewal tutorial.
 [`double_interval_censored`](@ref) applies primary-event censoring, truncation and daily
 interval censoring in one call, so each branch is a daily-resolution delay.
@@ -109,7 +109,7 @@ delay_stack = compose(incubation; case = onset_case, death = onset_death)
 md"""
 The maximum reporting delay caps the number of delay bins we track per reference
 date.
-We read each branch's TOTAL delay PMF (incubation convolved with the branch tail)
+We read each branch's total delay PMF (incubation convolved with the branch tail)
 straight out of the stack by pushing a unit impulse through
 [`convolve_distributions`](@ref): a one-at-time-zero series convolved with a delay
 PMF returns that PMF, and `events = (:case, :death)` returns both branch PMFs at
@@ -171,10 +171,10 @@ vector and the report effect as a callable `report_date -> shift`, applies them
 through the hazard and forms the expected-count matrix, zeroing any cell whose
 report date is after `now`.
 
-Unlike the renewal layer's [`convolve_distributions`](@ref), which applies ONE
+Unlike the renewal layer's [`convolve_distributions`](@ref), which applies one
 shared delay PMF across all reference dates, the nowcasting hazard gives each
-reference date its OWN delay PMF (that is the whole point of a reference-date
-effect), so the output is a reference-by-report MATRIX rather than a convolved
+reference date its own delay PMF (that is the whole point of a reference-date
+effect), so the output is a reference-by-report matrix rather than a convolved
 series.
 The baseline PMF still comes from the same delay-discretisation machinery
 (`_delay_pmf`, read above through a unit-impulse convolution); the hazard layer
@@ -256,8 +256,8 @@ case_obs = rand.(rng, Poisson.(case_trunc .+ 1e-6))
 death_obs = rand.(rng, Poisson.(death_trunc .+ 1e-6))
 
 md"""
-The count SEEN so far for each reference date is the row sum of the observed
-triangle; the TRUE final count is the row sum of the full (untruncated) expected
+The count seen so far for each reference date is the row sum of the observed
+triangle; the true final count is the row sum of the full (untruncated) expected
 matrix.
 For the most recent reference dates the seen count falls well below the truth,
 because their late reports are still missing: that gap is what the nowcast fills.
@@ -283,7 +283,7 @@ draw(truncation_plot;
 md"""
 ## The Turing fit
 
-The model rebuilds the SAME expectation random walk and hazard matrices inside a
+The model rebuilds the same expectation random walk and hazard matrices inside a
 `@model`, with the expectation innovations, the random-walk step, the
 reference-effect innovations and the day-of-week pattern all sampled.
 Each observed triangle cell is Poisson around the model's right-truncated
@@ -363,7 +363,7 @@ md"""
 
 We reconstruct the posterior expectation random walk from the sampled initial
 level and innovations, and the posterior reference effect and day-of-week pattern
-the same way, then form the FULL (untruncated) expected matrices per posterior
+the same way, then form the full (untruncated) expected matrices per posterior
 draw.
 The row sums of the full matrix are the nowcast: the model's estimate of the
 final counts including the reports still to come.
@@ -490,7 +490,7 @@ md"""
 
 ### What is deferred
 
-- The parametric baseline hazard is FIXED here (a chosen delay distribution per
+- The parametric baseline hazard is fixed here (a chosen delay distribution per
   branch); jointly inferring the delay parameters with the hazard effects (the
   full epinowcast ``\mu_{g,t}``, ``\upsilon_{g,t}`` regressions) is a natural
   extension.
