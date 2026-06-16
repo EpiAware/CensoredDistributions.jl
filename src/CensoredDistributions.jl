@@ -28,11 +28,6 @@ using SpecialFunctions: gamma, gamma_inc, loggamma, digamma
 
 import Tables
 
-# AbstractTrees provides the composer tree interface (children/printnode) that
-# drives both the recursive `show` (via `print_tree`) and the `params`/
-# `params_table` traversal.
-import AbstractTrees
-
 import FastGaussQuadrature  # provides Gauss-Legendre nodes for the default solver
 
 using Optimization: OptimizationFunction, OptimizationProblem, solve, ReturnCode
