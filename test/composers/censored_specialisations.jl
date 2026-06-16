@@ -111,6 +111,95 @@ end
     @test logpdf(par, evd) ≈ logpdf(primary_censored(b1, pe), y1) rtol=1e-6
 end
 
+@testitem "Parallel branch of primary_censored(Sequential) flat path (#363)" begin
+    using Distributions, Random, Statistics
+
+    # `primary_censored(Sequential(...))` COLLAPSES the chain to a
+    # `PrimaryCensored{Convolved}` leaf, so the Parallel sits on the FLAT
+    # shared-origin path. The flat path strips each branch to its
+    # `_marginal_core`; the regression is that the nested `Convolved` must stay
+    # intact (not unwrap into its component VECTOR) so `rand`/`logpdf`/the
+    # `_param_eltype` machinery see a distribution, not a vector (#363).
+    pe = Uniform(0.0, 1.0)
+    coreA = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    seqbranch = primary_censored(
+        Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)), pe)
+    d = Parallel((seqbranch, Exponential(1.0)), (:a, :b))
+    @test CensoredDistributions._nested_trait(d.components) isa
+          CensoredDistributions._Flat
+    # The collapsed branch's marginal core is the `Convolved`, kept intact.
+    @test CensoredDistributions._marginal_core(seqbranch) isa
+          CensoredDistributions.Convolved
+
+    # Conditional logpdf == the hand factorisation over the shared origin.
+    o, ya, yb = 0.5, 3.0, 1.2
+    ev = Vector{Union{Missing, Float64}}([o, ya, yb])
+    @test logpdf(d, ev) ≈
+          logpdf(pe, o) +
+          logpdf(coreA, ya - o) + logpdf(Exponential(1.0), yb - o)
+
+    # Marginal (missing origin) == the 1-D integral over the shared origin.
+    ev_m = Vector{Union{Missing, Float64}}([missing, ya, yb])
+    ref_m = CensoredDistributions.gl_integrate(
+        0.0, 1.0, CensoredDistributions._PRIMARY_GL) do u
+        pdf(pe, u) * pdf(coreA, ya - u) * pdf(Exponential(1.0), yb - u)
+    end
+    @test logpdf(d, ev_m) ≈ log(ref_m)
+
+    # rand draws the proper convolution sum on branch a (NOT a random component):
+    # the recorded branch-a delay matches the `Convolved` core in mean and var.
+    Random.seed!(202)
+    N = 200_000
+    origins = Vector{Float64}(undef, N)
+    delaysA = Vector{Float64}(undef, N)
+    for i in 1:N
+        r = rand(d)
+        origins[i] = r.event_1
+        delaysA[i] = r.event_2 - r.event_1
+    end
+    @test mean(origins) ≈ mean(pe) rtol=2e-2
+    @test mean(delaysA) ≈ mean(coreA) rtol=2e-2
+    @test var(delaysA) ≈ var(coreA) rtol=4e-2
+    # Every branch endpoint is after the shared origin.
+    @test all(>=(0), delaysA)
+
+    # `double_interval_censored(Sequential)` is the same collapse plus a
+    # secondary interval; it also rides the flat path and scores finitely.
+    dbranch = double_interval_censored(
+        Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4));
+        primary_event = pe, interval = 1.0)
+    d2 = Parallel((dbranch, Exponential(1.0)), (:a, :b))
+    @test isfinite(logpdf(d2, ev))
+    Random.seed!(303)
+    r2 = rand(d2)
+    @test r2.event_2 >= r2.event_1            # endpoint after origin
+    @test r2.event_2 == floor(r2.event_2)     # day-resolution interval applied
+end
+
+@testitem "Parallel primary_censored(Sequential) branch is ForwardDiff-safe" begin
+    using Distributions, ForwardDiff
+
+    # AD over the collapsed branch's leaf params must flow the `Dual` THROUGH the
+    # nested `Convolved` core (the `_param_eltype`/`_flatten_params` promotion):
+    # a vector core would drop the `Dual` and `params(::Vector)` would error.
+    ev = Vector{Union{Missing, Float64}}([0.5, 3.0, 1.2])
+    ev_m = Vector{Union{Missing, Float64}}([missing, 3.0, 1.2])
+    function f(theta, events)
+        seqbranch = primary_censored(
+            Sequential(Gamma(theta[1], theta[2]),
+                LogNormal(theta[3], theta[4])), Uniform(0, 1))
+        d = Parallel((seqbranch, Exponential(theta[5])), (:a, :b))
+        return logpdf(d, events)
+    end
+    theta0 = [2.0, 1.0, 0.5, 0.4, 1.0]
+    g = ForwardDiff.gradient(t -> f(t, ev), theta0)
+    @test all(isfinite, g)
+    @test any(!iszero, g)
+    g_m = ForwardDiff.gradient(t -> f(t, ev_m), theta0)
+    @test all(isfinite, g_m)
+    @test any(!iszero, g_m)
+end
+
 @testitem "Parallel plain branches condition on an observed origin" begin
     using Distributions
 
