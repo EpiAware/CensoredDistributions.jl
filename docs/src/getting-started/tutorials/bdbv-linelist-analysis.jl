@@ -98,18 +98,21 @@ placeholder; the fit drives the split per record through the covariate model
 below).
 """
 
-double_censored_delay(d) = double_censored(d; primary_event = Uniform(0, 1),
-    interval = 1.0)
+function double_interval_censored_delay(d)
+    double_interval_censored(d;
+        primary_event = Uniform(0, 1),
+        interval = 1.0)
+end
 
 function delay_tree(; cfr = 0.5)
-    resolution = Competing(
-        :death => (double_censored_delay(Gamma(2.0, 3.5)), cfr),
-        :discharge => (double_censored_delay(Gamma(1.0, 8.0)), 1 - cfr))
+    resolution = competing(
+        :death => (double_interval_censored_delay(Gamma(2.0, 3.5)), cfr),
+        :discharge => (double_interval_censored_delay(Gamma(1.0, 8.0)), 1 - cfr))
     admit_path = Sequential(
-        (double_censored_delay(Gamma(1.2, 3.0)), resolution),
+        (double_interval_censored_delay(Gamma(1.2, 3.0)), resolution),
         (:onset_admit, :admit_resolution))
     return compose((admit_path = admit_path,
-        onset_notif = double_censored_delay(Gamma(0.7, 20.0))))
+        onset_notif = double_interval_censored_delay(Gamma(0.7, 20.0))))
 end
 
 template = delay_tree()
@@ -589,6 +592,11 @@ comparison
 md"""
 ## Marginal versus latent
 
+The marginal and latent forms of a delay model are one family on the same
+parameters; see [Marginal versus latent](@ref marginal-versus-latent) for the
+concept and [Fit marginal, sample event based](@ref) for the how-to. This section
+applies that to the Isiro fit and compares the two forms on the real records.
+
 The fit above is the MARGINAL formulation: each record's unobserved admission
 time is integrated out inside `logpdf`, and the death-versus-discharge split is
 read off the [`Competing`](@ref) node through the per-record `:branch_probs`.
@@ -600,10 +608,8 @@ was written in the LATENT formulation instead: a record's intermediate admission
 time enters as a per-record event rather than being integrated out, and the two
 segments (onset → admission, admission → resolution) are scored directly against
 it. When the admission time is unobserved the sampler draws it; when it is
-recorded the segments simply condition on it. The marginal and latent forms are
-one family on the same parameters (the latent representation integrates to the
-marginal `logpdf`), so a latent fit recovers the same delays; this section runs
-it alongside the marginal fit and compares.
+recorded the segments simply condition on it. A latent fit recovers the same
+delays; this section runs it alongside the marginal fit and compares.
 """
 
 md"""
@@ -816,16 +822,12 @@ mvl_fig = let
 end
 
 md"""
-Read the two forms as one model in two directions. The MARGINAL form is the
-default: it carries no per-record submodels, so each gradient is cheaper and the
-fit is faster, which is why the sections above use it. The LATENT form matches
-the formulation of the original Isiro analysis and would expose any case's
-sampled admission time (here every resolved record has its admission recorded, so
-none is sampled and the parameter dimension is unchanged); the per-record
-submodels still make the fit slower. Both recover the same delays here, so prefer
-the marginal form for routine fits and reach for the latent form when an
-unobserved intermediate event time must be sampled (for example to inspect or to
-propagate admission timing) or to reproduce the original analysis directly.
+Both forms recover the same delays here. The LATENT form matches the formulation
+of the original Isiro analysis and would expose any case's sampled admission time
+(here every resolved record has its admission recorded, so none is sampled and
+the parameter dimension is unchanged); the per-record submodels make its fit
+slower, so the sections above use the cheaper marginal form. See
+[Marginal versus latent](@ref marginal-versus-latent) for when to reach for each.
 """
 
 mvl_comparison

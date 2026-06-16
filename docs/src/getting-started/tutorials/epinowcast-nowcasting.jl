@@ -18,7 +18,7 @@ The model has four parts, each mapped onto a CensoredDistributions tool:
    counts ``\lambda_t`` over reference date ``t``.
 2. A **branched reporting delay**: infection to symptom onset, then a branch from
    onset to a reported **case** and onset to a reported **death**, built as one
-   shared-origin [`compose`](@ref) stack of [`double_censored`](@ref) delays.
+   shared-origin [`compose`](@ref) stack of [`double_interval_censored`](@ref) delays.
 3. A **discrete-time reporting hazard** with **reference-date** and
    **report-date** effects: each branch delay is discretised to a PMF, turned
    into a hazard, and reshaped by a reference-date random walk (slow drift in
@@ -93,16 +93,16 @@ md"""
 Both streams share the infection-to-onset incubation period, then branch: onset
 to case report and onset to death.
 We build the whole delay as ONE shared-origin [`compose`](@ref) stack of
-[`double_censored`](@ref) delays, exactly as in the renewal tutorial.
-[`double_censored`](@ref) applies primary-event censoring, truncation and daily
+[`double_interval_censored`](@ref) delays, exactly as in the renewal tutorial.
+[`double_interval_censored`](@ref) applies primary-event censoring, truncation and daily
 interval censoring in one call, so each branch is a daily-resolution delay.
 """
 
-incubation = double_censored(Gamma(1.8, 1.4); upper = 20.0, interval = 1.0)
+incubation = double_interval_censored(Gamma(1.8, 1.4); upper = 20.0, interval = 1.0)
 
-onset_case = double_censored(Gamma(1.5, 1.2); upper = 20.0, interval = 1.0)
+onset_case = double_interval_censored(Gamma(1.5, 1.2); upper = 20.0, interval = 1.0)
 
-onset_death = double_censored(Gamma(3.0, 4.0); upper = 30.0, interval = 1.0)
+onset_death = double_interval_censored(Gamma(3.0, 4.0); upper = 30.0, interval = 1.0)
 
 delay_stack = compose(incubation; case = onset_case, death = onset_death)
 
@@ -473,7 +473,7 @@ md"""
 
 - The model is the epinowcast nowcasting model assembled from
   CensoredDistributions tools: a log-normal random-walk expectation, a shared-
-  origin branched [`compose`](@ref) stack of [`double_censored`](@ref) delays for
+  origin branched [`compose`](@ref) stack of [`double_interval_censored`](@ref) delays for
   the case and death streams, a discrete-time reporting hazard with reference-
   date and report-date effects, and real-time right-truncation.
 - The hazard layer is the one new piece: [`reference_report_matrix`](@ref) turns
@@ -497,8 +497,7 @@ md"""
 - The streams are modelled separately after sharing the reference and report
   effects; a [`competing`](@ref) onset branch (case versus death as competing
   outcomes) would tie the branch probability to a case-fatality term.
-- Whole-compose right-truncation through the composed stack
-  ([a tracked enhancement](https://github.com/EpiAware/CensoredDistributions.jl/issues/366))
-  is handled here at the hazard-matrix level (`now`) rather than through the
-  per-record `truncate_chain` path.
+- Right-truncation across the whole composed stack is not yet applied at the
+  stack level, so it is handled here at the hazard-matrix level (`now`) rather
+  than per record.
 """

@@ -2,21 +2,27 @@ getting_started_pages = Any[
     "Overview" => "getting-started/index.md",
     "Installation" => "getting-started/installation.md",
     "Tutorials" => [
-        "Analytical CDF solutions" => "getting-started/tutorials/analytical-primarycensored-cdfs.md",
-        "Exponentially tilted primary events" => "getting-started/tutorials/exponentially-tilted-primary-events.md",
-        "Automatic differentiation backends" => "getting-started/tutorials/ad-backends.md",
-        "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md",
-        "Composing censored distributions" => "getting-started/tutorials/composer-toolkit.md",
-        "SurvivalDistributions.jl delay families" => "getting-started/tutorials/survival-delay-families.md",
-        "Rt renewal with delay convolution" => "getting-started/tutorials/rt-renewal-convolution.md",
-        "Composed delays as SEIR compartments" => "getting-started/tutorials/linear-chain-sir.md",
-        "Epinowcast-style hazard nowcasting" => "getting-started/tutorials/epinowcast-nowcasting.md",
-        "Fit marginal, sample event based" => "getting-started/tutorials/fit-marginal-sample-event-based.md",
-        "Bundibugyo Ebola delays" => "getting-started/tutorials/bdbv-linelist-analysis.md",
-        "Real-time Andes virus delays" => "getting-started/tutorials/andv-linelist-analysis.md",
-        "Stratified Sierra Leone Ebola delays" => "getting-started/tutorials/ebola-stratified-delays.md",
-        "Branching-process competing outcomes" => "getting-started/tutorials/branching-competing.md",
-        "Pairwise survival of transmission" => "getting-started/tutorials/pairwise-survival-transmission.md"
+        "Distributions and censoring" => [
+            "Analytical CDF solutions" => "getting-started/tutorials/analytical-primarycensored-cdfs.md",
+            "Exponentially tilted primary events" => "getting-started/tutorials/exponentially-tilted-primary-events.md",
+            "SurvivalDistributions.jl delay families" => "getting-started/tutorials/survival-delay-families.md"
+        ],
+        "Composing and fitting" => [
+            "Composing censored distributions" => "getting-started/tutorials/composer-toolkit.md",
+            "Fitting with Turing.jl" => "getting-started/tutorials/fitting-with-turing.md",
+            "Fit marginal, sample event based" => "getting-started/tutorials/fit-marginal-sample-event-based.md",
+            "Automatic differentiation backends" => "getting-started/tutorials/ad-backends.md"
+        ],
+        "Case studies and applications" => [
+            "Bundibugyo Ebola delays" => "getting-started/tutorials/bdbv-linelist-analysis.md",
+            "Real-time Andes virus delays" => "getting-started/tutorials/andv-linelist-analysis.md",
+            "Stratified Sierra Leone Ebola delays" => "getting-started/tutorials/ebola-stratified-delays.md",
+            "Branching-process competing outcomes" => "getting-started/tutorials/branching-competing.md",
+            "Pairwise survival of transmission" => "getting-started/tutorials/pairwise-survival-transmission.md",
+            "Rt renewal with delay convolution" => "getting-started/tutorials/rt-renewal-convolution.md",
+            "Epinowcast-style hazard nowcasting" => "getting-started/tutorials/epinowcast-nowcasting.md",
+            "Composed delays as SEIR compartments" => "getting-started/tutorials/linear-chain-sir.md"
+        ]
     ],
     "Julia" => "getting-started/julia.md",
     "FAQ" => "getting-started/faq.md"

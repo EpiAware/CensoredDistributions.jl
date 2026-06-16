@@ -674,8 +674,8 @@ survival method [kenah2011contact](@cite) on the composer stack:
 - the **right-censoring** of non-winning pairs is the racing survival
   ``\prod_k S_k``, the no-event branch of the competing likelihood.
 
-Compared with the `transtat` reference implementation, several refinements are
-left for the maintainer's specific integration:
+Compared with the `transtat` reference implementation, several extensions are
+outside the scope of this page:
 
 - `transtat` separates the **infectious period** from the contact interval, so
   a source stops contributing hazard once it recovers; here the at-risk window
@@ -704,6 +704,6 @@ left for the maintainer's specific integration:
   [`double_interval_censored`](@ref) primary/secondary window would carry the
   date uncertainty into the likelihood, the core CensoredDistributions surface.
 
-These are the places where @seabbs's integration of the racing-hazard composer
-with the contact-interval framework should refine this draft.
+These extensions connect the racing-hazard composer to the full
+contact-interval framework and reuse the same likelihood structure.
 """

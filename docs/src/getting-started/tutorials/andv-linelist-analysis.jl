@@ -257,7 +257,10 @@ end
 # Before touching the data we check the model can recover known parameters.
 # A full delay path is drawn for each record from the latent form with
 # `rand(latent(d))`, one draw per record, then the simulated delays are fitted
-# and compared with the truth.
+# and compared with the truth. See
+# [Marginal versus latent](@ref marginal-versus-latent) for the two forms and
+# [Fit marginal, sample event based](@ref) for fitting marginally then drawing
+# event paths.
 
 inc_true = LogNormal(3.06, 0.32)
 delta_true = Normal(0.17, 0.62)
