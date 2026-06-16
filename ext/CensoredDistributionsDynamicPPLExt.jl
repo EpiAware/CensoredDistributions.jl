@@ -143,6 +143,17 @@ function _reject_latent_horizon(row::NamedTuple)
     return nothing
 end
 
+# The per-record horizon to apply to a latent composer's nested Competing branches
+# (#517). A latent composer with a nested Competing node CAN honour an `obs_time`
+# horizon (the conditioned branch is right-truncated at the remaining window from
+# its anchor, density-identical to the marginal). A latent composer with NO nested
+# Competing has only leaf-twin edges, whose latent-form right-truncation is out of
+# scope, so a horizon there is rejected exactly as before.
+function _latent_competing_horizon(plan, row::NamedTuple)
+    isempty(plan.competings) && (_reject_latent_horizon(row); return nothing)
+    return _row_horizon(row)
+end
+
 # An `IntervalCensored` -> the interval-censored leaf model. An `obs_time` row
 # field right-truncates the marginal leaf (routed through the univariate marginal
 # model since `truncated(::IntervalCensored)` is a plain univariate).
@@ -767,8 +778,15 @@ end
 # integrating the sampled anchor reproduces the marginal mixture-conditioned term.
 # Branch probabilities follow the row (`branch_probs` override) else the node's
 # stored probs, shared with the marginal `Competing` path. Weight `w` scales the
-# likelihood.
-function _latent_competing_logprob(c::_CompetingPlan, e, sampled, row, w)
+# likelihood. A per-record `horizon` (default `nothing`) RIGHT-TRUNCATES the
+# conditioned branch at the remaining window from the anchor exactly as the
+# marginal nested-Competing scorer (`_competing_tree_logpdf`) does, so the
+# truncated nested-Competing term is density-identical in both forms (#517). The
+# truncation is applied to the branch core BEFORE the latent shift, so the shifted
+# edge is `truncated(delay; upper = window)` anchored at the (observed/sampled)
+# predecessor, matching the marginal `truncate_to_horizon(delay, horizon - o)`.
+function _latent_competing_logprob(c::_CompetingPlan, e, sampled, row, w,
+        horizon = nothing)
     node = c.node
     probs = _competing_outcome_probs(node, row)
     anchor = e[c.shift_idx]
@@ -785,9 +803,21 @@ function _latent_competing_logprob(c::_CompetingPlan, e, sampled, row, w)
     anchor === missing && throw(ArgumentError(
         "a latent nested Competing with an observed outcome needs its anchor " *
         "(the parent event) observed or sampled; got a missing anchor"))
-    edge = _latent_edge(delay, anchor, pred_sampled, pred_is_origin, false, false)
+    branch = _latent_competing_branch(delay, horizon, anchor)
+    edge = _latent_edge(
+        branch, anchor, pred_sampled, pred_is_origin, false, false)
     lp = log(probs[obs_i]) + logpdf(edge, e[obs_slot])
     return _scale(lp, w)
+end
+
+# Right-truncate a latent nested-Competing branch at the remaining window from its
+# anchor (`horizon - anchor`), or return it unchanged when no horizon applies.
+# Mirrors the marginal `_competing_truncate` / `_competing_window` so the latent
+# conditioned branch matches the marginal one (#517).
+_latent_competing_branch(delay, ::Nothing, anchor) = delay
+function _latent_competing_branch(delay, horizon, anchor)
+    window = horizon - convert(typeof(horizon), anchor)
+    return CensoredDistributions.truncate_to_horizon(delay, window)
 end
 
 # Resolve WHICH leaf outcome a latent Competing record observes, returning
@@ -856,7 +886,6 @@ end
             d, _latent_batch_rows(row); weight = weight))
         return obs
     end
-    _reject_latent_horizon(row)
     chain = d.dist
     obs = _event_vector(chain, row)
     w = _row_weight(row, weight)
@@ -871,6 +900,10 @@ end
     # censoring (see `_latent_edge`). Captured before any `~` fills a slot.
     sampled = [v === missing for v in e]
     plan = _latent_plan!(_LatentPlan(), chain, 1, 2, false)
+    # A per-record `obs_time` horizon right-truncates a nested Competing branch
+    # (#517); the leaf-twin truncation (a chain with no Competing node) stays out of
+    # scope, so reject a horizon there as before.
+    horizon = _latent_competing_horizon(plan, row)
     # Origin E_0. A MISSING origin must be SAMPLED, so the chain needs a primary
     # prior to sample it from (a bare-edge chain offers none -> reject). An OBSERVED
     # origin is a fixed continuous reference: it conditions through its primary prior
@@ -899,10 +932,11 @@ end
     end
     # Nested Competing nodes: condition on each record's observed outcome (data),
     # added after the leaf loop so a sampled anchor (`e[shift_idx]`) is filled. The
-    # branch-probability override (covariate CFR) rides the row's `branch_probs`.
+    # branch-probability override (covariate CFR) rides the row's `branch_probs`. A
+    # per-record `horizon` right-truncates each conditioned branch (#517).
     for c in plan.competings
         DynamicPPL.@addlogprob! _latent_competing_logprob(
-            c, e, sampled, row, w)
+            c, e, sampled, row, w, horizon)
     end
     return e
 end
@@ -926,7 +960,6 @@ end
             d, _latent_batch_rows(row); weight = weight))
         return obs
     end
-    _reject_latent_horizon(row)
     tree = d.dist
     obs = _event_vector(tree, row)
     w = _row_weight(row, weight)
@@ -942,6 +975,10 @@ end
     # Root flat Parallel branches are always bare (the marginal conditional scores
     # each branch on the continuous core).
     plan = _latent_plan!(_LatentPlan(), tree, 1, 2, true)
+    # A per-record `obs_time` horizon right-truncates a nested Competing branch
+    # (#517); a Parallel with no nested Competing keeps the leaf-twin truncation out
+    # of scope and rejects a horizon as before.
+    horizon = _latent_competing_horizon(plan, row)
     # Shared origin. A MISSING origin must be SAMPLED, so the branches need a shared
     # primary prior; bare branches with an observed origin reference need none. NOT
     # weighted (weight scales the observed conditionals, not the prior).
@@ -964,10 +1001,11 @@ end
             DynamicPPL.@addlogprob! _scale(logpdf(edge, e[p.event_idx]), w)
         end
     end
-    # Nested Competing nodes: condition on each record's observed outcome (data).
+    # Nested Competing nodes: condition on each record's observed outcome (data); a
+    # per-record `horizon` right-truncates each conditioned branch (#517).
     for c in plan.competings
         DynamicPPL.@addlogprob! _latent_competing_logprob(
-            c, e, sampled, row, w)
+            c, e, sampled, row, w, horizon)
     end
     return e
 end

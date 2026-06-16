@@ -112,9 +112,17 @@ end
 # return type is NOT `T` (the event-data type): the per-edge log densities carry
 # any AD `Dual`/tracked type from the leaf params, so the result widens past the
 # data type and must not be asserted to `T`.
+#
+# A per-record observation `horizon` (default `nothing`) threads down to any
+# nested `Competing`/`HazardCompeting` node so it right-truncates its conditioned
+# branch at the remaining window from its anchor, mirroring the top-level
+# `_maybe_truncate` (#517). `horizon === nothing` is byte-identical to the
+# untruncated walk; the plain leaf/chain edges ignore the horizon (their
+# whole-compose right-truncation is applied by the flat scorer's collapsed
+# denominator, not here).
 function _nested_tree_logpdf(d::Union{Sequential, Parallel}, events,
-        primary, ::Type{T}) where {T}
-    return _tree_score(d, events, 1, 2, primary, T)
+        primary, ::Type{T}, horizon = nothing) where {T}
+    return _tree_score(d, events, 1, 2, primary, T, horizon)
 end
 
 # Sequential: the first step hangs off `origin_idx` with the (latent) primary,
@@ -126,14 +134,15 @@ end
 # cursor and origin index are PURE-INTEGER bookkeeping computed from
 # `_child_nleaves` / `_terminal_offset`, so each `_tree_step` returns a scalar.
 function _tree_score(d::Sequential, events, origin_idx::Int, event_start::Int,
-        primary, ::Type{T}) where {T}
+        primary, ::Type{T}, horizon = nothing) where {T}
     comps = d.components
     first_step = first(comps)
-    acc = _tree_step(first_step, events, origin_idx, event_start, primary, T)
+    acc = _tree_step(first_step, events, origin_idx, event_start, primary, T,
+        horizon)
     o_idx = event_start + _terminal_offset(first_step)
     ev_idx = event_start + _event_child_nleaves(first_step)
     @inbounds for step in Base.tail(comps)
-        acc += _tree_step(step, events, o_idx, ev_idx, nothing, T)
+        acc += _tree_step(step, events, o_idx, ev_idx, nothing, T, horizon)
         o_idx = ev_idx + _terminal_offset(step)
         ev_idx += _event_child_nleaves(step)
     end
@@ -156,11 +165,12 @@ end
 # would break AD for the whole tree. A flat (non-nested) `Parallel` with a missing
 # shared origin still gets the coupled integral through its own `logpdf` method.
 function _tree_score(d::Parallel, events, origin_idx::Int, event_start::Int,
-        primary, ::Type{T}) where {T}
+        primary, ::Type{T}, horizon = nothing) where {T}
     acc = zero(T)
     ev_idx = event_start
     @inbounds for branch in d.components
-        acc += _tree_step(branch, events, origin_idx, ev_idx, primary, T)
+        acc += _tree_step(branch, events, origin_idx, ev_idx, primary, T,
+            horizon)
         ev_idx += _event_child_nleaves(branch)
     end
     return acc
@@ -177,11 +187,11 @@ end
 # (declared-edge) semantics are preserved -- this is `_tree_score`, not the flat
 # `logpdf` -- so an observed origin conditions each child on its declared edge.
 function _tree_step(step::Union{Sequential, Parallel}, events, o_idx::Int,
-        ev_idx::Int, primary, ::Type{T}) where {T}
+        ev_idx::Int, primary, ::Type{T}, horizon = nothing) where {T}
     # The sub-view spans the node's EVENT slots (a `Competing` step contributes
     # one slot per outcome), so use the event-slot count, not `length`.
     sub = _subevent_slice(events, o_idx, ev_idx, _event_nleaves(step.components))
-    return _tree_score(step, sub, 1, 2, primary, T)
+    return _tree_score(step, sub, 1, 2, primary, T, horizon)
 end
 
 # The `[origin, leaf_events...]` sub-event vector for a nested node: its origin
@@ -209,13 +219,13 @@ end
 # `_tree_step`, so a leaf conditions on its declared censoring and a composer
 # alternative recurses.
 function _tree_step(step::Select, events, o_idx::Int, ev_idx::Int,
-        primary, ::Type{T}) where {T}
+        primary, ::Type{T}, horizon = nothing) where {T}
     return _tree_step(_flat_select_alternative(step), events, o_idx, ev_idx,
-        primary, T)
+        primary, T, horizon)
 end
 
 function _tree_step(step::UnivariateDistribution, events, o_idx::Int,
-        ev_idx::Int, primary, ::Type{T}) where {T}
+        ev_idx::Int, primary, ::Type{T}, horizon = nothing) where {T}
     o = events[o_idx]
     y = events[ev_idx]
     if o !== missing && y !== missing
