@@ -98,7 +98,7 @@ jobs:
             artifacts/bench-pr/results-pr.json \
             artifacts/bench-main/results-main.json comment.md
       - name: Post comparison comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
