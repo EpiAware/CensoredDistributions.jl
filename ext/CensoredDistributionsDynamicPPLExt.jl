@@ -1182,11 +1182,26 @@ function _reconstruct_leaf(leaf, vals::Tuple)
     return CensoredDistributions.rewrap_leaf(leaf, inner)
 end
 
+# Reconstruct a leaf's inner delay from sampled params, skipping the argument check
+# where the family's constructor supports a `check_args` keyword (so a sampler
+# probing an out-of-support point yields `-Inf` rather than throwing mid-gradient).
+#
+# Whether the constructor accepts `check_args` is decided by
+# `CensoredDistributions._ctor_has_check_args` (a pure `hasmethod` reflection
+# returning a `Bool`), NOT a `try`/`catch`. The original try/catch fallback (catch a
+# `MethodError` from the missing keyword) could not be differentiated by Mooncake
+# reverse on Julia LTS: `_construct_unchecked` is on the AD'd reconstruction path
+# (`composed_parameters_model` rebuilds each leaf from tracked params), and Mooncake
+# LTS cannot trace the `try`/`catch`, failing the nested-Competing (bdbv) and
+# Select-top (andv) models. The reflection helper carries a Mooncake `@zero_adjoint`
+# (it is constant w.r.t. the params, returning a `Bool`), so Mooncake never traces
+# its `jl_gf_invoke_lookup` foreigncall on LTS; the differentiated path is then a
+# plain `if` over a single ctor call with no exception handling, and the gradient
+# flows through `vals` unchanged on every backend and Julia version.
 function _construct_unchecked(ctor, vals::Tuple)
-    try
+    if CensoredDistributions._ctor_has_check_args(ctor, vals)
         return ctor(vals...; check_args = false)
-    catch err
-        err isa MethodError || rethrow()
+    else
         return ctor(vals...)
     end
 end

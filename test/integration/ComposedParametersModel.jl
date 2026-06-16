@@ -217,7 +217,8 @@ end
     # nested-Competing case studies fell back to `AutoForwardDiff`. The reconstruct
     # path now builds the component tuple by a type-stable head/tail recursion, so
     # Mooncake reverse builds a rule and its gradient MATCHES ForwardDiff.
-    dc(d) = double_censored(d; primary_event = Uniform(0, 1), interval = 1.0)
+    dc(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
+        interval = 1.0)
     function delay_tree(; cfr = 0.5)
         resolution = Competing(
             :death => (dc(Gamma(2.0, 3.5)), cfr),

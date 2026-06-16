@@ -189,6 +189,20 @@ function rewrap_leaf(d::Truncated, inner)
         upper = d.upper)
 end
 
+# Whether a leaf distribution constructor `ctor` accepts a `check_args` keyword for
+# the sampled value tuple `vals`. Used by the DynamicPPL extension's leaf
+# reconstruction to skip the argument check (so a sampler probing an out-of-support
+# point yields `-Inf` rather than throwing mid-gradient) only where the family
+# supports it. Pure reflection returning a `Bool` (constant w.r.t. the params), so a
+# zero-derivative primitive: the `CensoredDistributionsMooncakeExt` registers a
+# Mooncake `@zero_adjoint` for it so Mooncake reverse never traces its underlying
+# `jl_gf_invoke_lookup` foreigncall (which Mooncake on Julia LTS cannot
+# differentiate), keeping the reconstruction AD-safe on every backend and Julia
+# version.
+function _ctor_has_check_args(ctor, vals::Tuple)
+    return hasmethod(ctor, typeof(vals), (:check_args,))
+end
+
 # --- parameter-name introspection for leaves -------------------------------
 
 # Best-effort scalar parameter NAMES for a leaf distribution, matched
