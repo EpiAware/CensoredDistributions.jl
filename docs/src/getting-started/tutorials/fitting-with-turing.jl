@@ -37,10 +37,10 @@ The Turing-facing functions ([`composed_distribution_model`](@ref),
 from package extensions loaded once Turing and FlexiChains are available, so the
 core package stays Turing-free.
 
-We sample with non-Enzyme AD: ForwardDiff here (see [Automatic differentiation
+We sample with Mooncake reverse-mode AD (`AutoMooncake`), the backend the other
+composed-tree fitting tutorials use (see [Automatic differentiation
 backends](@ref ad-backends) for the support matrix and per-backend benchmarks).
-ForwardDiff is a safe default; the AD backends tutorial covers when a
-reverse-mode backend such as Mooncake is the better choice.
+The composed tree differentiates under Mooncake with no special handling.
 
 ## Packages used
 We use CairoMakie for plotting, Turing for probabilistic programming,
@@ -58,7 +58,8 @@ using CairoMakie, PairPlots
 using Random
 using StatsBase
 using Statistics
-using ADTypes: AutoForwardDiff
+using ADTypes: AutoMooncake
+import Mooncake
 
 md"""
 ## Define the true parameters for generating synthetic data
@@ -190,9 +191,12 @@ We simulate from the full composed object with the true parameters, so the
 parameters we recover can be checked. `rand(d)` walks the object to draw a full
 labelled event record per record (a comprehension batches `n` of them); the
 onset is the primary event origin (here zero) and the report is the censored
-delay. We draw an observation window per record and keep only reports observed
-within it, which is the right-truncation that the `obs_time` field then adjusts
-for.
+delay. We draw an observation window per record and keep only reports that fall
+strictly before it, which is the right-truncation that the `obs_time` field then
+adjusts for. Keeping `report < obs_time` matches the conditioning the `obs_time`
+likelihood applies: a report interval-censored to the day `obs_time` straddles
+the horizon, so the truncation retains only the days that close before it, and
+the simulation and the fit then condition on the same point.
 """
 
 rng = MersenneTwister(123)
@@ -203,7 +207,7 @@ reports = [p.report for p in paths]
 
 obs_times = rand(rng, DiscreteUniform(8, 12), n)
 
-keep = reports .<= obs_times;
+keep = reports .< obs_times;
 
 md"""
 We collect the kept records into a `DataFrame`. A `DataFrame` is a Tables.jl
@@ -308,7 +312,7 @@ end
 
 naive_fit = sample(Xoshiro(1),
     fit_model(naive_template, naive_priors, naive_data),
-    NUTS(0.8; adtype = AutoForwardDiff()), MCMCThreads(), 300, 2;
+    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 300, 2;
     chain_type = VNChain, progress = false)
 
 md"""
@@ -358,7 +362,7 @@ end
 
 interval_fit = sample(Xoshiro(1),
     fit_model(interval_template, interval_priors, censored_data),
-    NUTS(0.8; adtype = AutoForwardDiff()), MCMCThreads(), 300, 2;
+    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 300, 2;
     chain_type = VNChain, progress = false)
 
 interval_recovered = params_table(
@@ -386,7 +390,7 @@ recovery when the censoring process is properly modelled.
 
 full_fit = sample(Xoshiro(1),
     fit_model(full_template, full_priors, censored_data),
-    NUTS(0.8; adtype = AutoForwardDiff()), MCMCThreads(), 300, 2;
+    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 300, 2;
     chain_type = VNChain, progress = false)
 
 full_recovered = params_table(update(full_template, full_fit; prefix = :delays))
