@@ -43,6 +43,12 @@ let
 
     # Grouped: build each stratum's edge ONCE (keyed on the integer stratum id),
     # reuse across that stratum's records, and score the whole table.
+    # `batched_event_logpdf` is the Turing-friendly grouped primitive: a plain
+    # `logpdf`-style scalar that drops into a `@model` via `@addlogprob!` and
+    # differentiates under ForwardDiff / Mooncake (the `group` ids are integer
+    # data; the sampled params ride inside `ds`). It accepts a vector of composers
+    # OR bare leaves per stratum. See its docstring for the partial-pooling
+    # `@model` pattern.
     SUITE["StrataGrouping"]["grouped"] = @benchmarkable begin
         CensoredDistributions.batched_event_logpdf(
             $ds, $rows; group = $group)

@@ -284,6 +284,23 @@ function record_distributions(d::Parallel, rows)
     return [_par_record(d, p, bundle) for p in parsed]
 end
 
+# A BARE leaf (a univariate / censored leaf, no composer wrapper) as a vector of
+# one-event records: a single-delay model scores `d` directly without wrapping it
+# in a one-edge `Sequential`. Each row carries one observed event value (plus the
+# optional reserved `weight`/`count`/`obs_time`); the record scores through
+# `event_logpdf(::UnivariateDistribution, value; horizon) * weight`, the SAME
+# `_GenericRecord` path a leaf `Select` alternative uses. This is exactly the
+# density of the one-edge `Sequential(d)` wrapper observed from a zero origin (the
+# wrapper's single segment IS the leaf core), so the wrapped and bare forms give
+# the same logpdf; the bare form just drops the synthetic origin slot. A
+# fully-missing row contributes zero on `logpdf` and is sampled on `rand`.
+function record_distributions(d::UnivariateDistribution, rows)
+    rowvec = collect(Tables.rows(rows))
+    isempty(rowvec) && throw(ArgumentError(
+        "record_distributions needs at least one record; got an empty table"))
+    return [_leaf_record(d, _row_namedtuple(row)) for row in rowvec]
+end
+
 # Build per-record distributions for a tree that nests a `Select`: each record
 # resolves its OWN (Select-free) tree from the row's selector(s), strips the
 # selector field(s) so they are not matched as events, then parses + builds a
@@ -1013,8 +1030,15 @@ pass, so the sampled params (carried inside `ds`) never key a lookup - AD-safe.
 A single stratum (`length(ds) == 1`, every `group[i] == 1`) is bit-identical to
 `record_distributions(ds[1], rows)`.
 
+A stratum's distribution may be a composer (a [`Sequential`](@ref) /
+[`Parallel`](@ref) / [`Select`](@ref)) OR a BARE leaf (a univariate / censored
+leaf): a single-delay model can pass a vector of bare leaves and each record
+scores its leaf directly, with no one-edge `Sequential` wrapper. The bare-leaf
+record is density-equal to the one-edge-`Sequential`-wrapped form observed from a
+zero origin.
+
 # Arguments
-- `ds`: a vector of composed distributions, one per stratum.
+- `ds`: a vector of composed distributions OR bare leaves, one per stratum.
 - `rows`: a Tables.jl row source of records keyed by event name.
 
 # Keyword Arguments
@@ -1097,15 +1121,39 @@ the per-record log densities, equal to
 `sum(logpdf(record_distributions(ds, rows; group)[i], obs_i))` over the observed
 records, with a fully-missing record contributing zero. It is the
 varying-parameter grouped invariant as a plain number (bypassing
-`product_distribution`), so a benchmark or a regression test can compare the
-grouped value to the per-record loop without building a Turing model.
+`product_distribution`).
+
+This is the Turing-friendly grouped primitive: it is a plain `logpdf`-style
+scalar, so it drops straight into a `@model` with `@addlogprob!` (no submodel, no
+`product_distribution`, no `to_submodel`), and it differentiates under ForwardDiff
+and Mooncake because the `group` ids are integers from an AD-free data pass and
+the sampled params ride INSIDE `ds`. Use it when the data is fully observed and
+you only need to SCORE (the common partial-pooling likelihood):
+
+```julia
+@model function pooled(ds_template, rows, group)
+    mu ~ Normal(0, 1)
+    tau ~ truncated(Normal(0, 1); lower = 0)
+    scales ~ filldist(LogNormal(mu, tau), nstrata)
+    ds = [rebuild(ds_template, scales[k]) for k in 1:nstrata]
+    @addlogprob! CensoredDistributions.batched_event_logpdf(ds, rows; group)
+end
+```
+
+Prefer the submodel entry [`composed_distribution_model`](@ref)`(ds, table;
+group)` (the dual-purpose `obs ~ product_distribution(...)` form) when you also
+need to SAMPLE missing / fully-missing records; this scalar form scores only.
+
+`ds` may be a vector of composed distributions OR a vector of BARE leaves (a
+single-delay model scores each leaf directly, no one-edge `Sequential` wrapper);
+the bare and the wrapped forms give the same log density.
 
 `batched_event_logpdf(d, rows)` is the single shared-`d` form, mirroring
 [`record_distributions`](@ref)`(d, rows)`.
 
 # Arguments
-- `ds`: a vector of composed distributions, one per stratum (or a single
-  composed distribution `d` for the shared form).
+- `ds`: a vector of composed distributions OR bare leaves, one per stratum (or a
+  single composed distribution / bare leaf `d` for the shared form).
 - `rows`: a Tables.jl row source of records keyed by event name.
 
 # Keyword Arguments
@@ -1126,6 +1174,8 @@ CensoredDistributions.batched_event_logpdf(ds, rows; group = [1, 2])
 
 # See also
 - [`record_distributions`](@ref): the per-record / per-stratum assembly entry.
+- [`composed_distribution_model`](@ref): the dual-purpose (fit + generate)
+  submodel form of the grouped entry.
 "
 function batched_event_logpdf(ds::AbstractVector, rows; group)
     recs = record_distributions(ds, rows; group)

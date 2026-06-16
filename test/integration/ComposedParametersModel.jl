@@ -815,6 +815,36 @@ end
           only(logjoint(shared(d, rows), (;)))
 end
 
+@testitem "grouped bare-leaf model == loop == @addlogprob! primitive" begin
+    using CensoredDistributions, Distributions, DynamicPPL
+
+    # A single-delay model: pass a vector of BARE leaves per stratum (no one-edge
+    # Sequential wrapper). The submodel entry, the `batched_event_logpdf` scalar
+    # primitive (dropped in with `@addlogprob!`), and the per-record loop must all
+    # agree.
+    mk(scale) = primary_censored(Gamma(2.0, scale), Uniform(0, 1))
+    ds = [mk(1.0), mk(2.0)]
+    rows = [(delay = 2.0,), (delay = 3.0,), (delay = 4.0,)]
+    group = [1, 2, 1]
+
+    @model function grouped_submodel(ds, t, g)
+        obs ~ to_submodel(composed_distribution_model(ds, t; group = g))
+        return obs
+    end
+    # The Turing-friendly scalar primitive: a plain `@addlogprob!`, no submodel.
+    @model function grouped_addlogprob(ds, t, g)
+        DynamicPPL.@addlogprob! CensoredDistributions.batched_event_logpdf(
+            ds, t; group = g)
+    end
+
+    lp_submodel = only(logjoint(grouped_submodel(ds, rows, group), (;)))
+    lp_addlp = only(logjoint(grouped_addlogprob(ds, rows, group), (;)))
+    lp_loop = sum(logpdf(ds[group[i]], rows[i].delay) for i in eachindex(rows))
+
+    @test lp_submodel ≈ lp_loop
+    @test lp_addlp ≈ lp_loop
+end
+
 @testitem "partial-pooling submodel recovers hierarchical strata" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
     using FlexiChains: Prefixed, VNChain
