@@ -2,7 +2,7 @@ module CensoredDistributionsMooncakeExt
 
 using CensoredDistributions: _gamma_cdf, _split_edge_name,
                              _is_positional_edge_name, _next_event_name,
-                             _all_positional_event_names
+                             _all_positional_event_names, _split_edge
 using Mooncake: Mooncake
 
 # Lifts the `ChainRulesCore.rrule` and `ChainRulesCore.frule` defined in
@@ -46,6 +46,18 @@ Mooncake.@from_chainrules Mooncake.DefaultCtx Tuple{typeof(_gamma_cdf), Real, Re
 # the mutation happens exactly as in the primal, and the integer counter is
 # non-differentiable, so a zero cotangent is correct.
 Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{typeof(_split_edge_name), Symbol}
+# `_split_edge` is the DOTTED parameter-path splitter (`:a.b -> (:a, :b)`), reached
+# from `event(d, name)` and `build_priors`/`composed_parameters_model` INSIDE the
+# differentiated reconstruction (e.g. `event(delays, :index)` in the andv Select
+# model). It does `split(string(edge), '.')` — pointer-arithmetic string search
+# (`findnext`/`thisind`/`codeunit`) that Mooncake reverse cannot trace, aborting
+# with the uncatchable `sub_ptr intrinsic hit`, which forced the andv tutorial to
+# `AutoForwardDiff`. The split is pure constant string -> `Tuple{Symbol...}` work
+# on the CONSTANT edge labels (zero derivative; only the sampled delay params carry
+# gradients), so a zero-adjoint primitive runs the primal unchanged and returns a
+# zero cotangent, letting the gradient flow through the delay parameters with no
+# behaviour change. Mirrors the underscored `_split_edge_name` rule above.
+Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{typeof(_split_edge), Symbol}
 Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{typeof(_is_positional_edge_name), Symbol}
 Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{typeof(_all_positional_event_names), Tuple}
 Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{
