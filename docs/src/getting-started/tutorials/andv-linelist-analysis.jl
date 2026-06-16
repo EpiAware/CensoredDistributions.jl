@@ -66,7 +66,8 @@ using CensoredDistributions: latent, shared
 using Turing, Random, Statistics
 using DynamicPPL: to_submodel, prefix, InitFromPrior, @varname
 using FlexiChains: Parameter
-using ADTypes: AutoForwardDiff
+using ADTypes: AutoMooncake
+import Mooncake
 using CairoMakie, PairPlots
 
 # ## Data
@@ -293,17 +294,13 @@ end
 # Chains start from the priors (`InitFromPrior`): the real-time truncation
 # creates a second, spurious mode at a near-zero incubation period (where every
 # delay is trivially complete), and a prior-centred start keeps the sampler in
-# the basin that carries the data. The model is differentiated with forward mode
-# (`AutoForwardDiff`). Mooncake reverse mode is the preferred backend for a tree
-# this size, but it does not compile a rule here: the composer's dotted
-# edge-name handling compiles a `Regex`, and Mooncake does not differentiate the
-# try/catch inside regex compilation, so the page falls back to forward mode (the
-# same fallback the Bundibugyo Ebola tutorial documents). Enzyme reverse is
-# registered broken on these heterogeneous nested paths; the maths is AD-safe on
-# the other backends.
+# the basin that carries the data. The model is differentiated with Mooncake
+# reverse mode (`AutoMooncake`), the preferred backend for a tree this size.
+# Enzyme reverse is registered broken on these heterogeneous nested paths; the
+# maths is AD-safe on the other backends.
 Random.seed!(20260608)
 sim_chain = sample(andv(template, sim_index, sim_sourced),
-    NUTS(150, 0.95; max_depth = 6, adtype = AutoForwardDiff()),
+    NUTS(150, 0.95; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
     MCMCThreads(), 150, 2;
     initial_params = fill(InitFromPrior(), 2), progress = false)
 nothing #hide
@@ -354,7 +351,7 @@ sim_summary = DataFrame(
 
 Random.seed!(20260608)
 chain = sample(andv(template, index_rows, sourced_rows),
-    NUTS(200, 0.95; max_depth = 6, adtype = AutoForwardDiff()),
+    NUTS(200, 0.95; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
     MCMCThreads(), 200, 2;
     initial_params = fill(InitFromPrior(), 2), progress = false)
 nothing #hide
@@ -559,7 +556,7 @@ end
 Random.seed!(20260608)
 rt_model = offspring(Z, source_onset_day, knots)
 rt_chain = sample(rt_model,
-    NUTS(250, 0.9; max_depth = 6, adtype = AutoForwardDiff()),
+    NUTS(250, 0.9; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
     MCMCThreads(), 250, 2;
     initial_params = fill(InitFromPrior(), 2), progress = false)
 nothing #hide
