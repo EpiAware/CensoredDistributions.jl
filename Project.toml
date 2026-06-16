@@ -5,7 +5,6 @@ authors = ["Sam Abbott", "Damon Bayer", "Sam Brand", "Michael DeWitt", "Joseph L
 version = "0.2.20"
 
 [deps]
-AbstractTrees = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 FastGaussQuadrature = "442a2c76-b920-505d-bb47-c5924d526838"
@@ -45,7 +44,6 @@ CensoredDistributionsReverseDiffExt = "ReverseDiff"
 CensoredDistributionsSurvivalDistributionsExt = "SurvivalDistributions"
 
 [compat]
-AbstractTrees = "0.4.5"
 Catalyst = "16"
 ChainRulesCore = "1"
 Distributions = "0.25"

@@ -20,10 +20,9 @@
 #
 # IMPLEMENTATION NOTE (type stability): the `show` and `params`/`params_table`
 # traversals are HAND-ROLLED, type-stable recursion over the component tuples,
-# NOT AbstractTrees iterators (whose traversal is not type-stable for the
-# heterogeneous composer tree). A thin AbstractTrees INTERFACE
-# (`children`/`nodevalue`/`printnode`) is provided at the bottom purely so
-# EXTERNAL code can traverse our trees; our own paths never use it.
+# NOT generic tree iterators (whose traversal is not type-stable for the
+# heterogeneous composer tree). Structure introspection for external code is
+# provided by `event_names`/`event_tree`/`event`, not a tree-walking interface.
 #
 # Distributions-led: this reads structure + `params` + `support`; it is not a
 # model generator and stays Turing-free.
@@ -370,7 +369,7 @@ end
 # Pre-order walk over the composer tree. `path` is the tuple of names from the
 # root to the current node. A composer recurses into its named children; a
 # `Competing` additionally emits its branch-probability rows; a leaf emits one
-# row per scalar parameter. Hand-rolled (not AbstractTrees) to stay type-stable.
+# row per scalar parameter. Hand-rolled recursion to stay type-stable.
 function _walk_rows!(edges, params_col, values, supports, seen,
         d::Union{Sequential, Parallel}, path)
     names = component_names(d)
@@ -1010,43 +1009,4 @@ function event(d, name1::Symbol, name2::Symbol, rest::Symbol...)
         node = _event_child(node, name)
     end
     return node
-end
-
-# --- AbstractTrees interop (interface only; NOT used internally) -----------
-#
-# Thin AbstractTrees interface so EXTERNAL code can walk a composed tree with
-# the standard `children`/`nodevalue`/`printnode`/`print_tree`. Our own `show`,
-# `params`, `params_table` and the `logpdf`/`rand`/AD hot paths deliberately do
-# NOT use these (AbstractTrees traversal is not type-stable for heterogeneous
-# trees). Nodes are wrapped in `ComposerNode` to carry the edge name; a leaf has
-# no children.
-
-struct ComposerNode{D}
-    name::Symbol
-    dist::D
-    "Print annotation (a `Competing` outcome's branch probability), else empty."
-    note::String
-end
-ComposerNode(name::Symbol, dist) = ComposerNode(name, dist, "")
-
-# Root wrapper for a composed distribution (unnamed root).
-_root_node(d) = ComposerNode(:root, d)
-
-function AbstractTrees.children(node::ComposerNode)
-    _is_composer_dist(node.dist) || return ()
-    return map(t -> ComposerNode(t[1], t[2], t[3]), _named_children(node.dist))
-end
-
-AbstractTrees.nodevalue(node::ComposerNode) = node.dist
-
-function AbstractTrees.printnode(io::IO, node::ComposerNode)
-    name = node.name === :root ? "" :
-           isempty(node.note) ? "$(node.name): " :
-           "$(node.name) ($(node.note)): "
-    if _is_composer_dist(node.dist)
-        print(io, name, _node_header(node.dist))
-    else
-        print(io, name, node.dist)
-    end
-    return nothing
 end

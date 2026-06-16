@@ -246,5 +246,5 @@ function _child_rand!(out, offset, rng::AbstractRNG, c::Latent)
 end
 
 # The recursive indented-tree printing and the `params`/`params_table` traversal
-# share the AbstractTrees.jl interface defined in `introspection.jl`
-# (`ComposerNode`, `children`, `printnode`, `_node_header`, `_show_composer_tree`).
+# share the hand-rolled, type-stable helpers defined in `introspection.jl`
+# (`_named_children`, `_show_children`, `_node_header`).
