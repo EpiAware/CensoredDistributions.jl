@@ -18,7 +18,7 @@ reparameterised leaf TRANSPARENT to parameter introspection.
 ### The Distributions.jl contract (required)
 
 A custom leaf is a `ContinuousUnivariateDistribution` (or discrete).
-To take part in scoring, simulation and moments it implements the standard
+To take part in fitting, simulation and moments it implements the standard
 methods the composers call:
 
 - `Distributions.logpdf(d, x)` and `Distributions.cdf(d, x)`: scoring a record
@@ -115,7 +115,7 @@ tree = compose((onset_admit = leaf,
 event_names(tree)
 ```
 
-It scores and simulates like any other branch.
+It fits and simulates like any other branch.
 
 ```@example extending
 rand(Xoshiro(1), tree)

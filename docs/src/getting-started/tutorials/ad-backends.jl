@@ -131,10 +131,11 @@ scenarios = ADFixtures.scenarios()
 backend_name = Dict(entry.backend => entry.name
 for entry in ADFixtures.backends())
 
-## Enzyme is exercised live by its own per-backend AD CI (the badges above),
-## but running it inside the docs build can abort the whole Documenter process
-## natively. Exclude the Enzyme backends from the benchmark executed here so the
-## page renders reliably; the prose and badge table still describe all backends.
+## Enzyme gradients are correct and live-tested by their own per-backend AD CI
+## (the badges above), but `DifferentiationInterfaceTest.benchmark_differentiation`
+## has no `run_benchmark!` method for an `AutoEnzyme` backend in this DIT version,
+## so it errors on the timing path (not the gradient). Exclude Enzyme from the
+## benchmark run here; the prose and badge table still describe all backends.
 bench_backends = [entry.backend
                   for entry in ADFixtures.backends()
                   if !startswith(backend_name[entry.backend], "Enzyme")]
@@ -155,12 +156,10 @@ per-backend scenarios `ADFixtures.backend_skip_scenarios()` flags as
 uncatchable crashes (Enzyme aborts the whole process on the vectorised
 per-record tree-rebuild scenario); those pairs are dropped before
 the run so the benchmark cannot take the process down with it.
+The Enzyme backends are left out of the timings here because the benchmark
+harness has no Enzyme path in this version; their gradients are correct and
+live-tested by the per-backend AD CI (the badges above).
 
-The benchmark executed on this page excludes the Enzyme backends, because
-running Enzyme inside the documentation build can abort the whole process
-natively. Enzyme is still measured live by its own per-backend AD CI (the
-badges at the top of this page), and you can include it locally by removing
-the Enzyme filter from the setup code above.
 The figures are the prepared per-call cost.
 DifferentiationInterface prepares each backend once, recording a tape for
 ReverseDiff and compiling a rule for Enzyme and Mooncake, and we time the
