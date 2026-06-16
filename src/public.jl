@@ -27,6 +27,13 @@ public primarycensored_uniform_cdf_formula
 # DynamicPPL extension to key parameter priors by child name.
 public component_names
 
+# Composer-node extension contract (public but not exported): the three methods
+# a new composer node implements to walk the flat event vector. Reached by the
+# qualified name (`CensoredDistributions.child_nleaves` etc.), as the leaf hooks
+# `free_leaf` / `rewrap_leaf` are. Documented in
+# `docs/src/developer/extending.md`.
+public child_nleaves, child_logpdf, child_rand!
+
 # Horizon-aware event-vector log density (public but not exported): the per-record
 # right-truncation entry point used by the composed record model.
 public event_logpdf
