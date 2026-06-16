@@ -33,6 +33,9 @@ composed delay (the linear chain trick is exact for Exp/Erlang leaves).
 
 This method is only defined when Catalyst.jl is loaded (`using Catalyst`); it
 lives in the package extension so the core stays free of the SciML stack.
+The bridge is a CONSUMER of the composers, not part of the composition engine:
+it reads a finished composed delay and lowers it onto a reaction network, and it
+stays an intentional optional weak-dependency extension for that reason.
 
 # Arguments
 - `delay`: a composed Exp/Erlang delay (a leaf or a flat [`Sequential`](@ref)
@@ -93,6 +96,9 @@ SEIR. The returned system is `complete`, ready to pass to `ODEProblem`.
 
 This method is only defined when Catalyst.jl is loaded (`using Catalyst`); it
 lives in the package extension so the core stays free of the SciML stack.
+The bridge is a CONSUMER of the composers, not part of the composition engine:
+it reads finished composed delays and assembles them into a reaction network, an
+intentional optional weak-dependency extension.
 
 # Arguments
 - `latent`: the composed Exp/Erlang delay for the exposed (E) period.

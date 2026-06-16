@@ -42,8 +42,20 @@ composers, not a new tree type.
   non-zero `compete` id into a [`Competing`](@ref) node whose `prob` entries are
   the branch probabilities (each in ``[0, 1]`` and summing to one per group).
 - nested `Matrix` of distributions: rows are [`Parallel`](@ref) branches and the
-  columns within a row are [`Sequential`](@ref) steps, so a one-column matrix is
-  parallel leaf branches and a one-row matrix is a single chain.
+  columns within a row are [`Sequential`](@ref) steps. This orientation is
+  canonical, so a one-column matrix is parallel leaf branches (one row each) and
+  a one-row matrix is a single [`Sequential`](@ref) chain (the lone row's
+  columns), not a `Parallel`.
+
+# Contract
+
+`compose` ALWAYS returns a composer, never a bare univariate leaf.
+A single branch stays a [`Parallel`](@ref)-of-one and a single step a
+one-element [`Sequential`](@ref); the wrapper is never collapsed away.
+A bare leaf is used directly at the SCORING layer, where
+[`record_distributions`](@ref) and [`composed_distribution_model`](@ref) accept
+a bare `UnivariateDistribution`, so callers do not need `compose` to pass one
+through.
 
 # Examples
 ```@example
@@ -134,9 +146,9 @@ end
 # --- nested Matrix front-end -----------------------------------------------
 # A matrix maps to a Parallel over its rows (branches), each row a Sequential
 # over its columns (chain steps). A row with a single entry collapses to that
-# bare leaf, so a one-column matrix is one chain folded into a single Parallel
-# branch and a one-row matrix is parallel leaf branches, matching the
-# NamedTuple/table forms for the same structure.
+# bare leaf, so a one-column matrix is parallel leaf branches (one row each)
+# and a one-row matrix is a single Sequential chain (the lone row's columns),
+# matching the NamedTuple/table forms for the same structure.
 #
 # Names thread through optional keyword arguments (Option A): `names`
 # labels the row branches and `step_names` labels the columns within each
