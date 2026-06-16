@@ -203,6 +203,175 @@ end
     @test any(!iszero, grad)
 end
 
+@testitem "nested Competing: Mooncake reverse == ForwardDiff (#497)" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using ADTypes: AutoForwardDiff, AutoMooncake
+    import Mooncake
+    const LDP = DynamicPPL.LogDensityProblems
+
+    # A bdbv-style nested-Competing tree fit through the full prior-sample ->
+    # reconstruct -> score loop with a PER-RECORD covariate branch probability.
+    # The Competing rebuild used to route the reconstructed component tuple through
+    # `Tuple(::Vector{Any})`, which gave the composed object a heterogeneous edge
+    # type whose reverse data Mooncake could not `increment!!` (#497) -- so the
+    # nested-Competing case studies fell back to `AutoForwardDiff`. The reconstruct
+    # path now builds the component tuple by a type-stable head/tail recursion, so
+    # Mooncake reverse builds a rule and its gradient MATCHES ForwardDiff.
+    dc(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
+        interval = 1.0)
+    function delay_tree(; cfr = 0.5)
+        resolution = Competing(
+            :death => (dc(Gamma(2.0, 3.5)), cfr),
+            :discharge => (dc(Gamma(1.0, 8.0)), 1 - cfr))
+        admit_path = Sequential(
+            (dc(Gamma(1.2, 3.0)), resolution),
+            (:onset_admit, :admit_resolution))
+        return compose((admit_path = admit_path,
+            onset_notif = dc(Gamma(0.7, 20.0))))
+    end
+    template = delay_tree()
+    priors = build_priors(params_table(template);
+        priors = Dict(
+            (Symbol("admit_path.admit_resolution.branch_probs"), :death) =>
+                Uniform(0, 1),
+            (Symbol("admit_path.admit_resolution.branch_probs"), :discharge) =>
+                Uniform(0, 1)))
+
+    logistic(z) = 1 / (1 + exp(-z))
+    death_prob(β, r) = logistic(β.β0 + β.β_hcw * r.hcw)
+
+    @model function bdbv(template, priors, rows)
+        delays ~ to_submodel(composed_parameters_model(template, priors))
+        β0 ~ Normal(0, 1.5)
+        β_hcw ~ Normal(0, 1)
+        β = (; β0, β_hcw)
+        obs_rows = map(rows) do r
+            p = death_prob(β, r)
+            (onset = r.onset, admit = r.admit, death = r.death,
+                discharge = r.discharge, notif = r.notif,
+                branch_probs = (death = p, discharge = 1 - p))
+        end
+        obs ~ to_submodel(composed_distribution_model(delays, obs_rows))
+    end
+
+    rows = [
+        (onset = 0.0, admit = 4.0, death = 12.0, discharge = missing,
+            notif = 9.0, hcw = true),
+        (onset = 0.5, admit = 5.0, death = missing, discharge = 11.0,
+            notif = 10.0, hcw = false)]
+
+    Random.seed!(497)
+    m = bdbv(template, priors, rows)
+    # Link to the unconstrained space and start from a valid prior draw so the
+    # gradient is taken at an in-support point of the full loop.
+    vi = DynamicPPL.link(VarInfo(m), m)
+    x0 = vi[:]
+
+    ldf_fd = DynamicPPL.LogDensityFunction(
+        m, DynamicPPL.getlogjoint_internal, vi; adtype = AutoForwardDiff())
+    ldf_mc = DynamicPPL.LogDensityFunction(
+        m, DynamicPPL.getlogjoint_internal, vi;
+        adtype = AutoMooncake(config = nothing))
+
+    lp_fd, g_fd = LDP.logdensity_and_gradient(ldf_fd, x0)
+    # The key assertion: Mooncake reverse builds a rule for the nested-Competing
+    # tree (no `increment!!` MethodError) and returns a finite gradient.
+    lp_mc, g_mc = LDP.logdensity_and_gradient(ldf_mc, x0)
+
+    @test isfinite(lp_fd)
+    @test lp_mc ≈ lp_fd
+    @test all(isfinite, g_mc)
+    @test g_mc≈g_fd rtol=1e-5 atol=1e-7
+end
+
+@testitem "Select top: Mooncake reverse == ForwardDiff (#497)" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using ADTypes: AutoForwardDiff, AutoMooncake
+    import Mooncake
+    const LDP = DynamicPPL.LogDensityProblems
+
+    # An andv-style Select-top model fit through the full prior-sample ->
+    # reconstruct -> score loop. `event(delays, :index)` inside the differentiated
+    # model splits a dotted edge `Symbol` via `_split_edge`, whose `split(string,
+    # '.')` is pointer-arithmetic string search that aborted Mooncake reverse with
+    # the uncatchable `sub_ptr intrinsic hit` (#497) -- so the andv case study fell
+    # back to `AutoForwardDiff`. `_split_edge` now carries a Mooncake `@zero_adjoint`
+    # (it is constant string -> `Tuple{Symbol...}` work with zero derivative), so
+    # Mooncake builds a rule and its gradient MATCHES ForwardDiff.
+    dd(d) = double_interval_censored(d; primary_event = Uniform(0, 1), interval = 1)
+    # Mirror the andv structure: a shared incubation leaf across both alternatives,
+    # the index branch a single composed edge and the sourced branch a two-step
+    # chain. `event(delays, :index)` then returns a composer scored by event name.
+    inc_window = 30.0
+    function delay_select(; inc = LogNormal(3.0, 0.3), delta = Normal(0.0, 1.0))
+        index = compose((infection_onset = shared(:inc,
+            primary_censored(inc, Uniform(0, inc_window))),))
+        sourced = Sequential(
+            (dd(delta), shared(:inc, dd(inc))),
+            (:srconset_infection, :infection_onset))
+        return selecting(:index => index, :sourced => sourced)
+    end
+    template = delay_select()
+    priors = build_priors(params_table(template);
+        priors = (
+            inc = (mu = Normal(3.0, 0.5),
+                sigma = truncated(Normal(0.0, 0.5); lower = 0)),
+            sourced = (srconset_infection = (mu = Normal(0.0, 5.0),
+                sigma = truncated(Normal(0.0, 1.0); lower = 0)),)))
+
+    @model function andv(template, index_rows, sourced_rows)
+        delays ~ to_submodel(composed_parameters_model(template, priors))
+        obs_index ~ to_submodel(
+            DynamicPPL.prefix(
+                composed_distribution_model(event(delays, :index), index_rows),
+                :index), false)
+        obs_sourced ~ to_submodel(
+            DynamicPPL.prefix(
+                composed_distribution_model(
+                    event(delays, :sourced), sourced_rows),
+                :sourced), false)
+        return delays
+    end
+
+    index_rows = [(infection = missing, onset = 25.0),
+        (infection = missing, onset = 22.0)]
+    sourced_rows = [(srconset = 0.0, infection = 3.0, onset = 25.0),
+        (srconset = 0.0, infection = 5.0, onset = 28.0)]
+
+    m = andv(template, index_rows, sourced_rows)
+
+    # Draw prior parameter points until the linked log-density is finite, so the
+    # gradient is compared at an in-support point of the full loop.
+    function _insupport_varinfo(model)
+        for attempt in 1:200
+            varinfo = DynamicPPL.link(
+                VarInfo(Xoshiro(attempt), model), model)
+            ldf0 = DynamicPPL.LogDensityFunction(
+                model, DynamicPPL.getlogjoint_internal, varinfo)
+            isfinite(LDP.logdensity(ldf0, varinfo[:])) && return varinfo
+        end
+        error("no in-support prior draw found")
+    end
+    vi = _insupport_varinfo(m)
+    x0 = vi[:]
+
+    ldf_fd = DynamicPPL.LogDensityFunction(
+        m, DynamicPPL.getlogjoint_internal, vi; adtype = AutoForwardDiff())
+    ldf_mc = DynamicPPL.LogDensityFunction(
+        m, DynamicPPL.getlogjoint_internal, vi;
+        adtype = AutoMooncake(config = nothing))
+
+    lp_fd, g_fd = LDP.logdensity_and_gradient(ldf_fd, x0)
+    # The key assertion: Mooncake reverse builds a rule for the Select-top tree
+    # (no `sub_ptr intrinsic hit`) and returns a finite gradient.
+    lp_mc, g_mc = LDP.logdensity_and_gradient(ldf_mc, x0)
+
+    @test isfinite(lp_fd)
+    @test lp_mc ≈ lp_fd
+    @test all(isfinite, g_mc)
+    @test g_mc≈g_fd rtol=1e-5 atol=1e-7
+end
+
 @testitem "composed_parameters_model: censored leaf round-trips" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Random
 

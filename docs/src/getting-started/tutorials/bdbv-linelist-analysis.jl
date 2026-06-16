@@ -72,7 +72,8 @@ using CensoredDistributions, Distributions
 using Turing, Random, Statistics
 using DynamicPPL: to_submodel, @varname
 using FlexiChains: Parameter
-using ADTypes: AutoForwardDiff
+using ADTypes: AutoMooncake
+import Mooncake
 using PairPlots, CairoMakie
 
 md"""
@@ -269,16 +270,12 @@ The per-event [`mean`](@ref CensoredDistributions.mean)`(latent(fit))`
 NamedTuple (keyed by [`event_names`](@ref)) then reads each delay's mean
 off the updated distribution, so there is no manual chain indexing.
 
-The likelihood is differentiated with forward mode (`AutoForwardDiff`).
-Mooncake reverse mode (`AutoMooncake`) would usually be the faster backend, but
-it cannot build a rule for this model: the nested [`Competing`](@ref) resolution
-gives the composed object a heterogeneous edge type, and Mooncake's reverse pass
-hits a missing `increment!!` method on that mixed-type reverse data, so we fall
-back to forward mode for this page.
+The likelihood is differentiated with Mooncake reverse mode (`AutoMooncake`),
+the faster backend for a tree this size.
 The same backend is used for both the simulation fit and the real fit.
 """
 
-adbackend = AutoForwardDiff()
+adbackend = AutoMooncake(; config = nothing)
 
 sim_chain = sample(Xoshiro(1), bdbv(template, priors, sim_rows),
     NUTS(0.8; adtype = adbackend), MCMCThreads(), 500, 2;

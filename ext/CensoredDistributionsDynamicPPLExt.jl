@@ -1182,11 +1182,26 @@ function _reconstruct_leaf(leaf, vals::Tuple)
     return CensoredDistributions.rewrap_leaf(leaf, inner)
 end
 
+# Reconstruct a leaf's inner delay from sampled params, skipping the argument check
+# where the family's constructor supports a `check_args` keyword (so a sampler
+# probing an out-of-support point yields `-Inf` rather than throwing mid-gradient).
+#
+# Whether the constructor accepts `check_args` is decided by
+# `CensoredDistributions._ctor_has_check_args` (a pure `hasmethod` reflection
+# returning a `Bool`), NOT a `try`/`catch`. The original try/catch fallback (catch a
+# `MethodError` from the missing keyword) could not be differentiated by Mooncake
+# reverse on Julia LTS: `_construct_unchecked` is on the AD'd reconstruction path
+# (`composed_parameters_model` rebuilds each leaf from tracked params), and Mooncake
+# LTS cannot trace the `try`/`catch`, failing the nested-Competing (bdbv) and
+# Select-top (andv) models. The reflection helper carries a Mooncake `@zero_adjoint`
+# (it is constant w.r.t. the params, returning a `Bool`), so Mooncake never traces
+# its `jl_gf_invoke_lookup` foreigncall on LTS; the differentiated path is then a
+# plain `if` over a single ctor call with no exception handling, and the gradient
+# flows through `vals` unchanged on every backend and Julia version.
 function _construct_unchecked(ctor, vals::Tuple)
-    try
+    if CensoredDistributions._ctor_has_check_args(ctor, vals)
         return ctor(vals...; check_args = false)
-    catch err
-        err isa MethodError || rethrow()
+    else
         return ctor(vals...)
     end
 end
@@ -1232,6 +1247,48 @@ function _child_priors(priors::NamedTuple, name::Symbol)
     haskey(priors, name) ? priors[name] : NamedTuple()
 end
 
+# Sample a composer's children into the component TUPLE the rebuild expects via a
+# head/tail RECURSIVE submodel, instead of writing each into a `Vector{Any}` slot
+# and converting with `Tuple(parts)`.
+#
+# The original `parts = Vector{Any}(...); parts[i] ~ ...; Tuple(parts)` lowered the
+# tilde to a `BangBang._setindex!` into the untyped vector and the conversion to a
+# `svec` build over `Vector{Any}`. Under Mooncake reverse that path produces a
+# heterogeneous `RData` tuple whose per-slot reverse-data layout it then cannot
+# `increment!!` (the cotangent of one whole composer node gets accumulated against a
+# single leaf child's reverse data, a structural type mismatch), so a
+# nested-`Competing` (bdbv / andv) model fell back to `AutoForwardDiff`.
+#
+# `_children_params_model` peels ONE child per recursion: it samples the head child
+# through its prefixed submodel into a scalar `head` (no indexed lvalue, so no
+# `setindex!` on an `Any` vector), recurses for the tail, and conses `(head,
+# rest...)`. Each `~` value keeps its own concrete type and the tuple is built by
+# tuple `cons`, so Mooncake sees a uniform per-slot `RData` and the reverse rule
+# succeeds. The result is identical to the old `Tuple(parts)` (same children, same
+# order, same prefixed varnames); only the construction path differs, so a
+# `Dual`/tracked reconstructed child (ForwardDiff / ReverseDiff) still flows through.
+#
+# The children tuple and names are split head/tail so the recursion specialises on
+# each child type (the same shape the composer `logpdf` recursion already
+# differentiates). An empty children tuple returns `()`.
+@model function _children_params_model(
+        children::Tuple{}, names::Tuple, priors::NamedTuple, shared)
+    return ()
+end
+@model function _children_params_model(
+        children::Tuple, names::Tuple, priors::NamedTuple, shared)
+    child = first(children)
+    name = first(names)
+    sub = DynamicPPL.prefix(
+        _params_submodel(child, _child_priors(priors, name), shared), Val(name))
+    head ~ to_submodel(sub, false)
+    rest ~ to_submodel(
+        _children_params_model(
+            Base.tail(children), Base.tail(names), priors, shared),
+        false)
+    return (head, rest...)
+end
+
 # A `Sequential` / `Parallel`: sample each named child through a prefixed child
 # submodel, then rebuild the SAME composer type with the SAME names. A child whose
 # only params are shared has no own prior key and samples nothing locally.
@@ -1239,16 +1296,9 @@ end
         d::Union{Sequential, Parallel}, priors::NamedTuple, shared)
     names = component_names(d)
     _check_composer_prior_keys(priors, names, "$(nameof(typeof(d)))", shared)
-    parts = Vector{Any}(undef, length(names))
-    for i in 1:length(names)
-        name = names[i]
-        child = d.components[i]
-        sub = DynamicPPL.prefix(
-            _params_submodel(child, _child_priors(priors, name), shared),
-            Val(name))
-        parts[i] ~ to_submodel(sub, false)
-    end
-    return _rebuild(d, Tuple(parts))
+    parts ~ to_submodel(
+        _children_params_model(d.components, names, priors, shared), false)
+    return _rebuild(d, parts)
 end
 
 # A `Select`: sample each named alternative through a prefixed child submodel; a
@@ -1256,15 +1306,9 @@ end
 # alternative that only carries the shared parameter samples nothing locally.
 @model function _select_params_model(d::Select, priors::NamedTuple, shared)
     _check_composer_prior_keys(priors, d.names, "Select", shared)
-    alts = Vector{Any}(undef, length(d.names))
-    for i in 1:length(d.names)
-        name = d.names[i]
-        sub = DynamicPPL.prefix(
-            _params_submodel(d.alternatives[i], _child_priors(priors, name),
-                shared), Val(name))
-        alts[i] ~ to_submodel(sub, false)
-    end
-    return Select(d.names, Tuple(alts), d.selector)
+    alts ~ to_submodel(
+        _children_params_model(d.alternatives, d.names, priors, shared), false)
+    return Select(d.names, alts, d.selector)
 end
 
 # A `Competing`: sample each outcome delay through a prefixed child submodel; the
@@ -1277,14 +1321,8 @@ end
     # `branch_probs` is optional; every other expected key is required.
     required = c.names
     _check_competing_keys(priors, required, expected, shared)
-    delays = Vector{Any}(undef, length(c.names))
-    for i in 1:length(c.names)
-        name = c.names[i]
-        sub = DynamicPPL.prefix(
-            _params_submodel(c.delays[i], _child_priors(priors, name), shared),
-            Val(name))
-        delays[i] ~ to_submodel(sub, false)
-    end
+    delays ~ to_submodel(
+        _children_params_model(c.delays, c.names, priors, shared), false)
     if :branch_probs in have
         bp_priors = priors.branch_probs
         _check_prior_keys(bp_priors, c.names, "Competing branch_probs")
@@ -1294,7 +1332,7 @@ end
     else
         probs = c.branch_probs
     end
-    return Competing(c.names, Tuple(delays), Tuple(probs))
+    return Competing(c.names, delays, Tuple(probs))
 end
 
 # A racing-hazard `HazardCompeting`: sample each racing outcome delay through a
@@ -1303,15 +1341,9 @@ end
 @model function _hazard_competing_params_model(
         c::CensoredDistributions.HazardCompeting, priors::NamedTuple, shared)
     _check_composer_prior_keys(priors, c.names, :HazardCompeting, shared)
-    delays = Vector{Any}(undef, length(c.names))
-    for i in 1:length(c.names)
-        name = c.names[i]
-        sub = DynamicPPL.prefix(
-            _params_submodel(c.delays[i], _child_priors(priors, name), shared),
-            Val(name))
-        delays[i] ~ to_submodel(sub, false)
-    end
-    return CensoredDistributions.HazardCompeting(c.names, Tuple(delays))
+    delays ~ to_submodel(
+        _children_params_model(c.delays, c.names, priors, shared), false)
+    return CensoredDistributions.HazardCompeting(c.names, delays)
 end
 
 # Sample the competing branch probabilities from their named priors. Returns the
