@@ -95,14 +95,14 @@ delay_template(leaf) = Sequential((leaf,), (:onset_report,))
 md"""
 The full model layers primary censoring (a one-day primary-event window),
 interval censoring (a one-day secondary window), and per-record right truncation
-onto a lognormal delay. [`double_censored`](@ref) (the short alias for
-[`double_interval_censored`](@ref)) builds the primary plus interval leaf; the
+onto a lognormal delay. [`double_interval_censored`](@ref) builds the primary
+plus interval leaf; the
 truncation is applied per record at fit time through a reserved `obs_time`
 field, so the leaf carries no fixed horizon.
 """
 
 function full_leaf(mu, sig)
-    double_censored(LogNormal(mu, sig);
+    double_interval_censored(LogNormal(mu, sig);
         primary_event = Uniform(0, 1), interval = 1.0)
 end
 
@@ -473,7 +473,7 @@ md"""
 ## Summary
 
 - One composed [`Sequential`](@ref) delay describes each record; the censored
-  leaves ([`double_censored`](@ref), [`interval_censored`](@ref)) build it,
+  leaves ([`double_interval_censored`](@ref), [`interval_censored`](@ref)) build it,
   while [`params_table`](@ref) and [`build_priors`](@ref) derive support-aware
   priors.
 - The same parameter block ([`composed_parameters_model`](@ref)) and vectorised

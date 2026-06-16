@@ -365,7 +365,7 @@ count(!ismissing, (draw.death, draw.discharge))
 
 CensoredDistributions.rand_outcome(Xoshiro(7), sim_resolution)
 
-# ## Marginal versus latent
+# ## [Marginal versus latent](@id marginal-versus-latent)
 #
 # Scoring and prediction are two directions on the same object.
 # Scoring marginalises or conditions each event by its row missingness: an

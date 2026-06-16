@@ -186,7 +186,7 @@ md"""
 """
 
 ## Some (backend, scenario) pairs crash the process uncatchably (Enzyme on the
-## vectorised per-record tree-rebuild scenario, #319), so a `try`/`catch` cannot
+## vectorised per-record tree-rebuild scenario), so a `try`/`catch` cannot
 ## save the build. We therefore drop those pairs per backend before timing, mirroring
 ## `test/ad/setup.jl`, and benchmark each backend over only its runnable
 ## scenarios. Backends with no skip list still see the full scenario set.
