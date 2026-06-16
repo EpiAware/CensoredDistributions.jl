@@ -199,10 +199,18 @@ a thin wrapper over the [`Competing`](@ref) struct constructor. Each outcome is
 `name => (delay, branch_prob)`; the branch probabilities must each lie in
 ``[0, 1]`` and sum to one, and at least two outcomes are required.
 
+The LAST outcome's probability may be OMITTED (a bare `name => delay`): it then
+takes the residual `1 - sum(of the others)`, so a probability that is fully
+determined by the rest need not be written out (and cannot disagree with them).
+The leading probabilities must sum to at most one. Omitting any outcome but the
+last, or more than one, is rejected. Omitting EVERY probability instead builds a
+racing-hazard [`HazardCompeting`](@ref).
+
 # Arguments
 - `outcomes`: two or more `name => (delay, branch_prob)` pairs, each giving the
   outcome name (a `Symbol`), its delay distribution, and the probability that
-  the outcome occurs.
+  the outcome occurs. The last pair's probability may be omitted (a bare
+  `name => delay`), taking the residual `1 - sum(of the others)`.
 
 # Examples
 ```@example
@@ -211,6 +219,16 @@ using CensoredDistributions, Distributions
 cfr = 0.3
 node = competing(:death => (Gamma(1.5, 1.0), cfr),
     :disch => (Gamma(2.0, 1.5), 1 - cfr))
+mean(node)
+```
+
+```@example
+using CensoredDistributions, Distributions
+
+# The discharge probability is the residual `1 - cfr`, so it is omitted.
+cfr = 0.3
+node = competing(:death => (Gamma(1.5, 1.0), cfr),
+    :disch => Gamma(2.0, 1.5))
 mean(node)
 ```
 
@@ -229,17 +247,61 @@ function competing(outcomes::Pair...)
     # MIXTURE `Competing` (cause and timing independent); a BARE delay per
     # outcome (no branch probability) gives the racing-hazard `HazardCompeting`
     # (the winning probability is DERIVED from the hazards, timing coupled).
-    # Mixing the two shapes is rejected: a node is one or the other.
+    # Mixing the two shapes is rejected EXCEPT the RESIDUAL form (every outcome
+    # but the LAST carries a probability, the last is bare): the last outcome
+    # then takes the residual `1 - sum(of the others)`, so the user need not
+    # write a probability they can derive (and that must agree with the rest).
     if all(_is_prob_payload, payloads)
         return Competing(outcomes...)
     elseif all(_is_bare_payload, payloads)
         return HazardCompeting(outcomes...)
+    elseif _is_residual_shape(payloads)
+        return Competing(_fill_residual_outcome(outcomes)...)
     end
     throw(ArgumentError(
         "competing outcomes must ALL carry a branch probability " *
-        "(`name => (delay, prob)`, the fixed-probability mixture) OR ALL omit " *
-        "it (`name => delay`, the racing-hazard node); a mix of the two shapes " *
-        "is ambiguous"))
+        "(`name => (delay, prob)`, the fixed-probability mixture) OR ALL " *
+        "omit it (`name => delay`, the racing-hazard node), or carry a " *
+        "probability on every outcome BUT the last (`name => delay`), which " *
+        "then takes the residual `1 - sum(others)`; the given mix is unclear"))
+end
+
+# The RESIDUAL mixture shape: every outcome but the LAST carries a `(delay,
+# prob)` pair and the last is a BARE delay, so the last outcome's probability is
+# the residual `1 - sum(of the others)`. A bare delay ANYWHERE BUT the last (or
+# more than one bare delay) is NOT the residual form: it falls through to the
+# ambiguous-mix error so a misplaced omission is rejected clearly rather than
+# silently treated as a hazard or a residual. At least two outcomes hold by the
+# caller's guard, so the leading prob-payload set is non-empty.
+function _is_residual_shape(payloads::Tuple)
+    n = length(payloads)
+    all(_is_prob_payload, Base.front(payloads)) &&
+        _is_bare_payload(payloads[n])
+end
+
+# Resolve a residual-shape outcome list into the all-explicit `(delay, prob)`
+# form: keep every leading `(delay, prob)` outcome and give the last (bare
+# delay) outcome the residual probability `1 - sum(of the others)`. The residual
+# rides the leading probabilities' element type, so a `logistic(Xβ)`/sampled
+# leading prob keeps the last outcome a DIFFERENTIABLE function of the others
+# (the residual flows the same `Dual`/tracked type). The leading probabilities
+# are bounds- and sum-checked (each in `[0, 1]`, summing to `<= 1`) so the
+# residual is a valid probability; an over-one leading set errors clearly here
+# rather than yielding a negative residual the downstream bounds check catches.
+function _fill_residual_outcome(outcomes::Tuple)
+    n = length(outcomes)
+    leading = Base.front(outcomes)
+    last_pair = outcomes[n]
+    leading_probs = Tuple(_competing_prob(o.second) for o in leading)
+    _validate_branch_prob_bounds(leading_probs)
+    total = sum(leading_probs)
+    (total <= 1 + 1e-6) || throw(ArgumentError(
+        "the leading competing branch probabilities sum to $total, " *
+        "exceeding one, so the residual last-outcome probability `1 - sum` " *
+        "is negative; the probabilities must leave non-negative residual mass"))
+    residual = one(total) - total
+    filled_last = last_pair.first => (last_pair.second, residual)
+    return (leading..., filled_last)
 end
 
 # A `(delay, branch_prob)` mixture payload vs a bare-delay hazard payload. A

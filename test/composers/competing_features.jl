@@ -18,9 +18,68 @@
     @test haz isa CensoredDistributions.HazardCompeting
     @test haz isa CensoredDistributions.AbstractCompeting
 
-    # Mixing the two payload shapes is rejected (ambiguous node type).
-    @test_throws ArgumentError competing(:a => (Gamma(1.0, 1.0), 0.5),
-        :b => Gamma(2.0, 1.0))
+    # Mixing the two payload shapes is rejected (ambiguous node type) UNLESS it
+    # is the residual form (every outcome but the last carries a probability).
+    @test competing(:a => (Gamma(1.0, 1.0), 0.5), :b => Gamma(2.0, 1.0)) isa
+          CensoredDistributions.Competing
+    # A bare delay BEFORE the last outcome (more than one omitted) is ambiguous.
+    @test_throws ArgumentError competing(:a => Gamma(1.0, 1.0),
+        :b => (Gamma(2.0, 1.0), 0.5), :c => Gamma(2.0, 1.0))
+end
+
+@testitem "competing: residual last-outcome probability (#46)" begin
+    using Distributions
+    import ForwardDiff
+
+    # Omitting the LAST outcome's probability makes it the residual `1 - sum(of
+    # the others)`. The residual node is density-IDENTICAL to the all-explicit
+    # form: same branch_probs, same logpdf, same winning_probabilities.
+    cfr = 0.3
+    explicit = competing(:death => (Gamma(1.5, 1.0), cfr),
+        :disch => (Gamma(2.0, 1.5), 1 - cfr))
+    resid = competing(:death => (Gamma(1.5, 1.0), cfr),
+        :disch => Gamma(2.0, 1.5))
+    @test resid isa CensoredDistributions.Competing
+    @test resid.branch_probs == explicit.branch_probs
+    @test logpdf(resid, 1.7) == logpdf(explicit, 1.7)
+    @test winning_probabilities(resid) == winning_probabilities(explicit)
+    @test mean(resid) == mean(explicit)
+
+    # Three outcomes: the residual is `1 - (p_a + p_b)`.
+    e3 = competing(:a => (Gamma(1.0, 1.0), 0.2), :b => (Gamma(1.0, 1.0), 0.3),
+        :c => (Gamma(1.0, 1.0), 0.5))
+    r3 = competing(:a => (Gamma(1.0, 1.0), 0.2), :b => (Gamma(1.0, 1.0), 0.3),
+        :c => Gamma(1.0, 1.0))
+    @test r3.branch_probs == e3.branch_probs
+    @test logpdf(r3, 0.9) == logpdf(e3, 0.9)
+
+    # Leading probabilities exceeding one (negative residual) errors clearly.
+    @test_throws ArgumentError competing(:a => (Gamma(1.0, 1.0), 0.7),
+        :b => (Gamma(1.0, 1.0), 0.5), :c => Gamma(1.0, 1.0))
+
+    # The residual is a DIFFERENTIABLE function of the leading probabilities: a
+    # `logistic(Xβ)`/sampled leading prob flows its `Dual` into the residual, so
+    # the node differentiates w.r.t. the leading prob exactly as the explicit
+    # form does (the residual carries the same partial, opposite sign).
+    f_resid(p) = logpdf(
+        competing(:death => (Gamma(1.5, 1.0), p[1]), :disch => Gamma(2.0, 1.5)),
+        1.7)
+    f_explicit(p) = logpdf(
+        competing(:death => (Gamma(1.5, 1.0), p[1]),
+            :disch => (Gamma(2.0, 1.5), 1 - p[1])),
+        1.7)
+    g_resid = ForwardDiff.gradient(f_resid, [cfr])
+    g_explicit = ForwardDiff.gradient(f_explicit, [cfr])
+    @test all(isfinite, g_resid)
+    @test g_resid ≈ g_explicit
+
+    # A residual NoEvent last outcome carries the residual no-event mass. The
+    # residual is `1 - 0.7` exactly (the same float subtraction), so compare
+    # against that rather than the literal `0.3` (a different bit pattern).
+    ne = competing(:report => (Gamma(2.0, 1.0), 0.7), :none => NoEvent())
+    @test CensoredDistributions._has_no_event(ne)
+    @test ne.branch_probs == (0.7, 1 - 0.7)
+    @test occurrence_probability(ne) ≈ 0.7
 end
 
 @testitem "competing: NoEvent marker errors as a density" begin
@@ -343,6 +402,57 @@ end
         @test death_obs ⊻ recover_obs
         @test isfinite(logpdf(d, draw))
     end
+end
+
+@testitem "non-terminal Competing: rand fills the winning subtree's slots" begin
+    using Distributions, Random
+
+    # The whole-tree `rand` of a NON-TERMINAL Competing must draw the resolved
+    # outcome's WHOLE subtree into its slot slice (not a single time, not the
+    # other outcome's slots) and at the right branch frequency. When the
+    # composer-valued `death` outcome wins, BOTH of its subtree slots are filled
+    # and time-ordered (origin < admit < burial); when `recover` wins, its
+    # single slot is filled and the subtree slots stay missing. (#46 Task 2a
+    # lock-in: the non-terminal whole-tree path samples into the right slots.)
+    onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
+    admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    burial = Gamma(1.5, 1.0)
+    chain = Sequential((admit, burial), (:admit_death, :death_burial))
+    recover = Gamma(3.0, 2.0)
+    p_death = 0.4
+    ne = competing(:death => (chain, p_death),
+        :recover => (recover, 1 - p_death))
+    d = compose((onset = onset, resolution = ne))
+    @test CensoredDistributions._flat_event_names(d) ==
+          (:event_1, :event_2, :death, :burial, :recover)
+
+    # Count death wins inside a function so the loop counter is a clean local
+    # (a bare top-level `for` in a `@testitem` hits soft-scope on the counter).
+    function draw_and_check(rng, d, N)
+        n_death = 0
+        for _ in 1:N
+            draw = rand(rng, d)
+            if draw.death !== missing
+                n_death += 1
+                # Both subtree slots filled, recover missing, times ordered.
+                @test draw.burial !== missing
+                @test draw.recover === missing
+                @test draw.event_1 < draw.death < draw.burial
+            else
+                # Recover wins: its slot filled, the death subtree missing.
+                @test draw.recover !== missing
+                @test draw.death === missing
+                @test draw.burial === missing
+            end
+            @test isfinite(logpdf(d, draw))
+        end
+        return n_death
+    end
+
+    N = 4000
+    n_death = draw_and_check(MersenneTwister(31), d, N)
+    # The winning frequency matches the branch probability within MC error.
+    @test n_death / N ≈ p_death atol = 0.03
 end
 
 @testitem "non-terminal Competing: scalar marginal errors (#466 F3)" begin

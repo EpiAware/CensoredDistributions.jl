@@ -103,6 +103,13 @@ cfr = 0.3;
 resolution = competing(:death => (Gamma(1.5, 1.0), cfr),
     :discharge => (Gamma(2.0, 1.5), 1 - cfr));
 
+# The LAST outcome's probability may be omitted (a bare `name => delay`): it
+# then takes the residual `1 - sum(of the others)`, so the discharge
+# probability `1 - cfr` need not be written out.
+
+resolution_residual = competing(:death => (Gamma(1.5, 1.0), cfr),
+    :discharge => Gamma(2.0, 1.5));
+
 # Its marginal is the time to resolution regardless of which outcome occurs.
 
 mean(resolution)
@@ -535,7 +542,7 @@ event_names(event(spliced, :admit_death))
 # | `compose(matrix; names)` | matrix front-end | builds |
 # | `sequential(:a => d1, :b => d2)` | a [`Sequential`](@ref) chain (steps add up) | builds |
 # | `parallel(:a => d1, :b => d2)` | a [`Parallel`](@ref) branch set (shared origin) | builds |
-# | `competing(:a => (d1, p1), :b => (d2, p2))` | a [`Competing`](@ref) node (one outcome occurs) | builds |
+# | `competing(:a => (d1, p1), :b => (d2, p2))` | a [`Competing`](@ref) node (one outcome occurs); the last prob may be omitted as the residual `1 - sum(others)` | builds |
 # | `selecting(:a => d1, :b => d2)` | a [`Select`](@ref) disjunction (data picks the branch) | builds |
 # | `primary_censored(d, pe)` | primary-event censoring leaf | leaf wrap |
 # | `interval_censored(d; interval)` | interval-censoring leaf | leaf wrap |
