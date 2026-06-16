@@ -67,9 +67,28 @@ _origin_primary_event(d::Latent) = _origin_primary_event(d.dist)
 # The continuous delay core of a (possibly censored) node, for marginalisation:
 # strip every censoring layer so a marginalised run convolves only continuous
 # delays, never a discrete/windowed object. A `Convolved` node is already a
-# continuous sum and is left intact for the fold.
-_marginal_core(d::UnivariateDistribution) = get_dist_recursive(d)
+# continuous sum and is left intact for the fold — including when it is nested
+# inside a censoring wrapper (e.g. `primary_censored(Sequential(...))`, whose
+# collapsed observed total is a `Convolved`). Stripping with `get_dist_recursive`
+# alone would over-unwrap that nested `Convolved` into its component VECTOR (via
+# `get_dist(::Convolved)`), and a vector is not a distribution: the downstream
+# `rand`/`logpdf`/`_param_eltype` machinery would then draw a random COMPONENT
+# rather than the convolution sum and `params(::Vector)` would error (#363). So
+# strip one wrapper layer at a time and stop at the first `Convolved`.
+_marginal_core(d::UnivariateDistribution) = _strip_to_core(d)
 _marginal_core(d::Convolved) = d
+
+# Strip one censoring/wrapper layer at a time (`get_dist`), stopping at a
+# `Convolved` (the continuous sum is the core) or at a node `get_dist` no longer
+# unwraps. This keeps a `Convolved` nested inside a wrapper intact instead of
+# unwrapping it into its component vector the way `get_dist_recursive` would.
+function _strip_to_core(d)
+    d isa Convolved && return d
+    next = get_dist(d)
+    next === d && return d
+    next isa AbstractVector && return get_dist_recursive(d)
+    return _strip_to_core(next)
+end
 
 # The secondary interval censoring a leaf carries (its `IntervalCensored` layer),
 # recovered THROUGH the `Truncated` / `Weighted` wrappers, or `nothing` when the
