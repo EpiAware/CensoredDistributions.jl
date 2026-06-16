@@ -153,10 +153,18 @@ end
 # Instance method promotes the PARAMETER element types of both inner
 # distributions: a distribution's `eltype` is its variate type (`Float64`)
 # and would drop an AD `Dual` carried by the parameters, so a Dual-typed
-# delay or primary event lifts the reported eltype here.
+# delay or primary event lifts the reported eltype here. Falls back to the
+# variate eltype for a distribution without a `params` method, so a bare
+# test distribution stays type-stable.
 function Base.eltype(d::PrimaryCensored)
     return promote_type(
-        _param_eltype(get_dist(d)), _param_eltype(d.primary_event))
+        _safe_param_eltype(get_dist(d)), _safe_param_eltype(d.primary_event))
+end
+
+# Parameter element type, defaulting to the distribution's variate `eltype`
+# when no `params` method is defined. Never returns an abstract type.
+function _safe_param_eltype(d)
+    return applicable(params, d) ? _param_eltype(d) : eltype(d)
 end
 minimum(d::PrimaryCensored) = minimum(get_dist(d))
 maximum(d::PrimaryCensored) = maximum(get_dist(d))
