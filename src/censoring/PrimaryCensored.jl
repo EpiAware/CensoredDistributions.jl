@@ -147,7 +147,25 @@ function params(d::PrimaryCensored)
     return (d0params..., d1params...)
 end
 
-Base.eltype(::Type{<:PrimaryCensored{D}}) where {D} = promote_type(eltype(D), eltype(D))
+function Base.eltype(::Type{<:PrimaryCensored{D1, D2}}) where {D1, D2}
+    return promote_type(eltype(D1), eltype(D2))
+end
+# Instance method promotes the PARAMETER element types of both inner
+# distributions: a distribution's `eltype` is its variate type (`Float64`)
+# and would drop an AD `Dual` carried by the parameters, so a Dual-typed
+# delay or primary event lifts the reported eltype here. Falls back to the
+# variate eltype for a distribution without a `params` method, so a bare
+# test distribution stays type-stable.
+function Base.eltype(d::PrimaryCensored)
+    return promote_type(
+        _safe_param_eltype(get_dist(d)), _safe_param_eltype(d.primary_event))
+end
+
+# Parameter element type, defaulting to the distribution's variate `eltype`
+# when no `params` method is defined. Never returns an abstract type.
+function _safe_param_eltype(d)
+    return applicable(params, d) ? _param_eltype(d) : eltype(d)
+end
 minimum(d::PrimaryCensored) = minimum(get_dist(d))
 maximum(d::PrimaryCensored) = maximum(get_dist(d))
 insupport(d::PrimaryCensored, x::Real) = insupport(get_dist(d), x)
@@ -181,11 +199,12 @@ function logccdf(d::PrimaryCensored, x::Real)
     # Use log1mexp for numerical stability: log(1 - exp(logcdf))
     logcdf_val = logcdf(d, x)
 
-    # Handle edge cases
+    # Handle edge cases; keep returns the same type as `logcdf_val` so that
+    # ForwardDiff Duals are not stripped on the boundary branches.
     if logcdf_val == -Inf
-        return 0.0  # log(1) when CDF = 0
+        return zero(logcdf_val)  # log(1) when CDF = 0
     elseif logcdf_val >= 0.0
-        return -Inf  # log(0) when CDF = 1
+        return oftype(logcdf_val, -Inf)  # log(0) when CDF = 1
     end
 
     return log1mexp(logcdf_val)

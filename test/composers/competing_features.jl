@@ -368,6 +368,20 @@ end
     @test_throws ArgumentError winning_probabilities(haz)
 end
 
+@testitem "racing-hazard: var of a near-degenerate node is non-negative" begin
+    using Distributions
+
+    # Two near-degenerate racing nodes (large shape, tiny scale) concentrate
+    # the survival drop into a narrow window. The two Gauss-Legendre
+    # quadratures backing `E[T^2]` and `E[T]^2` can disagree at machine
+    # precision and leave `e2 - m^2` a tiny negative; the clamp must keep the
+    # reported variance non-negative.
+    for (a, θ) in ((500.0, 0.002), (1000.0, 0.001), (2000.0, 0.0005))
+        haz = competing(:a => Gamma(a, θ), :b => Gamma(a, θ))
+        @test var(haz) >= 0
+    end
+end
+
 @testitem "non-terminal Competing: forward stream recurses subtrees (#466 F3)" begin
     using Distributions
 

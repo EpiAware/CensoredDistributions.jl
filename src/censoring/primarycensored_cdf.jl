@@ -168,6 +168,18 @@ function primarycensored_cdf(
     primarycensored_cdf(dist, primary_event, x, NumericSolver(method.solver))
 end
 
+# Element type for the support-boundary sentinel returns, seeded from runtime
+# VALUES (the query point and the support endpoints) so a ForwardDiff `Dual`
+# carried by any of them is preserved. Values are used rather than a
+# parameter-type query so distributions without a `params` method (e.g. a
+# bare test distribution) and distributions with abstract parameters stay
+# type-stable; `float` lifts to a floating type and the result is always
+# concrete.
+function _pcens_edge_type(dist, primary_event, x)
+    return float(promote_type(typeof(x), typeof(minimum(dist)),
+        typeof(minimum(primary_event)), typeof(maximum(primary_event))))
+end
+
 @doc "
 Numerical CDF implementation for primary event censored distributions.
 
@@ -186,13 +198,17 @@ function primarycensored_cdf(
         x::Real,
         method::NumericSolver
 ) where {D1 <: UnivariateDistribution, D2 <: UnivariateDistribution}
-    # Edge cases
+    # Edge cases; seed sentinel returns from runtime VALUES (the query point
+    # and support endpoints) rather than parameter TYPES, so ForwardDiff Duals
+    # survive the support-boundary branches while staying type-stable for
+    # distributions without a `params` method or with abstract parameters.
+    T = _pcens_edge_type(dist, primary_event, x)
     if isnan(x)
-        return NaN
+        return T(NaN)
     elseif x <= minimum(dist)
-        return 0.0
+        return zero(T)
     elseif x == Inf
-        return 1.0
+        return one(T)
     end
 
     function integrand(u, x)
@@ -206,7 +222,7 @@ function primarycensored_cdf(
 
     # Check if bounds are valid
     if upper <= lower || upper - lower ≈ 0.0
-        return 0.0
+        return zero(T)
     end
 
     # When the delay CDF at the lower bound is effectively 1,
@@ -328,9 +344,12 @@ function primarycensored_cdf(
     pwindow = maximum(primary_event) - minimum(primary_event)
     pmin = minimum(primary_event)
 
+    # Seed sentinel returns from the promoted argument type so ForwardDiff
+    # Duals survive the support-boundary branches.
+    T = float(promote_type(typeof(k), typeof(θ), typeof(x)))
     d = x - pmin
     if d <= 0
-        return 0.0
+        return zero(T)
     end
 
     q = max(d - pwindow, minimum(dist))
@@ -352,8 +371,8 @@ function primarycensored_cdf(
         F_T_q = _gamma_cdf(k, θ, q)
         M_T_q = E_T * (F_T_q - yq^k * exp(-yq) * inv_gamma_kp1)
     else
-        F_T_q = 0.0
-        M_T_q = 0.0
+        F_T_q = zero(T)
+        M_T_q = zero(T)
     end
 
     return primarycensored_uniform_cdf_formula(
@@ -378,9 +397,12 @@ function primarycensored_cdf(
     pwindow = maximum(primary_event) - minimum(primary_event)
     pmin = minimum(primary_event)
 
+    # Seed sentinel returns from the promoted argument type so ForwardDiff
+    # Duals survive the support-boundary branches.
+    T = float(promote_type(typeof(μ), typeof(σ), typeof(x)))
     d = x - pmin
     if d <= 0
-        return 0.0
+        return zero(T)
     end
 
     q = max(d - pwindow, minimum(dist))
@@ -395,8 +417,8 @@ function primarycensored_cdf(
         F_T_q = cdf(dist, q)
         M_T_q = E_T * cdf(dist_shifted, q)
     else
-        F_T_q = 0.0
-        M_T_q = 0.0
+        F_T_q = zero(T)
+        M_T_q = zero(T)
     end
 
     return primarycensored_uniform_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
@@ -420,9 +442,12 @@ function primarycensored_cdf(
     pwindow = maximum(primary_event) - minimum(primary_event)
     pmin = minimum(primary_event)
 
+    # Seed sentinel returns from the promoted argument type so ForwardDiff
+    # Duals survive the support-boundary branches.
+    T = float(promote_type(typeof(k), typeof(λ), typeof(x)))
     d = x - pmin
     if d <= 0
-        return 0.0
+        return zero(T)
     end
 
     q = max(d - pwindow, minimum(dist))
@@ -435,8 +460,8 @@ function primarycensored_cdf(
         F_T_q = cdf(dist, q)
         M_T_q = λ * weibull_g_func(q)
     else
-        F_T_q = 0.0
-        M_T_q = 0.0
+        F_T_q = zero(T)
+        M_T_q = zero(T)
     end
 
     return primarycensored_uniform_cdf_formula(d, q, F_T_d, F_T_q, M_T_d, M_T_q, pwindow)
@@ -483,13 +508,17 @@ function primarycensored_logcdf(
         x::Real,
         method::AbstractSolverMethod
 ) where {D1 <: UnivariateDistribution, D2 <: UnivariateDistribution}
-    # Check support first for type stability
+    # Check support first for type stability; seed sentinel returns from
+    # runtime VALUES (the query point and support endpoints) so ForwardDiff
+    # Duals survive these branches while staying type-stable for distributions
+    # without a `params` method or with abstract parameters.
+    T = _pcens_edge_type(dist, primary_event, x)
     if isnan(x)
-        return NaN
+        return T(NaN)
     elseif x <= minimum(dist)
-        return -Inf
+        return oftype(zero(T), -Inf)
     elseif x == Inf
-        return 0.0
+        return zero(T)
     end
 
     # Compute CDF and take log directly for type stability
@@ -499,7 +528,7 @@ function primarycensored_logcdf(
     # Handle numerical precision issues where cdf_val might
     # be slightly negative
     if cdf_val <= 0
-        return -Inf
+        return oftype(cdf_val, -Inf)
     end
 
     return log(cdf_val)

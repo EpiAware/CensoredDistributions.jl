@@ -245,9 +245,14 @@ end
 
 # Helper function for weighted logpdf computation with proper validation
 function _logpdf(dist, value, weight)
-    # Handle missing or zero weights to avoid NaN from 0 * -Inf operations
+    # Handle missing or zero weights to avoid NaN from 0 * -Inf operations.
+    # Seed the sentinel from the promoted weight/distribution type so
+    # ForwardDiff Duals survive the zero-weight branch (without evaluating
+    # the underlying logpdf on the short-circuit path).
     if ismissing(weight) || weight == 0
-        return -Inf
+        wtype = ismissing(weight) ? Bool : typeof(weight)
+        T = float(promote_type(wtype, eltype(dist)))
+        return oftype(zero(T), -Inf)
     end
     return weight * logpdf(dist, value)
 end
@@ -536,9 +541,11 @@ function combine_weights(::Missing, w2)
 end
 
 function combine_weights(w1, w2)
-    # Handle zero weights to avoid NaN from 0 * Inf
-    w1 == 0 && return zero(typeof(w1))
-    w2 == 0 && return zero(typeof(w2))
+    # Handle zero weights to avoid NaN from 0 * Inf. Seed the zero from the
+    # promoted product type so all branches agree (and ForwardDiff Duals
+    # are not stripped on the zero-weight branch).
+    T = promote_type(typeof(w1), typeof(w2))
+    (w1 == 0 || w2 == 0) && return zero(T)
     return w1 * w2
 end
 
