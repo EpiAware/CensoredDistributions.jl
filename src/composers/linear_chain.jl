@@ -12,9 +12,8 @@
 # `linear_chain_stages` reads that `(rate, stages)` structure off a leaf or a
 # `Sequential` chain of such leaves. It is the small, exact extraction the
 # downstream ODE/compartment view consumes; it does NOT build the ODE itself.
-# The Catalyst reaction-network assembly (`linear_chain_reactions`,
-# `seir_reaction_network`) lives in the package extension; this lowering stays
-# Catalyst-free.
+# The Catalyst reaction-network bridge (`linear_chain_reactions`) lives in the
+# package extension; this lowering stays Catalyst-free.
 # The lowering is EXACT only for Exponential / Erlang leaves; any other family
 # (general Gamma, LogNormal, ...) throws, since no exact finite linear chain
 # represents it.
