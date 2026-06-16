@@ -103,7 +103,7 @@ Each case's natural history is one composed object anchored on its infection:
   sub-day infection timing, then daily interval censoring on the recorded onset
   date.
 - `onset -> report`: a reporting delay, also recorded to the day
-  ([`double_interval_censored`](@ref)), and made OPTIONAL with a no-event
+  ([`double_interval_censored`](@ref)), and made optional with a no-event
   [`competing`](@ref) branch — a case is reported with probability `ρ`, else no
   report time is written.
 - `onset -> {death, recover}`: a racing-hazard [`competing`](@ref); the first of
@@ -162,7 +162,7 @@ md"""
 ## The racing-hazard derived split
 
 For the racing-hazard severity node the winning probability of each cause is
-DERIVED from the hazards, not a free parameter. `winning_probabilities` returns
+derived from the hazards, not a free parameter. `winning_probabilities` returns
 the cause split, and the simulated death fraction matches it within Monte Carlo
 error.
 """
@@ -178,7 +178,7 @@ md"""
 Pushing an incidence series through the object with
 [`convolve_distributions`](@ref) gives the per-outcome expected-count streams. For
 the racing-hazard node each outcome's stream is the cause-resolved sub-density
-`f_j ∏_{k≠j} S_k`, sub-stochastic and NOT renormalised: its total mass equals the
+`f_j ∏_{k≠j} S_k`, sub-stochastic and not renormalised: its total mass equals the
 derived winning probability. The forward death-fraction agrees with the
 simulation.
 """
@@ -199,9 +199,9 @@ the derived winning probability, and the forward stream mass.
 md"""
 ## Score back: recover the racing-hazard delays with Turing
 
-With the SAME object we score the line list and recover the severity delays in a
+With the same object we score the line list and recover the severity delays in a
 small Turing model. We rebuild the natural-history object from sampled
-parameters and score the WHOLE line list in one `~` through the batch
+parameters and score the *whole* line list in one `~` through the batch
 [`composed_distribution_model`](@ref) — pass the vector of records and the
 competing node self-dispatches per record on which outcome slot is observed (and
 handles the optional report and the missing slots internally), with no manual
@@ -238,7 +238,7 @@ md"""
 ## Outcomes that continue into a further chain
 
 A competing outcome is not limited to a single leaf delay: an outcome can carry a
-WHOLE composer subtree, so winning that outcome unfolds further events. Here the
+whole composer subtree, so winning that outcome unfolds further events. Here the
 `death` outcome carries its own sub-chain `death -> burial` (the burial date is
 recorded to the day, a [`double_interval_censored`](@ref) leaf), while `recover`
 stays a single leaf. The outcome contributes its subtree's event slots, so

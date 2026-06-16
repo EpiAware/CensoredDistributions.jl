@@ -2,7 +2,7 @@
 
 [Composing censored distributions](@ref composer-toolkit) shows how to build
 records from the distributions the package ships.
-This page is the next step: writing your OWN leaf distribution so it plugs into
+This page is the next step: writing your own leaf distribution so it plugs into
 [`compose`](@ref), the composers, [`params_table`](@ref) and the Turing models,
 and checking it conforms with the public test harness.
 
@@ -11,7 +11,7 @@ A composer treats every branch as a univariate distribution, so any type
 satisfying the standard `Distributions.jl` interface composes with no extra
 hooks.
 The package-specific hooks are optional refinements: they make a censored or
-reparameterised leaf TRANSPARENT to parameter introspection.
+reparameterised leaf transparent to parameter introspection.
 
 ## The extension points
 
@@ -39,23 +39,23 @@ your distribution in wherever a delay is expected.
 
 ### The package hooks (optional)
 
-These are reached by the QUALIFIED internal name (they are not exported), and
-exist only to keep a WRAPPED leaf transparent to introspection:
+These are reached by the qualified internal name (they are not exported), and
+exist only to keep a wrapped leaf transparent to introspection:
 
-- `CensoredDistributions._param_names(d)`: the scalar parameter NAMES, matched
+- `CensoredDistributions._param_names(d)`: the scalar parameter names, matched
   positionally to `params(d)`, so [`params_table`](@ref) labels your rows (e.g.
   `:shift`, `:scale`) instead of the positional fallback `:param_1`, `:param_2`.
 - `CensoredDistributions.free_leaf(d)` / `CensoredDistributions.rewrap_leaf(d,
-  inner)`: peel a wrapper off to its inner FREE delay and rebuild it. The
+  inner)`: peel a wrapper off to its inner free delay and rebuild it. The
   censoring wrappers ([`primary_censored`](@ref), [`interval_censored`](@ref),
   truncation) define these so a censored leaf shows only its inner delay's
   parameters in [`params_table`](@ref) and round-trips through [`update`](@ref).
-  A plain leaf is the identity for both and needs neither; only a NEW wrapper
+  A plain leaf is the identity for both and needs neither; only a new wrapper
   type around another distribution implements them.
 
 The composer-internal `_child_nleaves` / `_child_logpdf` / `_child_rand!`
 methods (in `src/composers/nesting.jl`) are how the composers walk the flat
-event vector. You implement these only when writing a new COMPOSER node (a new
+event vector. You implement these only when writing a new composer node (a new
 way to combine branches), not a new leaf; a leaf reaches them through the
 existing `UnivariateDistribution` methods.
 
@@ -234,8 +234,8 @@ composer shape needs.
   package-specific hooks: implement `logpdf`, `cdf`, `rand`, `quantile`,
   support, moments and `params`.
 - The optional `_param_names` hook labels a custom leaf's [`params_table`](@ref)
-  rows; `free_leaf` / `rewrap_leaf` keep a new WRAPPER leaf transparent to
-  introspection. The `_child_*` methods are for new COMPOSER nodes, not leaves.
+  rows; `free_leaf` / `rewrap_leaf` keep a new wrapper leaf transparent to
+  introspection. The `_child_*` methods are for new composer nodes, not leaves.
 - Verify a new leaf or tree with the public
   [`test_interface`](@ref CensoredDistributions.TestUtils.test_interface) /
   [`test_rejects_invalid`](@ref CensoredDistributions.TestUtils.test_rejects_invalid)

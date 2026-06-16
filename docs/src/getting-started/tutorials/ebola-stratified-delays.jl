@@ -204,7 +204,7 @@ The truncation horizon is the cutoff day expressed as an offset from the earlies
 onset.
 Because the test date is interval censored to the day, a case tested on the
 cutoff day occupies the window `[delay, delay + 1)`, so the open window runs to
-the END of the cutoff day: the horizon carries a `+ 1` day for the daily test
+the end of the cutoff day: the horizon carries a `+ 1` day for the daily test
 interval.
 Without it a case tested exactly on the cutoff would have its censored interval
 fall entirely at the truncation bound and score zero probability.

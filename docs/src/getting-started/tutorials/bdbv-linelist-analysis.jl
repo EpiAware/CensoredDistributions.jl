@@ -230,7 +230,7 @@ md"""
 ## Step 1: simulate from the model
 
 The composed distribution is the model's generative half: the `obs` likelihood in
-`bdbv` walks it to read a record, and `rand(d)` walks the SAME object to draw a
+`bdbv` walks it to read a record, and `rand(d)` walks the same object to draw a
 full event path for a new case.
 A single draw returns the named event record (a labelled `NamedTuple`), with
 exactly one of death or discharge populated by the competing node.
@@ -597,14 +597,14 @@ parameters; see [Marginal versus latent](@ref marginal-versus-latent) for the
 concept and [Fit marginal, sample event based](@ref) for the how-to. This section
 applies that to the Isiro fit and compares the two forms on the real records.
 
-The fit above is the MARGINAL formulation: each record's unobserved admission
+The fit above is the marginal formulation: each record's unobserved admission
 time is integrated out inside `logpdf`, and the death-versus-discharge split is
 read off the [`Competing`](@ref) node through the per-record `:branch_probs`.
 This is the cheap default and is what the sections above use.
 
 The original Isiro re-analysis at
 [epiforecasts/bdbv-linelist-analysis](https://github.com/epiforecasts/bdbv-linelist-analysis)
-was written in the LATENT formulation instead: a record's intermediate admission
+was written in the latent formulation instead: a record's intermediate admission
 time enters as a per-record event rather than being integrated out, and the two
 segments (onset → admission, admission → resolution) are scored directly against
 it. When the admission time is unobserved the sampler draws it; when it is
@@ -614,11 +614,11 @@ delays; this section runs it alongside the marginal fit and compares.
 
 md"""
 The composed tree carries a [`Competing`](@ref) resolution node, and a
-`latent`-wrapped composer with a nested `Competing` CONDITIONS on the recorded
+`latent`-wrapped composer with a nested `Competing` conditions on the recorded
 outcome the same way the marginal form does: the recorded outcome is data, so the
 latent model scores the one that occurred (its branch probability times the
 observed branch's delay) rather than demanding both outcome columns at once.
-Sampling WHICH outcome occurs would be a distinct generative construction, but the
+Sampling which outcome occurs would be a distinct generative construction, but the
 data-conditioned direction is what fits. Below we show the resolution handled
 explicitly through a per-record two-edge [`latent`](@ref) chain onset → admission
 → outcome for whichever outcome occurred, scoring the case-fatality split as a
@@ -720,7 +720,7 @@ end
 md"""
 We fit the latent form to the same real records, at a modest budget. Every
 resolved record here carries its recorded admission, so the latent fit samples no
-extra admission latents and has the SAME parameter dimension as the marginal fit;
+extra admission latents and has the same parameter dimension as the marginal fit;
 the per-record latent submodels still add per-leapfrog overhead, so the latent
 fit is the slower of the two. The posterior is read back with the same
 [`update`](@ref) and per-event
@@ -822,7 +822,7 @@ mvl_fig = let
 end
 
 md"""
-Both forms recover the same delays here. The LATENT form matches the formulation
+Both forms recover the same delays here. The latent form matches the formulation
 of the original Isiro analysis and would expose any case's sampled admission time
 (here every resolved record has its admission recorded, so none is sampled and
 the parameter dimension is unchanged); the per-record submodels make its fit
@@ -871,8 +871,8 @@ md"""
   [`mean`](@ref CensoredDistributions.mean)`(latent(fit))` NamedTuple, so delay
   means and the onset-to-death convolution come straight from the fitted
   object.
-- The same delay model is fit in both the MARGINAL form (admission integrated
-  out, the cheap default) and the LATENT form (admission sampled per record,
+- The same delay model is fit in both the marginal form (admission integrated
+  out, the cheap default) and the latent form (admission sampled per record,
   matching the original Isiro analysis), routing the resolution by the observed
   outcome; a `latent`-wrapped [`Competing`](@ref) conditions on that recorded
   outcome exactly as the marginal node does. Both recover the same delays and
