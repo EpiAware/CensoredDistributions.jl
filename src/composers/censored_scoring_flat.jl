@@ -357,6 +357,13 @@ For a [`Parallel`](@ref) each branch endpoint is truncated at
 ``\text{horizon} - \text{origin}`` off the shared origin. The truncation
 contributes the ``-\log F(\text{window})`` correction, upper-only and AD-safe.
 
+For a NESTED tree (a chain/set whose step or branch is itself a composer) the
+per-record `horizon` threads down to the nested scorer (#517): each nested
+[`Competing`](@ref)/`HazardCompeting` node is right-truncated at the remaining
+window from its anchor (`horizon - anchor`), the same right-truncation the
+top-level node applies, while plain leaf/chain edges ignore the horizon. The
+nested marginal path is then density-identical to the latent-conditioned model.
+
 # Arguments
 - `d`: a censored [`Sequential`](@ref) or [`Parallel`](@ref) composer.
 - `events`: the flat event vector `[E_0, ..., E_k]` (value or `missing` each).
@@ -385,12 +392,24 @@ function event_logpdf(
         d::Sequential, events::AbstractVector{T}; horizon = nothing
 ) where {T >: Missing}
     horizon === nothing && return logpdf(d, events)
-    # A nested chain has no single observed origin/terminal total; whole-compose
-    # truncation is defined on the flat chain (the andv shape).
-    _nested_trait(d.components) isa _Flat || throw(ArgumentError(
-        "per-record horizon truncation is defined for a flat Sequential " *
-        "chain; a nested tree has no single observed total to truncate"))
+    # Dispatch on the nested/flat trait. A FLAT chain takes the whole-compose
+    # TOTAL truncation (the collapsed conv-to-last-observed denominator). A NESTED
+    # tree threads the per-record horizon down to the now horizon-capable nested
+    # scorer (#517), which right-truncates each nested `Competing`/`HazardCompeting`
+    # node at the remaining window from its anchor, exactly as the top-level
+    # `Competing` truncation does; plain leaf/chain edges ignore the horizon.
+    return _seq_event_logpdf_horizon(_nested_trait(d.components), d, events,
+        horizon)
+end
+
+function _seq_event_logpdf_horizon(::_Flat, d::Sequential, events, horizon)
     return _seq_event_logpdf_h(d, events, horizon)
+end
+
+function _seq_event_logpdf_horizon(::_Nested, d::Sequential, events, horizon)
+    return _nested_tree_logpdf(d, events,
+        _origin_primary_event(_first_origin_node(d)),
+        _tree_acc_type(d, events), horizon)
 end
 
 function event_logpdf(

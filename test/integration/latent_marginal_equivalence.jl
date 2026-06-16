@@ -295,6 +295,115 @@ end
     @test !isapprox(g, g0)
 end
 
+@testitem "marginal == latent: nested Competing via PUBLIC flat entry (#517)" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent, Sequential, Competing,
+                                 composed_distribution_model, event_logpdf,
+                                 truncate_to_horizon, _nested_tree_logpdf,
+                                 _origin_primary_event, _first_origin_node,
+                                 _tree_acc_type
+    using DynamicPPL: logjoint, @model, to_submodel
+    using ForwardDiff: gradient
+
+    # The PUBLIC marginal entry `event_logpdf(::Sequential, events; horizon)` must
+    # accept a nested-tree record carrying a per-record `horizon` and thread it down
+    # to the (now horizon-capable) nested scorer (#517). Before this fix the entry
+    # GUARDED/REJECTED a nested-tree record with a horizon (it threw an
+    # `ArgumentError`), even though the underlying `_nested_tree_logpdf` already
+    # truncates each nested Competing node at the per-record window. The chain is
+    # onset -> admit -> {death, discharge}, admit OBSERVED, so the conditioned branch
+    # is right-truncated at the remaining window `horizon - admit`, mirroring the
+    # top-level Competing node truncated at `horizon` from origin 0.
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa = edge(1.4, 0.4)
+    cfr = 0.3
+    death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
+    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    seq = Sequential(e_oa, cmp)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    admit = 4.0
+    horizon = 20.0
+    prim = _origin_primary_event(_first_origin_node(seq))
+
+    for (oc, t, dly) in ((:death, 12.0, death_d), (:discharge, 11.0, disch_d))
+        p = oc === :death ? cfr : 1 - cfr
+        slot = oc === :death ? 3 : 4
+        ev = Vector{Union{Missing, Float64}}([0.0, admit, missing, missing])
+        ev[slot] = t
+
+        # The PUBLIC flat entry now THREADS the horizon instead of throwing.
+        pub_trunc = event_logpdf(seq, ev; horizon = horizon)
+        pub_untrunc = event_logpdf(seq, ev; horizon = nothing)
+
+        # The direct nested scorer the entry threads into, and the latent form of
+        # the same record through the public model.
+        direct = _nested_tree_logpdf(seq, ev, prim, _tree_acc_type(seq, ev),
+            horizon)
+        row = oc === :death ?
+              (event_1 = 0.0, event_2 = admit, death = t, discharge = missing,
+            obs_time = horizon) :
+              (event_1 = 0.0, event_2 = admit, death = missing, discharge = t,
+            obs_time = horizon)
+        lat_trunc = only(logjoint(demo(latent(seq), row), (;)))
+
+        # The expected truncated term: the onset->admit edge, the branch weight, and
+        # the death/discharge branch RIGHT-TRUNCATED at the remaining window.
+        ref_branch = logpdf(truncate_to_horizon(dly, horizon - admit), t - admit)
+        ref_trunc = logpdf(e_oa, admit) + log(p) + ref_branch
+
+        # (a) public marginal == direct scorer == latent == closed-form reference,
+        # the project invariant (all density-identical to ~1e-10).
+        @test isapprox(pub_trunc, direct; atol = 1e-10)
+        @test isapprox(pub_trunc, lat_trunc; atol = 1e-10)
+        @test isapprox(pub_trunc, ref_trunc; atol = 1e-10)
+
+        # (b) the public truncated term MATCHES the analogous top-level Competing
+        # truncation (anchored at 0, window `horizon - admit`), scored through the
+        # model's own per-record `obs_time` route.
+        top = Competing(:death => (death_d, cfr),
+            :discharge => (disch_d, 1 - cfr))
+        tlrow = oc === :death ?
+                (death = t - admit, discharge = missing,
+            obs_time = horizon - admit) :
+                (death = missing, discharge = t - admit,
+            obs_time = horizon - admit)
+        tl = only(logjoint(demo(top, tlrow), (;)))
+        @test isapprox(tl, log(p) + ref_branch; atol = 1e-10)
+
+        # (c) horizon = nothing reproduces today's value BYTE-FOR-BYTE (it is exactly
+        # the back-compat `logpdf(seq, ev)` path, untouched by this change).
+        @test pub_untrunc === logpdf(seq, ev)
+    end
+
+    # ForwardDiff AD smoke through the PUBLIC entry over the branch params (the
+    # horizon is DATA, the params differentiate). The truncation denominator routes
+    # through the branch `logcdf`, so the outcomes are LogNormal (its `logcdf` is
+    # ForwardDiff-friendly; a Gamma `logcdf` is not, the documented existing
+    # restriction). The event vector stays Float64; the Dual rides the branch params.
+    ev = Vector{Union{Missing, Float64}}([0.0, admit, 12.0, missing])
+    function nll(theta)
+        mu_d, mu_s = theta
+        cc = Competing(:death => (LogNormal(mu_d, 0.4), cfr),
+            :discharge => (LogNormal(mu_s, 0.5), 1 - cfr))
+        s = Sequential(e_oa, cc)
+        return -event_logpdf(s, ev; horizon = horizon)
+    end
+    g = gradient(nll, [1.5, 1.2])
+    @test all(isfinite, g)
+    # The truncation MOVES the gradient (the horizon enters the denominator).
+    g0 = gradient(
+        theta -> -event_logpdf(
+            Sequential(e_oa,
+                Competing(:death => (LogNormal(theta[1], 0.4), cfr),
+                    :discharge => (LogNormal(theta[2], 0.5), 1 - cfr))),
+            ev; horizon = nothing), [1.5, 1.2])
+    @test !isapprox(g, g0)
+end
+
 @testitem "latent Competing: sampled anchor integrates to bare mixture term (#363)" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, Competing,
