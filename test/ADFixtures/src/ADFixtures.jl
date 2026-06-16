@@ -79,6 +79,21 @@ function _vectorised_select_logpdf(d, rows)
     return total
 end
 
+# Horizon-aware whole-compose truncation log density (#366): score each record's
+# event vector at its own per-record horizon and sum. With an OBSERVED-intermediate
+# record and an endpoint-observed record this exercises BOTH the factorised
+# observed-intermediate numerator AND the conv-to-last-observed right-truncation
+# denominator (a single `-logcdf(conv-to-last-observed, window)`), so the gradient
+# flows through the denominator's convolution-CDF on the differentiated param type.
+function _whole_compose_truncation_logpdf(seq, evs, horizons)
+    total = CensoredDistributions.event_logpdf(seq, evs[1]; horizon = horizons[1])
+    for i in 2:length(evs)
+        total += CensoredDistributions.event_logpdf(
+            seq, evs[i]; horizon = horizons[i])
+    end
+    return total
+end
+
 # `contexts` is a tuple of `Constant`-wrapped data (the observations),
 # passed positionally to DI's `gradient` and to the differentiated
 # function. See `scenarios` for why data travels as a context rather
@@ -198,6 +213,14 @@ function backend_broken_scenarios()
     # gap as nested_comp/nested_hazard, not reachable from a value-level rule.
     # Registered broken for Enzyme REVERSE only.
     dic_seq_total = "double_interval_censored(Sequential) over total"
+    # The whole-compose conv-to-last-observed right-truncation denominator (#366):
+    # its single `-logcdf(conv-to-last-observed, window)` builds a freshly
+    # allocated `Convolved` observed total whose reverse shadow Enzyme cannot
+    # construct (`EnzymeNoShadowError`), the same reverse-only struct-shadow gap as
+    # `dic_seq_total`. Enzyme FORWARD differentiates it (verified), and so do
+    # ReverseDiff and Mooncake reverse/forward; registered broken for Enzyme
+    # REVERSE only.
+    whole_compose_trunc = "Whole-compose conv-to-last-observed truncation logpdf"
     # The non-terminal whole-tree Competing (#466 Feature 3) scores a
     # composer-VALUED competing outcome's subtree through the nested `_tree_score`,
     # AND carries a differentiated branch probability `θ[7]` whose complement
@@ -242,7 +265,8 @@ function backend_broken_scenarios()
         # plain nested tree is fixed (#319/#444).
         "Enzyme reverse" => union(
             Set{String}(
-                [nested_comp, nested_hazard, nonterminal_comp, dic_seq_total]),
+                [nested_comp, nested_hazard, nonterminal_comp, dic_seq_total,
+                whole_compose_trunc]),
             compiled_broken),
         # Enzyme FORWARD: only the non-terminal Competing remains broken; the
         # plain nested tree, the Competing/hazard trees, and
@@ -930,6 +954,35 @@ function scenarios(; with_reference::Bool = false)
                     primary_censored(Gamma(θ[3], θ[4]), Uniform(0.0, 1.0))),
                 rows),
             [1.2, 0.5, 2.0, 1.0], (Constant(batch_rows),))
+
+        # Whole-compose conv-to-last-observed right-truncation denominator
+        # (#366). One observed-intermediate record and one endpoint-observed
+        # record (missing intermediate), each right-truncated at its OWN
+        # per-record horizon. The observed-intermediate record scores a
+        # factorised numerator; both records share a single
+        # `-logcdf(conv-to-last-observed, window)` denominator that convolves
+        # the leaf cores and evaluates a CDF at the (constant) window on the
+        # differentiated param type. The matching `whole_compose_truncation_ad.jl`
+        # was ForwardDiff-only; this DIT scenario gives the reverse backends a
+        # matching scenario (verified to match the ForwardDiff reference on
+        # ReverseDiff and Mooncake reverse/forward). LogNormal delays keep the
+        # truncation `logcdf` off the Gamma shape-derivative path, matching the
+        # established AD-safe right-truncation fixtures. The per-record horizons
+        # are constants baked into the closure; the `Missing`-bearing event
+        # vectors travel as an inactive Constant context.
+        wct_evs = [Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0]),
+            Vector{Union{Missing, Float64}}([0.5, missing, 7.0])]
+        _push!("Whole-compose conv-to-last-observed truncation logpdf",
+            (θ,
+                evs) -> _whole_compose_truncation_logpdf(
+                Sequential(
+                    (primary_censored(
+                            LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                        primary_censored(
+                            LogNormal(θ[3], θ[4]), Uniform(0.0, 1.0))),
+                    (:onset_mid, :mid_obs)),
+                evs, (8.0, 9.0)),
+            [1.0, 0.5, 0.5, 0.4], (Constant(wct_evs),))
 
         # The Parallel shared-origin censored path is not an AD fixture: its
         # marginal routes through the 1-D origin quadrature and its conditional
