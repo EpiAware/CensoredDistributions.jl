@@ -66,7 +66,8 @@ export convolve_distributions
 # the racing-hazard `HazardCompeting` (bare delays). `NoEvent` marks an absorbing
 # no-event branch; `winning_probabilities` / `occurrence_probability` read the
 # per-cause winning / any-event probabilities of either competing node.
-export Sequential, Parallel, Competing, HazardCompeting, NoEvent, competing,
+export Sequential, Parallel, Competing, HazardCompeting, NoEvent,
+       sequential, parallel, competing,
        compose, as_mixture, winning_probabilities, occurrence_probability
 
 # Exported composed-distribution introspection: the flat prior table and
@@ -77,10 +78,13 @@ export Sequential, Parallel, Competing, HazardCompeting, NoEvent, competing,
 export params_table, event_names, event_tree, event, update, build_priors,
        default_prior
 
-# Exported structural interventions on a composed tree: replace a named node,
-# swap a child, cut a branch (renormalising a Competing arm), splice a
-# before/after step. Node-to-node edits reusing the `update` reconstruction.
-export intervene, swap_child, cut_branch, splice
+# Exported structural edits on a composed tree. `update` (the `path => new_node`
+# method, sharing the verb with the value-update NamedTuple method) replaces a
+# named node, KEEPING the tree shape. `prune` drops a branch (renormalising a
+# Competing arm) and `splice` inserts a before/after step; these two are the
+# TOPOLOGY edits (they change the shape). `intervene` / `swap_child` /
+# `cut_branch` are deprecated aliases kept during the deprecation window.
+export prune, splice, intervene, swap_child, cut_branch
 
 # Per-event moments come through the standard `Distributions.mean`/`var`/`std`
 # interface on the composed tree (a Multivariate distribution), returning a
@@ -189,9 +193,9 @@ include("composers/reaction_compartments.jl")
 # Affine transform leaf: after introspection so it can extend
 # `free_leaf`/`rewrap_leaf` for transparent inner-delay introspection.
 include("distributions/Affine.jl")
-# Structural interventions on a composed tree (node replace / cut / splice):
-# after introspection so it reuses `_rebuild`, `component_names` and the
-# composer constructors.
+# Structural edits on a composed tree (`update` node replace / `prune` /
+# `splice`): after introspection so it reuses `_rebuild`, `component_names`,
+# `_split_edge` and the `update` value method.
 include("composers/intervene.jl")
 # Shared (name-tagged tied leaf): after introspection so it can extend
 # `free_leaf`/`rewrap_leaf`, and before tree_events/wrap which traverse leaves.

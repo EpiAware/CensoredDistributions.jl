@@ -195,8 +195,8 @@ end
 
     d1, d2 = Gamma(1.5, 1.0), Gamma(2.0, 1.5)
 
-    # Direct struct construction (the form used by equality round-trips,
-    # update and intervene) validates the structural invariants: bounds, the
+    # Direct struct construction (the form used by equality round-trips and the
+    # `update` value/node edits) validates the structural invariants: bounds, the
     # outcome count, and equal-length tuples.
     @test_throws ArgumentError CensoredDistributions.Competing(
         (:a, :b), (d1, d2), (-0.1, 1.1))           # negative branch prob

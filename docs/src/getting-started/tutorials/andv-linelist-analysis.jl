@@ -189,9 +189,9 @@ double_day(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
 function delay_select(; inc = LogNormal(3.0, 0.3), delta = Normal(0.0, 1.0))
     index = compose((infection_onset = shared(:inc,
         primary_censored(inc, Uniform(0, inc_window))),))
-    sourced = Sequential(
-        (double_day(delta), shared(:inc, double_day(inc))),
-        (:srconset_infection, :infection_onset))
+    sourced = sequential(
+        :srconset_infection => double_day(delta),
+        :infection_onset => shared(:inc, double_day(inc)))
     return selecting(:index => index, :sourced => sourced)
 end
 

@@ -93,6 +93,47 @@ rand(d)
 Parallel(c1, cs...) = Parallel((c1, cs...))
 Parallel(components::AbstractVector) = Parallel(Tuple(components))
 
+@doc "
+
+Compose univariate distributions into [`Parallel`](@ref) branches.
+
+Lowercase verb mirroring [`sequential`](@ref) / [`competing`](@ref): the public
+constructor for a [`Parallel`](@ref) branch set. Pass branch distributions
+positionally (default names `:branch_1, :branch_2, ...`) or `name => dist` pairs
+to name the branches; a branch may itself be a [`Sequential`](@ref),
+[`Competing`](@ref) or nested set. Prefer this verb over the bare struct
+constructor.
+
+# Arguments
+- `branches`: the branch distributions, either as positional distributions or as
+  `name => dist` pairs naming each branch.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+d = parallel(:admit => Gamma(2.0, 1.0), :notif => LogNormal(1.0, 0.5))
+event_names(d)
+```
+
+# See also
+- [`Parallel`](@ref): the composer type
+- [`sequential`](@ref), [`competing`](@ref): the sibling constructors
+- [`compose`](@ref): the NamedTuple/table/matrix front-end
+"
+function parallel(branches::Pair...)
+    length(branches) >= 1 ||
+        throw(ArgumentError("parallel needs at least one branch"))
+    names = Tuple(b.first for b in branches)
+    all(n -> n isa Symbol, names) ||
+        throw(ArgumentError("each parallel branch name must be a Symbol"))
+    dists = Tuple(b.second for b in branches)
+    return Parallel(dists, names)
+end
+
+parallel(b1, bs...) = Parallel((b1, bs...))
+parallel(branches::AbstractVector) = Parallel(Tuple(branches))
+
 # Total number of leaf values in a realisation (sum over nested children).
 Base.length(d::Parallel) = _nleaves(d.components)
 

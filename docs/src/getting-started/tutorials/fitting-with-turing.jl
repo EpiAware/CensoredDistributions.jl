@@ -91,7 +91,7 @@ same composed object scores records and simulates them, so a model is built once
 and used in both directions.
 """
 
-delay_template(leaf) = Sequential((leaf,), (:onset_report,))
+delay_template(leaf) = sequential(:onset_report => leaf)
 
 md"""
 The full model layers primary censoring (a one-day primary-event window),

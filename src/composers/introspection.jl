@@ -498,6 +498,8 @@ event(tree2, :onset_admit)
 # See also
 - [`params_table`](@ref): the flat inventory whose `param` names key the leaves
 - [`chain_to_params`](@ref): build the NamedTuple from a fitted chain
+- [`update`](@ref)`(d, path => new_node)`: replace whole nodes (same shape)
+- [`prune`](@ref), [`splice`](@ref): topology edits that change the shape
 "
 function update(d::Union{Sequential, Parallel, AbstractCompeting, Select},
         params::NamedTuple)
