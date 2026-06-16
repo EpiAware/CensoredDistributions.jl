@@ -20,11 +20,15 @@ Public interface-conformance harness for composers and leaves.
 `TestUtils.test_interface(d)` runs one interface checklist over a composed
 distribution (or bare leaf), so a downstream author writing a new leaf or
 composer can drop it into their own `@testset` to verify conformance against the
-package's public interface. [`test_interface`](@ref), `example_fixtures`,
-and [`test_rejects_invalid`](@ref) are exported from this submodule.
+package's public interface. `test_node_interface(node)` is the companion check
+for a new composer node, asserting its `child_nleaves` / `child_logpdf` /
+`child_rand!` methods round-trip on a flat event vector. [`test_interface`](@ref),
+`example_fixtures`, [`test_rejects_invalid`](@ref) and
+[`test_node_interface`](@ref) are exported from this submodule.
 """
 module TestUtils
 
+using Random: Random, AbstractRNG, Xoshiro
 using Test: Test, @testset, @test, @test_nowarn, @test_throws
 using Distributions: Distributions, mean, var, std, logpdf, cdf, params,
                      UnivariateDistribution
@@ -35,9 +39,11 @@ using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
                                Select, Latent, compose, latent,
                                double_interval_censored, primary_censored,
                                event, event_names, event_tree, params_table,
-                               observed_distribution, endpoint
+                               observed_distribution, endpoint,
+                               child_nleaves, child_logpdf, child_rand!
 
-export test_interface, example_fixtures, test_rejects_invalid
+export test_interface, example_fixtures, test_rejects_invalid,
+       test_node_interface
 
 # --- per-fixture descriptor -------------------------------------------------
 #
@@ -561,6 +567,74 @@ the `@testset` object.
             :only => G(2.0, 1.0))
         @test_throws ArgumentError CensoredDistributions.selecting(
             :a => G(2.0, 1.0), :a => G(1.0, 1.0))
+    end
+end
+
+# --- composer-node contract -------------------------------------------------
+
+@doc """
+
+Assert a composer node satisfies the public node-extension contract.
+
+`test_node_interface(node)` checks the three methods a new composer node
+implements (`child_nleaves`, `child_logpdf`, `child_rand!`, see
+[Extending the composer toolkit](@ref extending-composer)) round-trip on a flat
+event vector, the same way the composers walk one. It asserts that
+
+- `child_nleaves(node)` is a positive `Int`;
+- `child_rand!` fills exactly the node's `offset + 1 : offset + n` slot, leaving
+  any padding either side untouched (so a node placed in a wider vector writes
+  only its own slice);
+- `child_logpdf(node, x, offset, n)` is a finite scalar on that drawn vector and
+  does not depend on the surrounding padding (placing the node at a different
+  `offset` in a wider vector scores the same).
+
+Pass `offset` and `pad` to place the node inside a wider vector (the default
+`offset = 1`, `pad = 1` brackets the slot on both sides), and `rng` for a
+reproducible draw. Returns the `@testset` object.
+
+# Examples
+```julia
+using CensoredDistributions, Distributions
+using CensoredDistributions.TestUtils: test_node_interface
+
+node = compose((onset_admit = Gamma(2.0, 1.0), admit_death = LogNormal(0.5, 0.4)))
+test_node_interface(node)
+```
+""" function test_node_interface end
+
+function test_node_interface(node; name::AbstractString =
+        string(nameof(typeof(node))),
+        offset::Int = 1, pad::Int = 1,
+        rng::AbstractRNG = Xoshiro(1))
+    return @testset "node interface: $name" begin
+        # child_nleaves: a positive flat-slot count.
+        n = child_nleaves(node)
+        @test n isa Int
+        @test n >= 1
+
+        # child_rand!: fills exactly the node's slot in a wider vector. A NaN
+        # sentinel marks the untouched cells; only the node's slice should be
+        # overwritten with finite draws.
+        len = offset + n + pad
+        out = fill(NaN, len)
+        ret = child_rand!(out, offset, rng, node)
+        @test ret === nothing
+        slot = (offset + 1):(offset + n)
+        @test all(isfinite, @view out[slot])
+        # The padding either side is left untouched.
+        @test all(isnan, @view out[1:offset])
+        @test all(isnan, @view out[(offset + n + 1):len])
+
+        # child_logpdf: a finite scalar over the drawn slot.
+        lp = child_logpdf(node, out, offset, n)
+        @test lp isa Real
+        @test isfinite(lp)
+
+        # Position-independence: scoring the same draw at offset 0 in a tight
+        # vector gives the same value (the node reads only its own slice).
+        tight = out[slot]
+        @test child_logpdf(node, tight, 0, n) ≈ lp
     end
 end
 

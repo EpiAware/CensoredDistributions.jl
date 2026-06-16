@@ -53,11 +53,14 @@ exist only to keep a wrapped leaf transparent to introspection:
   A plain leaf is the identity for both and needs neither; only a new wrapper
   type around another distribution implements them.
 
-The composer-internal `_child_nleaves` / `_child_logpdf` / `_child_rand!`
-methods (in `src/composers/nesting.jl`) are how the composers walk the flat
-event vector. You implement these only when writing a new composer node (a new
-way to combine branches), not a new leaf; a leaf reaches them through the
-existing `UnivariateDistribution` methods.
+- `CensoredDistributions.child_nleaves(node)` /
+  `CensoredDistributions.child_logpdf(node, x, offset, n)` /
+  `CensoredDistributions.child_rand!(out, offset, rng, node)`: the contract for a
+  new composer node, a new way to combine branches rather than a new leaf.
+  They are how the composers walk the flat event vector, and you implement them
+  only when writing a node; a leaf reaches them through the existing
+  `UnivariateDistribution` methods.
+  [Writing a new composer node](@ref new-composer-node) below works through them.
 
 ## A worked custom leaf
 
@@ -145,6 +148,118 @@ from its support, the same as for a built-in leaf.
 build_priors(params_table(tree))
 ```
 
+## [Writing a new composer node](@id new-composer-node)
+
+A custom leaf is one delay.
+A custom node is a new way to combine branches, alongside the built-in
+[`Sequential`](@ref), [`Parallel`](@ref), [`Competing`](@ref) and
+[`selecting`](@ref).
+Where a leaf takes part through the `Distributions.jl` methods, a node plugs in
+through three public methods.
+
+A realisation of any composer is one flat vector of leaf values laid out
+depth-first, and a nested child contributes its own contiguous sub-vector, so
+combining branches is concatenation.
+A node walks that flat vector by an offset into it.
+The three methods are the whole contract.
+
+- `CensoredDistributions.child_nleaves(node)`: how many flat slots the node
+  occupies (one per leaf below it).
+- `CensoredDistributions.child_logpdf(node, x, offset, n)`: the node's
+  contribution to the joint log density, reading its `n`-wide slice
+  `x[offset + 1 : offset + n]`.
+- `CensoredDistributions.child_rand!(out, offset, rng, node)`: draw the node in
+  place into that same slice.
+
+They are reached by the qualified name, the same way the leaf hooks `free_leaf` /
+`rewrap_leaf` are.
+A node delegates to its children by the same methods, passing each child its own
+offset, so a node nests inside any other node without extra work.
+
+We write a minimal `Both` node: two independent branches scored side by side,
+the essence of how [`Parallel`](@ref) lays out a flat vector.
+
+```@example extending
+import CensoredDistributions: child_nleaves, child_logpdf, child_rand!
+
+struct Both{A, B}
+    first::A
+    second::B
+end
+```
+
+The node's width is the sum of its children's widths, found through the same
+`child_nleaves` the composers use, so a child that is itself a node counts its
+whole subtree.
+
+```@example extending
+child_nleaves(b::Both) = child_nleaves(b.first) + child_nleaves(b.second)
+```
+
+Scoring walks the flat vector left to right.
+The first child reads the slice at `offset`; the second starts where the first
+ends, at `offset + n1`.
+Both children are scored by `child_logpdf`, so a leaf reads one scalar and a
+nested node recurses.
+
+```@example extending
+function child_logpdf(b::Both, x, offset, ::Int)
+    n1 = child_nleaves(b.first)
+    n2 = child_nleaves(b.second)
+    return child_logpdf(b.first, x, offset, n1) +
+           child_logpdf(b.second, x, offset + n1, n2)
+end
+```
+
+Drawing fills the same two slices in place.
+
+```@example extending
+function child_rand!(out, offset, rng::AbstractRNG, b::Both)
+    n1 = child_nleaves(b.first)
+    child_rand!(out, offset, rng, b.first)
+    child_rand!(out, offset + n1, rng, b.second)
+    return nothing
+end
+```
+
+The node now combines any two branches, leaves or nested nodes.
+
+```@example extending
+node = Both(ShiftedExponential(1.0, 2.0), Gamma(2.0, 1.0))
+
+out = fill(0.0, child_nleaves(node))
+child_rand!(out, 0, Xoshiro(3), node)
+(draw = out, logpdf = child_logpdf(node, out, 0, length(out)))
+```
+
+### Verifying the node
+
+[`test_node_interface`](@ref CensoredDistributions.TestUtils.test_node_interface)
+is the node companion to the leaf `test_interface`.
+It asserts the three methods round-trip on a flat event vector: `child_nleaves`
+is a positive count, `child_rand!` fills exactly the node's slot and leaves the
+surrounding vector untouched, and `child_logpdf` is finite and reads only that
+slot.
+
+```@example extending
+using CensoredDistributions.TestUtils: test_node_interface
+
+test_node_interface(node; name = "Both")
+nothing # hide
+```
+
+Because the methods are plain arithmetic over a vector, the node differentiates
+on the same backends a leaf does.
+
+```@example extending
+using ForwardDiff
+
+ForwardDiff.gradient([1.0, 2.0, 2.0]) do p
+    n = Both(ShiftedExponential(p[1], p[2]), Gamma(p[3], 1.0))
+    child_logpdf(n, out, 0, length(out))
+end
+```
+
 ## Editing a composed tree
 
 A composed tree is immutable, so an edit returns a fresh tree rather than
@@ -228,12 +343,18 @@ nothing # hide
 [`test_rejects_invalid`](@ref CensoredDistributions.TestUtils.test_rejects_invalid)
 is the companion check that the standard
 composers reject malformed construction (too few branches, out-of-range
-probabilities, duplicate names); run it if you add a new composer node.
+probabilities, duplicate names).
 
 ```@example extending
 test_rejects_invalid()
 nothing # hide
 ```
+
+A new composer node has its own positive conformance check,
+[`test_node_interface`](@ref CensoredDistributions.TestUtils.test_node_interface),
+shown above in [Writing a new composer node](@ref new-composer-node): it asserts
+the node's `child_nleaves` / `child_logpdf` / `child_rand!` methods round-trip on
+a flat event vector, the way the composers walk one.
 
 See [`CensoredDistributions.TestUtils.example_fixtures`](@ref) for the package's
 own fixture set, which doubles as a set of worked examples of the metadata each
@@ -246,11 +367,16 @@ composer shape needs.
   support, moments and `params`.
 - The optional `_param_names` hook labels a custom leaf's [`params_table`](@ref)
   rows; `free_leaf` / `rewrap_leaf` keep a new wrapper leaf transparent to
-  introspection. The `_child_*` methods are for new composer nodes, not leaves.
+  introspection.
+- A new composer node implements the public `child_nleaves` / `child_logpdf` /
+  `child_rand!` contract to combine branches into the flat event vector, the same
+  way the built-in composers do.
 - Verify a new leaf or tree with the public
   [`test_interface`](@ref CensoredDistributions.TestUtils.test_interface) /
   [`test_rejects_invalid`](@ref CensoredDistributions.TestUtils.test_rejects_invalid)
-  harness, the same checks the package runs on its own fixtures.
+  harness, and a new node with
+  [`test_node_interface`](@ref CensoredDistributions.TestUtils.test_node_interface),
+  the same checks the package runs on its own fixtures.
 
 ## Conformance harness reference
 
@@ -261,5 +387,6 @@ submodule.
 CensoredDistributions.TestUtils
 CensoredDistributions.TestUtils.test_interface
 CensoredDistributions.TestUtils.test_rejects_invalid
+CensoredDistributions.TestUtils.test_node_interface
 CensoredDistributions.TestUtils.example_fixtures
 ```

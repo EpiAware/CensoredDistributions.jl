@@ -61,17 +61,47 @@ function _coerce_names(names, ::Symbol, n::Int)
     return Tuple(Symbol(x) for x in names)
 end
 
-# Number of flat leaf values a child contributes: one for a univariate leaf,
-# its own leaf count for a nested composer.
-_child_nleaves(::UnivariateDistribution) = 1
-_child_nleaves(c::Union{Sequential, Parallel}) = length(c)
+# --- the public composer-node extension contract ---------------------------
+#
+# A composer node combines branches into ONE flat event vector. The three
+# methods below are the contract a new node implements; they are public (see
+# `public.jl`) and documented in `docs/src/developer/extending.md`. They are
+# reached by the qualified name (`CensoredDistributions.child_nleaves` etc.), as
+# the leaf hooks `free_leaf` / `rewrap_leaf` are. The underscored aliases
+# (`_child_nleaves` / `_child_logpdf` / `_child_rand!`) defined alongside each
+# are retained for the package's existing internal callers, so dropping the
+# underscore is source-compatible.
+#
+#   - `child_nleaves(node)`: how many flat slots the node occupies.
+#   - `child_logpdf(node, x, offset, n)`: the node's contribution to the joint
+#     log density, scoring the `n`-wide slice `x[offset + 1 : offset + n]`.
+#   - `child_rand!(out, offset, rng, node)`: draw the node into the same slice.
+#
+# A node walks the flat vector by the SAME offset arithmetic the composer uses:
+# `child_nleaves` gives the slice width, `child_logpdf` / `child_rand!` read and
+# write `x[offset + 1 : offset + n]`. Composing two nodes is concatenation, so a
+# nested node recurses by passing the same `(x, offset, n)` inward.
+
+"""
+    child_nleaves(node)
+
+Number of flat event-vector slots a composer node occupies (one per leaf below
+it). Part of the public composer-node extension contract, alongside
+[`child_logpdf`](@ref) and [`child_rand!`](@ref); see
+[Writing a new composer node](@ref new-composer-node). A univariate leaf occupies
+one slot; a nested node occupies the sum of its children's widths.
+"""
+function child_nleaves end
+
+child_nleaves(::UnivariateDistribution) = 1
+child_nleaves(c::Union{Sequential, Parallel}) = length(c)
 # A nested `Select` swaps in ONE alternative of fixed width, so it occupies a
 # fixed flat slot only when every alternative has the same leaf count. The
 # common width is the nested Select's leaf count; disagreeing widths cannot
 # share one flat slot and error (a `length(::Select)` has no single answer).
-function _child_nleaves(c::Select)
-    n = _child_nleaves(_flat_select_alternative(c))
-    widths = map(_child_nleaves, c.alternatives)
+function child_nleaves(c::Select)
+    n = child_nleaves(_flat_select_alternative(c))
+    widths = map(child_nleaves, c.alternatives)
     all(==(n), widths) || throw(ArgumentError(
         "a nested Select needs every alternative to have the same leaf count " *
         "to occupy a fixed flat slot; got $(widths)"))
@@ -80,7 +110,11 @@ end
 # A latent alternative scores `[primary, observed]` (two slots); the flat
 # value-vector layout collapses it to its marginal leaf count, since a nested
 # Select's flat slot carries observed values, not the latent primary.
-_child_nleaves(c::Latent) = _child_nleaves(c.dist)
+child_nleaves(c::Latent) = child_nleaves(c.dist)
+
+# Backward-compatible internal alias: the package's existing callers reach the
+# node contract by the underscored name.
+const _child_nleaves = child_nleaves
 
 # Total leaf count over a tuple of children. A HEAD/TAIL recursion, NOT
 # `sum(_child_nleaves, components)`: `sum(f, ::Tuple)` over a heterogeneous tuple
@@ -170,30 +204,46 @@ function _composite_logpdf(components::Tuple, x::AbstractVector)
     total = zero(eltype(x))
     offset = 0
     @inbounds for c in components
-        n = _child_nleaves(c)
-        total += _child_logpdf(c, x, offset, n)
+        n = child_nleaves(c)
+        total += child_logpdf(c, x, offset, n)
         offset += n
     end
     return total
 end
 
-_child_logpdf(c::UnivariateDistribution, x, offset, ::Int) = logpdf(c, x[offset + 1])
+"""
+    child_logpdf(node, x, offset, n)
+
+A composer node's contribution to the joint log density, scoring its `n`-wide
+slice `x[offset + 1 : offset + n]` of the flat event vector. Part of the public
+composer-node extension contract, alongside [`child_nleaves`](@ref) and
+[`child_rand!`](@ref); see
+[Writing a new composer node](@ref new-composer-node). A univariate leaf scores
+the one scalar at its slot; a nested node recurses into its children, passing
+each its own offset.
+"""
+function child_logpdf end
+
+child_logpdf(c::UnivariateDistribution, x, offset, ::Int) = logpdf(c, x[offset + 1])
 # A nested child scores its own contiguous slice of the value vector; a `@view`
 # avoids a copy and differentiates on every supported backend.
-function _child_logpdf(c::Union{Sequential, Parallel}, x, offset, n::Int)
+function child_logpdf(c::Union{Sequential, Parallel}, x, offset, n::Int)
     logpdf(c, @view x[(offset + 1):(offset + n)])
 end
 # A nested `Select` in the data-free flat value-vector path commits to its FIRST
 # alternative (a deterministic default so flat `logpdf`/`rand` round-trip); the
 # selector-driven choice lives in the row/record path, not the flat path.
-function _child_logpdf(c::Select, x, offset, n::Int)
-    return _child_logpdf(_flat_select_alternative(c), x, offset, n)
+function child_logpdf(c::Select, x, offset, n::Int)
+    return child_logpdf(_flat_select_alternative(c), x, offset, n)
 end
 # A latent alternative on the flat path scores through its marginal node (the
 # flat slot carries observed values; the latent primary is integrated out).
-function _child_logpdf(c::Latent, x, offset, n::Int)
-    return _child_logpdf(c.dist, x, offset, n)
+function child_logpdf(c::Latent, x, offset, n::Int)
+    return child_logpdf(c.dist, x, offset, n)
 end
+
+# Backward-compatible internal alias (see `child_nleaves`).
+const _child_logpdf = child_logpdf
 
 # The alternative a nested Select commits to on the data-free path: the FIRST.
 # The row/record path overrides this by the row's selector value (`_pick` /
@@ -211,18 +261,30 @@ function _composite_rand(rng::AbstractRNG, components::Tuple, ::Type{T}) where {
     out = Vector{T}(undef, _nleaves(components))
     offset = 0
     @inbounds for c in components
-        n = _child_nleaves(c)
-        _child_rand!(out, offset, rng, c)
+        n = child_nleaves(c)
+        child_rand!(out, offset, rng, c)
         offset += n
     end
     return out
 end
 
-function _child_rand!(out, offset, rng::AbstractRNG, c::UnivariateDistribution)
+"""
+    child_rand!(out, offset, rng, node)
+
+Draw a composer node in place into its slice `out[offset + 1 : offset + n]` of the
+flat output vector, where `n` is [`child_nleaves`](@ref)`(node)`. Returns
+`nothing`. Part of the public composer-node extension contract, alongside
+[`child_nleaves`](@ref) and [`child_logpdf`](@ref); see
+[Writing a new composer node](@ref new-composer-node). A univariate leaf writes
+its one slot; a nested node fills its slice by recursing into its children.
+"""
+function child_rand! end
+
+function child_rand!(out, offset, rng::AbstractRNG, c::UnivariateDistribution)
     out[offset + 1] = rand(rng, c)
     return nothing
 end
-function _child_rand!(
+function child_rand!(
         out, offset, rng::AbstractRNG, c::Union{Sequential, Parallel})
     # Use the INTERNAL vector-valued realisation (`_composer_rand`), not the
     # public `rand`: the public `rand` labels a top-level multivariate draw as a
@@ -235,15 +297,18 @@ function _child_rand!(
     return nothing
 end
 # A nested `Select` samples its FIRST alternative on the flat path, matching the
-# committed alternative the flat `_child_logpdf` scores.
-function _child_rand!(out, offset, rng::AbstractRNG, c::Select)
-    return _child_rand!(out, offset, rng, _flat_select_alternative(c))
+# committed alternative the flat `child_logpdf` scores.
+function child_rand!(out, offset, rng::AbstractRNG, c::Select)
+    return child_rand!(out, offset, rng, _flat_select_alternative(c))
 end
 # A latent alternative samples its observed value through its marginal node on
 # the flat path (the latent primary is not part of the flat slot).
-function _child_rand!(out, offset, rng::AbstractRNG, c::Latent)
-    return _child_rand!(out, offset, rng, c.dist)
+function child_rand!(out, offset, rng::AbstractRNG, c::Latent)
+    return child_rand!(out, offset, rng, c.dist)
 end
+
+# Backward-compatible internal alias (see `child_nleaves`).
+const _child_rand! = child_rand!
 
 # The recursive indented-tree printing and the `params`/`params_table` traversal
 # share the hand-rolled, type-stable helpers defined in `introspection.jl`
