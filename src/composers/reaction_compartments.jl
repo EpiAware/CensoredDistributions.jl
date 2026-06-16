@@ -24,8 +24,9 @@ to its [`linear_chain_stages`](@ref) Erlang sub-compartments and builds the
 individual from the `from` species, through one sub-compartment per Erlang
 stage, to the `to` species. This is the modular primitive: it *slots a composed
 delay distribution onto a single transition* of a reaction network, so a delay
-written with the composers becomes an exact set of compartments on an edge of an
-SEIR/SIR-type model.
+written with the composers becomes an exact set of compartments on an edge of a
+compartmental model. Assembling whole models (e.g. an SEIR or SIR) from these
+edges is application territory; the linear-chain tutorial works one through.
 
 The per-stage exit rate is `1/\theta` and the stage count is the Erlang shape
 `k`, so the sub-compartment chain has dwell-time distribution equal to the
@@ -66,7 +67,6 @@ length(chain.species)
 
 # See also
 - [`linear_chain_stages`](@ref): the Catalyst-free `(rate, stages)` lowering
-- [`seir_reaction_network`](@ref): an SEIR built from two composed delays
 "
 function linear_chain_reactions end
 
@@ -76,61 +76,5 @@ function linear_chain_reactions end
 # `MethodError`.
 function linear_chain_reactions(args...; kwargs...)
     throw(ArgumentError("`linear_chain_reactions` needs Catalyst.jl; run " *
-                        "`using Catalyst` to load the reaction-network extension."))
-end
-
-@doc raw"
-Build an SEIR Catalyst reaction network from two composed delays.
-
-`seir_reaction_network(latent, infectious)` assembles a complete
-[Catalyst](https://docs.sciml.ai/Catalyst/stable/) `ReactionSystem` for an
-SEIR-type model whose latent (E) and infectious (I) periods are the Erlang
-sub-compartment chains lowered from the composed `latent` and `infectious`
-delays via [`linear_chain_reactions`](@ref). Transmission is frequency-dependent
-on the total infectious count (the sum over the I sub-compartments), so giving
-the infectious period an Erlang shape changes the dynamics, not just the mean.
-
-This demonstrates the modular goal: a user composes delays with the
-distribution composers, then slots each onto a compartment transition of an
-SEIR. The returned system is `complete`, ready to pass to `ODEProblem`.
-
-This method is only defined when Catalyst.jl is loaded (`using Catalyst`); it
-lives in the package extension so the core stays free of the SciML stack.
-The bridge is a CONSUMER of the composers, not part of the composition engine:
-it reads finished composed delays and assembles them into a reaction network, an
-intentional optional weak-dependency extension.
-
-# Arguments
-- `latent`: the composed Exp/Erlang delay for the exposed (E) period.
-- `infectious`: the composed Exp/Erlang delay for the infectious (I) period.
-
-# Keyword Arguments
-- `name`: the `ReactionSystem` name (defaults to `:seir`).
-
-# Returns
-A `NamedTuple` `(system, exposed, infectious)`: a complete Catalyst
-`ReactionSystem` (`system`) with a transmission-rate parameter `β`, the boundary
-species `S`/`R`, and the E and I sub-compartment chains; plus the `exposed` and
-`infectious` sub-compartment species, returned so the I total can be read back
-and the initial state seeded (see the linear-chain tutorial).
-
-# Examples
-```@example
-using CensoredDistributions, Distributions, Catalyst
-
-# Erlang(2, 2) latent period, Erlang(3, 1.5) infectious period.
-seir = seir_reaction_network(Gamma(2.0, 2.0), Gamma(3.0, 1.5))
-(length(seir.exposed), length(seir.infectious))
-```
-
-# See also
-- [`linear_chain_reactions`](@ref): the per-transition primitive this composes
-- [`linear_chain_stages`](@ref): the Catalyst-free `(rate, stages)` lowering
-"
-function seir_reaction_network end
-
-# Fallback when the Catalyst extension is not loaded (see above).
-function seir_reaction_network(args...; kwargs...)
-    throw(ArgumentError("`seir_reaction_network` needs Catalyst.jl; run " *
                         "`using Catalyst` to load the reaction-network extension."))
 end

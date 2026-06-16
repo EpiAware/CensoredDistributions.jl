@@ -1,19 +1,19 @@
 # Tests for the Catalyst extension (issues #400/#177/#125): the linear chain
 # trick lowered onto Catalyst reactions. `linear_chain_reactions` slots a
-# composed delay onto one transition; `seir_reaction_network` assembles a whole
-# SEIR. We solve and check the recovered mean dwell time / SEIR dynamics.
-# The core `linear_chain_stages` lowering is Catalyst-free and tested in
-# `linear_chain.jl`.
+# composed delay onto one transition; we solve and check the recovered mean
+# dwell time and the per-transition compartment structure. Whole-model assembly
+# (e.g. an SEIR or SIR) is application territory and is exercised in the
+# linear-chain tutorial. The core `linear_chain_stages` lowering is Catalyst-free
+# and tested in `linear_chain.jl`.
 
 @testitem "Catalyst bridge is an exported stub; core lowering is Catalyst-free" begin
     using CensoredDistributions, Distributions
 
-    # The reaction-network entry points are exported generic-function stubs; the
-    # Catalyst-requiring methods live in the package extension, so the core stays
+    # The reaction-network entry point is an exported generic-function stub; the
+    # Catalyst-requiring method lives in the package extension, so the core stays
     # free of the SciML stack (Catalyst is a weakdep, not a dep).
     @test linear_chain_reactions isa Function
-    @test seir_reaction_network isa Function
-    # The (rate, stages) lowering they build on works with no Catalyst loaded.
+    # The (rate, stages) lowering it builds on works with no Catalyst loaded.
     s = linear_chain_stages(Gamma(3.0, 1.5))
     @test s[1].stages == 3
     @test s[1].rate ≈ 1 / 1.5
@@ -70,45 +70,4 @@ end
     @test length(species) == 3
     # from -> s1, two interior hops, s3 -> to => 4 reactions.
     @test length(rxs) == 4
-end
-
-@testitem "seir_reaction_network builds an SEIR that runs an epidemic" begin
-    using CensoredDistributions, Distributions
-    using Catalyst
-    using OrdinaryDiffEq
-
-    # Latent Erlang(2, 2) (mean 4), infectious Erlang(3, 1.5) (mean 4.5).
-    latent = Gamma(2.0, 2.0)
-    infectious = Gamma(3.0, 1.5)
-    seir = seir_reaction_network(latent, infectious)
-    rn = seir.system
-    E = seir.exposed
-    I = seir.infectious
-
-    @test length(E) == 2
-    @test length(I) == 3
-
-    # R0 = 2 via β = R0 / mean infectious period.
-    mean_inf = mean(infectious)
-    βval = 2.0 / mean_inf
-
-    # Seed a small infectious fraction; the rest susceptible.
-    β = Catalyst.parameters(rn)[1]
-    S = Catalyst.species(rn)[1]
-    R = Catalyst.species(rn)[end]
-    u0 = [S => 0.999; [e => 0.0 for e in E];
-          I[1] => 0.001; [I[i] => 0.0 for i in 2:length(I)]; R => 0.0]
-    prob = ODEProblem(rn, u0, (0.0, 120.0), [β => βval])
-    sol = solve(prob, Tsit5(); saveat = 0.5)
-
-    # Conservation: the total population stays at 1.
-    total_end = sol[S][end] + sol[R][end] +
-                sum(sol[e][end] for e in E) + sum(sol[i][end] for i in I)
-    @test total_end ≈ 1.0 atol=1e-6
-
-    # With R0 = 2 the epidemic takes off: a substantial removed fraction and a
-    # non-trivial infectious peak.
-    @test sol[R][end] > 0.5
-    I_total = [sum(sol[I[k]][j] for k in 1:length(I)) for j in eachindex(sol.t)]
-    @test maximum(I_total) > 0.05
 end

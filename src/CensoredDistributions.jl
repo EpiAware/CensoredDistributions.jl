@@ -150,11 +150,12 @@ export primary_censored_model, interval_censored_model,
 export linear_chain_stages
 
 # Exported Catalyst reaction-network bridge: slot a composed delay onto a
-# transition of a Catalyst reaction network (`linear_chain_reactions`), or build
-# an SEIR from two composed delays (`seir_reaction_network`). No methods until
-# Catalyst is loaded; the methods live in the package extension so the core
-# stays free of the SciML stack.
-export linear_chain_reactions, seir_reaction_network
+# transition of a Catalyst reaction network (`linear_chain_reactions`). No
+# methods until Catalyst is loaded; the methods live in the package extension so
+# the core stays free of the SciML stack. Whole-model assembly (e.g. an SEIR or
+# SIR built from composed delays) is application territory; the linear-chain
+# tutorial works one through from this bridge.
+export linear_chain_reactions
 
 include("docstrings.jl")
 

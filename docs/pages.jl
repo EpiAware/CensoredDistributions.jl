@@ -21,7 +21,7 @@ getting_started_pages = Any[
             "Pairwise survival of transmission" => "getting-started/tutorials/pairwise-survival-transmission.md",
             "Rt renewal with delay convolution" => "getting-started/tutorials/rt-renewal-convolution.md",
             "Epinowcast-style hazard nowcasting" => "getting-started/tutorials/epinowcast-nowcasting.md",
-            "Composed delays as SEIR compartments" => "getting-started/tutorials/linear-chain-sir.md"
+            "Composed delays as compartments" => "getting-started/tutorials/linear-chain-sir.md"
         ]
     ],
     "Julia" => "getting-started/julia.md",

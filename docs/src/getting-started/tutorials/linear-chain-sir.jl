@@ -1,4 +1,4 @@
-# # [Composed delays as SEIR compartments: the linear chain trick](@id linear-chain-sir)
+# # [Composed delays as compartments: the linear chain trick](@id linear-chain-sir)
 #
 # ## Introduction
 #
@@ -8,7 +8,7 @@
 # A mechanistic compartmental model describes the same delays as flows between
 # compartments of an ODE system.
 # This tutorial bridges the two views with the *linear chain trick*, then slots
-# composed delays onto the transitions of an SEIR reaction network.
+# composed delays onto the transitions of a reaction network.
 #
 # The linear chain trick rests on one fact.
 # An Erlang(``k``, ``\theta``) waiting time (an integer-shape Gamma) is the sum
@@ -21,14 +21,16 @@
 #
 # ### What are we going to do in this exercise
 #
-# We do three things:
+# We do four things:
 #
 # 1. Take a composed Exp/Erlang delay and read off its linear-chain
 #    `(rate, stages)` structure with [`linear_chain_stages`](@ref).
 # 2. Slot a composed delay onto a single transition of a reaction network with
 #    [`linear_chain_reactions`](@ref).
-# 3. Build a whole SEIR as a Catalyst reaction network from two composed delays
-#    with [`seir_reaction_network`](@ref), then solve and plot it.
+# 3. Build a whole SEIR reaction network from two composed delays using the
+#    bridge, then solve and plot it.
+# 4. Reuse the *same* two composed delays to build an SIR from a different
+#    network topology, showing the bridge is modular and not tied to one model.
 #
 # ### What might I need to know before starting
 #
@@ -46,15 +48,18 @@
 # turns straight into an `ODEProblem` for the SciML solvers.
 # The Catalyst bridge ships as a **package extension**: the
 # [`linear_chain_stages`](@ref) lowering is Catalyst-free and lives in the core,
-# while [`linear_chain_reactions`](@ref) and [`seir_reaction_network`](@ref) only
-# have methods once Catalyst is loaded.
+# while [`linear_chain_reactions`](@ref) only has methods once Catalyst is
+# loaded.
 # This tutorial therefore needs `using Catalyst` to load the extension.
 #
 # By design the bridge is a consumer of the composers, not part of the
 # composition engine.
-# It reads a finished composed delay and lowers or assembles it onto a
-# compartment model, so it stays an optional weak-dependency extension and the
-# core composer stack carries no SciML dependency.
+# It reads a finished composed delay and lowers it onto a compartment
+# transition, so it stays an optional weak-dependency extension and the core
+# composer stack carries no SciML dependency.
+# Assembling whole models is application territory, which is what this tutorial
+# does: the bridge gives the per-transition primitive, and we wire transitions
+# together here into an SEIR and an SIR.
 #
 # We considered the alternatives.
 # [AlgebraicPetri.jl](https://algebraicjulia.github.io/AlgebraicPetri.jl/dev/)
@@ -72,7 +77,7 @@
 # We use Distributions for the delay distributions, CensoredDistributions for
 # the composers, the [`linear_chain_stages`](@ref) lowering and the Catalyst
 # bridge (`using Catalyst` loads the extension), OrdinaryDiffEq to solve, and
-# CairoMakie for the plot.
+# CairoMakie for the plots.
 
 using CensoredDistributions
 using Distributions
@@ -86,6 +91,8 @@ using CairoMakie
 # and an *infectious* period.
 # We give the latent period an Erlang(2) shape and the infectious period an
 # Erlang(3) shape: both are integer-shape Gammas, so both lower exactly.
+# These two delays are the only delays in the tutorial; every model below is
+# built from them.
 
 latent_period = Gamma(2.0, 2.0)        # Erlang(2, 2): mean 4 days
 infectious_period = Gamma(3.0, 1.5)    # Erlang(3, 1.5): mean 4.5 days
@@ -127,25 +134,50 @@ infectious_chain = linear_chain_reactions(
 ## the Erlang(3) infectious period -> 3 sub-compartment species
 length(infectious_chain.species)
 
-# ## Building an SEIR from two composed delays
+# ## Building an SEIR from the bridge
 #
-# [`seir_reaction_network`](@ref) composes that primitive into a whole SEIR.
-# It slots the `latent` delay onto the S -> E -> I edge and the `infectious`
-# delay onto the I -> R edge, so the exposed and infectious periods are the
-# Erlang sub-compartment chains lowered from the composed delays.
+# Whole-model assembly is application territory, so we write it here rather than
+# in the package.
+# An SEIR has a susceptible `S`, an exposed `E` chain, an infectious `I` chain
+# and a removed `R`.
+# We slot the `latent` delay onto the `S -> E -> I` edge and the `infectious`
+# delay onto the `I -> R` edge with [`linear_chain_reactions`](@ref).
 # Transmission is frequency-dependent on the *total* infectious count (the sum
 # over the I sub-compartments), so the Erlang shape of the infectious period
 # shapes the dynamics, not just its mean.
-# The returned `system` is a complete Catalyst `ReactionSystem`; `exposed` and
-# `infectious` are the sub-compartment species, returned so we can seed and read
-# them back.
+#
+# The helper below takes the two composed delays and returns a complete
+# `ReactionSystem` plus the E and I sub-compartment species, so we can seed and
+# read them back.
 
-seir = seir_reaction_network(latent_period, infectious_period)
+function build_seir(latent, infectious; name = :seir)
+    t = Catalyst.default_t()
+    @species S(t) R(t)
+    @parameters β
+    ## Build the infectious chain first so transmission can reference its
+    ## sub-compartments. linear_chain_reactions lowers each delay onto its edge.
+    i_chain = linear_chain_reactions(infectious, S, R; prefix = :I)
+    I = i_chain.species
+    e_chain = linear_chain_reactions(latent, S, I[1]; prefix = :E)
+    E = e_chain.species
+    ## The E chain's entry reaction (S -> E1) is the infection event. Rebuild it
+    ## with the force of infection β * (total infectious) and keep the rest.
+    foi = β * sum(I)
+    infection = Reaction(foi, [S], [E[1]])
+    e_internal = e_chain.reactions[2:end]
+    rxs = [infection; e_internal; i_chain.reactions[2:end]]
+    species = [S; E; I; R]
+    rn = complete(ReactionSystem(rxs, t, species, [β]; name = name))
+    return (system = rn, exposed = E, infectious = I)
+end
+
+seir = build_seir(latent_period, infectious_period)
 rn = seir.system
 E = seir.exposed
 I = seir.infectious
+(length(E), length(I))
 
-# ## Solving and plotting
+# ## Solving and plotting the SEIR
 #
 # We seed a small infectious fraction and solve over 120 days.
 # `β` is chosen to give a basic reproduction number of about 2 (``R_0 = \beta``
@@ -195,6 +227,83 @@ fig
 # The single per-stage rate in each chain reproduces the delay's mean exactly,
 # and the integer shape sets the number of compartments.
 
+# ## Reusing the same delays in a different model
+#
+# The bridge is modular: nothing in [`linear_chain_reactions`](@ref) knows about
+# SEIR.
+# To show this, we drop the exposed compartment and build an SIR from the *same*
+# two composed delays.
+# Here the latent delay is no longer a separate compartment but is folded into
+# the infectious onset, so we slot only the infectious delay onto the `I -> R`
+# edge and wire transmission straight from `S` into the infectious chain.
+# The point is that the infectious-period delay drives both models through one
+# bridge call, with no change to the delay itself.
+
+function build_sir(infectious; name = :sir)
+    t = Catalyst.default_t()
+    @species S(t) R(t)
+    @parameters β
+    i_chain = linear_chain_reactions(infectious, S, R; prefix = :I)
+    I = i_chain.species
+    ## Transmission feeds S straight into the first infectious sub-compartment
+    ## at the force of infection; the chain's internal hops and exit to R are
+    ## reused unchanged.
+    foi = β * sum(I)
+    infection = Reaction(foi, [S], [I[1]])
+    rxs = [infection; i_chain.reactions[2:end]]
+    species = [S; I; R]
+    rn = complete(ReactionSystem(rxs, t, species, [β]; name = name))
+    return (system = rn, infectious = I)
+end
+
+sir = build_sir(infectious_period)
+rn_sir = sir.system
+I_sir = sir.infectious
+length(I_sir)
+
+# We solve the SIR with the same `β` and seeding, over the same horizon, so the
+# only structural difference from the SEIR is the missing exposed chain.
+
+β_sir = Catalyst.parameters(rn_sir)[1]
+S_sir = Catalyst.species(rn_sir)[1]
+R_sir = Catalyst.species(rn_sir)[end]
+
+u0_sir = [S_sir => 0.999;
+          I_sir[1] => 0.001;
+          [I_sir[k] => 0.0 for k in 2:length(I_sir)];
+          R_sir => 0.0]
+
+prob_sir = ODEProblem(rn_sir, u0_sir, (0.0, 120.0), [β_sir => β_val])
+sol_sir = solve(prob_sir, Tsit5(); saveat = 0.5)
+
+ts_sir = sol_sir.t
+I_sir_t = [sum(sol_sir[I_sir[i]][j] for i in eachindex(I_sir))
+           for j in eachindex(ts_sir)]
+
+# Plotting the infectious curves side by side shows the *same* Erlang(3, 1.5)
+# infectious delay driving both models.
+# The SEIR lags the SIR because the exposed period delays the onset of
+# infectiousness, but the infectious-period shape is identical in both, because
+# it comes from the same composed delay slotted onto the same edge.
+
+fig2 = Figure(; size = (700, 420))
+ax2 = Axis(fig2[1, 1]; xlabel = "time (days)",
+    ylabel = "infectious fraction",
+    title = "Same infectious delay, two models (SEIR vs SIR)")
+lines!(ax2, ts, I_t; label = "SEIR infectious")
+lines!(ax2, ts_sir, I_sir_t; label = "SIR infectious")
+axislegend(ax2; position = :rt)
+fig2
+
+# Both epidemics take off (a substantial removed fraction by day 120) and both
+# infectious chains carry the Erlang(3) shape we wrote once as the
+# `infectious_period` delay.
+# The SEIR and SIR differ only in topology, assembled here from the same bridge
+# call.
+
+println("SEIR removed fraction: ", round(R_t[end]; digits = 3))
+println("SIR removed fraction:  ", round(sol_sir[R_sir][end]; digits = 3))
+
 # ## Summary
 #
 # - The linear chain trick represents an Erlang(``k``, ``\theta``) delay as
@@ -204,9 +313,10 @@ fig
 #   composed delay, peeling any censoring to the free delay. It is Catalyst-free,
 #   exact only for Exp/Erlang leaves, and throws for other families.
 # - [`linear_chain_reactions`](@ref) slots a composed delay onto a single
-#   `from -> to` transition of a Catalyst reaction network, and
-#   [`seir_reaction_network`](@ref) composes that into a whole SEIR whose E and I
-#   periods are the lowered Erlang chains.
+#   `from -> to` transition of a Catalyst reaction network. It is the bridge's
+#   one job; assembling transitions into a whole model is application work.
+# - We built an SEIR and an SIR from the *same* two composed delays through that
+#   one bridge, showing it is modular and not tied to a single model topology.
 # - The Catalyst bridge ships as a package extension, so the core stays free of
 #   the SciML stack; load it with `using Catalyst`. AlgebraicPetri is the heavier
 #   alternative for stratified or open-system composition.
