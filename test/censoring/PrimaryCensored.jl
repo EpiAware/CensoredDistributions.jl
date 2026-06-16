@@ -9,6 +9,23 @@ end
     @test typeof(use_dist) <: CensoredDistributions.PrimaryCensored
 end
 
+@testitem "eltype promotes delay and primary-event types" begin
+    using Distributions
+    using ForwardDiff: Dual
+
+    # Both parts Float64: eltype is Float64.
+    d = primary_censored(LogNormal(3.5, 1.5), Uniform(1.0, 2.0))
+    @test eltype(d) == Float64
+
+    # A Dual-typed primary event must lift the eltype to the Dual type;
+    # before the fix the method promoted the delay type with itself and
+    # ignored the primary-event type entirely.
+    T = typeof(Dual(0.0, 1.0))
+    dual_primary = Uniform(T(0.0), T(1.0))
+    dd = primary_censored(LogNormal(3.5, 1.5), dual_primary)
+    @test eltype(dd) == T
+end
+
 @testitem "Default constructor (analytical solver)" begin
     using Distributions
 

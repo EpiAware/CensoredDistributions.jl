@@ -768,7 +768,10 @@ function var(c::HazardCompeting)
     e2 = gl_integrate(zero(hi), hi, _PRIMARY_GL) do t
         2 * t * exp(_hazard_logsurvival(c, t))
     end
-    return e2 - m^2
+    # Two independent quadratures can leave `e2 - m^2` a tiny negative for a
+    # near-degenerate node; clamp to keep the variance non-negative.
+    diff = e2 - m^2
+    return max(zero(diff), diff)
 end
 
 @doc "

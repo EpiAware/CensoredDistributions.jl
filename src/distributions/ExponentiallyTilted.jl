@@ -85,9 +85,13 @@ minimum(d::ExponentiallyTilted) = d.min
 maximum(d::ExponentiallyTilted) = d.max
 insupport(d::ExponentiallyTilted, x::Real) = d.min ≤ x ≤ d.max
 
+# Below this magnitude of the tilting rate `r` the distribution is treated as
+# the uniform limit (r -> 0) for numerical stability.
+const _ET_R_THRESHOLD = 1e-10
+
 # Helper function to compute log normalisation constant
 function _log_normalisation_constant(min::Real, max::Real, r::Real)
-    if abs(r) < 1e-10
+    if abs(r) < _ET_R_THRESHOLD
         # For r ≈ 0, reduces to uniform: log(max - min)
         return log(max - min)
     else
@@ -116,10 +120,11 @@ Compute the log probability density function.
 See also: [`pdf`](@ref), [`cdf`](@ref)
 "
 function logpdf(d::ExponentiallyTilted, x::Real)
+    T = float(promote_type(eltype(d), typeof(x)))
     if !insupport(d, x)
-        return -Inf
+        return oftype(zero(T), -Inf)
     end
-    if abs(d.r) < 1e-10
+    if abs(d.r) < _ET_R_THRESHOLD
         # For r ≈ 0, uniform distribution: log(1/(max-min))
         return -log(d.max - d.min)
     else
@@ -137,13 +142,14 @@ Compute the cumulative distribution function.
 See also: [`logcdf`](@ref), [`quantile`](@ref)
 "
 function cdf(d::ExponentiallyTilted, x::Real)
+    T = float(promote_type(eltype(d), typeof(x)))
     if x ≤ d.min
-        return 0.0
+        return zero(T)
     elseif x ≥ d.max
-        return 1.0
+        return one(T)
     end
 
-    if abs(d.r) < 1e-10
+    if abs(d.r) < _ET_R_THRESHOLD
         # For r ≈ 0, uniform distribution: (x - min) / (max - min)
         return (x - d.min) / (d.max - d.min)
     else
@@ -166,12 +172,13 @@ Compute the log cumulative distribution function.
 See also: [`cdf`](@ref)
 "
 function logcdf(d::ExponentiallyTilted, x::Real)
+    T = float(promote_type(eltype(d), typeof(x)))
     if x ≤ d.min
-        return -Inf
+        return oftype(zero(T), -Inf)
     elseif x ≥ d.max
-        return 0.0
+        return zero(T)
     end
-    if abs(d.r) < 1e-10
+    if abs(d.r) < _ET_R_THRESHOLD
         # For r ≈ 0, uniform distribution: log((x - min) / (max - min))
         return log((x - d.min) / (d.max - d.min))
     else
@@ -191,13 +198,14 @@ function quantile(d::ExponentiallyTilted, p::Real)
         throw(ArgumentError("p must be in [0, 1]"))
     end
 
+    T = float(promote_type(eltype(d), typeof(p)))
     if p == 0.0
-        return d.min
+        return convert(T, d.min)
     elseif p == 1.0
-        return d.max
+        return convert(T, d.max)
     end
 
-    if abs(d.r) < 1e-10
+    if abs(d.r) < _ET_R_THRESHOLD
         # For r ≈ 0, uniform distribution: min + p * (max - min)
         return d.min + p * (d.max - d.min)
     else
@@ -234,7 +242,7 @@ Compute the mean of the distribution.
 See also: [`var`](@ref), [`std`](@ref)
 "
 function mean(d::ExponentiallyTilted)
-    if abs(d.r) < 1e-10
+    if abs(d.r) < _ET_R_THRESHOLD
         # For r ≈ 0, uniform distribution: (min + max) / 2
         return (d.min + d.max) / 2
     else
@@ -253,7 +261,7 @@ Compute the variance of the distribution.
 See also: [`mean`](@ref), [`std`](@ref)
 "
 function var(d::ExponentiallyTilted)
-    if abs(d.r) < 1e-10
+    if abs(d.r) < _ET_R_THRESHOLD
         # For r ≈ 0, uniform distribution: (max - min)² / 12
         range = d.max - d.min
         return range^2 / 12
