@@ -56,6 +56,12 @@ interface (inventoried, sampled and updated as a single free parameter), with th
 shared value placed in every occurrence. The result is transparent to scoring and
 sampling.
 
+`shared(name, dist)` is the LEAF-LOCAL spelling of the tie, applied where the leaf
+is built. [`tie`](@ref)`(d, paths...; name)` is the TREE-LEVEL spelling of the
+SAME tie: it walks a composed `d` to the named leaves and wraps each in the exact
+`shared(name, leaf)` artefact this produces. Use whichever is convenient; the
+tagged occurrences are one free parameter either way.
+
 # Arguments
 - `name`: the shared-parameter group name (`Symbol`).
 - `dist`: the leaf distribution to tag.
@@ -73,6 +79,7 @@ event_names(d)
 
 # See also
 - [`Shared`](@ref): the tagged-leaf type.
+- [`tie`](@ref): the tree-level, path-based spelling of the same tie.
 "
 shared(name::Symbol, dist::UnivariateDistribution) = Shared(name, dist)
 
@@ -158,4 +165,109 @@ function _collect_shared!(acc, seen, leaf)
     push!(seen, tag)
     push!(acc, tag => leaf)
     return nothing
+end
+
+# --- tie: tree-level, path-based shared-leaf grouping -----------------------
+#
+# `shared(:tag, dist)` tags a leaf LOCALLY, where the leaf is built. `tie` is the
+# SAME tie done at the TREE level: given a composed `d` and the paths of two or
+# more leaves, it walks to each named leaf and wraps it in `Shared(name, leaf)`,
+# producing the EXACT artefact a hand-written `shared(name, dist)` would. Every
+# tag consumer (`params_table`, `build_priors`, `update`,
+# `composed_parameters_model`, the compute-reuse) reads the tag, not how it was
+# placed, so a `tie`d tree and a hand-`shared`d tree are identical. The walk
+# reuses `_edit_at` (the `intervene`/`update` path machinery); paths take the
+# SAME forms `event`/`update` accept (a bare `Symbol`, a dotted-path `Symbol`
+# like `:"sourced.inc"`, or a tuple of edge names).
+
+# Normalise an `event`/`update` path form to a tuple of edge-name steps:
+# a tuple stays as-is, a dotted `Symbol` (`:a.b`) splits, a bare `Symbol` is one
+# step. Mirrors how `event(d, name::Symbol)` accepts a path.
+_tie_path(p::Tuple) = p
+_tie_path(p::Symbol) = _split_edge(p)
+
+# True for the composer (non-leaf) nodes a path can run through; a path that
+# resolves to one of these is pointing at a subtree, not a tieable leaf.
+_is_composer_node(::Union{Sequential, Parallel, AbstractCompeting, Select}) = true
+_is_composer_node(::Any) = false
+
+# The (family, param-names) signature a tie groups by: tied leaves become ONE
+# free parameter, so they must share an inner free-delay family and parameter
+# structure. Uses the SAME `free_leaf`/`_leaf_param_names` the params interface
+# inventories with, so "compatible" means "the params table would treat them
+# alike".
+function _tie_signature(leaf)
+    inner = free_leaf(leaf)
+    return (Base.typename(typeof(inner)).wrapper, _leaf_param_names(leaf))
+end
+
+@doc "
+
+Tie leaves at named paths of a composed distribution into one shared group.
+
+`tie(d, paths...; name)` walks the composed distribution `d` to each leaf named
+by `paths` and wraps it in a [`Shared`](@ref) group tagged `name`, returning the
+rebuilt composed distribution. This is the tree-level, path-based spelling of
+[`shared`](@ref): `tie(d, p1, p2; name = :inc)` produces the EXACT same artefact
+as building `d` with `shared(:inc, leaf)` at each of those leaves, so every tag
+consumer ([`params_table`](@ref), [`build_priors`](@ref), [`update`](@ref),
+[`composed_parameters_model`](@ref)) inventories, samples and updates the tied
+leaves as a single free parameter.
+
+Each `path` takes the SAME forms [`event`](@ref) and [`update`](@ref) accept: a
+bare `Symbol` direct child, a dotted-path `Symbol` (`:\"sourced.inc\"`, as in
+[`params_table`](@ref)'s `edge` column), or a tuple of edge names from the root.
+Every path must resolve to a leaf (not a composer subtree), and the tied leaves
+must be parameter-compatible (same inner family and parameter structure), since
+they become one group.
+
+# Arguments
+- `d`: the composed distribution to tie leaves in.
+- `paths`: one or more leaf paths to tie together.
+
+# Keyword Arguments
+- `name`: the shared-parameter group name (`Symbol`, required).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+d = selecting(:index => compose((inc = Gamma(2.0, 1.0),)),
+    :sourced => compose((src = LogNormal(0.5, 0.4), inc = Gamma(2.0, 1.0))))
+tied = tie(d, (:index, :inc), (:sourced, :inc); name = :inc)
+params_table(tied)
+```
+
+# See also
+- [`shared`](@ref): the leaf-local spelling of the same tie.
+- [`event`](@ref), [`update`](@ref): share the path forms `tie` accepts.
+"
+function tie(d::Union{Sequential, Parallel, AbstractCompeting, Select},
+        paths...; name::Symbol)
+    isempty(paths) && throw(ArgumentError(
+        "tie needs at least one path to a leaf"))
+    norm = map(_tie_path, paths)
+    sig = nothing
+    out = d
+    for (raw, path) in zip(paths, norm)
+        isempty(path) && throw(ArgumentError(
+            "tie path $(repr(raw)) is empty; a path must name a leaf"))
+        # Resolve the leaf first so a bad path or a subtree errors LOUDLY,
+        # before any rebuild. `event` descends the same name path forms.
+        leaf = event(d, path...)
+        _is_composer_node(leaf) && throw(ArgumentError(
+            "tie path $(repr(raw)) points at a composer subtree " *
+            "($(nameof(typeof(leaf)))), not a leaf; tie groups leaves"))
+        leafsig = _tie_signature(leaf)
+        if sig === nothing
+            sig = leafsig
+        elseif leafsig != sig
+            throw(ArgumentError(
+                "tie(:$name): leaf at $(repr(raw)) is not parameter-" *
+                "compatible with the others (family/params $(leafsig) " *
+                "vs $(sig)); tied leaves become one parameter group"))
+        end
+        out = _edit_at(out, path, leaf -> shared(name, leaf))
+    end
+    return out
 end

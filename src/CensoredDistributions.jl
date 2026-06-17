@@ -109,8 +109,9 @@ export Select, selecting
 
 # Exported shared-parameter tag: tie a leaf across branches by name so the
 # prior/params interface treats its occurrences as one free parameter. `Shared`
-# is the type; `shared` the friendly constructor.
-export Shared, shared
+# is the type; `shared` the leaf-local constructor; `tie` the tree-level,
+# path-based spelling of the same tie.
+export Shared, shared, tie
 
 # Exported composer-observed lowering used by the external censoring wrappers
 export observed_distribution

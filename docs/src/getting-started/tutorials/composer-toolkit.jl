@@ -570,6 +570,8 @@ event_names(event(spliced, :admit_death))
 # | `double_interval_censored(d; interval)` | primary + truncation + interval leaf | leaf wrap |
 # | `truncate_to_horizon(d, h)` | right-truncate a delay at a horizon | leaf wrap |
 # | `truncate_to_window(d, h, δ)` | δ-bounded right-truncation to `[h - δ, h]` | leaf wrap |
+# | `shared(:tag, d)` | tag a leaf as a tied parameter group (leaf-local tie) | leaf wrap |
+# | `tie(d, paths...; name)` | tie leaves at `paths` into one group (tree-level tie) | yes |
 # | `update(d, (a = (shape = 3,),))` | replace free parameter values | yes |
 # | `update(d, path => new_node)` | replace whole nodes | yes |
 # | `prune(d, path)` | drop a branch (renormalise a `Competing` arm) | no (topology) |
@@ -580,8 +582,15 @@ event_names(event(spliced, :admit_death))
 # | `params_table(d)` | the flat free-parameter inventory | read |
 # | `update(d, chain_to_params(d, chain))` | read fitted values back onto `d` | yes |
 #
-# The address `path` in `event` / `update` / `prune` / `splice` is the same in
-# all four: a bare `Symbol`, a dotted `Symbol` (`:a.b`), or a tuple of edge names.
+# The address `path` in `event` / `update` / `prune` / `splice` / `tie` is the
+# same in all: a bare `Symbol`, a dotted `Symbol` (`:a.b`), or a tuple of edge
+# names.
+#
+# `shared(:tag, d)` and `tie(d, paths...; name = :tag)` are two spellings of the
+# SAME tie. `shared` tags a leaf where it is built (leaf-local); `tie` walks the
+# tree to the named leaves and wraps each in the EXACT `shared(:tag, leaf)`
+# artefact (tree-level). Both make the tagged occurrences one free parameter, so
+# `params_table` / `build_priors` / `update` treat them identically.
 
 # ## Summary
 #
