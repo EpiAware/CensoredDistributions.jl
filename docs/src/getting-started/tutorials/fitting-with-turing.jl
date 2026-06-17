@@ -136,6 +136,17 @@ positive scale `sigma`).
 full_priors = build_priors(param_table)
 
 md"""
+Each default prior centres on the template's own parameter value, and the
+template here is built from the true `meanlog` and `sdlog`, so these illustrative
+priors happen to sit on the values we recover.
+That keeps the demo self-contained, but it does not drive the result.
+With 2000 simulated records the likelihood dominates these wide priors, so the
+recovery below reflects the data and the censoring model rather than the prior
+mean; a real analysis would set priors from background knowledge, independent of
+the parameters being estimated.
+"""
+
+md"""
 ## Prior predictive checks
 
 The parameter block is the same for every fit.
