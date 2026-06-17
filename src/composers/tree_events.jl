@@ -258,10 +258,13 @@ end
 
 # Reserved row fields that are NOT events: a multiplicity weight (`weight` /
 # `count`), a per-record observation horizon (`obs_time`, the hanta
-# right-truncation observation time D), and a per-record Competing branch-
-# probability override (`branch_probs`) that rides a nested-Competing tree
+# right-truncation observation time D), a per-record δ-bounded observation-window
+# width (`obs_window`, which adds a LOWER edge a width δ below the horizon, giving
+# the finite window `[obs_time - δ, obs_time]`), and a per-record Competing
+# branch-probability override (`branch_probs`) that rides a nested-Competing tree
 # row and is excluded from by-name event matching.
-const _RESERVED_ROW_FIELDS = (:weight, :count, :obs_time, :branch_probs)
+const _RESERVED_ROW_FIELDS = (
+    :weight, :count, :obs_time, :obs_window, :branch_probs)
 
 # The event values of a row in field order, dropping the reserved weight/count
 # fields, as a `Vector{Union{Missing, Float64}}` (one entry per event, `missing`
@@ -319,11 +322,26 @@ function _row_weight_field(row::NamedTuple, kw_weight)
     return nothing
 end
 
-# The per-record observation horizon D carried by a row's reserved `obs_time`
-# field (hanta): present and non-missing right-truncates the record at the
-# horizon; absent or missing means no truncation (back-compat).
+# The per-record observation horizon carried by a row's reserved fields. The
+# upper edge is the `obs_time` horizon D (hanta): present and non-missing right-
+# truncates the record at the horizon; absent or missing means no truncation
+# (back-compat). A reserved `obs_window` field adds the δ-bounded LOWER edge: with
+# `obs_time = D` and `obs_window = δ` the record is truncated to the finite window
+# `[D - δ, D]`, returned as a `WindowedHorizon` carrier so the δ threads through
+# the same scoring paths the plain horizon does. With no (or missing) `obs_window`
+# a plain `Real` horizon is returned, byte-identical to the upper-only form.
 function _row_horizon_field(row::NamedTuple)
     haskey(row, :obs_time) || return nothing
     h = row.obs_time
-    return h === missing ? nothing : h
+    h === missing && return nothing
+    δ = _row_window_field(row)
+    return δ === nothing ? h : WindowedHorizon(h, δ)
+end
+
+# The δ-bounded observation-window width carried by a row's reserved `obs_window`
+# field, or `nothing` (upper-only) when absent or missing.
+function _row_window_field(row::NamedTuple)
+    haskey(row, :obs_window) || return nothing
+    δ = row.obs_window
+    return δ === missing ? nothing : δ
 end

@@ -123,13 +123,18 @@ end
 # compute `horizon - origin`. `nothing` horizon -> `nothing` window (no
 # truncation). The anchor is already validated non-missing by the caller.
 _competing_window(::Nothing, o) = nothing
-_competing_window(horizon, o) = horizon - convert(typeof(horizon), o)
+function _competing_window(horizon, o)
+    t = _horizon_time(horizon)
+    return t - convert(typeof(t), o)
+end
 
 # Right-truncate a branch `delay` at the per-record window, or return it unchanged
-# when no horizon applies, mirroring the top-level `_maybe_truncate`.
-_competing_truncate(delay, ::Nothing) = delay
-function _competing_truncate(delay, window)
-    return truncate_to_horizon(delay, window)
+# when no horizon applies, mirroring the top-level `_maybe_truncate`. The threaded
+# `horizon` carrier rides along so a δ-bounded horizon δ-bounds the branch; a plain
+# horizon (or `nothing` δ) is byte-identical to `truncate_to_horizon`.
+_competing_truncate(delay, ::Nothing, horizon) = delay
+function _competing_truncate(delay, window, horizon)
+    return _truncate_horizon(delay, window, horizon)
 end
 
 # The payload term of an observed competing outcome: a LEAF conditions on its
@@ -147,7 +152,7 @@ function _competing_outcome_payload_logpdf(delay::UnivariateDistribution, o,
     o === missing && throw(ArgumentError(
         "a nested Competing with an observed outcome needs an observed anchor " *
         "(its parent event); got a missing anchor"))
-    branch = _competing_truncate(delay, _competing_window(horizon, o))
+    branch = _competing_truncate(delay, _competing_window(horizon, o), horizon)
     return logpdf(branch, convert(T, y) - convert(T, o))
 end
 

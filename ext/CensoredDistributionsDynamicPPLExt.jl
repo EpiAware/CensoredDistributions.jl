@@ -182,10 +182,14 @@ end
 
 # Apply a per-record `obs_time` horizon to a leaf distribution by right-truncating
 # it (the leaf is observed from the origin, so the window is the horizon itself);
-# no `obs_time` field returns the leaf unchanged.
+# no `obs_time` field returns the leaf unchanged. A δ-bounded horizon (a row with
+# an `obs_window` δ) δ-bounds the leaf to `[horizon - δ, horizon]`; a plain
+# horizon is byte-identical to the upper-only form.
 function _leaf_horizon(d, row)
     h = _row_horizon_of(row)
-    return h === nothing ? d : CensoredDistributions.truncate_to_horizon(d, h)
+    h === nothing && return d
+    return CensoredDistributions._truncate_horizon(
+        d, CensoredDistributions._horizon_time(h), h)
 end
 
 # The horizon of a leaf record: a bare value carries none; a row reads `obs_time`.
@@ -513,10 +517,14 @@ function _competing_logprob(d::Competing, row::NamedTuple, probs, w, horizon)
 end
 
 # Right-truncate `dist` at the per-record horizon when one is supplied (the
-# competing time is measured from the origin), else return it unchanged.
+# competing time is measured from the origin, so the window is the horizon
+# itself), else return it unchanged. A δ-bounded horizon (a `WindowedHorizon`)
+# δ-bounds the truncation to `[horizon - δ, horizon]`; a plain horizon is byte-
+# identical to `truncate_to_horizon`.
 _maybe_truncate(dist, ::Nothing) = dist
 function _maybe_truncate(dist, horizon)
-    return CensoredDistributions.truncate_to_horizon(dist, horizon)
+    return CensoredDistributions._truncate_horizon(
+        dist, CensoredDistributions._horizon_time(horizon), horizon)
 end
 
 # The observed outcomes of a row as `(outcome_index, gap)` pairs: a per-outcome
@@ -813,11 +821,14 @@ end
 # Right-truncate a latent nested-Competing branch at the remaining window from its
 # anchor (`horizon - anchor`), or return it unchanged when no horizon applies.
 # Mirrors the marginal `_competing_truncate` / `_competing_window` so the latent
-# conditioned branch matches the marginal one (#517).
+# conditioned branch matches the marginal one (#517), including a δ-bounded
+# horizon (a `WindowedHorizon`), which δ-bounds the branch to `[window - δ,
+# window]`; a plain horizon is byte-identical to `truncate_to_horizon`.
 _latent_competing_branch(delay, ::Nothing, anchor) = delay
 function _latent_competing_branch(delay, horizon, anchor)
-    window = horizon - convert(typeof(horizon), anchor)
-    return CensoredDistributions.truncate_to_horizon(delay, window)
+    t = CensoredDistributions._horizon_time(horizon)
+    window = t - convert(typeof(t), anchor)
+    return CensoredDistributions._truncate_horizon(delay, window, horizon)
 end
 
 # Resolve WHICH leaf outcome a latent Competing record observes, returning

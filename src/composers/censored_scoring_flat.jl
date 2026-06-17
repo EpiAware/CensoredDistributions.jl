@@ -119,14 +119,17 @@ function _seq_event_logpdf_h(d::Sequential, events, horizon)
     last_seg = _sequential_segment(
         d.components, obs_idx[1], obs_idx[end],
         obs_idx[1] == 1 ? primary : nothing)
-    window = horizon - obs_val[1]
+    window = _horizon_time(horizon) - obs_val[1]
     # A non-positive window (the horizon already passed the observed origin) is an
     # empty-support truncation: the record cannot have been observed, so the whole
     # contribution is `-Inf`, matching the `truncate_to_horizon` empty-support
     # guard rather than the `+Inf` a bare `total - logcdf(., minimum)` would give.
     window <= minimum(last_seg) &&
         return convert(typeof(total), -Inf)
-    return total - logcdf(last_seg, window)
+    # The denominator is the δ-aware right-truncation log-normaliser: a plain
+    # horizon gives the upper-only `-logcdf(C, window)`, a δ-bounded horizon the
+    # finite `-log(cdf(C, window) - cdf(C, window - δ))` term.
+    return total - _truncation_lognorm(last_seg, window, horizon)
 end
 
 # The untruncated flat-chain scoring (the original per-segment factorisation).
@@ -426,7 +429,10 @@ end
 # (zero) origin, so the window is the horizon itself.
 function event_logpdf(d::UnivariateDistribution, x::Real; horizon = nothing)
     horizon === nothing && return logpdf(d, x)
-    return logpdf(truncate_to_horizon(d, horizon), x)
+    # The leaf is observed from the (zero) origin, so its window is the horizon
+    # itself; `_truncate_horizon` honours a δ-bounded horizon and is byte-
+    # identical to `truncate_to_horizon` for a plain horizon.
+    return logpdf(_truncate_horizon(d, _horizon_time(horizon), horizon), x)
 end
 
 # Flat `Parallel` with a horizon: every branch endpoint shares the observed
@@ -450,11 +456,11 @@ function _par_event_logpdf_h(d::Parallel, events, horizon)
         map(_param_eltype, cores)...)
     insupport(primary, o) || return convert(T2, -Inf)
     lp = convert(T2, logpdf(primary, o))
-    window = horizon - o
+    window = _horizon_time(horizon) - o
     @inbounds for i in eachindex(cores)
         y = events[i + 1]
         y === missing && continue
-        seg = truncate_to_horizon(cores[i], window)
+        seg = _truncate_horizon(cores[i], window, horizon)
         u = Float64(y) - o
         lp += convert(T2, logpdf(seg, u))
     end

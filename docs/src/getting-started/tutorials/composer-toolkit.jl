@@ -255,7 +255,28 @@ CensoredDistributions.event_logpdf(obs_chain, ev_mid_missing; horizon = 8.0)
 #     delays convolve into one onset-to-death gap whose censoring lives on the
 #     observed onset and death. This is automatic per record, driven by each
 #     record's own missingness pattern.
+
+# ### A bounded observation window
 #
+# The horizon above is upper-only: a record is kept if its last observed event
+# fell at or before the cut-off, normalised by `cdf(delay, horizon)`.
+# Some designs observe events only within a bounded window ending at the
+# horizon, for example a fixed recall period or a study that enrols and follows
+# cases for a set span.
+# `truncate_to_window(d, horizon, δ)` adds a lower edge a width `δ` below the
+# horizon, truncating to the finite window `[horizon - δ, horizon]` normalised by
+# `cdf(d, horizon) - cdf(d, horizon - δ)`.
+# Per record, a reserved `obs_window` row field carries `δ` alongside `obs_time`,
+# so a row `(onset = 0, ..., obs_time = 8, obs_window = 3)` scores the record over
+# the window `[5, 8]`.
+# Leaving `obs_window` out (or `truncate_to_window(d, horizon, nothing)`)
+# reproduces the upper-only horizon exactly.
+
+windowed = CensoredDistributions.truncate_to_window(LogNormal(1.5, 0.5), 6.0, 4.0)
+
+window_lognorm = log(cdf(LogNormal(1.5, 0.5), 6.0) -
+                     cdf(LogNormal(1.5, 0.5), 2.0))
+
 # ## Scoring and simulation from one object
 #
 # The composer is dual-purpose: it scores observed records and simulates new
@@ -548,6 +569,7 @@ event_names(event(spliced, :admit_death))
 # | `interval_censored(d; interval)` | interval-censoring leaf | leaf wrap |
 # | `double_interval_censored(d; interval)` | primary + truncation + interval leaf | leaf wrap |
 # | `truncate_to_horizon(d, h)` | right-truncate a delay at a horizon | leaf wrap |
+# | `truncate_to_window(d, h, δ)` | δ-bounded right-truncation to `[h - δ, h]` | leaf wrap |
 # | `update(d, (a = (shape = 3,),))` | replace free parameter values | yes |
 # | `update(d, path => new_node)` | replace whole nodes | yes |
 # | `prune(d, path)` | drop a branch (renormalise a `Competing` arm) | no (topology) |

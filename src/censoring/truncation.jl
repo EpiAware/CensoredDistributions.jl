@@ -37,9 +37,10 @@ single-delay denominator; pass a [`Convolved`](@ref) (from
 [`truncate_chain`](@ref) helper picks between the two from a chain of
 segments and an observation mask.
 
-This is the upper-only observation-horizon form of right-truncation; a
-δ-bounded variant, truncating to a finite window of width δ, is planned and
-tracked separately.
+This is the upper-only observation-horizon form of right-truncation. The
+δ-bounded variant [`truncate_to_window`](@ref) adds a finite lower edge, so
+the observation window is `[upper - δ, upper]` rather than `(-∞, upper]`; the
+upper-only form here is the special case `δ → window` (lower edge 0).
 
 # Arguments
 - `delay`: the delay distribution to right-truncate. A single delay gives the
@@ -65,12 +66,65 @@ log_norm_chain = logcdf(conv, 6.0)
 ```
 
 # See also
+- [`truncate_to_window`](@ref): the δ-bounded variant (finite lower edge)
 - [`truncate_chain`](@ref): pick single vs convolved from a chain mask
 - [`convolve_distributions`](@ref): builds the convolved-chain delay
 - [`Convolved`](@ref): the convolution distribution
 "
 function truncate_to_horizon(delay::UnivariateDistribution, window::Real)
     return _truncate_window(delay, window)
+end
+
+@doc "
+
+Build the δ-bounded right-truncated delay for one observation: the finite
+observation window `[upper - δ, upper]`.
+
+This is the δ-bounded variant of [`truncate_to_horizon`](@ref). The upper-only
+horizon form conditions on the event falling at or before the remaining window
+`upper` (normalised by `cdf(delay, upper)`). The δ-bounded form additionally
+adds a LOWER edge a width `δ` below the upper edge, so the event is observed
+only within the finite window `[upper - δ, upper]`, normalised by
+`cdf(delay, upper) - cdf(delay, upper - δ)`.
+
+The lower edge is anchored at the upper edge (`upper - δ`), so the window has
+a fixed width `δ` ending at the same remaining-window upper bound the
+upper-only form uses. This composes consistently with the upper-only form: it
+is the special case `δ === nothing` (or any `δ >= upper`, i.e. `δ → upper`),
+which clamps the lower edge to the distribution's minimum and reproduces
+[`truncate_to_horizon`](@ref)`(delay, upper)` byte-identically.
+
+# Arguments
+- `delay`: the delay distribution to right-truncate. A single delay gives the
+  single-delay denominator; a [`Convolved`](@ref) gives the convolved-chain
+  denominator.
+- `upper`: the remaining observation window `horizon - anchor` (the upper edge,
+  as in [`truncate_to_horizon`](@ref)). A non-positive upper edge truncates to
+  an empty support.
+- `δ`: the observation-window width. `nothing` (or `δ >= upper`) drops the
+  lower edge and reproduces the upper-only form. A non-positive `δ` is an empty
+  window and errors.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+delay = LogNormal(1.5, 0.5)
+# Finite window [6 - 4, 6] = [2, 6]: normaliser cdf(6) - cdf(2).
+windowed = truncate_to_window(delay, 6.0, 4.0)
+log_norm = log(cdf(delay, 6.0) - cdf(delay, 2.0))
+
+# δ = nothing reproduces the upper-only truncate_to_horizon.
+upper_only = truncate_to_window(delay, 6.0, nothing)
+```
+
+# See also
+- [`truncate_to_horizon`](@ref): the upper-only form (the `δ → upper` case)
+- [`Convolved`](@ref): the convolution distribution
+"
+function truncate_to_window(
+        delay::UnivariateDistribution, upper::Real, δ::Union{Real, Nothing})
+    return _truncate_window(delay, upper, δ)
 end
 
 @doc "
@@ -142,6 +196,90 @@ end
 function _truncate_window(dist::UnivariateDistribution, window::Real)
     upper = max(window, minimum(dist))
     return truncated(dist; upper = upper)
+end
+
+# δ-bounded right-truncation: add a finite lower edge a width `δ` below the
+# upper edge, giving the finite observation window `[upper - δ, upper]`
+# (normaliser `cdf(upper) - cdf(lower)`). `δ === nothing` (no lower edge) falls
+# back to the upper-only `_truncate_window`, so the upper-only path is
+# byte-identical. A non-positive `δ` is an empty window and errors. The lower
+# edge is clamped UP to the distribution's minimum (so `δ >= upper` collapses to
+# the upper-only form, never differentiating `logcdf(dist, minimum)`), and the
+# upper edge keeps the upper-only non-positive-window empty-support guard. The
+# normaliser `cdf(upper) - cdf(lower)` is what AD differentiates.
+function _truncate_window(
+        dist::UnivariateDistribution, window::Real, δ::Nothing)
+    return _truncate_window(dist, window)
+end
+
+function _truncate_window(
+        dist::UnivariateDistribution, window::Real, δ::Real)
+    δ > 0 || throw(ArgumentError(
+        "δ-bounded truncation needs a positive window width δ; got $(δ) " *
+        "(a non-positive width is an empty observation window)"))
+    upper = max(window, minimum(dist))
+    lower = max(window - δ, minimum(dist))
+    return truncated(dist; lower = lower, upper = upper)
+end
+
+# ---------------------------------------------------------------------------
+# Threaded per-record horizon carrier (upper-only vs δ-bounded)
+# ---------------------------------------------------------------------------
+#
+# The per-record observation horizon is threaded through the scorers as a single
+# value (`horizon`). The upper-only form is a plain `Real` (or `nothing`); the
+# δ-bounded form pairs the horizon with the window width δ in this carrier, so
+# the SAME threaded slot carries either form and every existing `horizon ===
+# nothing` / pass-through site is untouched. The three helpers below are the only
+# places the carrier is unpacked: `_horizon_time` (the scalar horizon for the
+# `horizon - anchor` arithmetic), `_horizon_delta` (the δ width, or `nothing`),
+# and `_truncate_horizon` (build the truncated delay for a window/anchor),
+# keeping the δ off every other signature.
+struct WindowedHorizon{H <: Real, D <: Real}
+    horizon::H
+    δ::D
+end
+
+# The scalar horizon time used in the `horizon - anchor` window arithmetic.
+_horizon_time(h::Real) = h
+_horizon_time(h::WindowedHorizon) = h.horizon
+
+# The δ window width carried by a horizon, or `nothing` for the upper-only form.
+_horizon_delta(::Real) = nothing
+_horizon_delta(h::WindowedHorizon) = h.δ
+
+# Right-truncate `delay` to the per-record observation `window` (= `horizon -
+# anchor`), honouring the threaded horizon's δ. A plain-`Real` horizon (or a δ of
+# `nothing`) gives the upper-only `truncate_to_horizon` byte-identically; a
+# `WindowedHorizon` δ-bounds the truncation to `[window - δ, window]`. `horizon`
+# is the threaded carrier (so the δ rides along) and `window` is the already
+# anchor-shifted upper edge the caller computed with `_horizon_time`.
+function _truncate_horizon(delay, window::Real, horizon)
+    _truncate_window(delay, window, _horizon_delta(horizon))
+end
+
+# The log-normaliser (denominator) of the per-record right-truncation, threaded
+# the same way `_truncate_horizon` is. Used where the scorer subtracts a single
+# right-truncation denominator from a factorised numerator (the flat
+# whole-compose chain truncation), rather than building a truncated object. The
+# upper-only form is exactly `logcdf(dist, window)`, kept byte-identical so a
+# plain horizon reproduces today's `total - logcdf(seg, window)`. The δ-bounded
+# form is `log(cdf(dist, upper) - cdf(dist, lower))` with `lower = window - δ`
+# clamped up to the distribution's minimum, the log of the finite-window mass.
+function _truncation_lognorm(dist, window::Real, horizon)
+    _truncation_lognorm_δ(dist, window, _horizon_delta(horizon))
+end
+
+_truncation_lognorm_δ(dist, window::Real, ::Nothing) = logcdf(dist, window)
+
+function _truncation_lognorm_δ(dist, window::Real, δ::Real)
+    δ > 0 || throw(ArgumentError(
+        "δ-bounded truncation needs a positive window width δ; got $(δ) " *
+        "(a non-positive width is an empty observation window)"))
+    lower = max(window - δ, minimum(dist))
+    # The finite-window mass `cdf(upper) - cdf(lower)`. `logsubexp` differentiates
+    # cleanly (it is the AD-safe `log(exp(logcdf(upper)) - exp(logcdf(lower)))`).
+    return logsubexp(logcdf(dist, window), logcdf(dist, lower))
 end
 
 # Collapse a chain into the single distribution reaching the observation.
