@@ -25,6 +25,28 @@
     # A bare delay BEFORE the last outcome (more than one omitted) is ambiguous.
     @test_throws ArgumentError resolve(:a => Gamma(1.0, 1.0),
         :b => (Gamma(2.0, 1.0), 0.5), :c => Gamma(2.0, 1.0))
+
+    # The two constructors reject the OTHER shape, each pointing at its sibling.
+    # `compete` is bare-delays only: a `(delay, prob)` pair is the fixed-
+    # probability split and belongs to `resolve`.
+    err_c = try
+        compete(:death => (Gamma(1.5, 1.0), 0.3), :disch => (Gamma(2.0, 1.5), 0.7))
+        nothing
+    catch e
+        e
+    end
+    @test err_c isa ArgumentError
+    @test occursin("resolve", err_c.msg)
+    # `resolve` needs a probability per outcome (or the residual last): an
+    # all-bare list is the racing-hazard node and belongs to `compete`.
+    err_r = try
+        resolve(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
+        nothing
+    catch e
+        e
+    end
+    @test err_r isa ArgumentError
+    @test occursin("compete", err_r.msg)
 end
 
 @testitem "one_of: residual last-outcome probability (#46)" begin
