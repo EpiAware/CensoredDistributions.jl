@@ -35,8 +35,10 @@
 # term.
 #
 # This disjunction (a case is index or sourced, never both) is exactly what
-# [`Select`](@ref) expresses: two independent named alternatives, picked per
-# record by a data field rather than by a branch probability. We build the two
+# [`Select`](@ref) expresses: two independent named alternatives. Here the split
+# is known before fitting, so the records are sorted into an index batch and a
+# sourced batch in Julia and each batch is scored against its named alternative,
+# rather than routed per record by the node's selector. We build the two
 # alternatives with the composer front-ends and tie their shared incubation
 # period across both with [`shared`](@ref), so one incubation parameter set is
 # sampled once and reused by both branches.
@@ -151,7 +153,11 @@ for i in eachindex(pid)
                 onset = onset_day[i] - so, obs_time = horizon - so))
     else
         ## Zoonotic index (no human source): a broad-prior unobserved infection.
-        push!(index_rows, (infection = missing, onset = inc_window))
+        ## Its onset is the reference day `t0`, so the day offset placed here is
+        ## `inc_window`: the onset sits that many days after the window start,
+        ## not a coincidence with the prior width.
+        index_onset = inc_window
+        push!(index_rows, (infection = missing, onset = index_onset))
     end
 end
 (index = length(index_rows), sourced = length(sourced_rows))
@@ -198,7 +204,7 @@ end
 template = delay_select()
 
 # The recursive `show` lays out the disjunction: an `index` alternative and a
-# `sourced` alternative, picked per record by the selector field.
+# `sourced` alternative, each scored as a batch against its named alternative.
 template
 
 # Each alternative's flat event names are the columns its records supply.
@@ -266,8 +272,15 @@ inc_true = LogNormal(3.06, 0.32)
 delta_true = Normal(0.17, 0.62)
 
 # A generous real-time horizon (200 days) is used for the simulation so the
-# right-truncation is light and the truth is recovered cleanly; the truncation
-# machinery is exercised in full on the real fit below.
+# right-truncation is light and the truth is recovered; the truncation machinery
+# is exercised in full on the real fit below. The day-binned `round` draws below
+# match the model's day-resolution likelihood to the precision that matters
+# here. `round(x)` and the leaf's `floor(x + Uniform(0, 1))` are both unbiased
+# discretisations, so the simulated delays share the likelihood's mean, spread,
+# and quantiles. The simulation uses 4 index and 30 sourced records, so both
+# alternatives are exercised; the real fit has only 1 index record, so on the
+# real data the index alternative is effectively a single observation and the
+# incubation period is identified almost entirely from the sourced cases.
 sim_horizon = 200.0
 Random.seed!(20260608)
 sim_index = NamedTuple[]
@@ -282,7 +295,10 @@ end
 sim_sourced = NamedTuple[]
 for _ in 1:30
     ## Source onset 0 → exposure (transmission) → onset (incubation), the
-    ## exposure observed to the day, as in the real records.
+    ## exposure observed to the day, as in the real records. The incubation draw
+    ## is floored at half a day so it never rounds to a zero-day delay (which
+    ## would put onset on the exposure day); the LogNormal has negligible mass
+    ## there, so this does not shift the recovered parameters.
     transmission = round(rand(delta_true))
     incubation = round(rand(truncated(inc_true; lower = 0.5)))
     push!(sim_sourced,
@@ -319,9 +335,11 @@ sim_fit = update(template, sim_chain; prefix = :delays)
 sim_edge_means = mean(latent(event(sim_fit, :sourced)))
 
 # Posterior means against the simulating truth, read from the per-draw delay
-# parameters. The incubation period is recovered closely; the transmission
-# timing is recovered in the right region but with a wide interval, the first
-# sign of its weak identifiability.
+# parameters. The incubation truth is covered by its interval, often near an
+# edge at this light budget (150 warmup, 150 draws, 2 chains), where the tied
+# log-mean and log-SD are correlated and shift together; the transmission timing
+# is recovered in the right region but with a wide interval, the first sign of
+# its weak identifiability.
 function delta_params(chain)
     mu = vec(chain[Parameter(@varname(delays.sourced.srconset_infection.mu))])
     sigma = vec(chain[Parameter(
@@ -395,15 +413,19 @@ fig
 
 # ## Reading the fitted delays off the composed object
 #
-# The fitted incubation period comes straight off the updated composed object,
-# so the post-fit delay is the composer's leaf rather than a hand-built
-# distribution. The incubation mean delay in days is read from the per-draw
-# LogNormal means.
-fitted_inc = CensoredDistributions.free_leaf(
-    event(fit, :index, :infection_onset))
-
-inc_means = [mean(LogNormal(post_inc.mu[i], post_inc.sigma[i]))
-             for i in eachindex(post_inc.mu)]
+# The incubation mean delay in days is read straight off the updated composed
+# object rather than from a hand-built distribution.
+# [`update`](@ref) with `draw = i` rebuilds the composed delays at draw `i`, and
+# [`mean`](@ref CensoredDistributions.mean)`(latent(event(...)))` returns the
+# per-event means keyed by [`event_names`](@ref); the index alternative's
+# `onset` entry is the incubation mean delay carried from the within-window
+# infection to onset. Reading it per draw gives the posterior mean delay with
+# its interval.
+n_draws = length(post_inc.mu)
+inc_means = [mean(latent(event(
+                 update(template, chain; prefix = :delays, draw = i),
+                 :index))).onset
+             for i in 1:n_draws]
 inc_summary = (mean = mean(inc_means),
     lower = quantile(inc_means, 0.025), upper = quantile(inc_means, 0.975))
 
@@ -484,16 +506,14 @@ comparison
 # The result is a `delta` posterior that stays close to its prior, with a mean
 # near zero and a credible interval that spans both signs, in agreement with the
 # upstream finding that transmission clusters around source onset.
-# We report it from multiple chains as a pooled credible interval rather than a
-# single point estimate, and read it with its width in mind.
-delta_diag = DataFrame(
-    parameter = ["mu_delta", "sigma_delta"],
-    posterior_mean = round.([here.mu_delta.mean, here.sigma_delta.mean],
-        digits = 3),
-    pooled_lower = round.([here.mu_delta.lower, here.sigma_delta.lower],
-        digits = 3),
-    pooled_upper = round.([here.mu_delta.upper, here.sigma_delta.upper],
-        digits = 3))
+# A `delta` straddling zero implies a sizeable pre-symptomatic fraction: the
+# posterior probability that infection happens before the source's own onset,
+# `P(delta < 0)`, read per draw from the fitted transmission-timing Normal.
+presymptomatic = [cdf(Normal(post_delta.mu[i], post_delta.sigma[i]), 0.0)
+                  for i in eachindex(post_delta.mu)]
+presymptomatic_summary = (mean = round(mean(presymptomatic); digits = 2),
+    lower = round(quantile(presymptomatic, 0.025); digits = 2),
+    upper = round(quantile(presymptomatic, 0.975); digits = 2))
 
 # ## Transmission intensity through the outbreak
 #
@@ -516,9 +536,10 @@ delta_diag = DataFrame(
 Z = Int.(ll.Z)
 source_onset_day = onset_day
 
-# Weekly knots over the outbreak. `log R(t)` is piecewise linear between them.
-knots = collect(0.0:7.0:maximum(onset_day))
-knots[end] < maximum(onset_day) && push!(knots, maximum(onset_day))
+# Thirteen weekly knots over the outbreak, matching the upstream `log_R` grid.
+# `log R(t)` is piecewise linear between them; the few onsets past the last knot
+# are clamped to its value by `log_R_at`.
+knots = collect(0.0:7.0:(7.0 * 12))
 n_knots = length(knots)
 
 # Piecewise-linear interpolation of `log R(t)` between weekly knots, clamped to
@@ -583,9 +604,16 @@ rt_summary = DataFrame(
                for b in 1:n_knots])
 
 # `R(t)` starts above one and falls below it across the outbreak, the signature
-# of an epidemic brought under control. The published analysis reports the same
-# descent (from roughly 2.3 in the first weeks to about 0.4 by week 13) and a
-# dispersion near `k = 0.45`, both reproduced here within the credible bands.
+# of an epidemic brought under control. This standalone weekly walk over a small
+# offspring count is illustrative rather than a reproduction of the upstream
+# `R(t)`: the published joint analysis reports a sharper descent (from about 2.3
+# in the first weeks to roughly 0.4 by week 13) and a dispersion near
+# `k = 0.45`. The point estimates here are flatter (the week-1 mean sits below
+# the published value and the descent is shallower) because this layer is fitted
+# on its own, with the delays held at posterior means and full completeness
+# (`p = 1`), whereas upstream fits `R(t)` jointly with the delays under
+# real-time completeness. The published values fall inside the wide credible
+# bands below but are not closely matched at the point-estimate level.
 rfig = Figure(size = (760, 380))
 rax = Axis(rfig[1, 1]; xlabel = "week", ylabel = "R(t)",
     title = "Weekly reproduction number")
@@ -597,22 +625,30 @@ hlines!(rax, [1.0]; color = :grey, linestyle = :dash)
 rfig
 
 # The dispersion and the early/late reproduction number against the published
-# targets.
+# targets, with the posterior 95% interval alongside so the wide bands that
+# cover the targets are visible next to the point-estimate gaps.
 rt_compare = DataFrame(
     quantity = ["dispersion k", "R(t) week 1", "R(t) week $(n_knots)"],
     posterior = [round(k_summary.mean; digits = 2),
         rt_summary.R_mean[1], rt_summary.R_mean[end]],
+    posterior_lower = [round(k_summary.lower; digits = 2),
+        rt_summary.R_lower[1], rt_summary.R_lower[end]],
+    posterior_upper = [round(k_summary.upper; digits = 2),
+        rt_summary.R_upper[1], rt_summary.R_upper[end]],
     target = [0.45, 2.26, 0.38])
 
 # ## Reading R(t) in real time
 #
 # The retrospective offspring fit above scores every source at full strength:
-# `R_eff = R(t)`. Read in real time, a source's recent offspring may not yet
-# have shown symptoms, so the count is incomplete and the rate must be thinned
-# by the completeness of the offspring chain. The completeness is the CDF of the
+# `R_eff = R`. Read in real time, a source's recent offspring may not yet have
+# shown symptoms, so the count is incomplete and the rate must be thinned by the
+# completeness of the offspring chain. The completeness is the CDF of the
 # convolved delay `delta + inc` (the same convolution the sourced truncation
-# uses) evaluated at the time available since the source's onset. The package's
-# [`thin_by_completeness`](@ref) returns the thinned `R_eff = R(t) * p` directly,
+# uses) evaluated at the time available since the source's onset. To keep the
+# demonstration to one rate we thin the single week-1 reproduction number for
+# every source; a real-time read would instead thin each source by its own
+# `R(t)` interpolated at its onset day. The package's
+# [`thin_by_completeness`](@ref) returns the thinned `R_eff = R * p` directly,
 # and [`completeness_probability`](@ref) the underlying fraction `p`:
 inc_post = LogNormal(here.mu_inc.mean, here.sigma_inc.mean)
 delta_post = Normal(here.mu_delta.mean, here.sigma_delta.mean)
@@ -633,8 +669,9 @@ first(realtime_thinning, 6)
 # ## Summary
 #
 # - The two ways a case enters the model (zoonotic index or human-sourced) are
-#   one [`Select`](@ref) disjunction over named alternatives, picked per record
-#   by the data rather than by a branch probability.
+#   one [`Select`](@ref) disjunction over named alternatives; the records are
+#   pre-sorted into an index batch and a sourced batch and each batch is scored
+#   against its named alternative.
 # - Each alternative is built with the composer front-ends and
 #   [`double_interval_censored`](@ref) leaves; the incubation period is tied
 #   across both with [`shared`](@ref), so one parameter set is sampled once and
@@ -649,8 +686,11 @@ first(realtime_thinning, 6)
 #   `LogNormal(mu_inc ≈ 3.06, sigma_inc ≈ 0.32)` and its mean delay; the weakly
 #   identified transmission timing stays close to its prior, in agreement with
 #   the upstream finding that transmission clusters around source onset.
-# - The offspring layer reproduces the descending weekly reproduction number and
-#   the superspreading dispersion, and the completeness thinning corrects the
-#   rate when the line list is read before the outbreak has finished. The
-#   upstream model also runs counterfactual outbreak projections from these same
-#   posteriors, which are left to that analysis.
+# - The offspring layer shows a descending weekly reproduction number and a
+#   superspreading dispersion. Fitted on its own (delays held at posterior
+#   means, full completeness) rather than jointly as upstream, it is
+#   illustrative: the published descent and dispersion fall inside its wide
+#   credible bands but the point estimates are flatter. The completeness
+#   thinning corrects the rate when the line list is read before the outbreak
+#   has finished. The upstream model also runs counterfactual outbreak
+#   projections from these same posteriors, which are left to that analysis.
