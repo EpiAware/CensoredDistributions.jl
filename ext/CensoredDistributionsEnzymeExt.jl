@@ -40,10 +40,21 @@ function EnzymeRules.forward(
         ::Type{RT}, comp::Enzyme.Annotation{<:UnivariateDistribution},
         p::Enzyme.Annotation) where {RT <: Enzyme.Annotation}
     primal = _window_quantile(comp.val, p.val)
-    if RT <: Enzyme.Duplicated
-        return Enzyme.Duplicated(primal, zero(primal))
+    # The window endpoint carries no derivative, so every requested shadow is
+    # zero. Handle the scalar (`Duplicated`) and batched (`BatchDuplicated`,
+    # width > 1) return activities: a batched forward call (as
+    # DifferentiationInterface issues) needs the shadow returned as an
+    # `NTuple{W}` of zeros, else Enzyme rejects the rule's return type.
+    if RT <: Enzyme.BatchDuplicatedNoNeed
+        W = Enzyme.batch_size(RT)
+        return ntuple(_ -> zero(primal), W)
+    elseif RT <: Enzyme.BatchDuplicated
+        W = Enzyme.batch_size(RT)
+        return Enzyme.BatchDuplicated(primal, ntuple(_ -> zero(primal), W))
     elseif RT <: Enzyme.DuplicatedNoNeed
         return zero(primal)
+    elseif RT <: Enzyme.Duplicated
+        return Enzyme.Duplicated(primal, zero(primal))
     else
         return primal
     end
@@ -69,6 +80,18 @@ function EnzymeRules.reverse(
     # No cotangent flows back: the window endpoint is non-differentiable.
     return (nothing, nothing)
 end
+
+# NOTE: when the window endpoint feeds directly into active arithmetic (a
+# `Difference` whose differentiated subtrahend is unbounded above, so the upper
+# bound is a quantile of that component), Enzyme REVERSE treats the call as an
+# `Active` scalar return and passes the cotangent as an `Active` instance in the
+# `dret` slot, which the rule above does not match. A bespoke `Active`-return
+# reverse rule needs to emit a structured zero cotangent for the distribution
+# argument, which Enzyme's return-type check rejects when written naively; this
+# remains an unresolved Enzyme-reverse limitation for that scenario (registered
+# broken in `test/ADFixtures`). Enzyme FORWARD and the other backends are
+# correct. The forward rule above already returns zero (scalar and batched)
+# shadows, so forward is unaffected.
 
 # `EnzymeRules.@easy_rule` expands into both the reverse-mode
 # (`augmented_primal` / `reverse`) and forward-mode (`forward`) rules

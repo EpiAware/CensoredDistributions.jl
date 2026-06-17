@@ -257,13 +257,11 @@ function backend_broken_scenarios()
     # parameters ACTIVE. The window is a non-differentiated hyperparameter and the
     # ChainRules `@non_differentiable` / Mooncake `@zero_derivative` shields keep
     # ForwardDiff, ReverseDiff and both Mooncake modes correct (verified). Enzyme
-    # passes the `_window_quantile` result back as an `Active` return, a shape the
-    # existing `EnzymeRules.reverse`/`forward` methods (written for a `Const` /
-    # `Duplicated` return) do not match, so both Enzyme modes error. This is the
-    # same dual-stripped-window limitation tracked for the Convolved trailing-Gamma
-    # quadrature; Convolved sidesteps it because its finite upper bound avoids the
-    # quantile, whereas a Difference over an unbounded-above Y always needs it.
-    # Registered broken for both Enzyme modes; the analytic + Mooncake backends
+    # FORWARD is correct too (the `_window_quantile` rule returns scalar and
+    # batched zero shadows). Enzyme REVERSE treats the endpoint as an `Active`
+    # scalar return and passes the cotangent in a shape the value-level rule
+    # cannot emit a matching structured zero for, so it errors. Registered broken
+    # for Enzyme REVERSE only; the analytic, Mooncake and Enzyme-forward backends
     # cover its gradient.
     difference_y_window = "Difference LogNormal-Gamma numerical wrt Y"
     compiled_broken = Set{String}(
@@ -288,7 +286,7 @@ function backend_broken_scenarios()
         # `double_interval_censored(Sequential)` are now fixed (#319/#444 fixed
         # forward; reverse stays broken, see above).
         "Enzyme forward" => union(
-            Set{String}([nonterminal_comp, difference_y_window]),
+            Set{String}([nonterminal_comp]),
             compiled_broken)
     )
 end
