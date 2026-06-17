@@ -73,15 +73,62 @@ length(priors)
 "
 function latent_primary_priors(d, rows)
     rowvec = collect(Tables.rows(rows))
-    priors = Any[]
+    # The concrete prior element type is fixed by `d`'s STATIC structure (the
+    # leaf's primary event, or a chain's origin primary and bare edge cores, or a
+    # Select's latent alternatives), independent of any row VALUE. Determining it
+    # up front lets us fill a `Vector{T}` directly, so the return type is
+    # inferrable and `product_distribution(latent_primary_priors(...))` is type-
+    # stable: Mooncake then compiles one tight gradient rule (fast cold start)
+    # instead of a broad/dynamic one off a `Vector{Any}` narrowed at runtime
+    # (#595). The values are byte-identical to the previous `_narrow` build.
+    T = _latent_prior_eltype(d)
+    priors = Vector{T}()
     for row in rowvec
         nt = _row_namedtuple(row)
         alt = _latent_alternative(d, nt)
         alt === nothing && continue
         append!(priors, _latent_row_priors(alt))
     end
-    return _narrow(priors)
+    return priors
 end
+
+# The concrete element type of the stacked latent priors, derived from `d`'s
+# type alone (not from any row). A latent leaf/chain contributes the prior types
+# of `_latent_row_priors`; a Select promotes over its LATENT alternatives (the
+# only ones contributing priors), so a homogeneous table (one latent alternative,
+# all the same primary-event type) stays concretely typed and a heterogeneous one
+# (mixed primary-event types, or a chain's origin-plus-edge mix) widens to the
+# promotion, exactly as the previous runtime `_narrow` did. An all-marginal Select
+# (no latent alternative) has no priors, so the element type is irrelevant; it
+# falls back to the leaf/chain type, and the returned vector is empty regardless.
+_latent_prior_eltype(d::Latent) = _row_priors_eltype(d)
+_latent_prior_eltype(::UnivariateDistribution) = Union{}
+function _latent_prior_eltype(d::Select)
+    Ts = map(_latent_prior_eltype, d.alternatives)
+    return reduce(_promote_prior_type, Ts; init = Union{})
+end
+
+# The promoted type of a LATENT alternative's prior tuple, derived from its
+# wrapped node type. `_latent_prior_eltype` only routes a Latent alternative here
+# (a non-latent alternative is `Union{}`), so a bare `UnivariateDistribution`
+# here is a latent LEAF's wrapped delay: its single prior is the primary event,
+# matching `_latent_row_priors(::UnivariateDistribution)`.
+_row_priors_eltype(alt::Latent) = _row_priors_eltype(alt.dist)
+_row_priors_eltype(alt::UnivariateDistribution) = typeof(get_primary_event(alt))
+function _row_priors_eltype(chain::Sequential)
+    origin = _origin_primary_event(_first_origin_node(chain))
+    edges = map(_bare_latent_edge, Base.front(chain.components))
+    return reduce(_promote_prior_type, map(typeof, edges);
+        init = typeof(origin))
+end
+
+# Promote two prior element types the way `promote_type`/`_narrow` would, but with
+# `Union{}` (no contribution) acting as the identity so an all-marginal or empty
+# branch never widens the type.
+_promote_prior_type(::Type{Union{}}, ::Type{T}) where {T} = T
+_promote_prior_type(::Type{T}, ::Type{Union{}}) where {T} = T
+_promote_prior_type(::Type{Union{}}, ::Type{Union{}}) = Union{}
+_promote_prior_type(::Type{S}, ::Type{T}) where {S, T} = promote_type(S, T)
 
 # The latent priors of one latent row's alternative, flattened. A latent LEAF
 # contributes its single origin primary; a latent CHAIN contributes the origin
