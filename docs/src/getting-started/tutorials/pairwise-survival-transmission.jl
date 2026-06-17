@@ -28,9 +28,12 @@ stack.
 ### What are we going to do in this exercise
 
 We fit the 1861 Hagelloch measles outbreak, the canonical dataset for this
-method, recover the **transmission coefficients** ``\beta`` of Kenah's
-hazard-of-infectious-contact regression and ``R_0``, and read off the
-within-household effect.
+method, and recover the **transmission coefficients** ``\beta`` of Kenah's
+hazard-of-infectious-contact regression — the within-household and
+within-class effects, which are the result to trust here.
+We also read off an absolute household reproduction number, but treat it as an
+illustration of the mapping rather than a calibrated estimate, because this
+compact version omits infectious-period gating (explained where we compute it).
 
 1. Map each Kenah pairwise concept onto a composed primitive:
 
@@ -45,8 +48,8 @@ within-household effect.
 2. Identify the baseline contact interval as a stock `Weibull` leaf and put a
    log-rate regression ``\lambda_0 e^{\beta' x_{ij}}`` on its rate.
 3. Build the pairwise survival likelihood as a racing-hazard competing node.
-4. Fit the Hagelloch data and recover the transmission coefficients ``\beta``,
-   ``R_0`` and the within-household effect.
+4. Fit the Hagelloch data, recover the transmission coefficients ``\beta`` and
+   the within-household effect, and read off an illustrative household ``R_0``.
 
 ### What might I need to know before starting
 
@@ -92,13 +95,15 @@ carries the linear predictor.
 A single binary household covariate recovers the two-rate special case exactly,
 ``\log(\lambda_w / \lambda_b) = \beta_\text{household}``, but the same structure
 takes any number of pair covariates.
-Any `UnivariateDistribution` that reports a `logpdf` and a `logccdf` is a valid
-cause-specific delay for the racing-hazard node, so a richer baseline — a
-[SurvivalDistributions.jl](@ref survival-delay-families) leaf
-(`GeneralizedGamma`, `PowerGeneralizedWeibull`) or a piecewise-constant hazard —
-drops in unchanged with no new package feature; we use the Weibull baseline here
-because the `transtat` contact interval *is* a Weibull and the regression rides
-on its rate.
+Any `UnivariateDistribution` whose `logpdf` and `logccdf` differentiate under
+the chosen AD backend is a valid cause-specific delay for the racing-hazard
+node, so a richer baseline — a
+[SurvivalDistributions.jl](@ref survival-delay-families) leaf or a
+piecewise-constant hazard — drops in once its survival is AD-safe; some
+families need the package's AD-safe routing for that (the SurvivalDistributions
+extension adds it for `GeneralizedGamma`).
+We use the Weibull baseline here because the `transtat` contact interval *is* a
+Weibull and the regression rides on its rate.
 
 For a susceptible ``j`` infected at time ``t_j``, let ``R(j)`` be the set of
 sources infectious before ``t_j`` and write ``g_{ij} = t_j - o_i`` for the gap
@@ -129,10 +134,9 @@ using CSV, DataFramesMeta, Dates
 using CensoredDistributions, Distributions
 using Turing, Random, Statistics
 using LinearAlgebra: dot, I
+using FlexiChains: Parameter, Extra, rhat, ess
 import Mooncake
 using ADTypes: AutoMooncake
-import Distributions: logpdf, logccdf, pdf, cdf, ccdf, quantile
-import Base: minimum, maximum, rand
 
 md"""
 ## The contact-interval leaf and its rate regression
@@ -204,32 +208,17 @@ md"""
 In a real outbreak the sources do *not* share a clock: each source ``i`` starts
 its own contact-interval clock at its infectiousness onset ``o_i``, so on the
 *outbreak* clock source ``i``'s contact time is ``o_i + \tau``.
-`Anchored` shifts a contact-interval leaf by a source's onset, a second tiny
-custom leaf: evaluating it at an outbreak time ``t`` reads the underlying leaf
-at the gap ``t - o_i``.
+This is a deterministic shift of the contact-interval leaf by the source's
+onset, which is exactly the additive special case of the exported
+[`affine`](@ref) primitive ``Y = \text{scale}\cdot X + \text{shift}``:
+`affine(leaf; shift = o_i)` reads the underlying leaf at the gap ``t - o_i`` when
+evaluated at an outbreak time ``t``, and nests as a leaf in
+[`competing`](@ref) like any other distribution.
 This lets a racing-hazard node over sources be scored at the *susceptible's*
 infection time directly, with every source automatically read at its own gap
 ``g_{ij} = t_j - o_i`` — the node's `logpdf` at ``t_j`` is then exactly the
 cause-resolved pairwise density ``\sum_i f(g_{ij}) \prod_{k \ne i} S(g_{kj})``.
 """
-
-struct Anchored{D <: UnivariateDistribution, T <: Real} <:
-       ContinuousUnivariateDistribution
-    "The contact-interval leaf measured from the source's onset."
-    leaf::D
-    "The source's infectiousness-onset time on the outbreak clock."
-    onset::T
-end
-
-minimum(d::Anchored) = d.onset + minimum(d.leaf)
-maximum(d::Anchored) = d.onset + maximum(d.leaf)
-logpdf(d::Anchored, t::Real) = logpdf(d.leaf, t - d.onset)
-pdf(d::Anchored, t::Real) = exp(logpdf(d, t))
-logccdf(d::Anchored, t::Real) = logccdf(d.leaf, t - d.onset)
-ccdf(d::Anchored, t::Real) = exp(logccdf(d, t))
-cdf(d::Anchored, t::Real) = cdf(d.leaf, t - d.onset)
-quantile(d::Anchored, p::Real) = d.onset + quantile(d.leaf, p)
-rand(rng::AbstractRNG, d::Anchored) = d.onset + rand(rng, d.leaf)
 
 md"""
 Two sources with different onsets, scored at the susceptible's infection time:
@@ -238,8 +227,9 @@ survival is the product of the per-source survivals.
 """
 
 let onset_near = 1.0, onset_far = 2.5, t_infect = 6.0
-    node = competing(:near => Anchored(contact_interval(0.4, 1.6), onset_near),
-        :far => Anchored(contact_interval(0.1, 1.6), onset_far))
+    node = competing(
+        :near => affine(contact_interval(0.4, 1.6); shift = onset_near),
+        :far => affine(contact_interval(0.1, 1.6); shift = onset_far))
     (; marginal_logpdf = logpdf(node, t_infect),
         joint_logsurvival = logccdf(node, t_infect))
 end
@@ -346,12 +336,12 @@ end
 function source_delays(
         log_lambda0, beta, gamma, onset, household, class, sources, j)
     return Tuple(
-        Anchored(
+        affine(
             contact_interval(
                 pair_rate(log_lambda0, beta,
                     pair_covariates(household, class, i, j)),
-                gamma),
-            onset[i])
+                gamma);
+            shift = onset[i])
     for i in sources)
 end
 
@@ -417,11 +407,14 @@ racing node is *rebuilt per susceptible* over a different at-risk source set
 and the susceptible's infection time is scored as the node's marginal rather than
 as a named-event record. So the right composed primitive is the racing-hazard
 [`competing`](@ref) node — which the package *does* supply and which the
-agreement check confirms is the same likelihood — and the manual part that
+agreement check below confirms is the same likelihood — and the manual part that
 remains is only the per-susceptible loop and the log-sum-exp reduction.
-We write that reduction out directly so the likelihood evaluates the leaf
-`logpdf`/`logccdf` without allocating a fresh `competing` node on every gradient
-step (the closed Hagelloch fit scores every ordered at-risk pair).
+`HazardCompeting`'s own `logpdf` is itself an AD-safe log-sum-exp, so fitting
+through `logpdf(source_node(...), t_j)` differentiates cleanly under the
+Mooncake backend used here; `susceptible_loglik` is a *per-susceptible inlining*
+of that node `logpdf`, equivalent to it (checked below), that skips rebuilding a
+fresh `competing` node of a new arity for each susceptible on every gradient
+step.
 Each source's rate is the regression ``\lambda_0\, e^{\beta' x_{ij}}`` evaluated
 at the pair's covariates; the shared shape ``\gamma`` carries the hazard's time
 shape.
@@ -491,13 +484,6 @@ The racing-hazard node's marginal `logpdf` sums the cause-resolved sub-densities
 over the sources, so we do not need to know which source actually won to fit the
 contact-interval parameters; the unknown infector is marginalised.
 
-The right-censoring is implicit in the racing marginal: every source that
-*could* have infected ``j`` but did not contributes its survival ``S`` inside
-the same node, so every at-risk pair that did **not** win is already a survival
-term — the no-event branch of the racing-hazard likelihood.
-"""
-
-md"""
 ## Fit with Turing
 
 We put a weakly-informative prior on the baseline log-rate ``\log\lambda_0``,
@@ -522,7 +508,21 @@ end
 n_cov = length(first(first(pairs)[2]))
 rng = MersenneTwister(2024)
 chain = sample(rng, hagelloch_pairwise(pairs, n_cov),
-    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), 400; progress = false)
+    NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
+    MCMCThreads(), 1000, 4; progress = false)
+
+md"""
+We check the sampler before reading the estimands: across the four chains we
+take the worst-case ``\hat{R}`` (the between- over within-chain variance ratio,
+which should sit near one) and the smallest effective sample size over the model
+parameters, and count any divergent transitions flagged by NUTS.
+"""
+
+model_params = [k for k in keys(rhat(chain)) if k isa Parameter]
+divergences = sum(skipmissing(vec(chain[Extra(:numerical_error)])))
+(; max_rhat = maximum(rhat(chain)[k] for k in model_params),
+    min_ess = minimum(ess(chain)[k] for k in model_params),
+    n_divergences = divergences)
 
 md"""
 The posterior summaries for the baseline rate, the transmission coefficients
@@ -540,11 +540,17 @@ post = (; log_lambda0 = mean(chain[:log_lambda0]),
 md"""
 ## Estimands: transmission coefficients and ``R_0``
 
-The **transmission coefficients** ``\beta`` are the headline estimands.
+The **transmission coefficients** ``\beta`` are the headline estimands, and they
+are the part of this fit to trust: they are *relative* quantities (a log-hazard
+ratio between pair types) and so are insensitive to the absolute scale of the
+at-risk denominator discussed below.
 ``\beta_m`` is the log-hazard-ratio of infectious contact for covariate ``m``, so
 ``e^{\beta_m}`` is the multiplicative effect on the contact *rate*: sharing a
 household (or a school class) multiplies the rate of infectious contact by
 ``e^{\beta_\text{household}}`` (or ``e^{\beta_\text{class}}``).
+Both effects recover well — strong within-household and within-class contact
+hazards, with ``\gamma > 1`` (infectiousness building after prodrome) — and
+match the Kenah (2011) and Neal & Roberts (2004) picture qualitatively.
 Because a Weibull's cumulative hazard scales as the rate raised to the shape, the
 same effect on the *cumulative-hazard* scale (the within-window contact
 probability) is ``e^{\gamma \beta_m}``; the single-covariate special case
@@ -575,6 +581,21 @@ We take a measles-typical infectious window of `w = 8` days
 [neal2004statistical](@cite); a community ``R_0`` would add the between-household
 contacts over the larger susceptible pool, governed by the baseline rate
 ``\lambda_0``.
+
+Unlike the ``\beta`` ratios, this is an *absolute* estimand, and we show it as an
+illustration of the mapping, not as a reliable measles ``R_0``.
+It comes out well below the historical within-household secondary attack rate for
+measles (``\approx 0.6\text{–}0.8``), and the reason is structural: every prior
+case stays an at-risk source for every later susceptible forever, because this
+page does *not* gate sources by an infectious period.
+That inflates the surviving-pair denominator, pulls the baseline rate
+``\lambda_0`` (and hence ``F(w)`` and ``R_\text{household}``) low, and biases the
+absolute number downward.
+Gating each source with a recovery/rash-onset window (a recovery-time leaf, noted
+in the refinements below) would shrink the denominator and move ``\lambda_0`` and
+``R_\text{household}`` into a measles-plausible range; that is out of scope here,
+so read the value below as a lower bound that demonstrates the calculation rather
+than a calibrated estimate.
 """
 
 mean_hh_susc = n / length(unique(household)) - 1
@@ -652,10 +673,15 @@ chance = [1 / n_sources_at_risk(onset, j)
 
 md"""
 The model places more ``\arg\min`` mass on the *recorded* infector than the
-chance baseline (one over the number of at-risk sources), so the fitted
-contact-hazard regression — driven only by timing and the household/class
-covariates — recovers a transmission tree consistent with the outbreak
-reconstruction without ever being shown it.
+chance baseline (one over the number of at-risk sources): the fitted
+contact-hazard regression, driven only by timing and the household/class
+covariates and never shown the recorded tree, points at the recorded infector
+several times more often than chance.
+This is a *minority* of the mass, not a confident reconstruction — the same
+un-gated at-risk window that biases ``R_\text{household}`` low also leaves many
+old sources competing for each susceptible — so read it as evidence that the
+timing-and-covariate signal is informative about who-infected-whom, not as a
+recovered transmission tree.
 
 ## Mapping back to `transtat`
 
@@ -665,9 +691,9 @@ survival method [kenah2011contact](@cite) on the composer stack:
 - the **contact interval** is a stock `Weibull` baseline whose rate carries
   Kenah's log-rate regression ``\lambda_0\, e^{\beta' x_{ij}}``, so the
   transmission coefficients ``\beta`` are estimated directly; because the racing
-  node needs only a `logpdf` and a `logccdf`, any richer baseline (a
-  [SurvivalDistributions.jl](@ref survival-delay-families) leaf such as
-  `GeneralizedGamma`, a piecewise-constant hazard) drops in unchanged;
+  node needs only a `logpdf` and a `logccdf`, any richer baseline with an
+  AD-safe survival (a [SurvivalDistributions.jl](@ref survival-delay-families)
+  leaf, a piecewise-constant hazard) drops in;
 - the **racing across sources** is the racing-hazard [`competing`](@ref) node,
   whose cause-resolved marginal is the pairwise likelihood and whose
   ``\arg\min`` draws give the who-infected-whom posterior;
