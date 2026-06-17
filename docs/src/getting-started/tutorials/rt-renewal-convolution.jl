@@ -29,9 +29,10 @@ We cover:
    observed cases and deaths.
 2. A Turing fit: the same renewal and combined-stack convolution recomputed
    inside a `@model`, fitting Rt, ascertainment and IFR to the simulated cases
-   and deaths, and recovering the truth.
-3. A posterior-predictive check: push the posterior back through the same forward
-   map and overlay the fitted case and death series, with a band, on the data.
+   and deaths, and assessing how well each is recovered.
+3. A posterior-predictive check: push the posterior back through the same
+   forward map and overlay the fitted case and death series, with a band, on
+   the data.
 
 ### What might I need to know before starting
 
@@ -198,12 +199,16 @@ We pick a true Rt path (a piecewise level that rises, dips below one and
 recovers), a true ascertainment and a true IFR, run the renewal, and convolve
 through the combined stack.
 This exercises the full observation machinery with no Turing in sight.
+
+The Rt path changes level on the same day boundaries the fitted block model
+uses (every 18 days), so the four blocks can represent the truth exactly and
+the per-block truth we score against later is not a simplification.
 """
 
 n_days = 70
 
-true_Rt = vcat(fill(1.6, 18), fill(0.7, 17), fill(1.3, 18),
-    fill(1.0, n_days - 53))
+true_Rt = vcat(fill(1.6, 18), fill(0.7, 18), fill(1.3, 18),
+    fill(1.0, n_days - 54))
 
 true_alpha = 0.3
 
@@ -230,6 +235,8 @@ expected_deaths = expected.deaths
 md"""
 The expected counts are Poisson means; we draw observed counts to act as the
 data the fit will see.
+We use one RNG for the data here and a separate one for the sampler later, so
+the simulated dataset and the fit are seeded independently.
 """
 
 rng = MersenneTwister(20260610)
@@ -282,8 +289,10 @@ scales threaded through [`thin`](@ref) and recomputes both expected streams with
 the same single [`convolve_distributions`](@ref) call used in the forward demo.
 The sampled `alpha` and `rho` are AD duals; [`thin`](@ref) carries them as
 forward factors and the convolution stays AD-safe, so nothing special is needed.
-We give Rt a small piecewise level per block, so the parameter count stays low
-and the subprocess build is fast.
+We give Rt a small piecewise level per block, so the parameter count stays low.
+The block layout (`n_blocks`, `block_len`, `block_of`) is defined once below and
+read as globals inside the `@model` and the predictive map, to keep the renewal
+and observation code shared across the forward demo and the fit.
 """
 
 n_blocks = 4
@@ -293,10 +302,8 @@ block_len = ceil(Int, n_days / n_blocks)
 block_of(t) = min(n_blocks, fld(t - 1, block_len) + 1)
 
 md"""
-Mooncake reverse-mode AD differentiates the convolved stack.
-The branched stack derives its event names from constant branch labels, a
-string operation Mooncake cannot trace; the package declares those
-name-derivation helpers as zero-adjoint Mooncake rules, so the gradient flows
+Mooncake reverse-mode AD differentiates the convolved stack, and the package
+ships the rules needed for the branched event names so the gradient flows
 through the delay parameters with no per-model intervention.
 """
 
@@ -319,11 +326,13 @@ through the delay parameters with no per-model intervention.
 end
 
 md"""
-We fit with NUTS on Mooncake, sampling four chains in parallel with
-[`MCMCThreads`](https://turinglang.org/Turing.jl/stable/) so the run uses the
-available cores.
-The budget is enough to recover the block-level Rt, the ascertainment and the
-IFR at this size.
+We fit with NUTS on Mooncake, sampling two chains in parallel with
+[`MCMCThreads`](https://turinglang.org/Turing.jl/stable/).
+We take a small number of post-warmup draws per chain, which is enough to show
+that the well-identified parameters recover.
+Most of the runtime is the one-off Mooncake compilation of the renewal and
+convolution gradient rather than the draws themselves, so the page sits with the
+other heavy fitting tutorials rather than the quick ones.
 """
 
 model = rt_renewal(cases_obs, deaths_obs, g, incubation, onset_report,
@@ -331,7 +340,7 @@ model = rt_renewal(cases_obs, deaths_obs, g, incubation, onset_report,
 
 chain = sample(Xoshiro(1), model,
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 300, 4; chain_type = VNChain, progress = false)
+    MCMCThreads(), 100, 2; chain_type = VNChain, progress = false)
 
 md"""
 ## Recovery
@@ -364,10 +373,16 @@ recovery = (
     ifr = (truth = true_rho, posterior = round(post_rho; digits = 4)))
 
 md"""
-The fit recovers all three: the block-level Rt tracks the true rise, dip and
-recovery, and the ascertainment and IFR land near their true scales despite
-never being observed directly.
-The two streams together identify the scales that a single stream could not.
+The block-level Rt and the ascertainment recover well: the block levels track
+the true rise, dip and recovery to within a few percent, and the ascertainment
+lands near its true value despite never being observed directly.
+The IFR is only weakly identified.
+The simulated death stream is thin (around ten deaths over the whole period),
+so it carries little information about ``\rho``; the posterior sits between the
+data and the `Beta(1, 50)` prior and recovers the right order of magnitude
+rather than a sharp point estimate.
+Fitting both streams together still identifies the case-side scale that a
+single stream could not, while the death-side scale stays uncertain.
 We plot the true Rt path against the posterior-mean block levels with
 AlgebraOfGraphics.
 """
@@ -412,19 +427,28 @@ end
 pred = [predict_streams(d) for d in post_draws]
 
 md"""
-We summarise the predictive expected streams by their pointwise median and a
-50-to-95% band across draws, then overlay the simulated observed counts the fit
-saw.
+For each draw we resample the Poisson observation layer, `rand(Poisson(mean))`,
+so the band is a true posterior-predictive interval that includes observation
+noise rather than a credible interval on the expected count alone.
+This matters for the deaths panel, where the counts are 0 to 2 and the
+observation noise dominates: a band on the mean alone would be far too narrow to
+contain integer counts.
+We summarise the predictive draws by their pointwise median and a 95% band, then
+overlay the simulated observed counts the fit saw.
 A model that fits well has the observed points sitting inside its predictive
 band.
 """
 
+pred_rng = MersenneTwister(20260611)
+
 function band_df(series, kind)
     mat = reduce(hcat, series)
+    draws_pp = [rand(pred_rng, Poisson(max(mat[t, d], 0.0) + 1e-6))
+                for t in 1:n_days, d in axes(mat, 2)]
     return DataFrame(day = 1:n_days, kind = kind,
-        med = [median(mat[t, :]) for t in 1:n_days],
-        lo = [quantile(mat[t, :], 0.025) for t in 1:n_days],
-        hi = [quantile(mat[t, :], 0.975) for t in 1:n_days])
+        med = [median(draws_pp[t, :]) for t in 1:n_days],
+        lo = [quantile(draws_pp[t, :], 0.025) for t in 1:n_days],
+        hi = [quantile(draws_pp[t, :], 0.975) for t in 1:n_days])
 end
 
 pp_band = vcat(
@@ -469,8 +493,10 @@ rather than only by parameter recovery.
   onset to report for cases and onset to death for deaths, each scaled by a
   [`thin`](@ref) factor carried in the stack.
 - Thinning matters because the streams sit at different scales; fitting both at
-  once identifies the ascertainment and IFR that a single stream cannot.
+  once identifies the case-side ascertainment, while the IFR stays only weakly
+  identified from the thin death stream.
 - The combined stack is AD-safe, so the same renewal, single convolution and
-  in-stack thinning run inside a Turing `@model` and recover Rt, ascertainment
-  and IFR with Mooncake reverse-mode AD across parallel chains.
+  in-stack thinning run inside a Turing `@model` with Mooncake reverse-mode AD
+  across parallel chains; Rt and the ascertainment recover well, while the IFR
+  is only weakly identified from the thin death stream.
 """
