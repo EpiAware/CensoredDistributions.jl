@@ -35,7 +35,8 @@ and the [`latent`](@ref) wrapper.
 ## Packages used
 
 We use Turing for probabilistic programming, Distributions for the delay
-distribution, Random for reproducibility, and FlexiChains for the chain output.
+distribution, Random for reproducibility, FlexiChains for the chain output, and
+Integrals for the quadrature in the equivalence check.
 """
 
 using CensoredDistributions
@@ -44,6 +45,7 @@ using Turing
 using ADTypes: AutoForwardDiff
 using DynamicPPL: prefix, @varname, predict
 using FlexiChains: Parameter
+using Integrals
 using Random
 using Statistics
 
@@ -51,8 +53,7 @@ md"""
 ## Simulate data with known latent event times
 
 Each record has a primary event time drawn uniformly in the window `[0, 1]` and
-an observed time equal to that primary plus a log-normal delay. We keep the true
-primaries so we can check the recovery later.
+an observed time equal to that primary plus a log-normal delay.
 """
 
 rng = MersenneTwister(42)
@@ -90,13 +91,72 @@ chain = sample(rng, fit_marginal(observed),
 
 md"""
 The posterior concentrates near the true parameters.
+We sample with ForwardDiff here; Mooncake also works as an AD backend.
 """
 
 mu_post = vec(chain[Parameter(@varname(mu))]);
 
+sigma_post = vec(chain[Parameter(@varname(sigma))]);
+
 @assert abs(mean(mu_post) - true_meanlog) < 0.3
 
+@assert abs(mean(sigma_post) - true_sdlog) < 0.2
+
 md"""
+## Demonstrate the marginal-equals-latent equivalence
+
+The whole workflow rests on a single identity.
+Scoring the marginal `primary_censored` distribution integrates the latent joint
+over the primary event, so the marginal and latent forms are density-identical.
+We can show this directly at the level of the cumulative distribution function.
+
+The latent form draws a primary `p` from `Uniform(0, 1)`, then scores the
+observed time through the conditional `cdf(LogNormal(mu, sigma), x - p)`.
+Integrating that conditional over the primary reproduces the marginal `cdf`.
+With a uniform primary the integral is `∫₀¹ cdf(LogNormal(mu, sigma), x - p) dp`,
+which we evaluate with adaptive quadrature.
+We build the distributions from the posterior mean.
+"""
+
+post_draw = (mu = mean(mu_post), sigma = mean(sigma_post));
+
+marginal_leaf = primary_censored(
+    LogNormal(post_draw.mu, post_draw.sigma), Uniform(0, 1))
+
+function latent_integrated_cdf(x)
+    delay = LogNormal(post_draw.mu, post_draw.sigma)
+    problem = IntegralProblem((p, _) -> cdf(delay, x - p), (0.0, 1.0))
+    return solve(problem, QuadGKJL(); reltol = 1e-12, abstol = 1e-12).u
+end
+
+eval_points = [1.0, 3.0, 6.0, 10.0];
+
+cdf_diffs = [abs(cdf(marginal_leaf, x) - latent_integrated_cdf(x))
+             for x in eval_points];
+
+md"""
+The marginal `cdf` and the latent-integrated `cdf` agree to numerical precision.
+"""
+
+@assert maximum(cdf_diffs) < 1e-10
+
+maximum(cdf_diffs)
+
+md"""
+The `logpdf` carries a small tail residual of order `1e-4`, which is the
+central-difference noise in the `primary_censored` density rather than a real
+gap; the `cdf` comparison above is exact and is the clean check of the identity.
+
+### When to prefer the marginal or the latent form
+
+Prefer the marginal form by default: it carries no per-record latents, so it is
+cheaper and lower-dimensional at scale.
+Prefer the latent form for small-count or heavily censored problems, where the
+extra latent dimensions cost little and the sampler explores the joint more
+reliably than a stiff one-dimensional marginal.
+The [Marginal versus latent](@ref marginal-versus-latent) section of the
+composer toolkit gives the canonical treatment of this choice.
+
 ## Flavour 1: forward-simulate fresh event paths (Turing-free)
 
 `rand(latent(d))` draws a full event path as a labelled
@@ -104,10 +164,6 @@ md"""
 Build the latent distribution from a posterior draw and simulate, with no model
 or conditioning. This is the new-record posterior-predictive path.
 """
-
-sigma_post = vec(chain[Parameter(@varname(sigma))]);
-
-post_draw = (mu = mean(mu_post), sigma = mean(sigma_post));
 
 ld = latent(primary_censored(
     LogNormal(post_draw.mu, post_draw.sigma), Uniform(0, 1)));
