@@ -90,6 +90,21 @@ it). Part of the public composer-node extension contract, alongside
 [`child_logpdf`](@ref) and [`child_rand!`](@ref); see
 [Writing a new composer node](@ref new-composer-node). A univariate leaf occupies
 one slot; a nested node occupies the sum of its children's widths.
+
+# Arguments
+- `node`: the composer node or leaf distribution whose flat slot width is read.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+node = compose((onset = Gamma(2.0, 1.0), report = Gamma(1.5, 1.0)))
+CensoredDistributions.child_nleaves(node)
+```
+
+# See also
+- [`child_logpdf`](@ref): score a node's slice of the flat vector.
+- [`child_rand!`](@ref): draw a node into its slice of the flat vector.
 """
 function child_nleaves end
 
@@ -221,6 +236,26 @@ composer-node extension contract, alongside [`child_nleaves`](@ref) and
 [Writing a new composer node](@ref new-composer-node). A univariate leaf scores
 the one scalar at its slot; a nested node recurses into its children, passing
 each its own offset.
+
+# Arguments
+- `node`: the composer node or leaf distribution to score.
+- `x`: the flat event vector being scored.
+- `offset`: the zero-based start index of this node's slice in `x`.
+- `n`: the slice width, `child_nleaves(node)`.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+node = compose((onset = Gamma(2.0, 1.0), report = Gamma(1.5, 1.0)))
+n = CensoredDistributions.child_nleaves(node)
+x = collect(values(rand(node)))
+CensoredDistributions.child_logpdf(node, x, 0, n)
+```
+
+# See also
+- [`child_nleaves`](@ref): the slice width `n` to pass.
+- [`child_rand!`](@ref): draw a node into its slice of the flat vector.
 """
 function child_logpdf end
 
@@ -277,6 +312,26 @@ flat output vector, where `n` is [`child_nleaves`](@ref)`(node)`. Returns
 [`child_nleaves`](@ref) and [`child_logpdf`](@ref); see
 [Writing a new composer node](@ref new-composer-node). A univariate leaf writes
 its one slot; a nested node fills its slice by recursing into its children.
+
+# Arguments
+- `out`: the flat output vector to write into.
+- `offset`: the zero-based start index of this node's slice in `out`.
+- `rng`: the random number generator to draw from.
+- `node`: the composer node or leaf distribution to draw.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, Random
+
+node = compose((onset = Gamma(2.0, 1.0), report = Gamma(1.5, 1.0)))
+out = zeros(CensoredDistributions.child_nleaves(node))
+CensoredDistributions.child_rand!(out, 0, Random.default_rng(), node)
+out
+```
+
+# See also
+- [`child_nleaves`](@ref): the slice width written.
+- [`child_logpdf`](@ref): score a node's slice of the flat vector.
 """
 function child_rand! end
 
