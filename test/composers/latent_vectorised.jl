@@ -295,3 +295,49 @@ end
             @varname(r3.obs.e[1]) => e0, @varname(r3.obs.e[2]) => e1v))
     @test logjoint(cv, (;)) ≈ logjoint(cp, (;))
 end
+
+@testitem "latent_primary_priors returns a concretely-typed vector (#595)" begin
+    using CensoredDistributions, Distributions, Test
+    using CensoredDistributions: latent, latent_primary_priors, selecting,
+                                 Sequential
+
+    # The homogeneous latent leaf is the common case: every prior is the same
+    # primary-event type, so the return type is the concrete element vector and
+    # `latent_primary_priors` is `@inferred`-clean. This keeps
+    # `product_distribution(latent_primary_priors(...))` type-stable so Mooncake
+    # compiles one tight gradient rule (fast cold start) rather than a broad rule
+    # off a runtime-narrowed `Vector{Any}` (#595).
+    d = latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
+    rows = [(delay = 3.0,), (delay = 5.0,)]
+    p = @inferred latent_primary_priors(d, rows)
+    @test p isa Vector{Uniform{Float64}}
+    rt = only(Base.return_types(latent_primary_priors, (typeof(d), typeof(rows))))
+    @test isconcretetype(rt)
+
+    # A mixed Select table with one (homogeneous) latent alternative stays
+    # concretely typed too: the marginal alternative contributes no priors.
+    ds = selecting(
+        :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+        :sourced => latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))))
+    srows = [(kind = :index, delay = 3.0), (kind = :sourced, delay = 5.0)]
+    ps = @inferred latent_primary_priors(ds, srows)
+    @test ps isa Vector{Uniform{Float64}}
+
+    # The empty case (all-marginal table) returns a correctly-typed EMPTY vector,
+    # so the call site can skip the `primaries ~ ...` statement without a
+    # `Vector{Any}`/`Union{}` regression.
+    erows = [(kind = :index, delay = 3.0), (kind = :index, delay = 2.0)]
+    ep = @inferred latent_primary_priors(ds, erows)
+    @test ep isa Vector{Uniform{Float64}}
+    @test isempty(ep)
+
+    # A heterogeneous chain (origin primary + bare edge core, different types)
+    # still works: the return type widens to the promotion, not an error.
+    e1 = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    e2 = primary_censored(Gamma(3.0, 1.5), Uniform(0, 1))
+    chain = latent(Sequential((e1, e2), (:onset_admit, :admit_death)))
+    crows = [(onset = missing, admit = missing, death = 6.0)]
+    cp = @inferred latent_primary_priors(chain, crows)
+    @test length(cp) == 2
+    @test product_distribution(cp) isa Distribution
+end
