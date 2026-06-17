@@ -17,7 +17,7 @@
 #   - `mean(parallel)` / `var(parallel)` / `std(parallel)` -> a NamedTuple over
 #     the per-ENDPOINT names (the multivariate marginal of a `Parallel`).
 #
-# A univariate-collapsible composer (`Sequential` chain, `Competing`, censored
+# A univariate-collapsible composer (`Sequential` chain, `Resolve`, censored
 # leaf) keeps its scalar `mean`/`var`/`std`. The internal vector-valued moment /
 # realisation builders are untouched; these helpers wrap their result by name.
 
@@ -57,7 +57,7 @@ end
 
 # Per-VALUE leaf names of a plain (uncensored) composer, in the same depth-first
 # layout as `_value_moment_vector` / the generic `_composite_rand`: one name per
-# leaf value, a nested composer recursing into its children, a leaf / `Competing`
+# leaf value, a nested composer recursing into its children, a leaf / `Resolve`
 # named by its component name. Names from nested levels are JOINED into a single
 # dotted-underscore path (`:r1_step_1`) so a positional default repeated across
 # nesting levels (a default `:step_1` in two branches) still yields UNIQUE
@@ -100,7 +100,7 @@ end
 # `mean(d::Parallel)` / `var` / `std` produces. It mirrors the
 # `_endpoint_moment_vector` walk exactly: one name per collapsed branch
 # endpoint, in branch order, a nested `Parallel` flattening its own endpoints
-# in. A `Sequential` / `Competing` / leaf branch collapses to its single
+# in. A `Sequential` / `Resolve` / leaf branch collapses to its single
 # endpoint and is named by its branch (component) name.
 
 function _endpoint_names(d::Parallel)
@@ -121,7 +121,7 @@ function _append_endpoint_names!(out, ::Symbol, branch::Parallel)
     end
     return out
 end
-# Every other branch (a `Sequential` / `Competing` / leaf) collapses to ONE
+# Every other branch (a `Sequential` / `Resolve` / leaf) collapses to ONE
 # endpoint, named by its branch name.
 function _append_endpoint_names!(out, name::Symbol, ::Any)
     push!(out, name)

@@ -39,7 +39,7 @@ A single stratum (`length(ds) == 1`, every `group[i] == 1`) is bit-identical to
 `record_distributions(ds[1], rows)`.
 
 A stratum's distribution may be a composer (a [`Sequential`](@ref) /
-[`Parallel`](@ref) / [`Select`](@ref)) OR a BARE leaf (a univariate / censored
+[`Parallel`](@ref) / [`Choose`](@ref)) OR a BARE leaf (a univariate / censored
 leaf): a single-delay model can pass a vector of bare leaves and each record
 scores its leaf directly, with no one-edge `Sequential` wrapper. The bare-leaf
 record is density-equal to the one-edge-`Sequential`-wrapped form observed from a

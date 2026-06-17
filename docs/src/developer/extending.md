@@ -152,8 +152,8 @@ build_priors(params_table(tree))
 
 A custom leaf is one delay.
 A custom node is a new way to combine branches, alongside the built-in
-[`Sequential`](@ref), [`Parallel`](@ref), [`Competing`](@ref) and
-[`selecting`](@ref).
+[`Sequential`](@ref), [`Parallel`](@ref), [`Resolve`](@ref) and
+[`choose`](@ref).
 Where a leaf takes part through the `Distributions.jl` methods, a node plugs in
 through three public methods.
 
@@ -273,7 +273,7 @@ change it.
 |---|---|---|
 | [`update`](@ref)`(d, params::NamedTuple)` | replace free parameter values | no |
 | [`update`](@ref)`(d, path => new_node)` | replace whole nodes | no |
-| [`prune`](@ref)`(d, path)` | drop a branch (renormalise a `Competing` arm) | yes |
+| [`prune`](@ref)`(d, path)` | drop a branch (renormalise a `Resolve` arm) | yes |
 | [`splice`](@ref)`(d, path; before, after)` | insert a before/after step | yes |
 
 [`update`](@ref) is the single verb for both shape-preserving edits.
@@ -282,7 +282,7 @@ replace whole nodes.
 Both dispatch on the second argument, sharing the recursive reconstruction.
 
 [`prune`](@ref) and [`splice`](@ref) are the two topology edits.
-`prune` drops a branch, renormalising the remaining [`Competing`](@ref)
+`prune` drops a branch, renormalising the remaining [`Resolve`](@ref)
 probabilities.
 `splice` wraps a node in a [`Sequential`](@ref) with a `before` and/or `after`
 step, inserting an extra delay without rebuilding the rest of the tree.

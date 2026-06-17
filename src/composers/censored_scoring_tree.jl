@@ -4,8 +4,8 @@
 #
 # Split out of `censored_specialisations.jl` (the shared recovery helpers /
 # trait detection live there and are included first). Generic nested-tree
-# scoring; the `Competing`/`Select` slice scoring and per-record rebuilds live
-# in `censored_competing.jl`.
+# scoring; the `Resolve`/`Choose` slice scoring and per-record rebuilds live
+# in `censored_one_of.jl`.
 
 # ---------------------------------------------------------------------------
 # Recursive nested-composer scoring
@@ -86,20 +86,20 @@ _first_origin_node(d::Sequential) = d.components[1]
 # Sequential at its last leaf event; a Parallel at its shared origin, which is the
 # PARENT's event (offset -1 relative to the branch's own first event). Pure Int.
 _terminal_offset(::UnivariateDistribution) = 0
-# A `Competing` is a terminal node (the chain does not continue through a single
+# A `Resolve` is a terminal node (the chain does not continue through a single
 # outcome); like a `Parallel` its terminal for a following step is the shared
 # origin it hangs off, offset -1 from its own first (outcome) event slot.
-_terminal_offset(::AbstractCompeting) = -1
+_terminal_offset(::AbstractOneOf) = -1
 _terminal_offset(d::Sequential) = _seq_terminal_offset(d.components)
 _terminal_offset(::Parallel) = -1
-# A nested `Select` swaps in ONE alternative per row; the alternatives share one
-# event-slot width (checked by `_event_child_nleaves`), so the Select's terminal
+# A nested `Choose` swaps in ONE alternative per row; the alternatives share one
+# event-slot width (checked by `_event_child_nleaves`), so the Choose's terminal
 # offset is that of its (common) alternative. A following chain step hangs off the
 # same terminal regardless of which alternative routes.
-_terminal_offset(d::Select) = _terminal_offset(_flat_select_alternative(d))
+_terminal_offset(d::Choose) = _terminal_offset(_flat_select_alternative(d))
 function _seq_terminal_offset(components::Tuple)
     # The last step's terminal, measured from the chain's own first event. Uses
-    # the EVENT-slot count (a `Competing` step spans one slot per outcome).
+    # the EVENT-slot count (a `Resolve` step spans one slot per outcome).
     off = 0
     @inbounds for i in 1:(length(components) - 1)
         off += _event_child_nleaves(components[i])
@@ -114,7 +114,7 @@ end
 # data type and must not be asserted to `T`.
 #
 # A per-record observation `horizon` (default `nothing`) threads down to any
-# nested `Competing`/`HazardCompeting` node so it right-truncates its conditioned
+# nested `Resolve`/`Compete` node so it right-truncates its conditioned
 # branch at the remaining window from its anchor, mirroring the top-level
 # `_maybe_truncate` (#517). `horizon === nothing` is byte-identical to the
 # untruncated walk; the plain leaf/chain edges ignore the horizon (their
@@ -188,7 +188,7 @@ end
 # `logpdf` -- so an observed origin conditions each child on its declared edge.
 function _tree_step(step::Union{Sequential, Parallel}, events, o_idx::Int,
         ev_idx::Int, primary, ::Type{T}, horizon = nothing) where {T}
-    # The sub-view spans the node's EVENT slots (a `Competing` step contributes
+    # The sub-view spans the node's EVENT slots (a `Resolve` step contributes
     # one slot per outcome), so use the event-slot count, not `length`.
     sub = _subevent_slice(events, o_idx, ev_idx, _event_nleaves(step.components))
     return _tree_score(step, sub, 1, 2, primary, T, horizon)
@@ -207,18 +207,18 @@ function _subevent_slice(events, o_idx::Int, ev_idx::Int, n::Int)
     end
     return out
 end
-# A nested `Select` on the tree path routes to ONE alternative and scores it as
+# A nested `Choose` on the tree path routes to ONE alternative and scores it as
 # that edge. The numeric event-vector path carries no row selector (the selector
 # is a Symbol, not an event time), so this DETERMINISTIC default commits to the
 # FIRST alternative -- the data-free value-vector round-trip, where a constructed
 # flat vector must score back through `logpdf` without a selector. The DATA path
 # does NOT reach here: the per-record build resolves the selector into the tree
-# (`_resolve_selects`) before scoring, replacing the Select with the routed
+# (`_resolve_selects`) before scoring, replacing the Choose with the routed
 # alternative, so a real record routes by `row[selector]` and never silently
 # scores alternative 1. The chosen alternative is scored through its own
 # `_tree_step`, so a leaf conditions on its declared censoring and a composer
 # alternative recurses.
-function _tree_step(step::Select, events, o_idx::Int, ev_idx::Int,
+function _tree_step(step::Choose, events, o_idx::Int, ev_idx::Int,
         primary, ::Type{T}, horizon = nothing) where {T}
     return _tree_step(_flat_select_alternative(step), events, o_idx, ev_idx,
         primary, T, horizon)

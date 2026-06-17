@@ -14,15 +14,15 @@
 
     cols(t) = Tables.columns(t)
 
-    # A Select with the same incubation `inc` in both branches: tie it tree-level
+    # A Choose with the same incubation `inc` in both branches: tie it tree-level
     # vs hand-wiring `shared(:inc, …)` at each leaf.
     incp = (2.0, 1.0)
-    hand = selecting(
+    hand = choose(
         :index => compose((inc = shared(:inc, Gamma(incp...)),)),
         :sourced => compose((src = LogNormal(0.5, 0.4),
             inc = shared(:inc, Gamma(incp...)))))
 
-    base = selecting(
+    base = choose(
         :index => compose((inc = Gamma(incp...),)),
         :sourced => compose((src = LogNormal(0.5, 0.4),
             inc = Gamma(incp...))))
@@ -60,13 +60,13 @@ end
 @testitem "tie: update of the tied group sets every occurrence" begin
     using CensoredDistributions, Distributions
 
-    base = selecting(
+    base = choose(
         :index => compose((inc = Gamma(2.0, 1.0),)),
         :sourced => compose((src = LogNormal(0.5, 0.4),
             inc = Gamma(2.0, 1.0))))
     tied = tie(base, (:index, :inc), (:sourced, :inc); name = :inc)
 
-    hand = selecting(
+    hand = choose(
         :index => compose((inc = shared(:inc, Gamma(2.0, 1.0)),)),
         :sourced => compose((src = LogNormal(0.5, 0.4),
             inc = shared(:inc, Gamma(2.0, 1.0)))))
@@ -86,7 +86,7 @@ end
 @testitem "tie: bad path errors loudly (not a silent no-op)" begin
     using CensoredDistributions, Distributions
 
-    base = selecting(
+    base = choose(
         :index => compose((inc = Gamma(2.0, 1.0),)),
         :sourced => compose((src = LogNormal(0.5, 0.4),
             inc = Gamma(2.0, 1.0))))
@@ -110,7 +110,7 @@ end
 
     # `inc` is a Gamma, `src` a LogNormal: tying them into one group must error
     # since they cannot be one free parameter.
-    base = selecting(
+    base = choose(
         :index => compose((inc = Gamma(2.0, 1.0),)),
         :sourced => compose((src = LogNormal(0.5, 0.4),
             inc = Gamma(2.0, 1.0))))
@@ -121,7 +121,7 @@ end
 @testitem "tie: name keyword is required" begin
     using CensoredDistributions, Distributions
 
-    base = selecting(
+    base = choose(
         :index => compose((inc = Gamma(2.0, 1.0),)),
         :sourced => compose((src = LogNormal(0.5, 0.4),
             inc = Gamma(2.0, 1.0))))

@@ -1,33 +1,33 @@
-# Tests for the enriched `competing` composition (#466): the shared `competing`
-# constructor + `AbstractCompeting` supertype, the no-event branch (Feature 1),
-# and the racing-hazard `HazardCompeting` combinator (Feature 2) with its three
+# Tests for the enriched `one_of` composition (#466): the shared `one_of`
+# constructor + `AbstractOneOf` supertype, the no-event branch (Feature 1),
+# and the racing-hazard `Compete` combinator (Feature 2) with its three
 # consistent duals (rand argmin/min, logpdf marginal + cause-resolved, forward
 # per-outcome sub-density stream).
 
-@testitem "competing: shared constructor dispatches on payload shape" begin
+@testitem "one_of: shared constructor dispatches on payload shape" begin
     using Distributions
 
     # A `(delay, prob)` payload per outcome builds the fixed-probability mixture.
-    mix = competing(:death => (Gamma(1.5, 1.0), 0.3),
+    mix = resolve(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7))
-    @test mix isa CensoredDistributions.Competing
-    @test mix isa CensoredDistributions.AbstractCompeting
+    @test mix isa CensoredDistributions.Resolve
+    @test mix isa CensoredDistributions.AbstractOneOf
 
     # Bare delays (no probabilities) build the racing-hazard node.
-    haz = competing(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
-    @test haz isa CensoredDistributions.HazardCompeting
-    @test haz isa CensoredDistributions.AbstractCompeting
+    haz = compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
+    @test haz isa CensoredDistributions.Compete
+    @test haz isa CensoredDistributions.AbstractOneOf
 
     # Mixing the two payload shapes is rejected (ambiguous node type) UNLESS it
     # is the residual form (every outcome but the last carries a probability).
-    @test competing(:a => (Gamma(1.0, 1.0), 0.5), :b => Gamma(2.0, 1.0)) isa
-          CensoredDistributions.Competing
+    @test resolve(:a => (Gamma(1.0, 1.0), 0.5), :b => Gamma(2.0, 1.0)) isa
+          CensoredDistributions.Resolve
     # A bare delay BEFORE the last outcome (more than one omitted) is ambiguous.
-    @test_throws ArgumentError competing(:a => Gamma(1.0, 1.0),
+    @test_throws ArgumentError resolve(:a => Gamma(1.0, 1.0),
         :b => (Gamma(2.0, 1.0), 0.5), :c => Gamma(2.0, 1.0))
 end
 
-@testitem "competing: residual last-outcome probability (#46)" begin
+@testitem "one_of: residual last-outcome probability (#46)" begin
     using Distributions
     import ForwardDiff
 
@@ -35,26 +35,26 @@ end
     # the others)`. The residual node is density-IDENTICAL to the all-explicit
     # form: same branch_probs, same logpdf, same winning_probabilities.
     cfr = 0.3
-    explicit = competing(:death => (Gamma(1.5, 1.0), cfr),
+    explicit = resolve(:death => (Gamma(1.5, 1.0), cfr),
         :disch => (Gamma(2.0, 1.5), 1 - cfr))
-    resid = competing(:death => (Gamma(1.5, 1.0), cfr),
+    resid = resolve(:death => (Gamma(1.5, 1.0), cfr),
         :disch => Gamma(2.0, 1.5))
-    @test resid isa CensoredDistributions.Competing
+    @test resid isa CensoredDistributions.Resolve
     @test resid.branch_probs == explicit.branch_probs
     @test logpdf(resid, 1.7) == logpdf(explicit, 1.7)
     @test winning_probabilities(resid) == winning_probabilities(explicit)
     @test mean(resid) == mean(explicit)
 
     # Three outcomes: the residual is `1 - (p_a + p_b)`.
-    e3 = competing(:a => (Gamma(1.0, 1.0), 0.2), :b => (Gamma(1.0, 1.0), 0.3),
+    e3 = resolve(:a => (Gamma(1.0, 1.0), 0.2), :b => (Gamma(1.0, 1.0), 0.3),
         :c => (Gamma(1.0, 1.0), 0.5))
-    r3 = competing(:a => (Gamma(1.0, 1.0), 0.2), :b => (Gamma(1.0, 1.0), 0.3),
+    r3 = resolve(:a => (Gamma(1.0, 1.0), 0.2), :b => (Gamma(1.0, 1.0), 0.3),
         :c => Gamma(1.0, 1.0))
     @test r3.branch_probs == e3.branch_probs
     @test logpdf(r3, 0.9) == logpdf(e3, 0.9)
 
     # Leading probabilities exceeding one (negative residual) errors clearly.
-    @test_throws ArgumentError competing(:a => (Gamma(1.0, 1.0), 0.7),
+    @test_throws ArgumentError resolve(:a => (Gamma(1.0, 1.0), 0.7),
         :b => (Gamma(1.0, 1.0), 0.5), :c => Gamma(1.0, 1.0))
 
     # The residual is a DIFFERENTIABLE function of the leading probabilities: a
@@ -62,10 +62,10 @@ end
     # the node differentiates w.r.t. the leading prob exactly as the explicit
     # form does (the residual carries the same partial, opposite sign).
     f_resid(p) = logpdf(
-        competing(:death => (Gamma(1.5, 1.0), p[1]), :disch => Gamma(2.0, 1.5)),
+        resolve(:death => (Gamma(1.5, 1.0), p[1]), :disch => Gamma(2.0, 1.5)),
         1.7)
     f_explicit(p) = logpdf(
-        competing(:death => (Gamma(1.5, 1.0), p[1]),
+        resolve(:death => (Gamma(1.5, 1.0), p[1]),
             :disch => (Gamma(2.0, 1.5), 1 - p[1])),
         1.7)
     g_resid = ForwardDiff.gradient(f_resid, [cfr])
@@ -76,13 +76,13 @@ end
     # A residual NoEvent last outcome carries the residual no-event mass. The
     # residual is `1 - 0.7` exactly (the same float subtraction), so compare
     # against that rather than the literal `0.3` (a different bit pattern).
-    ne = competing(:report => (Gamma(2.0, 1.0), 0.7), :none => NoEvent())
+    ne = resolve(:report => (Gamma(2.0, 1.0), 0.7), :none => NoEvent())
     @test CensoredDistributions._has_no_event(ne)
     @test ne.branch_probs == (0.7, 1 - 0.7)
     @test occurrence_probability(ne) ≈ 0.7
 end
 
-@testitem "competing: NoEvent marker errors as a density" begin
+@testitem "one_of: NoEvent marker errors as a density" begin
     using Distributions
 
     @test_throws ArgumentError logpdf(NoEvent(), 1.0)
@@ -90,11 +90,11 @@ end
     @test NoEvent() == NoEvent()
 end
 
-@testitem "competing: no-event mixture is a defective marginal" begin
+@testitem "one_of: no-event mixture is a defective marginal" begin
     using Distributions
 
-    ne = competing(:report => (Gamma(2.0, 1.0), 0.7), :none => (NoEvent(), 0.3))
-    @test ne isa CensoredDistributions.Competing
+    ne = resolve(:report => (Gamma(2.0, 1.0), 0.7), :none => (NoEvent(), 0.3))
+    @test ne isa CensoredDistributions.Resolve
     @test CensoredDistributions._has_no_event(ne)
 
     # A defective marginal has no scalar logpdf / mean / as_mixture.
@@ -107,12 +107,12 @@ end
     @test winning_probabilities(ne) == (report = 0.7, none = 0.3)
 end
 
-@testitem "competing no-event: observed occurrence vs non-occurrence" begin
+@testitem "one_of no-event: observed occurrence vs non-occurrence" begin
     using Distributions
 
     ρ = 0.7
     report_d = Gamma(2.0, 1.0)
-    ne = competing(:report => (report_d, ρ), :none => (NoEvent(), 1 - ρ))
+    ne = resolve(:report => (report_d, ρ), :none => (NoEvent(), 1 - ρ))
     # Nest off a censored origin so the event-vector path applies.
     onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
     d = compose((onset = onset, resolution = ne))
@@ -142,7 +142,7 @@ end
     @test isfinite(lp_non)
 
     # LATENT non-occurrence: every resolution slot missing contributes no
-    # competing term; only the origin (no extra factor) is scored.
+    # one_of term; only the origin (no extra factor) is scored.
     latent = Vector{Union{Missing, Float64}}(missing, length(enames))
     latent[iorigin] = o
     lp_lat = logpdf(d, latent)
@@ -154,7 +154,7 @@ end
 @testitem "racing-hazard: three duals agree (acceptance test)" begin
     using Distributions, Random
 
-    haz = competing(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
+    haz = compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
 
     # Dual 1: derived winning probabilities (logpdf-consistent integral).
     wp = winning_probabilities(haz)
@@ -196,7 +196,7 @@ end
     using Distributions
 
     death_d, recover_d = Gamma(2.0, 3.0), Gamma(3.0, 2.0)
-    haz = competing(:death => death_d, :recover => recover_d)
+    haz = compete(:death => death_d, :recover => recover_d)
     onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
     d = compose((onset = onset, resolution = haz))
     enames = event_names(d)
@@ -223,7 +223,7 @@ end
 @testitem "racing-hazard: rand round-trips through logpdf" begin
     using Distributions, Random
 
-    haz = competing(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
+    haz = compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
     onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
     d = compose((onset = onset, resolution = haz))
 
@@ -243,7 +243,7 @@ end
     # Differentiate the cause-resolved sub-density w.r.t. the racing delays'
     # parameters; the gradient must be finite and non-zero.
     function f(p)
-        haz = competing(:death => Gamma(p[1], 3.0),
+        haz = compete(:death => Gamma(p[1], 3.0),
             :recover => Gamma(3.0, p[2]))
         return CensoredDistributions._hazard_cause_logpdf(haz, 1, 2.5)
     end
@@ -262,7 +262,7 @@ end
     onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
     ev = Vector{Union{Missing, Float64}}([0.3, missing, 3.3, missing])
     function f(p)
-        haz = competing(:death => Gamma(p[1], 3.0),
+        haz = compete(:death => Gamma(p[1], 3.0),
             :recover => Gamma(p[2], 2.0))
         d = compose((onset = onset, resolution = haz))
         return logpdf(d, ev)
@@ -278,7 +278,7 @@ end
     # The forward per-outcome stream skips the no-event branch: only the real
     # outcome produces a count series, carrying its branch-probability mass.
     ρ = 0.6
-    ne = competing(:report => (Gamma(2.0, 1.5), ρ), :none => (NoEvent(), 1 - ρ))
+    ne = resolve(:report => (Gamma(2.0, 1.5), ρ), :none => (NoEvent(), 1 - ρ))
     series = zeros(60)
     series[1] = 1.0
     fwd = convolve_distributions(ne, series; events = (:report,))
@@ -293,7 +293,7 @@ end
 
     # The racing-hazard node consumes the survival surface (`logccdf`/`logpdf`) of
     # its leaves, so a SurvivalDistributions family races alongside a stock leaf.
-    haz = competing(:death => SD.LogLogistic(2.0, 1.5),
+    haz = compete(:death => SD.LogLogistic(2.0, 1.5),
         :recover => Gamma(3.0, 2.0))
     t = 2.5
     # The marginal survival is the product of the two leaf survivals, and the
@@ -311,7 +311,7 @@ end
 
     ρ = 0.7
     report_d = Gamma(2.0, 1.0)
-    ne = competing(:report => (report_d, ρ), :none => (NoEvent(), 1 - ρ))
+    ne = resolve(:report => (report_d, ρ), :none => (NoEvent(), 1 - ρ))
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
 
     # OBSERVED occurrence: condition on the report branch (log ρ + delay logpdf).
@@ -323,7 +323,7 @@ end
     @test lj_non ≈ log(1 - ρ)
 end
 
-@testitem "non-terminal Competing: whole-tree event-name layout (#466 F3)" begin
+@testitem "non-terminal Resolve: whole-tree event-name layout (#466 F3)" begin
     using Distributions
 
     # A composer-valued outcome (death => a Sequential subchain) spans its
@@ -333,9 +333,9 @@ end
     burial = Gamma(1.5, 1.0)
     chain = Sequential((admit, burial), (:onset_admit, :admit_burial))
     recover = Gamma(3.0, 2.0)
-    ne = competing(:death => (chain, 0.4), :recover => (recover, 0.6))
+    ne = resolve(:death => (chain, 0.4), :recover => (recover, 0.6))
 
-    @test ne isa CensoredDistributions.Competing
+    @test ne isa CensoredDistributions.Resolve
     @test CensoredDistributions._is_nonterminal(ne)
     # death outcome -> 2 subtree slots (admit, burial); recover -> 1 slot.
     @test CensoredDistributions._event_child_nleaves(ne) == 3
@@ -346,7 +346,7 @@ end
     @test enames == (:event_1, :admit, :burial, :recover)
 end
 
-@testitem "non-terminal Competing: composer-outcome slice scoring (#466 F3)" begin
+@testitem "non-terminal Resolve: composer-outcome slice scoring (#466 F3)" begin
     using Distributions
 
     admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
@@ -354,7 +354,7 @@ end
     chain = Sequential((admit, burial), (:onset_admit, :admit_burial))
     recover = Gamma(3.0, 2.0)
     pd, pr = 0.4, 0.6
-    ne = competing(:death => (chain, pd), :recover => (recover, pr))
+    ne = resolve(:death => (chain, pd), :recover => (recover, pr))
     d = compose((resolution = ne,))
     enames = event_names(d)
     i = Dict(n => k for (k, n) in enumerate(enames))
@@ -379,7 +379,7 @@ end
     @test logpdf(d, evr) ≈ log(pr) + logpdf(recover, 5.0)
 end
 
-@testitem "non-terminal Competing: rand round-trips through logpdf (#466 F3)" begin
+@testitem "non-terminal Resolve: rand round-trips through logpdf (#466 F3)" begin
     using Distributions, Random
 
     onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
@@ -387,7 +387,7 @@ end
     burial = Gamma(1.5, 1.0)
     chain = Sequential((admit, burial), (:admit_death, :death_burial))
     recover = Gamma(3.0, 2.0)
-    ne = competing(:death => (chain, 0.4), :recover => (recover, 0.6))
+    ne = resolve(:death => (chain, 0.4), :recover => (recover, 0.6))
     d = compose((onset = onset, resolution = ne))
 
     rng = MersenneTwister(11)
@@ -404,10 +404,10 @@ end
     end
 end
 
-@testitem "non-terminal Competing: rand fills the winning subtree's slots" begin
+@testitem "non-terminal Resolve: rand fills the winning subtree's slots" begin
     using Distributions, Random
 
-    # The whole-tree `rand` of a NON-TERMINAL Competing must draw the resolved
+    # The whole-tree `rand` of a NON-TERMINAL Resolve must draw the resolved
     # outcome's WHOLE subtree into its slot slice (not a single time, not the
     # other outcome's slots) and at the right branch frequency. When the
     # composer-valued `death` outcome wins, BOTH of its subtree slots are filled
@@ -420,7 +420,7 @@ end
     chain = Sequential((admit, burial), (:admit_death, :death_burial))
     recover = Gamma(3.0, 2.0)
     p_death = 0.4
-    ne = competing(:death => (chain, p_death),
+    ne = resolve(:death => (chain, p_death),
         :recover => (recover, 1 - p_death))
     d = compose((onset = onset, resolution = ne))
     @test CensoredDistributions._flat_event_names(d) ==
@@ -455,12 +455,12 @@ end
     @test n_death / N ≈ p_death atol = 0.03
 end
 
-@testitem "non-terminal Competing: scalar marginal errors (#466 F3)" begin
+@testitem "non-terminal Resolve: scalar marginal errors (#466 F3)" begin
     using Distributions
 
     admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     chain = Sequential((admit, Gamma(1.5, 1.0)), (:onset_admit, :admit_burial))
-    ne = competing(:death => (chain, 0.4), :recover => (Gamma(3.0, 2.0), 0.6))
+    ne = resolve(:death => (chain, 0.4), :recover => (Gamma(3.0, 2.0), 0.6))
 
     # A non-terminal node is multivariate: no scalar logpdf / mean / as_mixture.
     @test_throws ArgumentError logpdf(ne, 1.0)
@@ -469,8 +469,8 @@ end
     @test_throws ArgumentError cdf(ne, 1.0)
 
     # The same holds for a non-terminal racing-hazard node.
-    haz = competing(:death => chain, :recover => Gamma(3.0, 2.0))
-    @test haz isa CensoredDistributions.HazardCompeting
+    haz = compete(:death => chain, :recover => Gamma(3.0, 2.0))
+    @test haz isa CensoredDistributions.Compete
     @test CensoredDistributions._is_nonterminal(haz)
     @test_throws ArgumentError logpdf(haz, 1.0)
     @test_throws ArgumentError mean(haz)
@@ -487,12 +487,12 @@ end
     # precision and leave `e2 - m^2` a tiny negative; the clamp must keep the
     # reported variance non-negative.
     for (a, θ) in ((500.0, 0.002), (1000.0, 0.001), (2000.0, 0.0005))
-        haz = competing(:a => Gamma(a, θ), :b => Gamma(a, θ))
+        haz = compete(:a => Gamma(a, θ), :b => Gamma(a, θ))
         @test var(haz) >= 0
     end
 end
 
-@testitem "non-terminal Competing: forward stream recurses subtrees (#466 F3)" begin
+@testitem "non-terminal Resolve: forward stream recurses subtrees (#466 F3)" begin
     using Distributions
 
     # A composer-valued outcome fans its SUBTREE's events out, each carrying the
@@ -501,7 +501,7 @@ end
     pd, pr = 0.4, 0.6
     chain = Sequential((Gamma(2.0, 1.0), Gamma(1.5, 1.0)),
         (:onset_admit, :admit_burial))
-    ne = competing(:death => (chain, pd), :recover => (Gamma(3.0, 2.0), pr))
+    ne = resolve(:death => (chain, pd), :recover => (Gamma(3.0, 2.0), pr))
 
     series = zeros(120)
     series[1] = 1.0
@@ -511,7 +511,7 @@ end
     @test sum(fwd.recover) ≈ pr atol = 1e-3
 end
 
-@testitem "non-terminal Competing: AD agrees across duals (#466 F3)" begin
+@testitem "non-terminal Resolve: AD agrees across duals (#466 F3)" begin
     using Distributions
     using ForwardDiff: gradient
 
@@ -522,7 +522,7 @@ end
         admit = primary_censored(Gamma(p[1], 1.0), Uniform(0, 1))
         chain = Sequential((admit, Gamma(p[2], 1.0)),
             (:onset_admit, :admit_burial))
-        ne = competing(:death => (chain, p[3]),
+        ne = resolve(:death => (chain, p[3]),
             :recover => (Gamma(3.0, 2.0), 1 - p[3]))
         return logpdf(compose((resolution = ne,)), ev)
     end
@@ -533,7 +533,7 @@ end
     @test g[3] ≈ 2.5 atol = 1e-6
 end
 
-@testitem "non-terminal Competing: small Turing recovery (#466 F3)" tags=[:turing] begin
+@testitem "non-terminal Resolve: small Turing recovery (#466 F3)" tags=[:turing] begin
     using Distributions, Random
     using Turing
     using Statistics: mean
@@ -541,7 +541,7 @@ end
     # Simulate a populated death-subtree / leaf-recover dataset, then recover the
     # death branch probability by NUTS. The composer outcome's subtree slots are
     # populated on a death win, the recover slot on a recover win, so the model
-    # scores the whole-tree non-terminal Competing per record.
+    # scores the whole-tree non-terminal Resolve per record.
     onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
     admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     burial = Gamma(1.5, 1.0)
@@ -549,7 +549,7 @@ end
     recover = Gamma(3.0, 2.0)
     p_true = 0.35
     truth = compose((onset = onset,
-        resolution = competing(:death => (chain, p_true),
+        resolution = resolve(:death => (chain, p_true),
             :recover => (recover, 1 - p_true))))
 
     rng = MersenneTwister(2027)
@@ -558,7 +558,7 @@ end
     @model function recover_cfr(rows)
         p ~ Beta(2, 2)
         node = compose((onset = onset,
-            resolution = competing(:death => (chain, p),
+            resolution = resolve(:death => (chain, p),
                 :recover => (recover, 1 - p))))
         for r in rows
             Turing.@addlogprob! logpdf(node, r)
@@ -571,7 +571,7 @@ end
     @test isapprox(p_hat, p_true; atol = 0.08)
 end
 
-@testitem "non-terminal HazardCompeting: cross-cause survival weighting (#479)" begin
+@testitem "non-terminal Compete: cross-cause survival weighting (#479)" begin
     using Distributions
 
     # A NON-TERMINAL racing-hazard outcome (death => a chain) must weight its
@@ -581,7 +581,7 @@ end
     burial = Gamma(1.5, 1.0)
     chain = Sequential((admit, burial), (:onset_admit, :admit_burial))
     recover = Gamma(3.0, 2.0)
-    haz = competing(:death => chain, :recover => recover)
+    haz = compete(:death => chain, :recover => recover)
     @test CensoredDistributions._is_nonterminal(haz)
 
     d = compose((resolution = haz,))
@@ -615,7 +615,7 @@ end
     @test logpdf(d, evr) ≈ expected_r
 end
 
-@testitem "non-terminal HazardCompeting: three duals agree (#479)" begin
+@testitem "non-terminal Compete: three duals agree (#479)" begin
     using Distributions, Random
 
     # Plain (uncensored) leaves so the composer cause's marginal racing time is a
@@ -624,7 +624,7 @@ end
     chain = Sequential((Gamma(2.0, 1.0), Gamma(1.5, 1.0)),
         (:onset_admit, :admit_burial))
     recover = Gamma(3.0, 2.0)
-    haz = competing(:death => chain, :recover => recover)
+    haz = compete(:death => chain, :recover => recover)
     @test CensoredDistributions._is_nonterminal(haz)
 
     # The death subtree resolves at the SUM of its two delays (its marginal
@@ -671,7 +671,7 @@ end
     @test p_death_scored≈fd_mc atol = 5e-3
 end
 
-@testitem "non-terminal HazardCompeting: rand round-trips (#479)" begin
+@testitem "non-terminal Compete: rand round-trips (#479)" begin
     using Distributions, Random
 
     onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
@@ -679,7 +679,7 @@ end
     burial = Gamma(1.5, 1.0)
     chain = Sequential((admit, burial), (:admit_death, :death_burial))
     recover = Gamma(3.0, 2.0)
-    haz = competing(:death => chain, :recover => recover)
+    haz = compete(:death => chain, :recover => recover)
     d = compose((onset = onset, resolution = haz))
 
     rng = MersenneTwister(11)
@@ -701,7 +701,7 @@ end
     @test count(draw -> draw.recover !== missing, draws) > 0
 end
 
-@testitem "non-terminal HazardCompeting: rand fidelity (composer-win subtree)" begin
+@testitem "non-terminal Compete: rand fidelity (composer-win subtree)" begin
     using Distributions, Random, Statistics
 
     # DISTRIBUTIONAL fidelity (the #466 F3 rand/likelihood mismatch fix): for a
@@ -723,7 +723,7 @@ end
     chain = Sequential((Gamma(2.0, 1.0), Gamma(1.5, 1.0)),
         (:onset_admit, :admit_burial))
     recover = Gamma(3.0, 2.0)
-    haz = competing(:death => chain, :recover => recover)
+    haz = compete(:death => chain, :recover => recover)
     d = compose((onset = onset, resolution = haz))
     @test CensoredDistributions._is_nonterminal(haz)
     # Layout: (:event_1 shared origin, :event_2 onset, :admit, :burial, :recover).
@@ -776,7 +776,7 @@ end
     @test smean < uncond_mean - 0.2
 end
 
-@testitem "non-terminal HazardCompeting: AD through the tree logpdf (#479)" begin
+@testitem "non-terminal Compete: AD through the tree logpdf (#479)" begin
     using Distributions
     using ForwardDiff: gradient
 
@@ -792,7 +792,7 @@ end
         chain = Sequential((admit, Gamma(p[2], 1.0)),
             (:onset_admit, :admit_burial))
         recover = Gamma(p[3], 2.0)
-        haz = competing(:death => chain, :recover => recover)
+        haz = compete(:death => chain, :recover => recover)
         return logpdf(compose((resolution = haz,)), ev)
     end
     g = gradient(f, [2.0, 1.5, 3.0])
@@ -803,43 +803,43 @@ end
     @test g[3] != 0
 end
 
-@testitem "nested Competing inside a competing outcome: branch_probs override" begin
+@testitem "nested Resolve inside a one_of outcome: branch_probs override" begin
     using Distributions
     const CD = CensoredDistributions
 
-    # S2 recursion: a mixture `Competing` nested INSIDE a (racing) competing
+    # S2 recursion: a mixture `Resolve` nested INSIDE a (racing) one_of
     # outcome's subtree must be FOUND by the per-record `branch_probs` override
     # path and overridden. Before the fix the override helpers stopped at the outer
-    # `AbstractCompeting` (it shares the `UnivariateDistribution` supertype, so the
-    # nested Competing hit the no-op leaf fallback): the node was silently
+    # `AbstractOneOf` (it shares the `UnivariateDistribution` supertype, so the
+    # nested Resolve hit the no-op leaf fallback): the node was silently
     # under-counted, bypassing the `n == 1` guard, and the override was never
-    # applied. The fix RECURSES through `AbstractCompeting.delays`, so the override
-    # reaches the single nested Competing.
-    inner = competing(
+    # applied. The fix RECURSES through `AbstractOneOf.delays`, so the override
+    # reaches the single nested Resolve.
+    inner = resolve(
         :burial => (Gamma(1.5, 1.0), 0.6), :cremation => (Gamma(2.0, 1.0), 0.4))
     death_chain = Sequential(
         (Gamma(2.0, 1.0), inner), (:onset_admit, :admit_outcome))
     recover = Gamma(3.0, 2.0)
-    haz = competing(:death => death_chain, :recover => recover)
+    haz = compete(:death => death_chain, :recover => recover)
     d = compose((resolution = haz,))
 
-    # The recursion finds exactly the one nested Competing.
-    @test CD._count_competing(d) == 1
+    # The recursion finds exactly the one nested Resolve.
+    @test CD._count_one_of(d) == 1
 
     # A death-win record observing the burial outcome, with a per-record override of
-    # the nested Competing's branch probabilities.
+    # the nested Resolve's branch probabilities.
     row = (event_1 = 0.0, admit = 2.0, burial = 5.0, cremation = missing,
         recover = missing, branch_probs = (burial = 0.3, cremation = 0.7))
     recs = CD.record_distributions(d, [row])
     lp = logpdf(recs[1], recs[1].events)
 
-    # Reference: rebuild the nested Competing with the overridden probs by hand and
+    # Reference: rebuild the nested Resolve with the overridden probs by hand and
     # score the equivalent record directly. The override path must equal this.
-    inner2 = competing(
+    inner2 = resolve(
         :burial => (Gamma(1.5, 1.0), 0.3), :cremation => (Gamma(2.0, 1.0), 0.7))
     death2 = Sequential(
         (Gamma(2.0, 1.0), inner2), (:onset_admit, :admit_outcome))
-    d2 = compose((resolution = competing(:death => death2, :recover => recover),))
+    d2 = compose((resolution = compete(:death => death2, :recover => recover),))
     ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0, missing, missing])
     @test lp ≈ logpdf(d2, ev)
 
@@ -850,31 +850,31 @@ end
     @test !(logpdf(rec0[1], rec0[1].events) ≈ lp)
 end
 
-@testitem "nested Select inside a competing outcome: per-record routing" begin
+@testitem "nested Choose inside a one_of outcome: per-record routing" begin
     using Distributions
     const CD = CensoredDistributions
 
-    # S2 recursion: a `Select` nested INSIDE a (racing) competing outcome's subtree
+    # S2 recursion: a `Choose` nested INSIDE a (racing) one_of outcome's subtree
     # must be FOUND and RESOLVED per record (and its selector field stripped before
-    # event matching). Before the fix the Select-resolution helpers stopped at the
-    # outer `AbstractCompeting` (a nested Select was never counted, so the
-    # resolution rebuild was skipped and the Select silently scored its FIRST
+    # event matching). Before the fix the Choose-resolution helpers stopped at the
+    # outer `AbstractOneOf` (a nested Choose was never counted, so the
+    # resolution rebuild was skipped and the Choose silently scored its FIRST
     # alternative; `_select_fields` also missed the selector). The fix recurses
-    # through `AbstractCompeting.delays`, so the routed alternative is scored.
-    sel = selecting(:fast => Gamma(1.5, 1.0), :slow => Gamma(4.0, 1.0);
+    # through `AbstractOneOf.delays`, so the routed alternative is scored.
+    sel = choose(:fast => Gamma(1.5, 1.0), :slow => Gamma(4.0, 1.0);
         selector = :speed)
     death_chain = Sequential((Gamma(2.0, 1.0), sel), (:onset_admit, :admit_outcome))
     recover = Gamma(3.0, 2.0)
-    haz = competing(:death => death_chain, :recover => recover)
+    haz = compete(:death => death_chain, :recover => recover)
     d = compose((resolution = haz,))
 
-    # The recursion finds exactly the one nested Select and its selector field.
+    # The recursion finds exactly the one nested Choose and its selector field.
     @test CD._count_selects(d) == 1
     @test CD._select_fields(d) == [:speed]
 
     ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0, missing])
     # Routing to :slow scores the slow alternative; to :fast the fast one; the two
-    # differ and each matches a hand-resolved (Select-free) reference tree.
+    # differ and each matches a hand-resolved (Choose-free) reference tree.
     function routed_lp(speed)
         row = (event_1 = 0.0, admit = 2.0, outcome = 5.0, recover = missing,
             speed = speed)
@@ -883,7 +883,7 @@ end
     end
     function ref_lp(alt)
         chain = Sequential((Gamma(2.0, 1.0), alt), (:onset_admit, :admit_outcome))
-        dref = compose((resolution = competing(
+        dref = compose((resolution = compete(
             :death => chain, :recover => recover),))
         return logpdf(dref, ev)
     end
@@ -896,10 +896,10 @@ end
         [(event_1 = 0.0, admit = 2.0, outcome = 5.0, recover = missing)])
 end
 
-@testitem "competing: introspection works for both node types" begin
+@testitem "one_of: introspection works for both node types" begin
     using Distributions
 
-    haz = competing(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
+    haz = compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
     onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
     d = compose((onset = onset, severity = haz))
 
@@ -916,6 +916,6 @@ end
     haz2 = update(haz,
         (death = (shape = 4.0, scale = 3.0),
             recover = (shape = 5.0, scale = 2.0)))
-    @test haz2 isa CensoredDistributions.HazardCompeting
+    @test haz2 isa CensoredDistributions.Compete
     @test event(haz2, :death) == Gamma(4.0, 3.0)
 end

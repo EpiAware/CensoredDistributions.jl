@@ -17,7 +17,7 @@ Independent branches composed from any univariate distributions.
 
 `Parallel` places ``n`` branch distributions ``D_1, \dots, D_n`` off one origin,
 with the realisation the vector of branch values ``[v_1, \dots, v_n]``. A branch
-may itself be a [`Sequential`](@ref), [`Parallel`](@ref) or [`Competing`](@ref)
+may itself be a [`Sequential`](@ref), [`Parallel`](@ref) or [`Resolve`](@ref)
 composer, so trees nest recursively and the nesting is the tree.
 
 `logpdf` is the sum of the per-branch log-densities,
@@ -39,7 +39,7 @@ censored specialisation layered on top elsewhere, not part of this type.
 
 # See also
 - [`Sequential`](@ref): a chain of additive steps
-- [`Competing`](@ref): exactly one of several outcomes
+- [`Resolve`](@ref): exactly one of several outcomes
 "
 struct Parallel{C <: Tuple, N <: Tuple} <:
        Distribution{Multivariate, Continuous}
@@ -77,7 +77,7 @@ Compose univariate distributions into [`Parallel`](@ref) branches.
 
 Each argument is a branch distribution; the realisation is the vector of branch
 values. Pass branches as positional arguments or a single vector/tuple. Any
-[`Sequential`](@ref) or [`Competing`](@ref) child nests.
+[`Sequential`](@ref) or [`Resolve`](@ref) child nests.
 
 # Examples
 ```@example
@@ -97,11 +97,11 @@ Parallel(components::AbstractVector) = Parallel(Tuple(components))
 
 Compose univariate distributions into [`Parallel`](@ref) branches.
 
-Lowercase verb mirroring [`sequential`](@ref) / [`competing`](@ref): the public
+Lowercase verb mirroring [`sequential`](@ref) / [`resolve`](@ref): the public
 constructor for a [`Parallel`](@ref) branch set. Pass branch distributions
 positionally (default names `:branch_1, :branch_2, ...`) or `name => dist` pairs
 to name the branches; a branch may itself be a [`Sequential`](@ref),
-[`Competing`](@ref) or nested set. Prefer this verb over the bare struct
+[`Resolve`](@ref) or nested set. Prefer this verb over the bare struct
 constructor.
 
 # Arguments
@@ -118,7 +118,7 @@ event_names(d)
 
 # See also
 - [`Parallel`](@ref): the composer type
-- [`sequential`](@ref), [`competing`](@ref): the sibling constructors
+- [`sequential`](@ref), [`resolve`](@ref), [`compete`](@ref): the sibling constructors
 - [`compose`](@ref): the NamedTuple/table/matrix front-end
 "
 function parallel(branches::Pair...)
@@ -184,9 +184,9 @@ Sample a branch realisation. For plain branches this is one value per branch
 (nested children contributing their sub-vectors). For flat censored branches
 sharing one latent origin it is the full event-time vector
 `[origin, observed_1, ...]`. For a NESTED tree (a branch is itself a composer, or
-a [`Competing`](@ref) branch) it is a NAMED event record keyed by
+a [`Resolve`](@ref) branch) it is a NAMED event record keyed by
 `_flat_event_names`: one shared origin draw, each branch hung off it and
-each Competing outcome sampled (the unsampled outcomes `missing`). See the
+each Resolve outcome sampled (the unsampled outcomes `missing`). See the
 censored-specialisation [`rand`](@ref) method.
 
 See also: [`Parallel`](@ref)

@@ -1,5 +1,5 @@
 # Structural edits on a composed tree: `update` (node replace), `prune`,
-# `splice`. Tested on the bdbv (nested Competing) and andv (Select) trees plus
+# `splice`. Tested on the bdbv (nested Resolve) and andv (Choose) trees plus
 # plain composers, checking the edits produce a valid composed distribution that
 # scores and `rand`s. The deprecated `intervene` / `swap_child` / `cut_branch`
 # aliases are checked to still call through.
@@ -10,11 +10,11 @@
     dic(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
         interval = 1.0)
 
-    # A bdbv-style tree: an admission chain (with a nested two-arm Competing
+    # A bdbv-style tree: an admission chain (with a nested two-arm Resolve
     # resolution) parallel to a notification branch, all doubly interval
     # censored.
     function bdbv_tree(; cfr = 0.3)
-        resolution = Competing(:death => (dic(Gamma(2.0, 3.5)), cfr),
+        resolution = Resolve(:death => (dic(Gamma(2.0, 3.5)), cfr),
             :discharge => (dic(Gamma(1.0, 8.0)), 1 - cfr))
         admit_path = Sequential((dic(Gamma(1.2, 3.0)), resolution),
             (:onset_admit, :admit_resolution))
@@ -24,7 +24,7 @@
 
     # A three-outcome resolution so a cut leaves a valid two-arm node.
     function bdbv_three()
-        resolution = Competing(:death => (dic(Gamma(2.0, 3.5)), 0.3),
+        resolution = Resolve(:death => (dic(Gamma(2.0, 3.5)), 0.3),
             :discharge => (dic(Gamma(1.0, 8.0)), 0.4),
             :transfer => (dic(Gamma(1.0, 4.0)), 0.3))
         admit_path = Sequential((dic(Gamma(1.2, 3.0)), resolution),
@@ -33,11 +33,11 @@
             onset_notif = dic(Gamma(0.7, 20.0))))
     end
 
-    # An andv-style Select tree over an index vs a coupled sourced branch.
+    # An andv-style Choose tree over an index vs a coupled sourced branch.
     function andv_tree()
         index = dic(LogNormal(1.5, 0.4))
         sourced = dic(Sequential(Normal(0.2, 0.6), LogNormal(1.5, 0.4)))
-        return CensoredDistributions.selecting(:index => index,
+        return CensoredDistributions.choose(:index => index,
             :sourced => sourced; selector = :kind)
     end
 end
@@ -80,7 +80,7 @@ end
     @test event(value_edit, :admit_death) == LogNormal(0.7, 0.5)
 end
 
-@testitem "prune drops a Competing arm and renormalises probs" setup=[InterveneTrees] begin
+@testitem "prune drops a Resolve arm and renormalises probs" setup=[InterveneTrees] begin
     tree = bdbv_three()
     tree2 = prune(tree, (:admit_path, :admit_resolution, :transfer))
     res = event(tree2, :admit_path, :admit_resolution)
@@ -114,7 +114,7 @@ end
     @test isfinite(logpdf(tree2, [2.0, 5.0, 4.0, 1.0]))
 end
 
-@testitem "update / prune / splice on the andv Select tree" setup=[InterveneTrees] begin
+@testitem "update / prune / splice on the andv Choose tree" setup=[InterveneTrees] begin
     d = andv_tree()
     @test event_names(d) == (:index, :sourced)
 
@@ -130,8 +130,8 @@ end
     @test event(d3, :sourced) isa CensoredDistributions.Sequential
 end
 
-@testitem "prune on a three-way Select drops an alternative" setup=[InterveneTrees] begin
-    d = CensoredDistributions.selecting(:a => Gamma(2.0, 1.0),
+@testitem "prune on a three-way Choose drops an alternative" setup=[InterveneTrees] begin
+    d = CensoredDistributions.choose(:a => Gamma(2.0, 1.0),
         :b => LogNormal(0.5, 0.4), :c => Normal(0.0, 1.0))
     d2 = prune(d, :b)
     @test event_names(d2) == (:a, :c)
@@ -145,7 +145,7 @@ end
     # Path runs past a leaf.
     @test_throws ArgumentError update(tree,
         (:onset_notif, :deeper) => Gamma(1.0, 1.0))
-    # Cutting a two-arm Competing below the minimum.
+    # Cutting a two-arm Resolve below the minimum.
     @test_throws ArgumentError prune(tree,
         (:admit_path, :admit_resolution, :death))
     # Splice with no step.
@@ -224,7 +224,7 @@ end
     @test swap_child(tree, (), :onset_admit => Gamma(4.0, 1.0)) ==
           update(tree, (:onset_admit,) => Gamma(4.0, 1.0))
     # `cut_branch` -> `prune`.
-    node = competing(:death => (Gamma(1.5, 1.0), 0.3),
+    node = resolve(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.5),
         :transfer => (Gamma(1.0, 1.0), 0.2))
     tt = compose((resolution = node, onset = Gamma(1.0, 1.0)))

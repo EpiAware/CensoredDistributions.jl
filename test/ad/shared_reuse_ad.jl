@@ -26,7 +26,7 @@
     function f_shared(θ)
         inc = shared(:inc, primary_censored(Gamma(θ[1], θ[2]), Uniform(0, 1)))
         b = primary_censored(Gamma(θ[3], θ[4]), Uniform(0, 1))
-        seq = Sequential((inc, selecting(:a => inc, :b => b)),
+        seq = Sequential((inc, choose(:a => inc, :b => b)),
             (:onset_admit, :admit_death))
         return logpdf(seq, ev)
     end
@@ -36,7 +36,7 @@
         inc1 = primary_censored(Gamma(θ[1], θ[2]), Uniform(0, 1))
         inc2 = primary_censored(Gamma(θ[1], θ[2]), Uniform(0, 1))
         b = primary_censored(Gamma(θ[3], θ[4]), Uniform(0, 1))
-        seq = Sequential((inc1, selecting(:a => inc2, :b => b)),
+        seq = Sequential((inc1, choose(:a => inc2, :b => b)),
             (:onset_admit, :admit_death))
         return logpdf(seq, ev)
     end
@@ -72,7 +72,7 @@ end
     function f_shared(θ)
         inc = shared(:inc, primary_censored(Gamma(θ[1], θ[2]), Uniform(0, 1)))
         b = primary_censored(Gamma(θ[3], θ[4]), Uniform(0, 1))
-        seq = Sequential((inc, selecting(:a => inc, :b => b)),
+        seq = Sequential((inc, choose(:a => inc, :b => b)),
             (:onset_admit, :admit_death))
         return logpdf(seq, ev)
     end
@@ -80,7 +80,7 @@ end
         inc1 = primary_censored(Gamma(θ[1], θ[2]), Uniform(0, 1))
         inc2 = primary_censored(Gamma(θ[1], θ[2]), Uniform(0, 1))
         b = primary_censored(Gamma(θ[3], θ[4]), Uniform(0, 1))
-        seq = Sequential((inc1, selecting(:a => inc2, :b => b)),
+        seq = Sequential((inc1, choose(:a => inc2, :b => b)),
             (:onset_admit, :admit_death))
         return logpdf(seq, ev)
     end

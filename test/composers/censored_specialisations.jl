@@ -2,7 +2,7 @@
 # (#329, PR3b). Each asserts the data-driven, dispatch-selected behaviour:
 # single-edge == primary_censored, unobserved intermediate == convolution
 # reference, observed intermediate == conditioning, Parallel == shared-origin
-# Monte-Carlo, and the delay-adjusted CFR recovery via Competing.
+# Monte-Carlo, and the delay-adjusted CFR recovery via Resolve.
 
 @testitem "Sequential single censored edge == primary_censored" begin
     using Distributions
@@ -276,7 +276,7 @@ end
     @test logpdf(wrapper, ev) ≈ logpdf(perbranch, ev) rtol=1e-10
 end
 
-@testitem "Competing recovers a delay-adjusted CFR" begin
+@testitem "Resolve recovers a delay-adjusted CFR" begin
     using Distributions, Random
     Random.seed!(7)
 
@@ -304,7 +304,7 @@ end
             count(resolved)
     @test naive < true_cfr - 0.02
 
-    # The Competing branch probability that maximises the right-truncated
+    # The Resolve branch probability that maximises the right-truncated
     # mixture likelihood recovers the true CFR.
     obs_o = outcomes[resolved]
     obs_t = times[resolved]
@@ -326,8 +326,8 @@ end
     adj = grid[argmin([negll(c) for c in grid])]
     @test adj ≈ true_cfr atol=0.01
 
-    # The Competing node lowers to the CFR-weighted mixture (PR3a as_mixture).
-    node = Competing(:death => (death_delay, true_cfr),
+    # The Resolve node lowers to the CFR-weighted mixture (PR3a as_mixture).
+    node = Resolve(:death => (death_delay, true_cfr),
         :disch => (disch_delay, 1 - true_cfr))
     @test pdf(node, 4.0) ≈
           true_cfr * pdf(death_delay, 4.0) +
@@ -547,20 +547,20 @@ end
 # covered by the dedicated AD fixture suite (`test/ADFixtures`, scenario
 # "Nested tree censored observed logpdf") with the proper AD-backend deps.
 
-# --- Nested Competing self-dispatch (#333) ----------------------------------
+# --- Nested Resolve self-dispatch (#333) ----------------------------------
 
-@testitem "Nested Competing: outcome event names anchor at the parent" begin
+@testitem "Nested Resolve: outcome event names anchor at the parent" begin
     using Distributions
 
     edge(mu,
         sigma) = double_interval_censored(LogNormal(mu, sigma);
         primary_event = Uniform(0, 1), interval = 1.0)
-    cmp = Competing(:death => (Gamma(2.0, 3.0), 0.3),
+    cmp = Resolve(:death => (Gamma(2.0, 3.0), 0.3),
         :discharge => (Gamma(2.0, 1.0), 0.7))
-    # bdbv: onset -> {admit -> Competing(death, discharge), notif}.
+    # bdbv: onset -> {admit -> Resolve(death, discharge), notif}.
     d = Parallel(Sequential(edge(1.4, 0.4), cmp), edge(1.9, 0.5))
     enames = event_names(d)
-    # The Competing contributes one EVENT slot per OUTCOME, not one opaque
+    # The Resolve contributes one EVENT slot per OUTCOME, not one opaque
     # resolution event: death/discharge appear, anchored after the admit event.
     @test :death in enames
     @test :discharge in enames
@@ -569,7 +569,7 @@ end
     @test length(d) == 3
 end
 
-@testitem "Nested Competing: conditions on the observed outcome (#333)" begin
+@testitem "Nested Resolve: conditions on the observed outcome (#333)" begin
     using Distributions
 
     edge(mu,
@@ -578,7 +578,7 @@ end
     e_oa, e_on = edge(1.4, 0.4), edge(1.9, 0.5)
     cfr = 0.3
     death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
-    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    cmp = Resolve(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
     d = Parallel(Sequential(e_oa, cmp), e_on)
 
     onset, admit, notif = 0.0, 4.0, 9.0
@@ -599,7 +599,7 @@ end
            logpdf(e_on, notif - onset)
     @test logpdf(d, evd) ≈ refd rtol=1e-10
 
-    # No outcome observed -> the Competing contributes no factor (the resolved-
+    # No outcome observed -> the Resolve contributes no factor (the resolved-
     # but-unknown-outcome encoding for a nested node is deferred, #329).
     evm = Vector{Union{Missing, Float64}}(
         [onset, admit, missing, missing, notif])
@@ -611,20 +611,20 @@ end
     @test_throws ArgumentError logpdf(d, evt)
 end
 
-@testitem "Nested Competing: type-stable scoring" begin
+@testitem "Nested Resolve: type-stable scoring" begin
     using Distributions, Test
 
     edge(mu,
         sigma) = double_interval_censored(LogNormal(mu, sigma);
         primary_event = Uniform(0, 1), interval = 1.0)
-    cmp = Competing(:death => (Gamma(2.0, 3.0), 0.3),
+    cmp = Resolve(:death => (Gamma(2.0, 3.0), 0.3),
         :discharge => (Gamma(2.0, 1.0), 0.7))
     d = Parallel(Sequential(edge(1.4, 0.4), cmp), edge(1.9, 0.5))
     ev = Vector{Union{Missing, Float64}}([0.0, 4.0, 12.0, missing, 9.0])
     @test (@inferred logpdf(d, ev)) isa Float64
 end
 
-@testitem "Nested Competing: N-ary (three outcomes) self-dispatch (#333)" begin
+@testitem "Nested Resolve: N-ary (three outcomes) self-dispatch (#333)" begin
     using Distributions
 
     edge(mu,
@@ -632,7 +632,7 @@ end
         primary_event = Uniform(0, 1), interval = 1.0)
     e_oa, e_on = edge(1.4, 0.4), edge(1.9, 0.5)
     death_d, disch_d, trans_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0), Gamma(3.0, 1.0)
-    cmp = Competing(:death => (death_d, 0.2),
+    cmp = Resolve(:death => (death_d, 0.2),
         :discharge => (disch_d, 0.5),
         :transfer => (trans_d, 0.3))
     d = Parallel(Sequential(e_oa, cmp), e_on)
@@ -662,7 +662,7 @@ end
     @test logpdf(d, evd) ≈ refd rtol=1e-10
 end
 
-# --- Nested/Competing-aware full-path rand ----------------------------------
+# --- Nested/Resolve-aware full-path rand ----------------------------------
 
 @testitem "rand on a nested tree returns a named shared-origin path" begin
     using Distributions, Random
@@ -691,7 +691,7 @@ end
     @test isfinite(logpdf(d, ev))
 end
 
-@testitem "rand on a bdbv Competing tree samples one outcome" begin
+@testitem "rand on a bdbv Resolve tree samples one outcome" begin
     using Distributions, Random
 
     edge(mu,
@@ -699,9 +699,9 @@ end
         primary_event = Uniform(0, 1), interval = 1.0)
     e_oa = edge(1.4, 0.4)
     e_on = edge(1.9, 0.5)
-    cmp = Competing(:death => (edge(2.0, 0.6), 0.3),
+    cmp = Resolve(:death => (edge(2.0, 0.6), 0.3),
         :discharge => (edge(2.1, 0.6), 0.7))
-    # bdbv: Parallel(Sequential(onset_admit, Competing(death, discharge)), notif)
+    # bdbv: Parallel(Sequential(onset_admit, Resolve(death, discharge)), notif)
     seq = Sequential((e_oa, cmp), (:onset_admit, :admit_resolve))
     d = Parallel((seq, e_on), (:onset_notif_seq, :onset_notif))
     enames = event_names(d)
@@ -710,7 +710,7 @@ end
     r = rand(Xoshiro(7), d)
     @test keys(r) == enames
     @test r.onset !== missing && r.admit !== missing && r.notif !== missing
-    # Exactly one Competing outcome is resolved; the other is missing.
+    # Exactly one Resolve outcome is resolved; the other is missing.
     outcomes = (r.death, r.discharge)
     @test count(!ismissing, outcomes) == 1
     # The resolved outcome hangs off the admit event.
@@ -721,7 +721,7 @@ end
     @test isfinite(logpdf(d, ev))
 end
 
-@testitem "rand Competing outcome frequencies follow branch probs" begin
+@testitem "rand Resolve outcome frequencies follow branch probs" begin
     using Distributions, Random
 
     edge(mu,
@@ -730,7 +730,7 @@ end
     e_oa = edge(1.4, 0.4)
     e_on = edge(1.9, 0.5)
     cfr = 0.25
-    cmp = Competing(:death => (edge(2.0, 0.6), cfr),
+    cmp = Resolve(:death => (edge(2.0, 0.6), cfr),
         :discharge => (edge(2.1, 0.6), 1 - cfr))
     seq = Sequential((e_oa, cmp), (:onset_admit, :admit_resolve))
     d = Parallel((seq, e_on), (:onset_notif_seq, :onset_notif))
@@ -741,7 +741,7 @@ end
     @test isapprox(deaths / n, cfr; atol = 0.03)
 end
 
-@testitem "rand on a Select top samples a branch's path" begin
+@testitem "rand on a Choose top samples a branch's path" begin
     using Distributions, Random
 
     edge(mu,
@@ -755,7 +755,7 @@ end
                 (:onset_admit, :admit_x)),
             edge(1.9, 0.5)),
         (:onset_x_seq, :onset_notif))
-    sel = selecting(:index => idx, :sourced => src)
+    sel = choose(:index => idx, :sourced => src)
 
     # With a kind, the selected branch's own labelled draw (both the flat index
     # chain and the nested sourced tree now yield a NamedTuple event record).
@@ -775,7 +775,7 @@ end
     edge(mu,
         sigma) = double_interval_censored(LogNormal(mu, sigma);
         primary_event = Uniform(0, 1), interval = 1.0)
-    cmp = Competing(:death => (edge(2.0, 0.6), 0.3),
+    cmp = Resolve(:death => (edge(2.0, 0.6), 0.3),
         :discharge => (edge(2.1, 0.6), 0.7))
     seq = Sequential((edge(1.4, 0.4), cmp), (:onset_admit, :admit_resolve))
     d = Parallel((seq, edge(1.9, 0.5)), (:onset_notif_seq, :onset_notif))
@@ -798,7 +798,7 @@ end
     edge(mu,
         sigma) = double_interval_censored(LogNormal(mu, sigma);
         primary_event = Uniform(0, 1), interval = 1.0)
-    cmp = Competing(:death => (edge(2.0, 0.6), 0.3),
+    cmp = Resolve(:death => (edge(2.0, 0.6), 0.3),
         :discharge => (edge(2.1, 0.6), 0.7))
     seq = Sequential((edge(1.4, 0.4), cmp), (:onset_admit, :admit_resolve))
     d = Parallel((seq, edge(1.9, 0.5)), (:onset_notif_seq, :onset_notif))
@@ -808,10 +808,10 @@ end
     @test v isa Vector{Union{Missing, Float64}}
 end
 
-@testitem "rand_outcome retains the resolved Competing outcome" begin
+@testitem "rand_outcome retains the resolved Resolve outcome" begin
     using Distributions, Random
 
-    cmp = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+    cmp = Resolve(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7))
     name, t = CensoredDistributions.rand_outcome(Xoshiro(1), cmp)
     @test name in (:death, :disch)

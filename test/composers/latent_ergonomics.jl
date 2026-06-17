@@ -1,19 +1,19 @@
-# Latent ergonomics: a `Select` may carry a `latent`-wrapped alternative, and a
+# Latent ergonomics: a `Choose` may carry a `latent`-wrapped alternative, and a
 # `latent`-wrapped composer splits each record's events into observed (conditioned
 # on their edge) and unobserved (sampled), driven by the row's missingness pattern
 # rather than relying on the caller to condition each observed event by hand.
 
-@testitem "Select holds a Latent alternative" begin
+@testitem "Choose holds a Latent alternative" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent
 
-    # A Latent is a Multivariate distribution; it must compose as a Select
+    # A Latent is a Multivariate distribution; it must compose as a Choose
     # alternative so the index-vs-sourced split can route a sourced case to its
     # latent chain.
-    d = selecting(
+    d = choose(
         :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         :sourced => latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))))
-    @test d isa CensoredDistributions.Select
+    @test d isa CensoredDistributions.Choose
     @test CensoredDistributions._n_alternatives(d) == 2
     @test CensoredDistributions._pick(d, :sourced) isa CensoredDistributions.Latent
 
@@ -21,7 +21,7 @@
     chain = Sequential(
         primary_censored(Normal(0.0, 1.0), Uniform(0, 1)),
         primary_censored(LogNormal(3.0, 0.3), Uniform(0, 1)))
-    d2 = selecting(:index => primary_censored(LogNormal(3.0, 0.3),
+    d2 = choose(:index => primary_censored(LogNormal(3.0, 0.3),
             Uniform(0, 1)),
         :sourced => latent(chain))
     @test CensoredDistributions._pick(d2, :sourced) isa
@@ -39,13 +39,13 @@ end
         primary_censored(LogNormal(1.0, 0.5), Uniform(0, 1)))))
 end
 
-@testitem "Select routes a sourced record to its latent leaf branch" begin
+@testitem "Choose routes a sourced record to its latent leaf branch" begin
     using CensoredDistributions, Distributions, Random
     using CensoredDistributions: latent, get_primary_event, get_dist
     using DynamicPPL: @model, to_submodel, logjoint, VarInfo, condition,
                       @varname
 
-    d = selecting(
+    d = choose(
         :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         :sourced => latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))))
 
@@ -185,7 +185,7 @@ end
     @test logjoint(cond, (;)) ≈ manual
 end
 
-@testitem "latent Select sourced chain conditions onset, samples infection" begin
+@testitem "latent Choose sourced chain conditions onset, samples infection" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, get_primary_event, get_dist
     using DynamicPPL: @model, to_submodel, logjoint, VarInfo, condition,
@@ -199,7 +199,7 @@ end
     chain = Sequential(
         primary_censored(delta, Uniform(0, 1)),
         primary_censored(inc, Uniform(0, 1)))
-    d = selecting(
+    d = choose(
         :index => primary_censored(inc, Uniform(0, 1)),
         :sourced => latent(chain))
 

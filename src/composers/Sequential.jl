@@ -17,7 +17,7 @@ A chain of independent steps composed from any univariate distributions.
 `Sequential` links events ``E_0 \to E_1 \to \dots \to E_k`` through independent
 step distributions ``D_1, \dots, D_k``. A realisation is the flat vector of step
 values ``[v_1, \dots, v_k]`` (one value per step). A step may itself be a
-[`Sequential`](@ref), [`Parallel`](@ref) or [`Competing`](@ref) composer, in
+[`Sequential`](@ref), [`Parallel`](@ref) or [`Resolve`](@ref) composer, in
 which case it contributes its own flat sub-vector, so chains nest recursively and
 the nesting is the tree.
 
@@ -41,7 +41,7 @@ sum of the step values.
 
 # See also
 - [`Parallel`](@ref): independent branches
-- [`Competing`](@ref): exactly one of several outcomes
+- [`Resolve`](@ref): exactly one of several outcomes
 "
 struct Sequential{C <: Tuple, N <: Tuple} <:
        Distribution{Multivariate, Continuous}
@@ -80,7 +80,7 @@ Compose univariate distributions into a [`Sequential`](@ref) chain.
 
 Each argument is a step distribution; the realisation is the vector of
 cumulative event times. Pass components as positional arguments or a single
-vector/tuple. Any [`Parallel`](@ref) or [`Competing`](@ref) child nests.
+vector/tuple. Any [`Parallel`](@ref) or [`Resolve`](@ref) child nests.
 
 # Examples
 ```@example
@@ -100,10 +100,10 @@ Sequential(components::AbstractVector) = Sequential(Tuple(components))
 
 Compose univariate distributions into a [`Sequential`](@ref) chain.
 
-Lowercase verb mirroring [`parallel`](@ref) / [`competing`](@ref): the public
+Lowercase verb mirroring [`parallel`](@ref) / [`resolve`](@ref): the public
 constructor for a [`Sequential`](@ref) chain. Pass step distributions
 positionally (default names `:step_1, :step_2, ...`) or `name => dist` pairs to
-name the steps; a step may itself be a [`Parallel`](@ref), [`Competing`](@ref) or
+name the steps; a step may itself be a [`Parallel`](@ref), [`Resolve`](@ref) or
 nested chain. Prefer this verb over the bare struct constructor.
 
 # Arguments
@@ -121,7 +121,7 @@ event_names(d)
 
 # See also
 - [`Sequential`](@ref): the composer type
-- [`parallel`](@ref), [`competing`](@ref): the sibling constructors
+- [`parallel`](@ref), [`resolve`](@ref), [`compete`](@ref): the sibling constructors
 - [`compose`](@ref): the NamedTuple/table/matrix front-end
 "
 function sequential(steps::Pair...)
@@ -150,7 +150,7 @@ The child names of a composed distribution.
 
 Returns the tuple of names for a composer's direct children: the step names of a
 [`Sequential`](@ref) chain, the branch names of a [`Parallel`](@ref) set, or the
-outcome names of a [`Competing`](@ref) node. These EDGE names key the parameter
+outcome names of a [`Resolve`](@ref) node. These EDGE names key the parameter
 inventory, distinct from the flat EVENT names of `_flat_event_names`.
 
 # Examples
@@ -209,8 +209,8 @@ Sample a chain realisation. For a plain chain this is the step-value vector
 (one value per step, nested children contributing their own sub-vectors). For a
 flat censored chain (its steps carry primary censoring) it is the full
 event-time path `[E_0, ...]` including the latent origin draw. For a NESTED tree
-(a step is itself a composer, or a [`Competing`](@ref) step) it is a NAMED event
-record keyed by `_flat_event_names`: a shared origin draw, each Competing
+(a step is itself a composer, or a [`Resolve`](@ref) step) it is a NAMED event
+record keyed by `_flat_event_names`: a shared origin draw, each Resolve
 outcome sampled (the unsampled outcomes `missing`), so the whole tree path is one
 `rand`. See the censored-specialisation [`rand`](@ref) method.
 

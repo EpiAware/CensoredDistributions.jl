@@ -31,9 +31,9 @@ surveillance lag.
 Two features of the data shape the model.
 Dates are recorded to the day, so each delay is doubly interval censored: the
 onset day and the later event day are both windows rather than instants.
-Resolution is a competing-risks problem: an admitted case either dies or is
+Resolution is a one_of-risks problem: an admitted case either dies or is
 discharged, never both, and the fraction that die is the case-fatality ratio.
-A competing-outcomes node keeps the resolution time and the outcome together,
+A one_of-outcomes node keeps the resolution time and the outcome together,
 and lets the case-fatality ratio depend on covariates.
 
 This page assembles the case as one composed distribution.
@@ -85,7 +85,7 @@ md"""
 A single composed distribution describes the whole case.
 From onset there are two branches: a chain through admission to resolution, and
 a direct delay to notification.
-Resolution is a [`Competing`](@ref) node over death and discharge.
+Resolution is a [`Resolve`](@ref) node over death and discharge.
 
 Each delay is a Gamma censored directly in the stack: every leaf is built with
 [`double_interval_censored`](@ref), a one-day primary-event window and a one-day
@@ -108,7 +108,7 @@ function double_interval_censored_delay(d)
 end
 
 function delay_tree(; cfr = 0.5)
-    resolution = competing(
+    resolution = resolve(
         :death => (double_interval_censored_delay(Gamma(2.0, 3.5)), cfr),
         :discharge => (double_interval_censored_delay(Gamma(1.0, 8.0)), 1 - cfr))
     admit_path = sequential(
@@ -121,7 +121,7 @@ end
 template = delay_tree()
 
 md"""
-The recursive `show` lays out the branching structure, with the competing death
+The recursive `show` lays out the branching structure, with the one_of death
 and discharge outcomes nested under the admission step.
 """
 
@@ -140,7 +140,7 @@ md"""
 
 [`params_table`](@ref) lists every free parameter of the composed delays as a
 flat table.
-The Gamma shapes and scales are the free delay parameters; the competing node's
+The Gamma shapes and scales are the free delay parameters; the one_of node's
 branch probabilities are not estimated as free parameters here, because the
 case-fatality ratio is covariate-driven (below) and enters per record.
 We read the table into a DataFrame and drop the branch-probability rows with a
@@ -181,7 +181,7 @@ md"""
 
 Whether an admitted case dies is a logistic regression on health-worker status,
 a probable (rather than confirmed) case definition, and standardised age.
-The regression stays in plain Turing code; the competing node only consumes the
+The regression stays in plain Turing code; the one_of node only consumes the
 resulting probability.
 The per-case death probability is passed in through the reserved `:branch_probs`
 row field, and the node conditions on the observed outcome, so the
@@ -207,7 +207,7 @@ The whole record set fits through one [`composed_distribution_model`](@ref) call
 on a vector of rows.
 Each row carries the event columns, the per-case `:branch_probs` from
 `death_prob`, and (when present) a `weight`.
-The competing node self-dispatches on which outcome column is present, and
+The one_of node self-dispatches on which outcome column is present, and
 unobserved delays for a case are marginalised internally.
 """
 
@@ -236,7 +236,7 @@ The composed distribution is the model's generative half: the `obs` likelihood i
 `bdbv` walks it to read a record, and `rand(d)` walks the same object to draw a
 full event path for a new case.
 A single draw returns the named event record (a labelled `NamedTuple`), with
-exactly one of death or discharge populated by the competing node.
+exactly one of death or discharge populated by the one_of node.
 """
 
 rand(MersenneTwister(1), delay_tree(cfr = 0.6))
@@ -385,7 +385,7 @@ md"""
 Admission-date offsets the Rosello deposit encodes as outliers (−89, −5, −4, −1,
 and 328720 days from onset) are set to missing, as are negative offsets.
 Death and discharge are made mutually exclusive by the recorded outcome, so each
-resolved case carries exactly one of the two as its competing outcome.
+resolved case carries exactly one of the two as its one_of outcome.
 """
 
 admit_outliers = (-89, -5, -4, -1, 328720)
@@ -597,7 +597,7 @@ md"""
 
 The fit above is the marginal form, with each delay's primary event integrated
 out inside `logpdf` and the death-versus-discharge split read off the
-[`Competing`](@ref) node through the per-record `:branch_probs`.
+[`Resolve`](@ref) node through the per-record `:branch_probs`.
 The original Isiro re-analysis at
 [epiforecasts/bdbv-linelist-analysis](https://github.com/epiforecasts/bdbv-linelist-analysis)
 used the latent form instead, sampling each delay's primary event per record and
@@ -615,7 +615,7 @@ submodel loop.
 Each observed delay segment is a single-edge [`latent`](@ref) chain that samples
 its origin event and conditions the observed time on it at the floored gap, the
 latent counterpart of the marginal leaf.
-A [`Select`](@ref) routes each record's segments by a `:kind` field, so
+A [`Choose`](@ref) routes each record's segments by a `:kind` field, so
 `latent_primary_priors` stacks every segment's origin prior and
 `latent_observed_logpdf` scores the whole table at once.
 Because admission is recorded for every resolved case here, no admission time is
@@ -643,7 +643,7 @@ end
 md"""
 Each delay segment becomes a single-edge [`latent`](@ref) chain whose origin
 event is sampled and whose observed time conditions on it at the floored gap.
-The four segments are gathered into one [`Select`](@ref) keyed by a `:kind`
+The four segments are gathered into one [`Choose`](@ref) keyed by a `:kind`
 field, so a record's rows route to the right segment by name.
 A single-edge chain is density-identical to the marginal leaf, so the latent fit
 recovers the same delays as the marginal fit.
@@ -651,7 +651,7 @@ recovers the same delays as the marginal fit.
 
 function latent_segments(leaves)
     edge(leaf, name) = latent(sequential(name => leaf))
-    return selecting(
+    return choose(
         :onset_admit => edge(leaves.onset_admit, :onset_admit),
         :admit_death => edge(leaves.admit_death, :admit_death),
         :admit_discharge => edge(leaves.admit_discharge, :admit_discharge),
@@ -850,10 +850,10 @@ md"""
 ## Summary
 
 - The whole case is one composed distribution: a chain from onset through
-  admission to a [`Competing`](@ref) resolution, plus a notification branch, with
+  admission to a [`Resolve`](@ref) resolution, plus a notification branch, with
   every leaf censored directly through [`double_interval_censored`](@ref).
 - The case-fatality ratio is a logistic regression in plain Turing, fed to the
-  competing node per record through the reserved `:branch_probs` field.
+  one_of node per record through the reserved `:branch_probs` field.
 - Priors come from [`params_table`](@ref) and [`build_priors`](@ref), which
   derives weakly informative defaults from each parameter's support; the records
   score through the vectorised [`composed_distribution_model`](@ref).

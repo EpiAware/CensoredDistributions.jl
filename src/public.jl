@@ -38,7 +38,7 @@ public child_nleaves, child_logpdf, child_rand!
 # right-truncation entry point used by the composed record model.
 public event_logpdf
 
-# Sample a Competing outcome and its time as `(name, time)` (public but not
+# Sample a Resolve outcome and its time as `(name, time)` (public but not
 # exported): the outcome-retaining draw used by full-path tree simulation.
 public rand_outcome
 

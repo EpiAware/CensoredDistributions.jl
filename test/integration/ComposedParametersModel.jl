@@ -56,12 +56,12 @@ end
     @test "d.scale" in vns
 end
 
-@testitem "composed_parameters_model: nested Sequential + Competing" tags=[:turing] begin
+@testitem "composed_parameters_model: nested Sequential + Resolve" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Random
 
     template = compose((
         chain = [Gamma(2.0, 1.0), LogNormal(0.5, 0.4)],
-        resolution = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+        resolution = Resolve(:death => (Gamma(1.5, 1.0), 0.3),
             :disch => (Gamma(2.0, 1.5), 0.7))))
     priors = (
         chain = (
@@ -87,7 +87,7 @@ end
 
     @test event_names(d) == event_names(template)
     @test keys(params(d)) == keys(params(template))
-    # Competing branch probabilities kept fixed from the template by default.
+    # Resolve branch probabilities kept fixed from the template by default.
     @test event(d, :resolution).branch_probs == (0.3, 0.7)
 
     vns = Set(string.(collect(keys(VarInfo(m)))))
@@ -97,10 +97,10 @@ end
     @test "d.resolution.disch.shape" in vns
 end
 
-@testitem "composed_parameters_model: Competing branch_probs prior" tags=[:turing] begin
+@testitem "composed_parameters_model: Resolve branch_probs prior" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Random
 
-    template = compose((resolution = Competing(
+    template = compose((resolution = Resolve(
         :death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7)),))
     priors = (resolution = (
@@ -203,24 +203,24 @@ end
     @test any(!iszero, grad)
 end
 
-@testitem "nested Competing: Mooncake reverse == ForwardDiff (#497)" tags=[:turing] begin
+@testitem "nested Resolve: Mooncake reverse == ForwardDiff (#497)" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
     using ADTypes: AutoForwardDiff, AutoMooncake
     import Mooncake
     const LDP = DynamicPPL.LogDensityProblems
 
-    # A bdbv-style nested-Competing tree fit through the full prior-sample ->
+    # A bdbv-style nested-Resolve tree fit through the full prior-sample ->
     # reconstruct -> score loop with a PER-RECORD covariate branch probability.
-    # The Competing rebuild used to route the reconstructed component tuple through
+    # The Resolve rebuild used to route the reconstructed component tuple through
     # `Tuple(::Vector{Any})`, which gave the composed object a heterogeneous edge
     # type whose reverse data Mooncake could not `increment!!` (#497) -- so the
-    # nested-Competing case studies fell back to `AutoForwardDiff`. The reconstruct
+    # nested-Resolve case studies fell back to `AutoForwardDiff`. The reconstruct
     # path now builds the component tuple by a type-stable head/tail recursion, so
     # Mooncake reverse builds a rule and its gradient MATCHES ForwardDiff.
     dc(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
         interval = 1.0)
     function delay_tree(; cfr = 0.5)
-        resolution = Competing(
+        resolution = Resolve(
             :death => (dc(Gamma(2.0, 3.5)), cfr),
             :discharge => (dc(Gamma(1.0, 8.0)), 1 - cfr))
         admit_path = Sequential(
@@ -274,7 +274,7 @@ end
         adtype = AutoMooncake(config = nothing))
 
     lp_fd, g_fd = LDP.logdensity_and_gradient(ldf_fd, x0)
-    # The key assertion: Mooncake reverse builds a rule for the nested-Competing
+    # The key assertion: Mooncake reverse builds a rule for the nested-Resolve
     # tree (no `increment!!` MethodError) and returns a finite gradient.
     lp_mc, g_mc = LDP.logdensity_and_gradient(ldf_mc, x0)
 
@@ -284,13 +284,13 @@ end
     @test g_mc≈g_fd rtol=1e-5 atol=1e-7
 end
 
-@testitem "Select top: Mooncake reverse == ForwardDiff (#497)" tags=[:turing] begin
+@testitem "Choose top: Mooncake reverse == ForwardDiff (#497)" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
     using ADTypes: AutoForwardDiff, AutoMooncake
     import Mooncake
     const LDP = DynamicPPL.LogDensityProblems
 
-    # An andv-style Select-top model fit through the full prior-sample ->
+    # An andv-style Choose-top model fit through the full prior-sample ->
     # reconstruct -> score loop. `event(delays, :index)` inside the differentiated
     # model splits a dotted edge `Symbol` via `_split_edge`, whose `split(string,
     # '.')` is pointer-arithmetic string search that aborted Mooncake reverse with
@@ -309,7 +309,7 @@ end
         sourced = Sequential(
             (dd(delta), shared(:inc, dd(inc))),
             (:srconset_infection, :infection_onset))
-        return selecting(:index => index, :sourced => sourced)
+        return choose(:index => index, :sourced => sourced)
     end
     template = delay_select()
     priors = build_priors(params_table(template);
@@ -362,7 +362,7 @@ end
         adtype = AutoMooncake(config = nothing))
 
     lp_fd, g_fd = LDP.logdensity_and_gradient(ldf_fd, x0)
-    # The key assertion: Mooncake reverse builds a rule for the Select-top tree
+    # The key assertion: Mooncake reverse builds a rule for the Choose-top tree
     # (no `sub_ptr intrinsic hit`) and returns a finite gradient.
     lp_mc, g_mc = LDP.logdensity_and_gradient(ldf_mc, x0)
 
@@ -681,7 +681,7 @@ end
     # `inc` is shared across the index and sourced branches of a select: one
     # free parameter, sampled once, placed in both occurrences.
     inc = shared(:inc, Gamma(2.0, 1.0))
-    template = selecting(:index => inc,
+    template = choose(:index => inc,
         :sourced => compose((delta = LogNormal(0.5, 0.4), inc = inc)))
     priors = (
         inc = (shape = truncated(Normal(2, 0.5); lower = 0),
@@ -726,7 +726,7 @@ end
     import Statistics
 
     inc = shared(:inc, Gamma(2.0, 1.0))
-    template = selecting(:index => inc,
+    template = choose(:index => inc,
         :sourced => compose((delta = LogNormal(0.5, 0.4), inc = inc)))
     priors = (
         inc = (shape = truncated(Normal(3, 1); lower = 0),
@@ -806,16 +806,16 @@ end
     @test all(sigma .> 0)
 end
 
-@testitem "chain_to_params + update reconstruct a Select template" tags=[:turing] begin
+@testitem "chain_to_params + update reconstruct a Choose template" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
     using FlexiChains: Prefixed, VNChain
     import Statistics
 
-    # A `Select` with one leaf alternative and one nested-composer alternative.
+    # A `Choose` with one leaf alternative and one nested-composer alternative.
     # Each alternative carries its own free parameters under the select path, so
     # the chain bridge must walk the alternatives like the core
     # `params`/`update`.
-    template = selecting(:index => Gamma(2.0, 1.0),
+    template = choose(:index => Gamma(2.0, 1.0),
         :sourced => compose((delta = LogNormal(0.5, 0.4),
             inc = Gamma(2.0, 1.0))))
     priors = (
@@ -854,7 +854,7 @@ end
     @test Set(keys(means.sourced)) == Set((:delta, :inc))
 
     ready = update(template, means)
-    @test ready isa CensoredDistributions.Select
+    @test ready isa CensoredDistributions.Choose
     # Each alternative's leaf matches a hand-rebuild from the same chain means.
     ish = Statistics.mean(chain[Prefixed(@varname(index.shape))])
     isc = Statistics.mean(chain[Prefixed(@varname(index.scale))])
@@ -883,7 +883,7 @@ end
     # the deduped `d.inc.shape`/`d.inc.scale`, not the per-occurrence paths, so
     # the bridge must read the tag ONCE and place it in both occurrences.
     inc = shared(:inc, Gamma(2.0, 1.0))
-    template = selecting(:index => inc,
+    template = choose(:index => inc,
         :sourced => compose((delta = LogNormal(0.5, 0.4), inc = inc)))
     priors = (
         inc = (shape = truncated(Normal(3, 1); lower = 0),
@@ -919,7 +919,7 @@ end
     @test Set(keys(means.inc)) == Set((:shape, :scale))
 
     ready = update(template, means)
-    @test ready isa CensoredDistributions.Select
+    @test ready isa CensoredDistributions.Choose
     # The SAME inc value flows to both occurrences, read from `d.inc.*`.
     sh = Statistics.mean(chain[Prefixed(@varname(inc.shape))])
     sc = Statistics.mean(chain[Prefixed(@varname(inc.scale))])

@@ -35,8 +35,8 @@ using Distributions: Distributions, mean, var, std, logpdf, cdf, params,
 import Tables
 
 using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
-                               Competing, AbstractCompeting,
-                               Select, Latent, compose, latent,
+                               Resolve, AbstractOneOf,
+                               Choose, Latent, compose, latent,
                                double_interval_censored, primary_censored,
                                event, event_names, event_tree, params_table,
                                observed_distribution, endpoint,
@@ -50,7 +50,7 @@ export test_interface, example_fixtures, test_rejects_invalid,
 # A fixture is the distribution plus the metadata the checklist needs that is not
 # recoverable from the object alone: a known event-name `path` to round-trip
 # through `event`, an in-support `draw` to score, a `kind` selector for a
-# `Select`, the shape of the OVERALL `mean(d)` moment, and whether the per-event
+# `Choose`, the shape of the OVERALL `mean(d)` moment, and whether the per-event
 # `mean(latent(d))` view applies.
 
 Base.@kwdef struct InterfaceFixture{D}
@@ -61,19 +61,19 @@ Base.@kwdef struct InterfaceFixture{D}
     draw::Any = nothing
     "A known `event` path (tuple of Symbols) that must round-trip, or `nothing`."
     path::Union{Nothing, Tuple} = nothing
-    "The `kind` keyword for a `Select` fixture, or `nothing`."
+    "The `kind` keyword for a `Choose` fixture, or `nothing`."
     kind::Union{Nothing, Symbol} = nothing
-    "Whether the node's `rand` is a univariate scalar (a leaf / `Competing`)."
+    "Whether the node's `rand` is a univariate scalar (a leaf / `Resolve`)."
     univariate::Bool = false
     "The shape of the OVERALL `mean(d)`/`var(d)`/`std(d)` moment: `:scalar` for a
-    univariate-collapsible node (a leaf, `Sequential`, `Competing`), `:vector`
+    univariate-collapsible node (a leaf, `Sequential`, `Resolve`), `:vector`
     for a genuinely multivariate `Parallel` (a per-endpoint Vector), or `:none`
-    to skip the overall-moment check (a `Select`, or a node with no closed-form
+    to skip the overall-moment check (a `Choose`, or a node with no closed-form
     moment)."
     overall::Symbol = :scalar
     "Whether the per-event `mean(latent(d))` view applies: a full per-event Vector
     matching `rand(latent(d))`. True for the composers (`Sequential`/`Parallel`
-    and trees rooted in them), false for a bare leaf / `Select` / `Competing`."
+    and trees rooted in them), false for a bare leaf / `Choose` / `Resolve`."
     latent_moments::Bool = false
     "Whether the node collapses to a univariate endpoint via
     `observed_distribution` (a chain / univariate)."
@@ -109,7 +109,7 @@ The checklist asserts, where applicable to the node's shape:
 
 Pass the fixture metadata (an `example_fixtures` entry, or the keyword
 arguments directly) so the harness knows the in-support `draw`, a known `event`
-`path`, a `Select` `kind`, the `overall` moment shape, and whether the per-event
+`path`, a `Choose` `kind`, the `overall` moment shape, and whether the per-event
 `latent_moments` view applies. Returns the `@testset` object.
 
 # Examples
@@ -148,12 +148,12 @@ function test_interface(fix::InterfaceFixture)
     end
 end
 
-# A Select needs a selection for length/rand/logpdf, so it is checked on its
+# A Choose needs a selection for length/rand/logpdf, so it is checked on its
 # own track (the generic moment / logpdf checks are skipped for it).
-_is_select(::Select) = true
+_is_select(::Choose) = true
 _is_select(::Any) = false
 
-function _check_select(d::Select, fix)
+function _check_select(d::Choose, fix)
     @testset "select" begin
         fix.kind === nothing && return
         chosen = event(d, fix.kind)
@@ -261,7 +261,7 @@ end
 # --- deterministic in-support event draw ------------------------------------
 #
 # A raw `rand(d)` is not a sound in-support draw for the "logpdf finite" check:
-# a censored `Parallel` (and the nested `Competing` tree) floors each branch gap
+# a censored `Parallel` (and the nested `Resolve` tree) floors each branch gap
 # to its interval, so a random draw can land a gap on (or before) the
 # continuous core's support edge, where the marginal-core density is zero and
 # `logpdf(d, draw)` is `-Inf`. The check then fails intermittently. This builds a
@@ -269,7 +269,7 @@ end
 # tree shape the scorer consumes (mirroring `_composer_rand` / `_tree_rand!`),
 # but places each leaf event at `origin + round(mean(core)) + 1`, a strictly
 # positive gap clear of every continuous core's lower edge. The shared origin is
-# `0.0` (in the `Uniform`/primary support, density positive). A `Competing` node
+# `0.0` (in the `Uniform`/primary support, density positive). A `Resolve` node
 # observes its FIRST outcome and leaves the others `missing`, the same one-
 # observed-outcome record `rand` produces, so the unobserved-outcome `missing`
 # slot is exercised. The result feeds straight into `_score` like any draw.
@@ -285,7 +285,7 @@ end
 # A deterministic in-support event vector for a censored composer, or the
 # `_insupport_gap` scalar for a univariate node. Mirrors the layout `_score`
 # scores: `[origin, leaf events...]` in depth-first order, an unobserved
-# `Competing` outcome left `missing`. The shared origin is fixed at `0.0`.
+# `Resolve` outcome left `missing`. The shared origin is fixed at `0.0`.
 function _insupport_event_draw(d::Union{Sequential, Parallel})
     out = Vector{Union{Missing, Float64}}(
         missing, CensoredDistributions._event_nleaves(d.components) + 1)
@@ -318,7 +318,7 @@ end
 
 # One step/branch hanging off `origin`, returning `(next_idx, terminal_time)`
 # (the time a following chain step hangs off): its own event for a leaf, the
-# shared origin for a `Parallel`/`Competing`, the last step for a `Sequential`.
+# shared origin for a `Parallel`/`Resolve`, the last step for a `Sequential`.
 function _fill_insupport_step!(
         out, step::Union{Sequential, Parallel}, origin, idx)
     next = _fill_insupport!(out, step, origin, idx)
@@ -326,7 +326,7 @@ function _fill_insupport_step!(
            out[idx + CensoredDistributions._terminal_offset(step)]
     return next, term
 end
-function _fill_insupport_step!(out, step::AbstractCompeting, origin, idx)
+function _fill_insupport_step!(out, step::AbstractOneOf, origin, idx)
     # Observe the FIRST REAL outcome (a positive in-support gap off the anchor) and
     # leave the others missing, the one-observed-outcome record the scorer
     # expects; the unobserved slots exercise the `missing` path. A no-event branch
@@ -340,11 +340,11 @@ function _fill_insupport_step!(out, step::UnivariateDistribution, origin, idx)
     out[idx] = y
     return idx + 1, y
 end
-# A nested `Select` commits to its FIRST alternative on the flat (data-free) event
+# A nested `Choose` commits to its FIRST alternative on the flat (data-free) event
 # path, matching `_flat_select_alternative`: the alternatives share one event-slot
 # width, so the committed alternative fills the slot and a following step hangs off
 # its terminal time whichever alternative is chosen.
-function _fill_insupport_step!(out, step::Select, origin, idx)
+function _fill_insupport_step!(out, step::Choose, origin, idx)
     return _fill_insupport_step!(out, first(step.alternatives), origin, idx)
 end
 
@@ -363,7 +363,7 @@ end
 function _check_params(d)
     @testset "params / params_table" begin
         @test_nowarn params(d)
-        if d isa Union{Sequential, Parallel, Competing, Select}
+        if d isa Union{Sequential, Parallel, Resolve, Choose}
             tbl = params_table(d)
             @test Tables.istable(tbl)
         end
@@ -372,23 +372,23 @@ function _check_params(d)
 end
 
 # The flat `event_names` and the nested `event_tree` must agree in LEAF count:
-# every `event_tree` leaf (a Competing outcome / a leaf delay) has its own flat
-# slot, plus the flat origin event, so `length(flat) == leaves + 1`. A `Select`
+# every `event_tree` leaf (a Resolve outcome / a leaf delay) has its own flat
+# slot, plus the flat origin event, so `length(flat) == leaves + 1`. A `Choose`
 # (standalone or nested as a composer child) shares ONE flat slot across its
 # alternatives, while its `event_tree` carries every alternative name, so the
-# leaf-count equality does not hold; for a Select-containing node the check is
+# leaf-count equality does not hold; for a Choose-containing node the check is
 # that the flat count matches the actual flat EVENT layout and both are
 # non-empty.
 function _check_event_names(d, fix)
-    d isa Union{Sequential, Parallel, Competing, Select} || return nothing
+    d isa Union{Sequential, Parallel, Resolve, Choose} || return nothing
     @testset "event_names / event_tree leaf count" begin
         flat = event_names(d)
         tree = event_tree(d)
-        if d isa Select
+        if d isa Choose
             @test !isempty(flat)
             @test !isempty(keys(tree))
         elseif _contains_select(d)
-            # A nested Select collapses its alternatives to one shared flat slot,
+            # A nested Choose collapses its alternatives to one shared flat slot,
             # so the flat count tracks the event layout, not the tree leaf count.
             @test length(flat) ==
                   CensoredDistributions._event_nleaves(d.components) + 1
@@ -400,11 +400,11 @@ function _check_event_names(d, fix)
     return nothing
 end
 
-# Whether a composer tree contains a nested `Select` anywhere (its alternatives
+# Whether a composer tree contains a nested `Choose` anywhere (its alternatives
 # share one flat event slot, so the tree-vs-flat leaf-count equality is relaxed).
-_contains_select(::Select) = true
+_contains_select(::Choose) = true
 _contains_select(c::Union{Sequential, Parallel}) = any(_contains_select, c.components)
-_contains_select(c::AbstractCompeting) = any(_contains_select, c.delays)
+_contains_select(c::AbstractOneOf) = any(_contains_select, c.delays)
 _contains_select(c::Latent) = _contains_select(c.dist)
 _contains_select(::Any) = false
 
@@ -444,7 +444,7 @@ end
 The example fixture set every composer shape, for [`test_interface`](@ref).
 
 Returns a `Vector` of [`test_interface`](@ref)-ready fixtures covering: a bare
-censored leaf, `Sequential`, `Parallel`, `Competing`, `selecting`, nested mixes,
+censored leaf, `Sequential`, `Parallel`, `Resolve`, `choose`, nested mixes,
 censored leaves, and a `latent`-wrapped case. The package runs the conformance
 checklist over these in `test/interfaces.jl`; a downstream author can read them
 as worked examples of the metadata `test_interface` expects.
@@ -463,24 +463,24 @@ function example_fixtures()
     seq = Sequential((dic(G(2.0, 1.0)), dic(G(1.5, 2.0))),
         (:onset_admit, :admit_death))
     par = Parallel(dic(G(2.0, 1.0)), dic(G(1.5, 2.0)))
-    # A standalone Competing's scalar moment lowers through `as_mixture`, which has
-    # no analytic moment for a CENSORED leaf, so the bare-Competing fixture uses
-    # plain delays (a censored Competing is still exercised nested in `nested`).
-    comp = Competing(:death => (G(2.0, 3.5), 0.4),
+    # A standalone Resolve's scalar moment lowers through `as_mixture`, which has
+    # no analytic moment for a CENSORED leaf, so the bare-Resolve fixture uses
+    # plain delays (a censored Resolve is still exercised nested in `nested`).
+    comp = Resolve(:death => (G(2.0, 3.5), 0.4),
         :discharge => (G(1.0, 8.0), 0.6))
-    nested_comp = Competing(:death => (dic(G(2.0, 3.5)), 0.4),
+    nested_comp = Resolve(:death => (dic(G(2.0, 3.5)), 0.4),
         :discharge => (dic(G(1.0, 8.0)), 0.6))
     nested = compose((
         admit_path = compose((onset_admit = dic(G(1.2, 3.0)),
             admit_resolution = nested_comp)),
         onset_notif = dic(G(0.7, 20.0))))
-    sel = CensoredDistributions.selecting(:index => dic(G(2.0, 1.0)),
+    sel = CensoredDistributions.choose(:index => dic(G(2.0, 1.0)),
         :sourced => compose((a = dic(G(4.0, 1.5)), b = dic(G(1.0, 2.0)))))
-    # A `Select` with equal-width alternatives nested AS a composer child (#424):
+    # A `Choose` with equal-width alternatives nested AS a composer child (#424):
     # the Parallel admits it and the flat event path commits to its first
-    # alternative. There is no closed-form moment for the Select branch, so the
+    # alternative. There is no closed-form moment for the Choose branch, so the
     # overall moment and per-event latent view are skipped.
-    sel_child = CensoredDistributions.selecting(:a => dic(G(2.0, 1.0)),
+    sel_child = CensoredDistributions.choose(:a => dic(G(2.0, 1.0)),
         :b => dic(G(1.5, 2.0)))
     sel_in_par = Parallel(dic(G(2.0, 1.0)), sel_child)
     # `latent` over a single primary-censored leaf is the documented use: a
@@ -513,21 +513,21 @@ function example_fixtures()
         InterfaceFixture(; name = "Parallel", dist = par,
             draw = _insupport_event_draw(par),
             overall = :vector, latent_moments = true, has_endpoint = false),
-        InterfaceFixture(; name = "Competing", dist = comp, draw = 4.0,
+        InterfaceFixture(; name = "Resolve", dist = comp, draw = 4.0,
             path = (:death,), univariate = true, overall = :scalar),
-        InterfaceFixture(; name = "selecting", dist = sel, draw = 3.0,
+        InterfaceFixture(; name = "choose", dist = sel, draw = 3.0,
             kind = :index, path = (:index,), overall = :none,
             has_endpoint = false),
-        # A `Select` nested as a composer child (#424): the Parallel admits it and
-        # the flat event path commits to the Select's first alternative.
-        InterfaceFixture(; name = "Select-in-Parallel", dist = sel_in_par,
+        # A `Choose` nested as a composer child (#424): the Parallel admits it and
+        # the flat event path commits to the Choose's first alternative.
+        InterfaceFixture(; name = "Choose-in-Parallel", dist = sel_in_par,
             draw = _insupport_event_draw(sel_in_par), path = (:branch_1,),
             overall = :none, latent_moments = false, has_endpoint = false),
         # A nested tree branches off a shared origin (a Parallel at its root), so
         # its overall moment is a per-endpoint Vector and it has no single
         # collapsed endpoint; the full per-event vector is via `latent`. The
         # `draw` is a DETERMINISTIC in-support event vector (not `rand(nested)`):
-        # its nested `Competing` observes one outcome and leaves the other
+        # its nested `Resolve` observes one outcome and leaves the other
         # `missing`, the one-observed-outcome record the scorer expects, with
         # every gap clear of its core's support edge so `logpdf` is finite.
         InterfaceFixture(; name = "nested mix", dist = nested,
@@ -550,22 +550,22 @@ Assert each composer rejects invalid construction in its inner constructor.
 `test_rejects_invalid()` checks that the standard composers validate their
 structural invariants on EVERY construction path (the inner constructor), so a
 malformed node errors at build time rather than later: `Sequential` needs at
-least one component, `Parallel`/`Competing`/`Select` at least two children,
-`Competing` branch probabilities in `[0, 1]`, and unique `Select` names. Returns
+least one component, `Parallel`/`Resolve`/`Choose` at least two children,
+`Resolve` branch probabilities in `[0, 1]`, and unique `Choose` names. Returns
 the `@testset` object.
 """ function test_rejects_invalid()
     G = Distributions.Gamma
     return @testset "construction rejects invalid input" begin
-        # Competing: out-of-range branch prob, and fewer than two outcomes.
-        @test_throws ArgumentError Competing((:a, :b), (G(2.0, 1.0), G(1.0, 1.0)),
+        # Resolve: out-of-range branch prob, and fewer than two outcomes.
+        @test_throws ArgumentError Resolve((:a, :b), (G(2.0, 1.0), G(1.0, 1.0)),
             (1.5, -0.5))
-        @test_throws ArgumentError Competing(:only => (G(2.0, 1.0), 1.0))
+        @test_throws ArgumentError Resolve(:only => (G(2.0, 1.0), 1.0))
         # Sequential: empty.
         @test_throws ArgumentError Sequential((), ())
-        # Select: needs at least two, and unique names.
-        @test_throws ArgumentError CensoredDistributions.selecting(
+        # Choose: needs at least two, and unique names.
+        @test_throws ArgumentError CensoredDistributions.choose(
             :only => G(2.0, 1.0))
-        @test_throws ArgumentError CensoredDistributions.selecting(
+        @test_throws ArgumentError CensoredDistributions.choose(
             :a => G(2.0, 1.0), :a => G(1.0, 1.0))
     end
 end

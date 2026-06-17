@@ -1,5 +1,5 @@
 md"""
-# [A branching-process-like natural history with competing outcomes](@id branching-competing)
+# [A branching-process-like natural history with one_of outcomes](@id branching-one_of)
 
 ## Introduction
 
@@ -15,7 +15,7 @@ scored from a single object.
 ### What are we going to do in this exercise
 
 We build one natural-history object for a case and exercise the enriched
-competing-outcome composition:
+one_of-outcome composition:
 
 1. Map each modelling concept onto a composed primitive:
 
@@ -24,9 +24,9 @@ competing-outcome composition:
 | event as a delay from a prior event | [`Sequential`](@ref) step |
 | several events from one anchor | [`Parallel`](@ref) |
 | day-resolution event recorded as a date | a [`double_interval_censored`](@ref) leaf |
-| an event that only sometimes occurs | a no-event [`competing`](@ref) branch |
-| competing risks, which-and-when hazard-driven | racing-hazard [`competing`](@ref) |
-| an outcome that continues into a further chain | a [`competing`](@ref) outcome holding a subtree |
+| an event that only sometimes occurs | a no-event [`resolve`](@ref) branch |
+| rival risks, which-and-when hazard-driven | racing-hazard [`compete`](@ref) |
+| an outcome that continues into a further chain | a [`resolve`](@ref) outcome holding a subtree |
 
 2. Run a single-type branching process (a Galton-Watson process with a
    generation-interval delay) to get a set of infection times.
@@ -104,11 +104,11 @@ Each case's natural history is one composed object anchored on its infection:
   date.
 - `onset -> report`: a reporting delay, also recorded to the day
   ([`double_interval_censored`](@ref)), and made optional with a no-event
-  [`competing`](@ref) branch — a case is reported with probability `ρ`, else no
+  [`resolve`](@ref) branch — a case is reported with probability `ρ`, else no
   report time is written.
-- `onset -> {death, recover}`: a racing-hazard [`competing`](@ref); the first of
+- `onset -> {death, recover}`: a racing-hazard [`compete`](@ref) node; the first of
   the two latent delays wins, and which-and-when is coupled. These are the
-  cause-specific latent times that drive the competing-risk hazards, so they
+  cause-specific latent times that drive the one_of-risk hazards, so they
   stay continuous — the derived winning split below integrates over them.
 
 A single `rand` draws the whole event path.
@@ -116,10 +116,10 @@ A single `rand` draws the whole event path.
 
 ρ = 0.6                       # report probability
 incubation = double_interval_censored(LogNormal(1.5, 0.4); interval = 1)
-report = competing(
+report = resolve(
     :report => (double_interval_censored(Gamma(2.0, 1.5); interval = 1), ρ),
     :none => (NoEvent(), 1 - ρ))
-severity = competing(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
+severity = compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
 
 natural_history = compose((onset = incubation,
     reporting = report,
@@ -207,7 +207,7 @@ With the same object we score the line list and recover the severity delays in a
 small Turing model. We rebuild the natural-history object from sampled
 parameters and score the *whole* line list in one `~` through the batch
 [`composed_distribution_model`](@ref) — pass the vector of records and the
-competing node self-dispatches per record on which outcome slot is observed (and
+one_of node self-dispatches per record on which outcome slot is observed (and
 handles the optional report and the missing slots internally), with no manual
 per-record loop. The records are anchored at zero here (the infection time is
 the known anchor), so we re-centre each record on its own infection time.
@@ -219,7 +219,7 @@ records = [map(v -> v === missing ? missing : v - t, r)
 @model function fit_severity(records)
     death_shape ~ truncated(Normal(2.0, 0.5); lower = 0.2)
     recover_shape ~ truncated(Normal(3.0, 0.5); lower = 0.2)
-    severity = competing(:death => Gamma(death_shape, 3.0),
+    severity = compete(:death => Gamma(death_shape, 3.0),
         :recover => Gamma(recover_shape, 2.0))
     history = compose((onset = incubation,
         reporting = report,
@@ -241,7 +241,7 @@ death, `3.0` for recover) within Monte Carlo error.
 md"""
 ## Outcomes that continue into a further chain
 
-A competing outcome is not limited to a single leaf delay: an outcome can carry a
+A one_of outcome is not limited to a single leaf delay: an outcome can carry a
 whole composer subtree, so winning that outcome unfolds further events. Here the
 `death` outcome carries its own sub-chain `death -> burial` (the burial date is
 recorded to the day, a [`double_interval_censored`](@ref) leaf), while `recover`
@@ -252,7 +252,7 @@ stays a single leaf. The outcome contributes its subtree's event slots, so
 burial = double_interval_censored(Gamma(1.5, 1.0); interval = 1)
 death_chain = sequential(:onset_death => Gamma(2.0, 3.0),
     :death_burial => burial)
-severity_tree = competing(:death => (death_chain, 0.4),
+severity_tree = resolve(:death => (death_chain, 0.4),
     :recover => (Gamma(3.0, 2.0), 0.6))
 
 history_tree = compose((onset = incubation, severity = severity_tree))
@@ -277,9 +277,9 @@ Each step of this tutorial maps onto a row of the table in the introduction:
   simulator would otherwise hand-roll;
 - the [`double_interval_censored`](@ref) leaves are the day-resolution recorded
   events (onset and report dates);
-- the no-event `competing` branch is the per-case detection / asymptomatic gate;
-- the racing-hazard `competing` is the competing-risk severity outcome;
-- a `competing` outcome holding a subtree is an outcome that opens a further
+- the no-event `one_of` branch is the per-case detection / asymptomatic gate;
+- the racing-hazard `one_of` is the one_of-risk severity outcome;
+- a `one_of` outcome holding a subtree is an outcome that opens a further
   event chain (death then burial);
 - `convolve_distributions(object, series)` is the aggregate forward observation
   layer.
@@ -309,10 +309,10 @@ The mapping from multi-state concepts to composer primitives is:
 
 | Multi-state concept | Composer primitive |
 |---|---|
-| cause-specific hazards (which-and-when coupled) | racing-hazard [`HazardCompeting`](@ref) via [`competing`](@ref) |
-| fixed competing split (probabilities are free) | [`Competing`](@ref) with branch probabilities |
+| cause-specific hazards (which-and-when coupled) | racing-hazard [`Compete`](@ref) via [`compete`](@ref) |
+| fixed-probability split (probabilities are free) | [`Resolve`](@ref) via [`resolve`](@ref) |
 | sojourn in a state (clock resets on entry) | a [`Sequential`](@ref) step (clock-reset gives a semi-Markov sojourn) |
-| intermediate (non-terminal) state | a [`competing`](@ref) outcome holding a subtree |
+| intermediate (non-terminal) state | a [`resolve`](@ref) outcome holding a subtree |
 | right-censoring of a transition that need not occur | a [`NoEvent`](@ref) branch, or whole-chain truncation |
 | transition time observed only to the day | an [`interval_censored`](@ref) or [`double_interval_censored`](@ref) leaf |
 | states as compartments (a phase-type sojourn) | [`linear_chain_reactions`](@ref) |

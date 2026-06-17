@@ -5,7 +5,7 @@
 # `shared(:inc, dist)` tags a leaf with a NAME so two occurrences carrying the
 # same tag are ONE free parameter, not two. A parameter can appear in several
 # branches of a tree (e.g. an incubation `inc` in BOTH the index and sourced
-# branches of a `selecting`); without a tie the prior/params interface would
+# branches of a `choose`); without a tie the prior/params interface would
 # inventory, sample and update each occurrence independently and duplicate the
 # shared parameter. A `Shared` tag lets the interface dedup BY NAME: inventory
 # once, sample once, place the one sampled value in every occurrence.
@@ -70,9 +70,9 @@ tagged occurrences are one free parameter either way.
 ```@example
 using CensoredDistributions, Distributions
 
-# The same incubation `inc` tied across two branches of a `selecting`.
+# The same incubation `inc` tied across two branches of a `choose`.
 inc = shared(:inc, Gamma(2.0, 1.0))
-d = selecting(:index => inc,
+d = choose(:index => inc,
     :sourced => compose((src = LogNormal(0.5, 0.4), inc = inc)))
 event_names(d)
 ```
@@ -147,13 +147,13 @@ function _collect_shared!(acc, seen, d::Union{Sequential, Parallel})
     end
     return nothing
 end
-function _collect_shared!(acc, seen, d::Select)
+function _collect_shared!(acc, seen, d::Choose)
     for a in d.alternatives
         _collect_shared!(acc, seen, a)
     end
     return nothing
 end
-function _collect_shared!(acc, seen, c::AbstractCompeting)
+function _collect_shared!(acc, seen, c::AbstractOneOf)
     for g in c.delays
         _collect_shared!(acc, seen, g)
     end
@@ -188,7 +188,7 @@ _tie_path(p::Symbol) = _split_edge(p)
 
 # True for the composer (non-leaf) nodes a path can run through; a path that
 # resolves to one of these is pointing at a subtree, not a tieable leaf.
-_is_composer_node(::Union{Sequential, Parallel, AbstractCompeting, Select}) = true
+_is_composer_node(::Union{Sequential, Parallel, AbstractOneOf, Choose}) = true
 _is_composer_node(::Any) = false
 
 # The (family, param-names) signature a tie groups by: tied leaves become ONE
@@ -232,7 +232,7 @@ they become one group.
 ```@example
 using CensoredDistributions, Distributions
 
-d = selecting(:index => compose((inc = Gamma(2.0, 1.0),)),
+d = choose(:index => compose((inc = Gamma(2.0, 1.0),)),
     :sourced => compose((src = LogNormal(0.5, 0.4), inc = Gamma(2.0, 1.0))))
 tied = tie(d, (:index, :inc), (:sourced, :inc); name = :inc)
 params_table(tied)
@@ -242,7 +242,7 @@ params_table(tied)
 - [`shared`](@ref): the leaf-local spelling of the same tie.
 - [`event`](@ref), [`update`](@ref): share the path forms `tie` accepts.
 "
-function tie(d::Union{Sequential, Parallel, AbstractCompeting, Select},
+function tie(d::Union{Sequential, Parallel, AbstractOneOf, Choose},
         paths...; name::Symbol)
     isempty(paths) && throw(ArgumentError(
         "tie needs at least one path to a leaf"))

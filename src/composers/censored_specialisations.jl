@@ -2,7 +2,7 @@
 # Censored specialisations of the generic composers
 # ============================================================================
 #
-# The generic `Sequential` / `Parallel` / `Competing` composers score a
+# The generic `Sequential` / `Parallel` / `Resolve` composers score a
 # value vector with one entry per step/branch. When their internal nodes are our
 # censored distributions (`primary_censored` / `interval_censored` /
 # `double_interval_censored`), per-record marginalisation is AUTOMATIC and
@@ -21,13 +21,13 @@
 #     over the continuous cores recovered with `get_dist_recursive`.
 # For `Parallel` with censored branches the shared origin couples the branches:
 # a missing origin entry is marginalised by one 1-D origin integral, a present
-# origin conditions. `Competing` already lowers to a `MixtureModel`
+# origin conditions. `Resolve` already lowers to a `MixtureModel`
 # (`as_mixture`), so it needs no event-vector specialisation here.
 
 #
 # Shared recovery helpers used by the censored-composer scoring (flat in
 # `censored_scoring_flat.jl`, nested-tree in `censored_scoring_tree.jl`,
-# competing-slice in `censored_competing.jl`) and the full-path simulation in
+# one_of-slice in `censored_one_of.jl`) and the full-path simulation in
 # `censored_rand.jl`. Those files are included AFTER this one (see the include
 # list in `src/CensoredDistributions.jl`) so the helpers and the `_Nested` /
 # `_Flat` traits are defined first.
@@ -56,12 +56,12 @@ _origin_primary_event(d::Shared) = _origin_primary_event(d.dist)
 _origin_primary_event(::UnivariateDistribution) = nothing
 # A nested multivariate composer is not a primary-censored origin leaf, so it
 # surfaces no origin primary event (the censored treatment is resolved within
-# the child). `Competing` is univariate and already hits the fallback above.
+# the child). `Resolve` is univariate and already hits the fallback above.
 _origin_primary_event(::Union{Sequential, Parallel}) = nothing
-# A nested `Select` resolves censoring within the committed alternative (the
+# A nested `Choose` resolves censoring within the committed alternative (the
 # first on the flat path); a `Latent` resolves it within its wrapped node.
 # Neither surfaces a flat origin primary event.
-_origin_primary_event(::Select) = nothing
+_origin_primary_event(::Choose) = nothing
 _origin_primary_event(d::Latent) = _origin_primary_event(d.dist)
 
 # The continuous delay core of a (possibly censored) node, for marginalisation:
@@ -141,18 +141,18 @@ end
 # leaving the origin continuous.
 _origin_interval(d::Sequential) = _origin_interval(d.components[1])
 _origin_interval(d::Parallel) = _shared_origin_interval(d.components)
-_origin_interval(d::AbstractCompeting) = _shared_origin_interval(d.delays)
-# A nested `Select` / `Latent` anchors its origin within the routed alternative /
+_origin_interval(d::AbstractOneOf) = _shared_origin_interval(d.delays)
+# A nested `Choose` / `Latent` anchors its origin within the routed alternative /
 # wrapped node; the alternatives share one origin interval, so the first is
 # representative. Mirrors the `_tree_primary_event` recursion so a Parallel whose
-# origin-anchor branch is itself a `Select`/`Latent` still discretises its origin
+# origin-anchor branch is itself a `Choose`/`Latent` still discretises its origin
 # slot (reached only when that branch is the first censored one, e.g. a
 # single-branch `compose((x = select(...),))`, issue #436).
-_origin_interval(d::Select) = _shared_origin_interval(d.alternatives)
+_origin_interval(d::Choose) = _shared_origin_interval(d.alternatives)
 _origin_interval(d::Latent) = _origin_interval(d.dist)
 _origin_interval(d::UnivariateDistribution) = _leaf_interval(d)
 
-# The shared origin interval of a `Parallel`/`Competing`: the branches hang off
+# The shared origin interval of a `Parallel`/`Resolve`: the branches hang off
 # one origin, so they must agree on its interval; the first non-`nothing` is
 # returned (a mismatch is a malformed shared origin, but the scorer/data already
 # assume one shared origin so this stays a simple first-found).
@@ -166,12 +166,12 @@ end
 
 # Whether a component is itself a nested composer (a branch/step that recurses)
 # rather than a leaf edge. Dispatch on the type, so the recursion is selected at
-# compile time with no runtime type lookup. A `Competing` is univariate (a single
+# compile time with no runtime type lookup. A `Resolve` is univariate (a single
 # marginal time-to-resolution leaf), so it is NOT a nested composer here.
 _is_nested_composer(::Union{Sequential, Parallel}) = true
 _is_nested_composer(::UnivariateDistribution) = false
 
-# Whether any of a composer's components is itself a nested composer. Selects the
+# Whether any of a composer's components is itself a nested composer. Picks the
 # recursive tree walk over the flat one-level scoring. Resolved on the component
 # TYPES (the `Tuple` element types), so it is a compile-time constant and the
 # branch on it is eliminated, keeping the scoring type-stable.
@@ -196,15 +196,15 @@ struct _Nested end
 struct _Flat end
 _nested_trait(components::C) where {C <: Tuple} = _nested_trait(C)
 @generated function _nested_trait(::Type{C}) where {C <: Tuple}
-    # A `Competing` component also forces the tree path: its multi-slot outcome
-    # layout is scored by `_tree_step(::Competing)`, not the flat segment-grouped
-    # scorer. A `Select` component likewise forces the tree path: a nested Select
-    # routes per row to one of its alternatives (scored by `_tree_step(::Select)`),
+    # A `Resolve` component also forces the tree path: its multi-slot outcome
+    # layout is scored by `_tree_step(::Resolve)`, not the flat segment-grouped
+    # scorer. A `Choose` component likewise forces the tree path: a nested Choose
+    # routes per row to one of its alternatives (scored by `_tree_step(::Choose)`),
     # not by the flat one-level segment scoring that would silently commit to a
     # single alternative.
     has_nested = any(
-        t -> t <: Sequential || t <: Parallel || t <: AbstractCompeting ||
-             t <: Select,
+        t -> t <: Sequential || t <: Parallel || t <: AbstractOneOf ||
+             t <: Choose,
         fieldtypes(C))
     return has_nested ? :(_Nested()) : :(_Flat())
 end

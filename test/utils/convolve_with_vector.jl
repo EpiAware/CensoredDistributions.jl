@@ -129,14 +129,14 @@ end
     @test [s.name for s in CensoredDistributions._event_specs(leaf)] ==
           [:event_1]
 
-    # Selecting that endpoint by name must match the default (endpoint) and the
+    # Choosing that endpoint by name must match the default (endpoint) and the
     # reference, not error as if no events were available.
     @test convolve_distributions(leaf, series; events = :event_1) ≈
           convolve_distributions(leaf, series)
     @test convolve_distributions(leaf, series; events = :event_1) ≈
           reference_convolution(leaf, series)
 
-    # A tuple selecting the endpoint yields a NamedTuple keyed by it.
+    # A tuple choose the endpoint yields a NamedTuple keyed by it.
     nt = convolve_distributions(leaf, series; events = (:event_1,))
     @test nt isa NamedTuple
     @test keys(nt) == (:event_1,)
@@ -220,7 +220,7 @@ end
         convolve_distributions(incub, onset_death), series)
 end
 
-@testitem "Competing reduces to per-outcome thinning under convolve" setup=[
+@testitem "Resolve reduces to per-outcome thinning under convolve" setup=[
     ConvolveVectorRef] begin
     using CensoredDistributions, Distributions
     series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
@@ -228,7 +228,7 @@ end
     d_disch = Gamma(2.0, 3.0)
 
     # A real partition: death vs discharge, branch probs sum to one.
-    c = competing(:death => (d_death, 0.7), :discharge => (d_disch, 0.3))
+    c = resolve(:death => (d_death, 0.7), :discharge => (d_disch, 0.3))
     out = convolve_distributions(c, series; events = (:death, :discharge))
     @test out.death ≈ 0.7 .* reference_convolution(d_death, series)
     @test out.discharge ≈ 0.3 .* reference_convolution(d_disch, series)

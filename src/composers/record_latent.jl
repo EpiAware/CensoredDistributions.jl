@@ -22,7 +22,7 @@
 # delay at the implied gap; a chain row reconstructs its event times (E_0 = the
 # origin draw, E_i = E_{i-1} + gap_i) and conditions the terminal event on the
 # last DECLARED edge at the final gap; a MARGINAL row (an index alternative in a
-# mixed Select table) scores through its marginal record `logpdf`, so one
+# mixed Choose table) scores through its marginal record `logpdf`, so one
 # `@addlogprob!` covers the mixed table. This is a VECTORISED form (a broadcast
 # over the rows), not a per-record submodel loop, so it differentiates under
 # ForwardDiff and Mooncake reverse. The chain's INTERMEDIATE gaps are sampled
@@ -42,7 +42,7 @@ edge). `latent_primary_priors(d, rows)` returns the vector of those priors,
 FLATTENED in row order and restricted to the LATENT rows: a leaf row contributes
 one prior, a `k`-edge chain row contributes `k` priors (the origin primary then
 the first `k - 1` declared edges), and a marginal row (an `index` alternative in a
-mixed [`Select`](@ref) table) contributes none. The result is the input to a
+mixed [`Choose`](@ref) table) contributes none. The result is the input to a
 single `primaries ~ product_distribution(latent_primary_priors(d, rows))`,
 sampling every latent value at once.
 
@@ -53,7 +53,7 @@ site (skip the `primaries ~ ...` statement when `latent_primary_priors(d, rows)`
 is empty: there is nothing latent to sample).
 
 # Arguments
-- `d`: a latent leaf or latent chain, or a [`Select`](@ref) with latent
+- `d`: a latent leaf or latent chain, or a [`Choose`](@ref) with latent
   alternative(s).
 - `rows`: a Tables.jl row source of records keyed by event name.
 
@@ -75,7 +75,7 @@ function latent_primary_priors(d, rows)
     rowvec = collect(Tables.rows(rows))
     # The concrete prior element type is fixed by `d`'s STATIC structure (the
     # leaf's primary event, or a chain's origin primary and bare edge cores, or a
-    # Select's latent alternatives), independent of any row VALUE. Determining it
+    # Choose's latent alternatives), independent of any row VALUE. Determining it
     # up front lets us fill a `Vector{T}` directly, so the return type is
     # inferrable and `product_distribution(latent_primary_priors(...))` is type-
     # stable: Mooncake then compiles one tight gradient rule (fast cold start)
@@ -94,16 +94,16 @@ end
 
 # The concrete element type of the stacked latent priors, derived from `d`'s
 # type alone (not from any row). A latent leaf/chain contributes the prior types
-# of `_latent_row_priors`; a Select promotes over its LATENT alternatives (the
+# of `_latent_row_priors`; a Choose promotes over its LATENT alternatives (the
 # only ones contributing priors), so a homogeneous table (one latent alternative,
 # all the same primary-event type) stays concretely typed and a heterogeneous one
 # (mixed primary-event types, or a chain's origin-plus-edge mix) widens to the
-# promotion, exactly as the previous runtime `_narrow` did. An all-marginal Select
+# promotion, exactly as the previous runtime `_narrow` did. An all-marginal Choose
 # (no latent alternative) has no priors, so the element type is irrelevant; it
 # falls back to the leaf/chain type, and the returned vector is empty regardless.
 _latent_prior_eltype(d::Latent) = _row_priors_eltype(d)
 _latent_prior_eltype(::UnivariateDistribution) = Union{}
-function _latent_prior_eltype(d::Select)
+function _latent_prior_eltype(d::Choose)
     Ts = map(_latent_prior_eltype, d.alternatives)
     return reduce(_promote_prior_type, Ts; init = Union{})
 end
@@ -162,7 +162,7 @@ sampled primary through the delay at the implied gap (`logpdf(get_dist(alt),
 y - p)`); a latent CHAIN row reconstructs its event times from its contiguous
 block of `primaries` (`E_0` = the origin draw, `E_i = E_{i-1} + gap_i`) and
 conditions the terminal event on the last declared edge at the final gap; and a
-MARGINAL row (an `index` alternative in a mixed [`Select`](@ref) table) scores
+MARGINAL row (an `index` alternative in a mixed [`Choose`](@ref) table) scores
 through its marginal record `logpdf`. The `primaries` are the draws from
 `product_distribution(`[`latent_primary_priors`](@ref)`(d, rows))`, flattened in
 latent-row order (a leaf row reads one value, a `k`-edge chain row reads a `k`-
@@ -170,7 +170,7 @@ slot block); a per-record `weight`/`count` scales each row's contribution. This
 is the second statement of the vectorised latent pair, added with `@addlogprob!`.
 
 # Arguments
-- `d`: a latent leaf or latent chain, or a [`Select`](@ref) with latent
+- `d`: a latent leaf or latent chain, or a [`Choose`](@ref) with latent
   alternative(s).
 - `rows`: the same Tables.jl row source passed to
   [`latent_primary_priors`](@ref).
@@ -200,7 +200,7 @@ function latent_observed_logpdf(d, rows, primaries)
         w = _row_weight_field(nt, nothing)
         if alt === nothing
             # A marginal row scores through its marginal record logpdf, so one
-            # contribution covers a mixed Select table.
+            # contribution covers a mixed Choose table.
             total += _marginal_row_logpdf(d, nt)
         else
             # The row's latent values are a contiguous block of `primaries`; its
@@ -267,21 +267,21 @@ function _the_terminal_observed(events)
 end
 
 # The latent alternative scoring a row, or `nothing` when the row is marginal. A
-# top-level Latent leaf is latent for every row; a Select reads the row's
+# top-level Latent leaf is latent for every row; a Choose reads the row's
 # selector and returns the selected alternative only when it is a Latent.
 _latent_alternative(d::Latent, ::NamedTuple) = d
 _latent_alternative(::UnivariateDistribution, ::NamedTuple) = nothing
-function _latent_alternative(d::Select, row::NamedTuple)
+function _latent_alternative(d::Choose, row::NamedTuple)
     chosen = _pick(d, _select_kind(d, row))
     return chosen isa Latent ? chosen : nothing
 end
 
-# The selector value of a Select row, validated to be a Symbol naming an
-# alternative (mirroring the per-record Select path).
-function _select_kind(d::Select, row::NamedTuple)
+# The selector value of a Choose row, validated to be a Symbol naming an
+# alternative (mirroring the per-record Choose path).
+function _select_kind(d::Choose, row::NamedTuple)
     kind = row[d.selector]
     kind isa Symbol || throw(ArgumentError(
-        "the Select selector field $(repr(d.selector)) must hold a Symbol " *
+        "the Choose selector field $(repr(d.selector)) must hold a Symbol " *
         "naming the alternative; got $(typeof(kind))"))
     return kind
 end
@@ -290,9 +290,9 @@ end
 # alternative. A latent LEAF carries one observed event (a single value); a
 # latent CHAIN carries its flat event vector `[E_0, ..., E_k]` (the terminal
 # observed, intermediates missing). The selector field is stripped first under a
-# Select so the alternative sees only its own events.
+# Choose so the alternative sees only its own events.
 _latent_row_events(d::Latent, row::NamedTuple) = _latent_alt_events(d.dist, row)
-function _latent_row_events(d::Select, row::NamedTuple)
+function _latent_row_events(d::Choose, row::NamedTuple)
     inner = _drop_named_field(row, d.selector)
     alt = _pick(d, _select_kind(d, row))
     return _latent_alt_events(_unwrap_latent(alt), inner)
@@ -311,7 +311,7 @@ _latent_alt_events(chain::Sequential, row::NamedTuple) = _row_event_vector(chain
 # The single observed event value of a latent leaf row: the lone non-reserved,
 # non-selector field.
 _latent_observed_value(d::Latent, row::NamedTuple) = _the_observed_value(row)
-function _latent_observed_value(d::Select, row::NamedTuple)
+function _latent_observed_value(d::Choose, row::NamedTuple)
     inner = _drop_named_field(row, d.selector)
     return _the_observed_value(inner)
 end
@@ -324,9 +324,9 @@ function _the_observed_value(row::NamedTuple)
     return ev[1]
 end
 
-# The marginal log-density of a non-latent row in a mixed Select table: the
+# The marginal log-density of a non-latent row in a mixed Choose table: the
 # selected (marginal) alternative scored at its single observed value, weighted.
-function _marginal_row_logpdf(d::Select, row::NamedTuple)
+function _marginal_row_logpdf(d::Choose, row::NamedTuple)
     chosen = _pick(d, _select_kind(d, row))
     inner = _drop_named_field(row, d.selector)
     rec = _alternative_record(chosen, inner)

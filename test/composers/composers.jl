@@ -32,13 +32,13 @@ end
     @test_throws ArgumentError Parallel(())
 end
 
-@testitem "Competing lowers to a MixtureModel" begin
+@testitem "Resolve lowers to a MixtureModel" begin
     using Distributions
 
     cfr = 0.3
-    c = Competing(:death => (Gamma(1.5, 1.0), cfr),
+    c = Resolve(:death => (Gamma(1.5, 1.0), cfr),
         :disch => (Gamma(2.0, 1.5), 1 - cfr))
-    @test c isa CensoredDistributions.Competing
+    @test c isa CensoredDistributions.Resolve
     mix = as_mixture(c)
     @test mix isa MixtureModel
     # The univariate interface delegates to the mixture lowering.
@@ -49,19 +49,19 @@ end
     @test minimum(c) == minimum(mix)
 
     # Branch probabilities must be valid and sum to one; >= 2 outcomes.
-    @test_throws ArgumentError Competing(:a => (Gamma(1.0, 1.0), 0.5))
-    @test_throws ArgumentError Competing(
+    @test_throws ArgumentError Resolve(:a => (Gamma(1.0, 1.0), 0.5))
+    @test_throws ArgumentError Resolve(
         :a => (Gamma(1.0, 1.0), 0.3), :b => (Gamma(1.0, 1.0), 0.3))
-    @test_throws ArgumentError Competing(
+    @test_throws ArgumentError Resolve(
         :a => (Gamma(1.0, 1.0), 1.5), :b => (Gamma(1.0, 1.0), -0.5))
 end
 
 @testitem "Composers nest recursively (the nesting is the tree)" begin
     using Distributions
 
-    c = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+    c = Resolve(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7))
-    # Competing (univariate) inside Sequential inside Parallel.
+    # Resolve (univariate) inside Sequential inside Parallel.
     nested = Parallel(Sequential(Gamma(2.0, 1.0), c), LogNormal(1.0, 0.5))
     @test length(nested) == 3   # two leaves in the chain plus one branch
 
@@ -186,10 +186,10 @@ end
     @test outer == CD.Parallel(
         CD.Parallel(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)), Normal(0.0, 1.0))
 
-    # A Select with equal-width alternatives IS a valid compose child (it occupies
+    # A Choose with equal-width alternatives IS a valid compose child (it occupies
     # a fixed flat slot); the flat path commits to its first alternative (see
-    # issue #413). The supported direction also includes a composer INSIDE a Select.
-    sel = selecting(:s1 => Gamma(2.0, 1.0), :s2 => Gamma(5.0, 1.0))
+    # issue #413). The supported direction also includes a composer INSIDE a Choose.
+    sel = choose(:s1 => Gamma(2.0, 1.0), :s2 => Gamma(5.0, 1.0))
     withsel = compose((k = sel, m = Normal(0.0, 1.0)))
     @test withsel isa CD.Parallel
     @test logpdf(withsel, [1.0, 0.5]) ≈
@@ -226,7 +226,7 @@ end
 
     s = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     p = Parallel(Gamma(2.0, 1.0), LogNormal(1.0, 0.5))
-    c = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+    c = Resolve(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7))
 
     @test occursin("Sequential", sprint(show, s))
@@ -234,7 +234,7 @@ end
     @test occursin("Parallel", sprint(show, p))
     @test occursin(
         "Parallel (2 branches)", sprint(show, MIME"text/plain"(), p))
-    @test occursin("Competing", sprint(show, c))
+    @test occursin("Resolve", sprint(show, c))
     @test occursin("death", sprint(show, MIME"text/plain"(), c))
 end
 
@@ -246,17 +246,17 @@ end
     d = Parallel(
         Gamma(2.0, 1.0),
         Sequential(LogNormal(0.5, 0.4), Gamma(3.0, 1.0)),
-        Competing(:death => (Gamma(1.5, 1.0), 0.3),
+        Resolve(:death => (Gamma(1.5, 1.0), 0.3),
             :disch => (Gamma(2.0, 1.5), 0.7)))
     out = sprint(show, MIME"text/plain"(), d)
     lines = split(out, '\n')
 
     # Root node header and its three branches.
     @test occursin("Parallel (3 branches)", lines[1])
-    # The nested Sequential and Competing children are rendered (recursively),
+    # The nested Sequential and Resolve children are rendered (recursively),
     # each indented one level under the root with a tree connector.
     seq_line = findfirst(l -> occursin("Sequential (2 steps)", l), lines)
-    comp_line = findfirst(l -> occursin("Competing (2 outcomes)", l), lines)
+    comp_line = findfirst(l -> occursin("Resolve (2 outcomes)", l), lines)
     @test seq_line !== nothing
     @test comp_line !== nothing
     @test occursin("├─ ", lines[seq_line])
@@ -267,28 +267,28 @@ end
     @test any(l -> occursin("│  ", l) && occursin("LogNormal", l), lines)
     @test any(l -> occursin("│  ", l) && occursin("Gamma", l), lines)
 
-    # The Competing outcomes carry their names and branch probabilities, nested
+    # The Resolve outcomes carry their names and branch probabilities, nested
     # under the last branch (so a spaces continuation prefix, not `│`).
     @test any(l -> occursin("death (p = 0.3)", l), lines)
     @test any(l -> occursin("disch (p = 0.7)", l), lines)
 
-    # A composer nested inside Competing also recurses: a Competing outcome may
-    # itself be a (univariate) Competing, whose subtree then prints nested.
-    # (Competing outcomes are univariate by design, so a Sequential/Parallel
-    # cannot be an outcome; a nested Competing can.)
+    # A composer nested inside Resolve also recurses: a Resolve outcome may
+    # itself be a (univariate) Resolve, whose subtree then prints nested.
+    # (Resolve outcomes are univariate by design, so a Sequential/Parallel
+    # cannot be an outcome; a nested Resolve can.)
     nested_comp = Sequential(
         Gamma(2.0, 1.0),
-        Competing(
-            :a => (Competing(:a1 => (Normal(0.0, 1.0), 0.5),
+        Resolve(
+            :a => (Resolve(:a1 => (Normal(0.0, 1.0), 0.5),
                     :a2 => (Normal(1.0, 1.0), 0.5)),
                 0.4),
             :b => (Normal(2.0, 1.0), 0.6)))
     out2 = sprint(show, MIME"text/plain"(), nested_comp)
     @test occursin("Sequential (2 steps)", out2)
-    # Both the outer and the nested Competing headers appear.
-    @test count("Competing (2 outcomes)", out2) == 2
-    # The outer Competing outcome `a` is itself a Competing, nested under it.
-    @test occursin("a (p = 0.4): Competing (2 outcomes)", out2)
+    # Both the outer and the nested Resolve headers appear.
+    @test count("Resolve (2 outcomes)", out2) == 2
+    # The outer Resolve outcome `a` is itself a Resolve, nested under it.
+    @test occursin("a (p = 0.4): Resolve (2 outcomes)", out2)
     @test occursin("a1 (p = 0.5)", out2)
 end
 
@@ -350,10 +350,10 @@ end
     @test p.chain == (step_1 = (2.0, 1.0), step_2 = (1.0, 0.5))
     @test p.sub == (a = (0.0, 1.0), b = (1.0, 2.0))
 
-    # Competing contributes name-keyed outcomes plus branch_probs.
-    c = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+    # Resolve contributes name-keyed outcomes plus branch_probs.
+    c = Resolve(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7))
-    pc = CensoredDistributions._competing_params(c)
+    pc = CensoredDistributions._one_of_params(c)
     @test pc.death == (1.5, 1.0)
     @test pc.disch == (2.0, 1.5)
     @test pc.branch_probs == (0.3, 0.7)
@@ -385,10 +385,10 @@ end
     ntbl = params_table(ntree)
     @test all(s -> s == (-Inf, Inf), ntbl.support)
 
-    # Competing branch probabilities appear as [0, 1]-supported rows.
+    # Resolve branch probabilities appear as [0, 1]-supported rows.
     ctree = Parallel(
         (Gamma(2.0, 1.0),
-            Competing(:death => (Gamma(1.5, 1.0), 0.3),
+            Resolve(:death => (Gamma(1.5, 1.0), 0.3),
                 :disch => (Gamma(2.0, 1.5), 0.7))),
         (:incub, :resolution))
     ct = params_table(ctree)
@@ -419,8 +419,8 @@ end
     @test event(nested, :admit_path, :admit_death) == LogNormal(0.5, 0.4)
     @test event(nested, Symbol("admit_path.admit_death")) == LogNormal(0.5, 0.4)
 
-    # Competing: outcome names via event_tree, delays by name via event.
-    c = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+    # Resolve: outcome names via event_tree, delays by name via event.
+    c = Resolve(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7))
     @test keys(event_tree(c)) == (:death, :disch)
     @test event(c, :death) == Gamma(1.5, 1.0)
@@ -480,10 +480,10 @@ end
             admit_death = (mu = 0.1, sigma = 0.2)))
 end
 
-@testitem "update handles Competing branch_probs" begin
+@testitem "update handles Resolve branch_probs" begin
     using Distributions
 
-    tree = compose((res = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+    tree = compose((res = Resolve(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7)),))
 
     # branch_probs omitted: the template's fixed probabilities are kept.
@@ -656,7 +656,7 @@ end
     inc = shared(:inc, Gamma(2.0, 1.0))
     delta = LogNormal(0.5, 0.4)
     # `inc` appears in BOTH the index and sourced branches of a select.
-    tree = selecting(:index => inc,
+    tree = choose(:index => inc,
         :sourced => compose((delta = delta, inc = inc)))
     tbl = params_table(tree)
 
@@ -672,7 +672,7 @@ end
 
     inc = shared(:inc, Gamma(2.0, 1.0))
     delta = LogNormal(0.5, 0.4)
-    tree = selecting(:index => inc,
+    tree = choose(:index => inc,
         :sourced => compose((delta = delta, inc = inc)))
 
     # One top-level `inc` entry updates both occurrences.

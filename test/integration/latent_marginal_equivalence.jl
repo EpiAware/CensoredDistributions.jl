@@ -145,15 +145,15 @@ end
     end
 end
 
-@testitem "marginal == latent: nested Competing, observed anchor (#363)" begin
+@testitem "marginal == latent: nested Resolve, observed anchor (#363)" begin
     using CensoredDistributions, Distributions
-    using CensoredDistributions: latent, Sequential, Competing,
+    using CensoredDistributions: latent, Sequential, Resolve,
                                  composed_distribution_model
     using DynamicPPL: VarInfo, logjoint, @model, to_submodel
 
     # A latent-wrapped chain onset -> admit -> {death, discharge}. The recorded
     # outcome is data; the latent form CONDITIONS on it exactly like the marginal
-    # Competing path. With the admit anchor OBSERVED both endpoints of the
+    # Resolve path. With the admit anchor OBSERVED both endpoints of the
     # conditioned branch are observed, so the latent edge keeps its declared
     # censoring and the latent term equals the marginal term edge-for-edge.
     edge(mu,
@@ -162,7 +162,7 @@ end
     e_oa = edge(1.4, 0.4)
     cfr = 0.3
     death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
-    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    cmp = Resolve(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
     seq = Sequential(e_oa, cmp)
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
@@ -180,17 +180,17 @@ end
     end
 end
 
-@testitem "marginal == latent: nested Competing, right-truncated (#517)" begin
+@testitem "marginal == latent: nested Resolve, right-truncated (#517)" begin
     using CensoredDistributions, Distributions
-    using CensoredDistributions: latent, Sequential, Competing,
+    using CensoredDistributions: latent, Sequential, Resolve,
                                  composed_distribution_model, event_names,
                                  truncate_to_horizon, _nested_tree_logpdf,
                                  _origin_primary_event, _first_origin_node
     using DynamicPPL: logjoint, @model, to_submodel
     using ForwardDiff: gradient
 
-    # The nested-Competing scorer must honour a per-record right-truncation
-    # `horizon` exactly as the top-level Competing path does (#517). Before the fix
+    # The nested-Resolve scorer must honour a per-record right-truncation
+    # `horizon` exactly as the top-level Resolve path does (#517). Before the fix
     # the nested scorer ignored the horizon, scoring the UNtruncated branch density
     # (a likelihood mis-specification) and breaking the top-level-vs-nested
     # symmetry. The chain is onset -> admit -> {death, discharge} with the admit
@@ -203,7 +203,7 @@ end
     e_oa = edge(1.4, 0.4)
     cfr = 0.3
     death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
-    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    cmp = Resolve(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
     seq = Sequential(e_oa, cmp)
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
@@ -225,7 +225,7 @@ end
         marg_untrunc = _nested_tree_logpdf(seq, ev, prim, Float64)
 
         # The latent form scores the same record through the public model, which
-        # routes the nested Competing through `_latent_competing_logprob`.
+        # routes the nested Resolve through `_latent_one_of_logprob`.
         row = oc === :death ?
               (event_1 = 0.0, event_2 = admit, death = t, discharge = missing,
             obs_time = horizon) :
@@ -248,8 +248,8 @@ end
         @test isapprox(marg_trunc, ref_trunc; atol = 1e-10)
 
         # (b) The nested truncated branch term MATCHES the analogous top-level
-        # Competing truncation (anchored at 0, window `horizon - admit`).
-        top = Competing(:death => (death_d, cfr),
+        # Resolve truncation (anchored at 0, window `horizon - admit`).
+        top = Resolve(:death => (death_d, cfr),
             :discharge => (disch_d, 1 - cfr))
         tlrow = oc === :death ?
                 (death = t - admit, discharge = missing,
@@ -278,7 +278,7 @@ end
     ev = Vector{Union{Missing, Float64}}([0.0, admit, 12.0, missing])
     function nll(theta)
         mu_d, mu_s = theta
-        cc = Competing(:death => (LogNormal(mu_d, 0.4), cfr),
+        cc = Resolve(:death => (LogNormal(mu_d, 0.4), cfr),
             :discharge => (LogNormal(mu_s, 0.5), 1 - cfr))
         s = Sequential(e_oa, cc)
         return -_nested_tree_logpdf(s, ev, prim, Float64, horizon)
@@ -289,15 +289,15 @@ end
     g0 = gradient(
         theta -> -_nested_tree_logpdf(
             Sequential(e_oa,
-                Competing(:death => (LogNormal(theta[1], 0.4), cfr),
+                Resolve(:death => (LogNormal(theta[1], 0.4), cfr),
                     :discharge => (LogNormal(theta[2], 0.5), 1 - cfr))),
             ev, prim, Float64, nothing), [1.5, 1.2])
     @test !isapprox(g, g0)
 end
 
-@testitem "marginal == latent: nested Competing via PUBLIC flat entry (#517)" begin
+@testitem "marginal == latent: nested Resolve via PUBLIC flat entry (#517)" begin
     using CensoredDistributions, Distributions
-    using CensoredDistributions: latent, Sequential, Competing,
+    using CensoredDistributions: latent, Sequential, Resolve,
                                  composed_distribution_model, event_logpdf,
                                  truncate_to_horizon, _nested_tree_logpdf,
                                  _origin_primary_event, _first_origin_node,
@@ -310,17 +310,17 @@ end
     # to the (now horizon-capable) nested scorer (#517). Before this fix the entry
     # GUARDED/REJECTED a nested-tree record with a horizon (it threw an
     # `ArgumentError`), even though the underlying `_nested_tree_logpdf` already
-    # truncates each nested Competing node at the per-record window. The chain is
+    # truncates each nested Resolve node at the per-record window. The chain is
     # onset -> admit -> {death, discharge}, admit OBSERVED, so the conditioned branch
     # is right-truncated at the remaining window `horizon - admit`, mirroring the
-    # top-level Competing node truncated at `horizon` from origin 0.
+    # top-level Resolve node truncated at `horizon` from origin 0.
     edge(mu,
         sigma) = double_interval_censored(LogNormal(mu, sigma);
         primary_event = Uniform(0, 1), interval = 1.0)
     e_oa = edge(1.4, 0.4)
     cfr = 0.3
     death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
-    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    cmp = Resolve(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
     seq = Sequential(e_oa, cmp)
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
@@ -361,10 +361,10 @@ end
         @test isapprox(pub_trunc, lat_trunc; atol = 1e-10)
         @test isapprox(pub_trunc, ref_trunc; atol = 1e-10)
 
-        # (b) the public truncated term MATCHES the analogous top-level Competing
+        # (b) the public truncated term MATCHES the analogous top-level Resolve
         # truncation (anchored at 0, window `horizon - admit`), scored through the
         # model's own per-record `obs_time` route.
-        top = Competing(:death => (death_d, cfr),
+        top = Resolve(:death => (death_d, cfr),
             :discharge => (disch_d, 1 - cfr))
         tlrow = oc === :death ?
                 (death = t - admit, discharge = missing,
@@ -387,7 +387,7 @@ end
     ev = Vector{Union{Missing, Float64}}([0.0, admit, 12.0, missing])
     function nll(theta)
         mu_d, mu_s = theta
-        cc = Competing(:death => (LogNormal(mu_d, 0.4), cfr),
+        cc = Resolve(:death => (LogNormal(mu_d, 0.4), cfr),
             :discharge => (LogNormal(mu_s, 0.5), 1 - cfr))
         s = Sequential(e_oa, cc)
         return -event_logpdf(s, ev; horizon = horizon)
@@ -398,7 +398,7 @@ end
     g0 = gradient(
         theta -> -event_logpdf(
             Sequential(e_oa,
-                Competing(:death => (LogNormal(theta[1], 0.4), cfr),
+                Resolve(:death => (LogNormal(theta[1], 0.4), cfr),
                     :discharge => (LogNormal(theta[2], 0.5), 1 - cfr))),
             ev; horizon = nothing), [1.5, 1.2])
     @test !isapprox(g, g0)
@@ -439,9 +439,9 @@ end
     end
 end
 
-@testitem "marginal == latent: δ-bounded nested Competing right-truncation" begin
+@testitem "marginal == latent: δ-bounded nested Resolve right-truncation" begin
     using CensoredDistributions, Distributions
-    using CensoredDistributions: latent, Sequential, Competing,
+    using CensoredDistributions: latent, Sequential, Resolve,
                                  composed_distribution_model,
                                  truncate_to_window, _nested_tree_logpdf,
                                  _origin_primary_event, _first_origin_node,
@@ -449,7 +449,7 @@ end
     using DynamicPPL: logjoint, @model, to_submodel
     using ForwardDiff: gradient
 
-    # The δ-bounded variant of the #517 nested-Competing right-truncation: the
+    # The δ-bounded variant of the #517 nested-Resolve right-truncation: the
     # conditioned branch is truncated to the FINITE window `[window - δ, window]`
     # (window = horizon - anchor) rather than `(-∞, window]`. The marginal nested
     # scorer, the public flat entry, and the latent form must all be density-
@@ -462,7 +462,7 @@ end
     e_oa = edge(1.4, 0.4)
     cfr = 0.3
     death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
-    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    cmp = Resolve(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
     seq = Sequential(e_oa, cmp)
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
@@ -521,7 +521,7 @@ end
     ev = Vector{Union{Missing, Float64}}([0.0, admit, 12.0, missing])
     function nll(theta)
         mu_d, mu_s = theta
-        cc = Competing(:death => (LogNormal(mu_d, 0.4), cfr),
+        cc = Resolve(:death => (LogNormal(mu_d, 0.4), cfr),
             :discharge => (LogNormal(mu_s, 0.5), 1 - cfr))
         s = Sequential(e_oa, cc)
         return -_nested_tree_logpdf(s, ev, prim, Float64, wh)
@@ -532,15 +532,15 @@ end
     g_up = gradient(
         theta -> -_nested_tree_logpdf(
             Sequential(e_oa,
-                Competing(:death => (LogNormal(theta[1], 0.4), cfr),
+                Resolve(:death => (LogNormal(theta[1], 0.4), cfr),
                     :discharge => (LogNormal(theta[2], 0.5), 1 - cfr))),
             ev, prim, Float64, horizon), [1.5, 1.2])
     @test !isapprox(g, g_up)
 end
 
-@testitem "latent Competing: sampled anchor integrates to bare mixture term (#363)" begin
+@testitem "latent Resolve: sampled anchor integrates to bare mixture term (#363)" begin
     using CensoredDistributions, Distributions
-    using CensoredDistributions: latent, Sequential, Competing,
+    using CensoredDistributions: latent, Sequential, Resolve,
                                  convolve_distributions,
                                  composed_distribution_model, event_names
     using DynamicPPL: VarInfo, logjoint
@@ -551,13 +551,13 @@ end
     #   log p_death + logpdf(conv(bare_oa, bare_death), t_death).
     # Both edges go bare on a sampled endpoint (#453), so the integral is the bare
     # onset->death convolution, scaled by the death branch probability. (The
-    # marginal nested-Competing scorer needs an observed anchor, so this sampled-
+    # marginal nested-Resolve scorer needs an observed anchor, so this sampled-
     # anchor marginalisation is a capability the latent form adds.)
     oa = Normal(0.4, 0.5)
     death_d = Gamma(2.0, 0.8)
     disch_d = LogNormal(0.6, 0.3)
     cfr = 0.3
-    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    cmp = Resolve(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
     seq = Sequential((oa, cmp), (:onset_admit, :admit))
     en = event_names(seq)                      # (:onset, :admit, :death, :discharge)
     chain = latent(seq)

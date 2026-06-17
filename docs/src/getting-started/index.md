@@ -256,10 +256,10 @@ For more information on the package and its integration with other packages, see
 
 **Case studies and applications**
 
-- **[Bundibugyo Ebola delays](@ref bdbv-linelist-analysis)**: A competing-risks line-list workflow on the 2012 Isiro Bundibugyo data
+- **[Bundibugyo Ebola delays](@ref bdbv-linelist-analysis)**: A one_of-risks line-list workflow on the 2012 Isiro Bundibugyo data
 - **[Real-time Andes virus delays](@ref andv-linelist-analysis)**: Marginal-versus-latent delay fitting on the Epuyén hantavirus line list
 - **[Stratified Sierra Leone Ebola delays](@ref ebola-stratified-delays)**: A partially pooled stratified onset-to-test delay model
-- **[Branching-process competing outcomes](@ref branching-competing)**: A per-case natural history with competing and racing-hazard outcomes
+- **[Branching-process one_of outcomes](@ref branching-one_of)**: A per-case natural history with one_of and racing-hazard outcomes
 - **[Pairwise survival of transmission](@ref pairwise-survival-transmission)**: Kenah's pairwise survival framework as a racing-hazard composition
 - **[An Rt renewal model with delay convolution](@ref rt-renewal-convolution)**: A renewal model fitting Rt to cases and deaths through a shared delay stack
 - **[Epinowcast-style hazard nowcasting](@ref epinowcast-nowcasting)**: A discrete-time reporting-hazard nowcasting model
