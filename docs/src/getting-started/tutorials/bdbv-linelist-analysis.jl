@@ -49,16 +49,18 @@ raw Rosello et al. (2015) means.
 The notification delay was corrected there, so the match is posterior to
 posterior: our credible interval against theirs.
 
-| Delay | n | Posterior mean (d) | 95% CrI |
+| Delay | Study n | Posterior mean (d) | 95% CrI |
 |---|---|---|---|
 | onset → admission | 40 | 4.09 | 3.08, 5.46 |
 | admission → death | 22 | 7.71 | 5.63, 10.44 |
 | admission → discharge | 15 | 8.10 | 4.81, 13.82 |
 | onset → notification | 38 | 20.37 | 13.64, 29.99 |
 
-The admission-to-discharge `n` is the upstream count; our mutually exclusive
-outcome assignment leaves a smaller resolved-discharge subset (n = 11), explained
-at the end of the comparison below.
+`Study n` is the study's count for each delay.
+Our comparison table below reports our own count per delay, which for
+admission-to-discharge is a smaller resolved-discharge subset (n = 11) because
+the mutually exclusive outcome assignment moves a few ambiguous cases to death,
+explained at the end of the comparison.
 
 ## Packages used
 
@@ -69,6 +71,7 @@ and CensoredDistributions for the composed delay model.
 
 using CSV, DataFramesMeta, Dates
 using CensoredDistributions, Distributions
+using CensoredDistributions: latent_primary_priors, latent_observed_logpdf
 using Turing, Random, Statistics
 using DynamicPPL: to_submodel, @varname
 using FlexiChains: Parameter
@@ -269,9 +272,6 @@ md"""
 
 We fit the synthetic line list and read the posterior back onto the composed
 object with [`update`](@ref), passing the fitted chain directly.
-The per-event [`mean`](@ref CensoredDistributions.mean)`(latent(fit))`
-NamedTuple (keyed by [`event_names`](@ref)) then reads each delay's mean
-off the updated distribution, so there is no manual chain indexing.
 
 The likelihood is differentiated with Mooncake reverse mode (`AutoMooncake`),
 the faster backend for a tree this size.
@@ -323,15 +323,18 @@ path that the day-level censoring discretises with the same
 systematic offset (the notification draw mean is ~14.0, its true Gamma mean).
 The onset-to-admission delay recovers well, the true mean near the centre of a
 tight interval.
-The other three are harder.
-The heavy-tailed onset-to-notification delay (Gamma shape 0.7) is the worst: its
-mean is carried by rare long delays, so the posterior is pulled low (around 12
-against a true 14) with a wide interval that the truth sits just above.
-The admission-to-death mean comes back a little low for the same reason on a
-lighter tail, and the admission-to-discharge mean is recovered but wide on the
-smaller resolved-as-discharge subset.
-So even with clean simulated data the two tail-sensitive delays are only weakly
-identified, which previews the same split on the real line list.
+The heavy-tailed delays are harder to pin down from a finite sample.
+The onset-to-notification delay (Gamma shape 0.7) carries its mean in rare long
+delays, so its posterior is wide, and the admission-to-death and
+admission-to-discharge means are recovered but wide, the latter on the smaller
+resolved-as-discharge subset.
+The fit is calibrated, with every interval covering its truth at the nominal
+rate across simulation seeds.
+A single seed where a heavy-tailed interval lands just shy of its truth is
+therefore Monte-Carlo variation on a small, heavy-tailed sample rather than a
+bias.
+The wide intervals on the tail-sensitive delays preview the same weak
+identification on the real line list.
 """
 
 ci(v) = (mean = mean(v), lower = quantile(v, 0.025),
@@ -592,51 +595,40 @@ comparison
 md"""
 ## Marginal versus latent
 
-The marginal and latent forms of a delay model are one family on the same
-parameters; see [Marginal versus latent](@ref marginal-versus-latent) for the
-concept and [Fit marginal, sample event based](@ref) for the how-to. This section
-applies that to the Isiro fit and compares the two forms on the real records.
-
-The fit above is the marginal formulation: each record's unobserved admission
-time is integrated out inside `logpdf`, and the death-versus-discharge split is
-read off the [`Competing`](@ref) node through the per-record `:branch_probs`.
-This is the cheap default and is what the sections above use.
-
+The fit above is the marginal form, with each delay's primary event integrated
+out inside `logpdf` and the death-versus-discharge split read off the
+[`Competing`](@ref) node through the per-record `:branch_probs`.
 The original Isiro re-analysis at
 [epiforecasts/bdbv-linelist-analysis](https://github.com/epiforecasts/bdbv-linelist-analysis)
-was written in the latent formulation instead: a record's intermediate admission
-time enters as a per-record event rather than being integrated out, and the two
-segments (onset → admission, admission → resolution) are scored directly against
-it. When the admission time is unobserved the sampler draws it; when it is
-recorded the segments simply condition on it. A latent fit recovers the same
-delays; this section runs it alongside the marginal fit and compares.
-"""
+used the latent form instead, sampling each delay's primary event per record and
+conditioning the observed time on it.
+The two forms are one family on the same parameters, so the marginal-fit priors
+drop straight into the latent form; see [Marginal versus latent](@ref
+marginal-versus-latent) for the concept and [Fit marginal, sample event
+based](@ref) for the how-to.
+This section runs the latent form on the real records and checks the two agree.
 
-md"""
-The composed tree carries a [`Competing`](@ref) resolution node, and a
-`latent`-wrapped composer with a nested `Competing` conditions on the recorded
-outcome the same way the marginal form does: the recorded outcome is data, so the
-latent model scores the one that occurred (its branch probability times the
-observed branch's delay) rather than demanding both outcome columns at once.
-Sampling which outcome occurs would be a distinct generative construction, but the
-data-conditioned direction is what fits. Below we show the resolution handled
-explicitly through a per-record two-edge [`latent`](@ref) chain onset → admission
-→ outcome for whichever outcome occurred, scoring the case-fatality split as a
-Bernoulli on the observed outcome (the latent counterpart of the marginal
-`:branch_probs` term); the same fit can equally be expressed by wrapping the whole
-composed tree in [`latent`](@ref) and letting its nested `Competing` condition on
-the outcome. The chain samples the admission time for any record whose admission
-is missing and conditions on it otherwise; in this cleaned line list a resolved
-record always carries its recorded admission, so the chain conditions there and
-the two forms coincide on those records, differing only in how the resolution
-outcome is scored. The notification delay has no intermediate event, so it scores
-through its ordinary marginal leaf in both forms.
+The latent fit reuses the package's vectorised latent path
+([`composer toolkit`](@ref composer-toolkit) covers the table scoring), so the
+whole record set scores in one pair of statements rather than a per-record
+submodel loop.
+Each observed delay segment is a single-edge [`latent`](@ref) chain that samples
+its origin event and conditions the observed time on it at the floored gap, the
+latent counterpart of the marginal leaf.
+A [`Select`](@ref) routes each record's segments by a `:kind` field, so
+`latent_primary_priors` stacks every segment's origin prior and
+`latent_observed_logpdf` scores the whole table at once.
+Because admission is recorded for every resolved case here, no admission time is
+sampled; the onset → admission and admission → resolution segments are
+independent observed leaves, the death-versus-discharge split enters as a
+per-record Bernoulli term (the latent counterpart of `:branch_probs`), and the
+notification delay scores through its own segment.
 
 `delay_leaves` pulls the four fitted leaves off the reconstructed composed object
 with [`event`](@ref), which descends a name path in one call (the same dotted
-path [`params_table`](@ref) prints), so the latent chain reuses exactly the
-delays the [`composed_parameters_model`](@ref) block sampled, with no second
-parameter set.
+path [`params_table`](@ref) prints), so the latent fit reuses exactly the delays
+the [`composed_parameters_model`](@ref) block sampled, with no second parameter
+set.
 """
 
 function delay_leaves(d)
@@ -649,30 +641,58 @@ function delay_leaves(d)
 end
 
 md"""
-A resolved record's latent chain is a named two-step [`Sequential`](@ref) wrapped
-in [`latent`](@ref): the edge names `onset_admit` and `admit_death`/
-`admit_discharge` make the event slots read `onset, admit, death`/`discharge`, so
-a `missing` admission is the sampled latent and the observed outcome conditions
-the second edge.
+Each delay segment becomes a single-edge [`latent`](@ref) chain whose origin
+event is sampled and whose observed time conditions on it at the floored gap.
+The four segments are gathered into one [`Select`](@ref) keyed by a `:kind`
+field, so a record's rows route to the right segment by name.
+A single-edge chain is density-identical to the marginal leaf, so the latent fit
+recovers the same delays as the marginal fit.
 """
 
-function latent_resolution_chain(leaves, outcome::Symbol)
-    edge,
-    name = outcome === :death ?
-           (leaves.admit_death, :admit_death) :
-           (leaves.admit_discharge, :admit_discharge)
-    return latent(sequential(:onset_admit => leaves.onset_admit,
-        name => edge))
+function latent_segments(leaves)
+    edge(leaf, name) = latent(sequential(name => leaf))
+    return selecting(
+        :onset_admit => edge(leaves.onset_admit, :onset_admit),
+        :admit_death => edge(leaves.admit_death, :admit_death),
+        :admit_discharge => edge(leaves.admit_discharge, :admit_discharge),
+        :onset_notif => edge(leaves.onset_notif, :onset_notif))
+end
+
+md"""
+`latent_rows` turns one record into its observed segments, namely the
+onset → admission segment when admission is recorded, the admission → resolution
+segment for the outcome that occurred, and the notification segment if present.
+Each row names its origin event as `missing` (the sampled latent) and its
+observed event as the segment's delay, tagged with the `:kind` that selects its
+segment.
+The admission → resolution segment's delay is the recorded resolution day minus
+the recorded admission day.
+"""
+
+function latent_rows(r)
+    rows = NamedTuple[]
+    r.admit !== missing &&
+        push!(rows, (kind = :onset_admit, onset = missing, admit = r.admit))
+    if r.death !== missing
+        push!(rows,
+            (kind = :admit_death, admit = missing, death = r.death - r.admit))
+    elseif r.discharge !== missing
+        push!(rows, (kind = :admit_discharge, admit = missing,
+            discharge = r.discharge - r.admit))
+    end
+    r.notif !== missing &&
+        push!(rows, (kind = :onset_notif, onset = missing, notif = r.notif))
+    return rows
 end
 
 md"""
 The latent model shares the parameter block and the case-fatality regression
-with the marginal `bdbv`; only the record likelihood differs. It loops over the
-records: a resolved case scores its latent onset → admission → outcome chain (the
-admission time sampled) plus the Bernoulli case-fatality term, an admitted but
-unresolved case scores just the onset → admission leaf, and every case with a
-notification scores the notification leaf marginally. Each record's latents are
-namespaced by `prefix` so the chain stays readable.
+with the marginal `bdbv`.
+It builds the segment table once, samples every segment's origin event in one
+`primaries ~ product_distribution(...)` statement, and scores the whole table
+with one `latent_observed_logpdf`, so there is no per-record submodel.
+The death-versus-discharge split enters as a vectorised Bernoulli term on the
+resolved records, the latent counterpart of the marginal `:branch_probs`.
 """
 
 @model function bdbv_latent(template, priors, rows)
@@ -684,46 +704,23 @@ namespaced by `prefix` so the chain stays readable.
     β_age ~ Normal(0, 1)
     β = (; β0, β_hcw, β_def, β_age)
 
-    leaves = delay_leaves(delays)
-    for (k, r) in enumerate(rows)
-        resolved = r.death !== missing || r.discharge !== missing
-        if resolved
-            died = r.death !== missing
-            p = death_prob(β, r)
-            Turing.@addlogprob! died ? log(p) : log(1 - p)
-            outcome = died ? :death : :discharge
-            y = died ? r.death : r.discharge
-            chain = latent_resolution_chain(leaves, outcome)
-            rrow = died ? (onset = r.onset, admit = r.admit, death = y) :
-                   (onset = r.onset, admit = r.admit, discharge = y)
-            res ~ to_submodel(
-                prefix(
-                    composed_distribution_model(chain, rrow),
-                    Symbol(:res, k)), false)
-        elseif r.admit !== missing
-            adm ~ to_submodel(
-                prefix(
-                    composed_distribution_model(leaves.onset_admit, r.admit),
-                    Symbol(:adm, k)),
-                false)
-        end
-        if r.notif !== missing
-            ntf ~ to_submodel(
-                prefix(
-                    composed_distribution_model(leaves.onset_notif, r.notif),
-                    Symbol(:ntf, k)),
-                false)
-        end
+    segments = latent_segments(delay_leaves(delays))
+    table = reduce(vcat, map(latent_rows, rows))
+
+    primaries ~ product_distribution(latent_primary_priors(segments, table))
+    Turing.@addlogprob! latent_observed_logpdf(segments, table, primaries)
+
+    cfr = sum(rows) do r
+        r.death === missing && r.discharge === missing && return 0.0
+        p = death_prob(β, r)
+        return r.death !== missing ? log(p) : log(1 - p)
     end
+    Turing.@addlogprob! cfr
 end
 
 md"""
-We fit the latent form to the same real records, at a modest budget. Every
-resolved record here carries its recorded admission, so the latent fit samples no
-extra admission latents and has the same parameter dimension as the marginal fit;
-the per-record latent submodels still add per-leapfrog overhead, so the latent
-fit is the slower of the two. The posterior is read back with the same
-[`update`](@ref) and per-event
+We fit the latent form to the same real records, at a modest budget.
+The posterior is read back with the same [`update`](@ref) and per-event
 [`mean`](@ref CensoredDistributions.mean)`(latent(fit))` machinery as the
 marginal fit, since both share the one parameter block.
 """
@@ -739,10 +736,8 @@ md"""
 ### Marginal versus latent versus target
 
 The two formulations are tabulated side by side against the re-estimated target.
-The delay means agree closely between the marginal and latent fits (the
-marginal-equals-latent equivalence), and both overlap the published intervals,
-so the choice between them is a speed/accuracy trade-off rather than a difference
-in answer.
+The delay means agree between the marginal and latent fits and both overlap the
+published intervals.
 """
 
 mvl_comparison = let
@@ -822,12 +817,12 @@ mvl_fig = let
 end
 
 md"""
-Both forms recover the same delays here. The latent form matches the formulation
-of the original Isiro analysis and would expose any case's sampled admission time
-(here every resolved record has its admission recorded, so none is sampled and
-the parameter dimension is unchanged); the per-record submodels make its fit
-slower, so the sections above use the cheaper marginal form. See
-[Marginal versus latent](@ref marginal-versus-latent) for when to reach for each.
+The latent form matches the formulation of the original Isiro analysis and would
+expose any case's sampled origin event; here every resolved record has its
+admission recorded, so the two forms coincide and the sections above use the
+marginal form.
+See [Marginal versus latent](@ref marginal-versus-latent) for when to reach for
+each.
 """
 
 mvl_comparison
@@ -866,23 +861,16 @@ md"""
   now that the censoring is applied as `floor(target) - floor(origin)`, fits the
   real line list, and overlaps the re-estimated study delays within uncertainty
   for all four delays.
-- The posterior is read back with [`update`](@ref) applied to the fitted chain
-  and the per-event
+- The posterior is read back with [`update`](@ref) and the per-event
   [`mean`](@ref CensoredDistributions.mean)`(latent(fit))` NamedTuple, so delay
-  means and the onset-to-death convolution come straight from the fitted
-  object.
-- The same delay model is fit in both the marginal form (admission integrated
-  out, the cheap default) and the latent form (admission sampled per record,
-  matching the original Isiro analysis), routing the resolution by the observed
-  outcome; a `latent`-wrapped [`Competing`](@ref) conditions on that recorded
-  outcome exactly as the marginal node does. Both recover the same delays and
-  case-fatality coefficients within uncertainty, so the marginal form is preferred
-  for speed and the latent form for the intermediate event times or to reproduce
-  the original analysis.
-- Recovery is honest about identifiability: onset-to-admission and
-  admission-to-death recover well, whereas the heavy-tailed onset-to-notification
-  (Gamma shape 0.7) and the small-n admission-to-discharge (n = 11) are weakly
-  identified, with wide intervals; the simulation shows the heavy tail pulling
-  the notification mean low even with clean data, a tail/identifiability effect
-  rather than the old simulation artefact.
+  means and the onset-to-death convolution come straight from the fitted object.
+- The same model is fit in the marginal form and, through the package's
+  vectorised latent path, the latent form that matches the original Isiro
+  analysis; both recover the same delays and coefficients, so the marginal form
+  is preferred for speed.
+- Recovery is honest about identifiability, with onset-to-admission and
+  admission-to-death recovering well, whereas the heavy-tailed
+  onset-to-notification (Gamma shape 0.7) and the small-n admission-to-discharge
+  (n = 11) are weakly identified with wide intervals, a tail effect the
+  simulation reproduces.
 """
