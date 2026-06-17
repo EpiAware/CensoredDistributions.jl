@@ -93,8 +93,7 @@ function delay_leaf(mu, sigma)
 end
 
 md"""
-The template leaf carries the LogNormal delay and its day-level censoring; a
-record's `delay` field is the single value it scores.
+The template leaf carries the LogNormal delay and its day-level censoring.
 """
 
 template = delay_leaf(1.6, 0.5)
@@ -305,7 +304,10 @@ md"""
 Before touching the data we check the model recovers known per-stratum delays.
 We draw a synthetic line list from the same censored leaf with a known
 intercept, male effect, district effects, and `sigma`, applying the same
-day-level censoring (`floor(delay)`) and real-time truncation the scorer assumes.
+day-level censoring and real-time truncation the scorer assumes.
+The primary-event time is added before flooring (`floor(delay + rand())`), so the
+synthetic delay carries the same one-day primary-event window as the secondary
+test-day interval, matching the double censoring the leaf encodes.
 """
 
 sim_truth = (intercept = 1.6, male_effect = 0.1, sigma = 0.5, tau = 0.2)
@@ -588,10 +590,10 @@ onset-to-test delay across the strata.
 ## Summary
 
 - The onset-to-test delay is one [`double_interval_censored`](@ref) LogNormal
-  leaf: a one-day primary-event window and a one-day secondary interval, scored
-  directly as a bare censored leaf, with the per-record right-truncation horizon
-  supplied as the reserved `obs_time` row field, so the day-level censoring and
-  the real-time truncation are handled by the composed object.
+  leaf: a one-day primary-event window and a one-day secondary interval, with the
+  per-record right-truncation horizon supplied as the reserved `obs_time` row
+  field, so the day-level censoring and the real-time truncation are handled by
+  the composed object.
 - The log mean delay is a partially pooled linear predictor: a female baseline
   intercept, a male fixed effect, and district random effects shrunk toward the
   mean through an estimated scale `tau`, with a shared LogNormal `sigma`.
