@@ -47,8 +47,22 @@ itself mean full coverage.
 The second row is each backend's code coverage from the gradient suite
 (Codecov flag `ad-<backend>`), reporting which package lines that backend
 exercises.
-All six backends (ForwardDiff, ReverseDiff (tape), Enzyme forward, Enzyme
-reverse, Mooncake reverse, Mooncake forward) cover the whole scenario set.
+Coverage of the scenario set is not uniform.
+ForwardDiff and ReverseDiff (tape) differentiate every scenario.
+The compiled backends each drop some, tracked per backend in
+`ADFixtures.backend_broken_scenarios`.
+Mooncake reverse and Mooncake forward drop the three vectorised
+per-record scenarios, where the compiled backends trace into the AD-free
+row-collection pre-pass and crash on it.
+Enzyme forward drops those three plus the non-terminal whole-tree
+Competing scenario.
+Enzyme reverse drops the most, adding the nested Competing tree, the
+nested racing-hazard tree, the external censoring wrapper over a
+`Sequential`, and the whole-compose conv-to-last-observed truncation,
+each of which needs a reverse shadow Enzyme cannot build for a
+freshly-allocated `Convolved` or branch struct.
+The Scenarios column in the summary table below reports the count each
+backend covers.
 
 ### Configuring Enzyme
 
@@ -436,8 +450,10 @@ machine.
 For how these timings move across releases, the `benchmark-history`
 workflow runs the same suite over the last few tags plus the current
 `main` on every push and tag, and publishes per-benchmark timeline plots.
-See the
-[benchmark history pages](https://EpiAware.github.io/CensoredDistributions.jl/history/).
+These are published to the
+[benchmark history pages](https://EpiAware.github.io/CensoredDistributions.jl/history/),
+which resolve once the maintainer enables Pages for the benchmarks
+branch.
 
 ## See also
 

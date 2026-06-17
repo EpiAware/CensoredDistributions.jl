@@ -111,8 +111,12 @@ total = convolve_distributions(
 # Two caveats hold for SurvivalDistributions v0.1.
 # The LogLogistic and ExponentiatedWeibull `logpdf`s are not yet
 # differentiable (an upstream `Float64` conversion), so a model fit by gradient
-# methods should prefer GeneralizedGamma or PowerGeneralizedWeibull, whose
-# `logpdf`s differentiate on every supported backend.
+# methods should prefer GeneralizedGamma.
+# It is the survival family the package routes through an AD-safe CDF, so its
+# leaf and censored `logpdf`s are tested for gradient correctness against a
+# ForwardDiff reference.
+# The other survival families have no such AD-safe routing, so their gradients
+# are unverified.
 # The piecewise-constant hazard distribution works as a bare leaf but its
 # `logcdf` throws upstream, so it cannot yet route the numeric censoring
 # quadrature.
