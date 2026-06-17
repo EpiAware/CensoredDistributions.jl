@@ -589,6 +589,22 @@ function scenarios(; with_reference::Bool = false)
             x -> logpdf(ExponentiallyTilted(0.0, 1.0, θ[1]), x), obs),
         [0.5], (Constant(obs_et),))
 
+    # PiecewiseHazard nonparametric leaf. The differentiated parameters
+    # are the per-interval hazard values; the breakpoints are the fixed grid.
+    # The logpdf is `log h(t) - H(t)`, both piecewise-linear in the hazards, so
+    # the gradient is all-continuous arithmetic and differentiates on every
+    # backend. Guarded on the constructor existing for the AirspeedVelocity
+    # baseline build, as with the other PR-tree scenarios above.
+    if isdefined(CensoredDistributions, :piecewise_hazard)
+        _push!("PiecewiseHazard logpdf wrt hazards",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    CensoredDistributions.piecewise_hazard([1.0, 3.0], θ), x),
+                obs),
+            [0.2, 0.8, 0.3], (Constant(obs),))
+    end
+
     # Affine transform (#344). The change-of-variables logpdf is
     # `logpdf(inner, (y - shift) / scale) - log(scale)`, so the gradient flows
     # through the inner delay parameters (θ[1], θ[2]) AND the affine scale (θ[3])

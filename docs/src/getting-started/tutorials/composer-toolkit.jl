@@ -234,6 +234,28 @@ mixed_stack = compose((
 
 event_names(mixed_stack)
 
+# ### A nonparametric hazard leaf
+#
+# The leaves so far are parametric families.
+# When the sojourn or transition hazard is data-flexible rather than a named
+# family, [`piecewise_hazard`](@ref) builds a [`PiecewiseHazard`](@ref) leaf from
+# breakpoints and per-interval hazard values.
+# It derives the cumulative hazard ``H(t) = \int_0^t h``, the survival
+# ``S(t) = \exp(-H(t))`` and the density ``f(t) = h(t) S(t)``, with the hazard
+# values as the differentiable parameters.
+# A constant single-piece hazard reproduces an `Exponential`.
+
+flex_leaf = piecewise_hazard([1.0, 3.0], [0.2, 0.8, 0.3]);
+
+logpdf(flex_leaf, 2.0)
+
+# Being a `UnivariateDistribution`, it composes as any leaf: it accepts the
+# censoring wrappers and truncation, and drops straight into the racing-hazard
+# [`compete`](@ref) node, which multiplies branch survivals, so a flexible
+# cause-specific hazard needs no special handling.
+
+isfinite(logpdf(double_interval_censored(flex_leaf; interval = 1), 3.0))
+
 # [`primary_censored`](@ref) is the rarer drop-in: the primary event is censored
 # but the observed delay is not interval censored (a continuously recorded
 # observation time). It slots into the same stack the same way.
@@ -619,6 +641,7 @@ event_names(event(spliced, :admit_death))
 # | `choose(:a => d1, :b => d2)` | a [`Choose`](@ref) disjunction (data picks the branch) | builds |
 # | `convolve_distributions(d1, d2)` | a [`Convolved`](@ref) sum `X + Y` (delays add) | builds |
 # | `difference(d1, d2)` | a [`Difference`](@ref) `X - Y`, the dual of the sum; two-sided support, so an observation not a delay leaf | builds |
+# | `piecewise_hazard(breaks, hazards)` | a [`PiecewiseHazard`](@ref) nonparametric leaf; a piecewise-constant hazard on a grid | builds |
 # | `primary_censored(d, pe)` | primary-event censoring leaf | leaf wrap |
 # | `interval_censored(d; interval)` | interval-censoring leaf | leaf wrap |
 # | `double_interval_censored(d; interval)` | primary + truncation + interval leaf | leaf wrap |
