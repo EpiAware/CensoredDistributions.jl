@@ -12,25 +12,30 @@ artificially low: their late reports have not happened yet.
 Nowcasting corrects this right-truncation by modelling the delay and inferring
 the counts that are still to be reported.
 
-The model has four parts, each mapped onto a CensoredDistributions tool:
+The model has five parts, each mapped onto a CensoredDistributions tool:
 
 1. An **expectation process**: a log-normal random walk for the expected final
    counts ``\lambda_t`` over reference date ``t``.
 2. A **branched reporting delay**: infection to symptom onset, then a branch from
    onset to a reported **case** and onset to a reported **death**, built as one
-   shared-origin [`compose`](@ref) stack of [`double_interval_censored`](@ref) delays.
+   shared-origin [`compose`](@ref) stack of
+   [`double_interval_censored`](@ref) delays.
 3. A **discrete-time reporting hazard** with **reference-date** and
    **report-date** effects: each branch delay is discretised to a PMF, turned
    into a hazard, and reshaped by a reference-date random walk (slow drift in
    reporting speed) and a report-date day-of-week term, using
    [`reference_report_matrix`](@ref).
-4. **Real-time right-truncation**: only cells whose report date ``t + d`` is at
-   or before "now" are observed.
+4. An **ascertainment layer**: the case stream is under-reported, thinned by a
+   reported fraction ``\rho`` with [`thin`](@ref).
+5. **Real-time right-truncation**: only cells whose report date ``t + d`` is at
+   or before "now" are observed. We also show this truncation acting on the
+   composed two-delay delay itself, with [`truncate_to_horizon`](@ref) and
+   [`completeness_probability`](@ref).
 
 We then fit the model in Turing and show that it recovers the expectation path,
-the hazard effects and the right-truncated counts, including a posterior nowcast
-of the not-yet-reported totals and a fit-to-data view of the
-reference-by-report count structure.
+the hazard effects, the ascertainment fraction and the right-truncated counts,
+including a posterior nowcast of the not-yet-reported totals and a fit-to-data
+view of the reference-by-report count structure.
 
 ### What might I need to know before starting
 
@@ -98,11 +103,14 @@ We build the whole delay as one shared-origin [`compose`](@ref) stack of
 interval censoring in one call, so each branch is a daily-resolution delay.
 """
 
-incubation = double_interval_censored(Gamma(1.8, 1.4); upper = 20.0, interval = 1.0)
+incubation = double_interval_censored(
+    Gamma(1.8, 1.4); upper = 20.0, interval = 1.0)
 
-onset_case = double_interval_censored(Gamma(1.5, 1.2); upper = 20.0, interval = 1.0)
+onset_case = double_interval_censored(
+    Gamma(1.5, 1.2); upper = 20.0, interval = 1.0)
 
-onset_death = double_interval_censored(Gamma(3.0, 4.0); upper = 30.0, interval = 1.0)
+onset_death = double_interval_censored(
+    Gamma(3.0, 4.0); upper = 30.0, interval = 1.0)
 
 delay_stack = compose(incubation; case = onset_case, death = onset_death)
 
@@ -131,6 +139,20 @@ branch_pmfs = convolve_distributions(delay_stack, impulse;
 base_case_pmf = branch_pmfs.case ./ sum(branch_pmfs.case)
 
 base_death_pmf = branch_pmfs.death ./ sum(branch_pmfs.death)
+
+md"""
+We also keep the composed two-delay delay for each stream as a single
+[`Convolved`](@ref) chain, the incubation chained with the branch tail.
+[`convolve_distributions`](@ref) chains the two daily-censored delays into one
+total delay.
+We truncate and thin this composed delay below, showing right-truncation and
+ascertainment acting on the composed stack itself rather than only on the count
+matrix.
+"""
+
+composed_case = convolve_distributions(incubation, onset_case)
+
+composed_death = convolve_distributions(incubation, onset_death)
 
 md"""
 ### The expectation process
@@ -184,7 +206,8 @@ only reshapes that PMF per reference date.
 function expected_matrix(expected, base_pmf, ref_effect, dow, now)
     report_effect = s -> dow[mod1(s, 7)]
     return reference_report_matrix(expected, base_pmf;
-        reference_effects = ref_effect, report_effect = report_effect, now = now)
+        reference_effects = ref_effect, report_effect = report_effect,
+        now = now)
 end
 
 md"""
@@ -202,6 +225,42 @@ now = n_days        # the real-time horizon: we observe up to day `n_days`
 rng = MersenneTwister(20260611)
 
 md"""
+### Truncation on the composed two-delay stack
+
+The hazard layer truncates the *count matrix*: a cell whose report date `t + d`
+sits past `now` is dropped.
+A complementary truncation acts on the *composed delay itself*.
+The remaining window for reference date `t` is `now - t`, the time left before
+the real-time horizon.
+[`truncate_to_horizon`](@ref) right-truncates the composed two-delay chain to that
+window, returning an ordinary `truncated` distribution whose normaliser is the
+right-truncation correction `-logcdf(composed, window)`.
+Because the intermediate onset event is not separately reported, the denominator
+is the cdf of the *convolution* of the two delays, not of either delay alone,
+which is the harder of the two right-truncation cases the package distinguishes.
+The δ-bounded [`truncate_to_window`](@ref) restricts instead to a finite report
+window `[now - t - δ, now - t]`, the reports that land in the last `δ` days.
+"""
+
+recent_window = now - (n_days - 5)
+
+case_recent_trunc = truncate_to_horizon(composed_case, recent_window)
+
+case_recent_window = truncate_to_window(composed_case, recent_window, 7.0)
+
+md"""
+The completeness probability of the composed two-delay chain is the fraction of a
+reference date's reports that can have arrived by the horizon: it is the cdf of
+the convolved incubation-plus-tail delay at the remaining window.
+This is the stack-level analogue of the matrix `now` truncation, expressed once
+on the composed delay rather than cell by cell, and it falls towards zero for the
+most recent reference dates whose composed delay has barely had time to elapse.
+"""
+
+stack_completeness = [completeness_probability(composed_case, max(now - t, 0))
+                      for t in 1:n_days]
+
+md"""
 The expectation random walk gives a smooth wave of expected final counts; deaths
 sit far below cases through a fixed fraction (an infection-fatality-style scale).
 """
@@ -217,6 +276,29 @@ true_death_frac = 0.02
 true_lambda_death = true_death_frac .* true_lambda_case
 
 md"""
+### Ascertainment
+
+Not every case is reported.
+We add an ascertainment layer: the observed cases are a thinned fraction of the
+true cases, the same under-reporting EpiNow2 represents with a reporting fraction
+on the observation model.
+[`thin`](@ref) is the package's forward thinning op: `thin(delay, rho)` attaches
+a fixed factor `rho` that [`convolve_distributions`](@ref) multiplies into the
+delay's count series.
+We thin the composed case delay and read the ascertainment factor back out of its
+parameters, then apply the same factor to the case expectation, so the thinned
+case rate in every cell is `true_rho` times the true rate.
+Deaths are taken as fully ascertained, the usual assumption that deaths are
+reported close to completely, so only the case stream is thinned.
+"""
+
+true_rho = 0.6
+
+thinned_case_delay = thin(composed_case, true_rho)
+
+ascertainment_factor = last(params(thinned_case_delay))
+
+md"""
 The reference-date effect is a slow random walk on the logit hazard (reporting
 gradually speeds up), and the report-date effect is a weekday pattern: reports
 dip at the weekend and rebound on Mondays.
@@ -224,7 +306,8 @@ dip at the weekend and rebound on Mondays.
 
 true_ref_effect = cumsum(vcat(0.0, 0.03 .* randn(rng, n_days - 1)))
 
-true_dow = [0.4, 0.2, 0.0, -0.1, -0.2, -0.6, -0.5]   # Mon..Sun on the logit hazard
+## Mon..Sun shifts on the logit hazard.
+true_dow = [0.4, 0.2, 0.0, -0.1, -0.2, -0.6, -0.5]
 
 md"""
 The forward matrices are the expected counts per (reference, report) cell.
@@ -242,34 +325,46 @@ death_full = expected_matrix(true_lambda_death, base_death_pmf, true_ref_effect,
 case_trunc = expected_matrix(true_lambda_case, base_case_pmf, true_ref_effect,
     true_dow, now)
 
-death_trunc = expected_matrix(true_lambda_death, base_death_pmf, true_ref_effect,
-    true_dow, now)
+death_trunc = expected_matrix(true_lambda_death, base_death_pmf,
+    true_ref_effect, true_dow, now)
 
 md"""
-We draw observed counts per cell as Poisson around the truncated expected
-matrix: this is the reporting triangle, one count per (reference date, delay)
-that has actually been reported by `now`.
+Ascertainment thins the case rate by `ascertainment_factor`, the factor read out
+of the thinned composed delay above.
+The case matrices below are the *observed* (ascertained) case rates; the death
+matrices are unthinned.
 """
 
-case_obs = rand.(rng, Poisson.(case_trunc .+ 1e-6))
+case_full_obs = ascertainment_factor .* case_full
+
+case_trunc_obs = ascertainment_factor .* case_trunc
+
+md"""
+We draw observed counts per cell as Poisson around the truncated, ascertained
+expected matrix: this is the reporting triangle, one count per (reference date,
+delay) that has actually been reported by `now`.
+"""
+
+case_obs = rand.(rng, Poisson.(case_trunc_obs .+ 1e-6))
 
 death_obs = rand.(rng, Poisson.(death_trunc .+ 1e-6))
 
 md"""
 The count seen so far for each reference date is the row sum of the observed
-triangle; the true final count is the row sum of the full (untruncated) expected
-matrix.
+triangle; the true final count is the row sum of the full (untruncated)
+ascertained expected matrix.
 For the most recent reference dates the seen count falls well below the truth,
 because their late reports are still missing: that gap is what the nowcast fills.
 """
 
 case_seen = vec(sum(case_obs; dims = 2))
 
-case_truth = vec(sum(case_full; dims = 2))
+case_truth = vec(sum(case_full_obs; dims = 2))
 
 truncation_df = vcat(
     DataFrame(day = 1:n_days, count = case_truth, kind = "true final"),
-    DataFrame(day = 1:n_days, count = Float64.(case_seen), kind = "seen by now"))
+    DataFrame(day = 1:n_days, count = Float64.(case_seen),
+        kind = "seen by now"))
 
 truncation_plot = data(truncation_df) *
                   mapping(:day, :count, color = :kind => "") *
@@ -279,6 +374,34 @@ draw(truncation_plot;
     figure = (; size = (800, 350)),
     axis = (; xlabel = "reference date", ylabel = "case count",
         title = "Right-truncation: seen vs true final counts"))
+
+md"""
+The two truncation routes track the same right-truncation, from different sides.
+With the hazard effects switched off, the fraction of each reference date's
+expected counts that lands at or before `now` is the row sum of the truncated
+matrix over the row sum of the full matrix.
+We compare that matrix-level fraction with the stack-level
+[`completeness_probability`](@ref) of the composed two-delay delay at the same
+remaining window.
+Both saturate at one for old reference dates and fall towards zero for the most
+recent ones, so the truncation pattern is the same.
+They differ in level: the matrix fraction is built from the delay PMF
+renormalised over the capped `max_delay` support, while the composed-delay cdf
+keeps the full untruncated tail, so the stack-level completeness sits below the
+matrix fraction for recent dates (`max_completeness_gap` measures the largest
+difference).
+"""
+
+base_full = expected_matrix(true_lambda_case, base_case_pmf,
+    zeros(n_days), zeros(7), nothing)
+
+base_trunc = expected_matrix(true_lambda_case, base_case_pmf,
+    zeros(n_days), zeros(7), now)
+
+matrix_completeness = vec(sum(base_trunc; dims = 2)) ./
+                      vec(sum(base_full; dims = 2))
+
+max_completeness_gap = maximum(abs.(matrix_completeness .- stack_completeness))
 
 md"""
 ## The Turing fit
@@ -320,20 +443,32 @@ safe_rate(x) = isfinite(x) ? max(x, 1e-6) : 1e-6
     death_frac ~ Beta(1, 40)
     lambda_death = death_frac .* lambda_case
 
+    ## Case ascertainment: an informative prior on the reported fraction, as
+    ## EpiNow2 uses for under-reporting. Cases identify only `rho * lambda`, so
+    ## the prior on the expectation level and this prior together separate the
+    ## reported fraction from the underlying expectation.
+    rho ~ Beta(4, 4)
+
     ## Reference-date hazard effect: its own slow random walk.
     sigma_ref ~ truncated(Normal(0.0, 0.1); lower = 0.0)
     zref ~ filldist(Normal(0.0, 1.0), n - 1)
     ref_effect = cumsum(vcat(zero(eltype(zref)), sigma_ref .* zref))
 
-    ## Report-date day-of-week hazard effect (sum-to-zero-ish weekly pattern).
+    ## Report-date day-of-week hazard effect: seven independent logit-hazard
+    ## shifts, one per weekday, with no sum-to-zero constraint. The final-delay
+    ## hazard is pinned to one inside the matrix, which anchors the overall
+    ## level and identifies the weekday shifts relative to it.
     dow ~ filldist(Normal(0.0, 0.5), 7)
     report_effect = s -> dow[mod1(s, 7)]
 
-    ## Right-truncated expected matrices, one per stream.
-    case_exp = reference_report_matrix(lambda_case, base_case_pmf;
-        reference_effects = ref_effect, report_effect = report_effect, now = now)
+    ## Right-truncated expected matrices, one per stream. Cases are thinned by
+    ## the ascertainment fraction `rho`; deaths are fully ascertained.
+    case_exp = rho .* reference_report_matrix(lambda_case, base_case_pmf;
+        reference_effects = ref_effect, report_effect = report_effect,
+        now = now)
     death_exp = reference_report_matrix(lambda_death, base_death_pmf;
-        reference_effects = ref_effect, report_effect = report_effect, now = now)
+        reference_effects = ref_effect, report_effect = report_effect,
+        now = now)
 
     ## Likelihood over the observed (report date ≤ now) cells only.
     for t in 1:n, d in 1:size(case_obs, 2)
@@ -350,7 +485,8 @@ We fit with NUTS on Mooncake, sampling a short run that is enough to recover the
 expectation path and the hazard effects at this size.
 """
 
-model = epinowcast_model(case_obs, death_obs, base_case_pmf, base_death_pmf, now)
+model = epinowcast_model(
+    case_obs, death_obs, base_case_pmf, base_death_pmf, now)
 
 chain = sample(Xoshiro(1), model,
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
@@ -365,12 +501,15 @@ We reconstruct the posterior expectation random walk from the sampled initial
 level and innovations, and the posterior reference effect and day-of-week pattern
 the same way, then form the full (untruncated) expected matrices per posterior
 draw.
-The row sums of the full matrix are the nowcast: the model's estimate of the
-final counts including the reports still to come.
+The full matrix is thinned by the posterior ascertainment fraction `rho`, so the
+nowcast is on the same reported-case scale as the observations.
+The row sums of the thinned full matrix are the nowcast: the model's estimate of
+the final reported counts including the reports still to come.
 We summarise by the posterior mean and a 90% credible band.
 """
 
-draw_keys = (:log_lambda0, :sigma_rw, :z, :death_frac, :sigma_ref, :zref, :dow)
+draw_keys = (:log_lambda0, :sigma_rw, :z, :death_frac, :rho,
+    :sigma_ref, :zref, :dow)
 
 draws = (; (k => chain[k] for k in draw_keys)...)
 
@@ -380,7 +519,7 @@ function nowcast_draw(i)
     lambda = lognormal_rw(draws.log_lambda0[i], draws.z[i], draws.sigma_rw[i])
     ref = cumsum(vcat(0.0, draws.sigma_ref[i] .* draws.zref[i]))
     M = expected_matrix(lambda, base_case_pmf, ref, draws.dow[i], nothing)
-    return vec(sum(M; dims = 2))
+    return draws.rho[i] .* vec(sum(M; dims = 2))
 end
 
 nowcast_mat = reduce(hcat, (nowcast_draw(i) for i in 1:n_draws))
@@ -400,7 +539,8 @@ the count is still unreported.
 
 nowcast_df = vcat(
     DataFrame(day = 1:n_days, count = case_truth, kind = "true final"),
-    DataFrame(day = 1:n_days, count = Float64.(case_seen), kind = "seen by now"),
+    DataFrame(day = 1:n_days, count = Float64.(case_seen),
+        kind = "seen by now"),
     DataFrame(day = 1:n_days, count = nowcast_mean, kind = "nowcast mean"))
 
 band_df = DataFrame(day = 1:n_days, lo = nowcast_lo, hi = nowcast_hi)
@@ -430,6 +570,22 @@ dow_recovery = (truth = round.(true_dow; digits = 2),
     posterior = round.(post_dow; digits = 2))
 
 md"""
+### Ascertainment recovery
+
+The ascertainment fraction is recovered from the case counts.
+The posterior mean and 90% interval of `rho` are reported against the truth: the
+prior is centred at 0.5 but the data pull it towards the true 0.6, so the
+reported fraction is learnt rather than imposed.
+"""
+
+post_rho = vec(draws.rho)
+
+rho_recovery = (truth = true_rho,
+    posterior_mean = round(mean(post_rho); digits = 3),
+    lo = round(quantile(post_rho, 0.05); digits = 3),
+    hi = round(quantile(post_rho, 0.95); digits = 3))
+
+md"""
 ### The reference-by-report structure
 
 A direct check on the delay model is the fit to the reporting triangle itself.
@@ -440,9 +596,11 @@ model implies.
 
 post_case_exp = let M = zeros(n_days, max_delay + 1)
     for i in 1:n_draws
-        lambda = lognormal_rw(draws.log_lambda0[i], draws.z[i], draws.sigma_rw[i])
+        lambda = lognormal_rw(
+            draws.log_lambda0[i], draws.z[i], draws.sigma_rw[i])
         ref = cumsum(vcat(0.0, draws.sigma_ref[i] .* draws.zref[i]))
-        M .+= expected_matrix(lambda, base_case_pmf, ref, draws.dow[i], now)
+        M .+= draws.rho[i] .*
+              expected_matrix(lambda, base_case_pmf, ref, draws.dow[i], now)
     end
     M ./ n_draws
 end
@@ -480,13 +638,23 @@ md"""
   a baseline delay PMF into a per-reference-date hazard, reshapes it by a
   reference-date random walk and a report-date day-of-week term, and forms the
   right-truncated expected-count matrix ``\lambda_t \, p_{t,d}``.
-- The whole layer is AD-safe, so the expectation, the hazard effects and the
-  right-truncated counts recompute inside a Turing `@model` and fit with Mooncake
-  reverse-mode AD.
-- The fit recovers the expectation path, the day-of-week reporting pattern and
-  the delay profile, and the nowcast lifts the most recent right-truncated
-  reference dates back to their true final counts with a credible band that
-  widens where more of the count is still to be reported.
+- Right-truncation is shown two ways: per cell on the count matrix (the `now`
+  argument the fit uses) and per record on the composed two-delay delay, where
+  [`truncate_to_horizon`](@ref) and [`completeness_probability`](@ref) act on the
+  [`convolve_distributions`](@ref) chain of incubation and branch tail. Both
+  routes show the same falling truncation pattern, differing in level because the
+  matrix PMF is renormalised over the capped delay support.
+- Cases are under-reported: an ascertainment layer thins the case stream by a
+  reported fraction `rho`, built with [`thin`](@ref), the same observation
+  thinning EpiNow2 uses for under-reporting.
+- The whole layer is AD-safe, so the expectation, the hazard effects, the
+  ascertainment fraction and the right-truncated counts recompute inside a Turing
+  `@model` and fit with Mooncake reverse-mode AD.
+- The fit recovers the expectation path, the day-of-week reporting pattern, the
+  delay profile and the ascertainment fraction, and the nowcast lifts the most
+  recent right-truncated reference dates back to their true final reported counts
+  with a credible band that widens where more of the count is still to be
+  reported.
 
 ### What is deferred
 
@@ -497,7 +665,7 @@ md"""
 - The streams are modelled separately after sharing the reference and report
   effects; a [`competing`](@ref) onset branch (case versus death as competing
   outcomes) would tie the branch probability to a case-fatality term.
-- Right-truncation across the whole composed stack is not yet applied at the
-  stack level, so it is handled here at the hazard-matrix level (`now`) rather
-  than per record.
+- The composed-stack truncation is shown alongside the matrix truncation as a
+  cross-check; folding the per-record stack truncation directly into the
+  likelihood (rather than the matrix `now`) is a natural next step.
 """
