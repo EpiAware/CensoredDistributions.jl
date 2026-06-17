@@ -404,6 +404,140 @@ end
     @test !isapprox(g, g0)
 end
 
+@testitem "marginal == latent: δ-bounded leaf right-truncation" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: composed_distribution_model, truncate_to_window
+    using DynamicPPL: @model, to_submodel, logjoint, VarInfo
+
+    # A δ-bounded leaf record: the reserved `obs_window` δ adds a LOWER edge a
+    # width δ below the `obs_time` horizon, so the leaf is truncated to the finite
+    # window `[obs_time - δ, obs_time]` (normaliser cdf(upper) - cdf(lower)). The
+    # marginal leaf model scores the δ-bounded truncated leaf; this guards that the
+    # row's `obs_window` threads through to the δ-bounded truncation and that
+    # `obs_window` absent reproduces the upper-only form exactly.
+    inc = LogNormal(3.06, 0.32)
+    leaf = double_interval_censored(inc;
+        primary_event = Uniform(0, 1), interval = 1.0)
+
+    @model demo(d, row) = obs ~ to_submodel(composed_distribution_model(d, row))
+
+    for (delay, D, δ) in ((5.0, 40.0, 30.0), (12.0, 30.0, 25.0))
+        rowδ = (delay = delay, obs_time = D, obs_window = δ)
+        lj = logjoint(demo(leaf, rowδ), VarInfo(demo(leaf, rowδ)))
+        ref = logpdf(truncate_to_window(leaf, D, δ), delay)
+        @test isapprox(lj, ref; atol = 1e-8)
+
+        # The δ-bounded score DIFFERS from the upper-only horizon score (the lower
+        # edge changes the normaliser), so the δ is genuinely applied.
+        row_up = (delay = delay, obs_time = D)
+        lj_up = logjoint(demo(leaf, row_up), VarInfo(demo(leaf, row_up)))
+        @test !isapprox(lj, lj_up)
+        # And the upper-only row reproduces the upper-only truncation exactly.
+        @test isapprox(lj_up,
+            logpdf(CensoredDistributions.truncate_to_horizon(leaf, D), delay);
+            atol = 1e-10)
+    end
+end
+
+@testitem "marginal == latent: δ-bounded nested Competing right-truncation" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent, Sequential, Competing,
+                                 composed_distribution_model,
+                                 truncate_to_window, _nested_tree_logpdf,
+                                 _origin_primary_event, _first_origin_node,
+                                 WindowedHorizon, event_logpdf, _tree_acc_type
+    using DynamicPPL: logjoint, @model, to_submodel
+    using ForwardDiff: gradient
+
+    # The δ-bounded variant of the #517 nested-Competing right-truncation: the
+    # conditioned branch is truncated to the FINITE window `[window - δ, window]`
+    # (window = horizon - anchor) rather than `(-∞, window]`. The marginal nested
+    # scorer, the public flat entry, and the latent form must all be density-
+    # identical (the project invariant), and δ → full window must reproduce the
+    # upper-only value exactly. The chain is onset -> admit -> {death, discharge}
+    # with the admit anchor OBSERVED.
+    edge(mu,
+        sigma) = double_interval_censored(LogNormal(mu, sigma);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    e_oa = edge(1.4, 0.4)
+    cfr = 0.3
+    death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
+    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    seq = Sequential(e_oa, cmp)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    admit = 4.0
+    horizon = 20.0
+    δ = 10.0                                    # window [horizon-admit-δ, .] inc.
+    wh = WindowedHorizon(horizon, δ)
+    prim = _origin_primary_event(_first_origin_node(seq))
+
+    for (oc, t, dly) in ((:death, 12.0, death_d), (:discharge, 11.0, disch_d))
+        p = oc === :death ? cfr : 1 - cfr
+        slot = oc === :death ? 3 : 4
+        ev = Vector{Union{Missing, Float64}}([0.0, admit, missing, missing])
+        ev[slot] = t
+
+        marg = _nested_tree_logpdf(seq, ev, prim, Float64, wh)
+        pub = event_logpdf(seq, ev; horizon = wh)
+
+        # Closed-form reference: the onset->admit edge, the branch weight, and the
+        # branch δ-bounded to the finite window `[horizon-admit-δ, horizon-admit]`.
+        ref_branch = logpdf(
+            truncate_to_window(dly, horizon - admit, δ), t - admit)
+        ref = logpdf(e_oa, admit) + log(p) + ref_branch
+
+        row = oc === :death ?
+              (event_1 = 0.0, event_2 = admit, death = t, discharge = missing,
+            obs_time = horizon, obs_window = δ) :
+              (event_1 = 0.0, event_2 = admit, death = missing, discharge = t,
+            obs_time = horizon, obs_window = δ)
+        lat = only(logjoint(demo(latent(seq), row), (;)))
+
+        # (a) marginal == public == latent == closed-form reference, all density-
+        # identical (the project invariant).
+        @test isapprox(marg, ref; atol = 1e-10)
+        @test isapprox(pub, marg; atol = 1e-10)
+        @test isapprox(lat, marg; atol = 1e-10)
+
+        # (b) the δ-bounded score DIFFERS from the upper-only horizon score (the
+        # lower edge enters the denominator).
+        marg_up = _nested_tree_logpdf(seq, ev, prim, Float64, horizon)
+        @test !isapprox(marg, marg_up)
+
+        # (c) δ → full window reproduces the upper-only value EXACTLY. A δ wider
+        # than the window collapses the lower edge to the branch minimum, the
+        # upper-only truncation.
+        wide = WindowedHorizon(horizon, horizon + 1000.0)
+        @test _nested_tree_logpdf(seq, ev, prim, Float64, wide) === marg_up
+        @test event_logpdf(seq, ev; horizon = wide) === marg_up
+    end
+
+    # ForwardDiff AD over the branch params through the δ-bounded nested scorer
+    # (the horizon/δ are DATA, the params differentiate). The δ-bounded
+    # denominator routes through the branch `logcdf` at both edges, so the
+    # outcomes are LogNormal (ForwardDiff-friendly `logcdf`).
+    ev = Vector{Union{Missing, Float64}}([0.0, admit, 12.0, missing])
+    function nll(theta)
+        mu_d, mu_s = theta
+        cc = Competing(:death => (LogNormal(mu_d, 0.4), cfr),
+            :discharge => (LogNormal(mu_s, 0.5), 1 - cfr))
+        s = Sequential(e_oa, cc)
+        return -_nested_tree_logpdf(s, ev, prim, Float64, wh)
+    end
+    g = gradient(nll, [1.5, 1.2])
+    @test all(isfinite, g)
+    # The δ lower edge MOVES the gradient relative to the upper-only form.
+    g_up = gradient(
+        theta -> -_nested_tree_logpdf(
+            Sequential(e_oa,
+                Competing(:death => (LogNormal(theta[1], 0.4), cfr),
+                    :discharge => (LogNormal(theta[2], 0.5), 1 - cfr))),
+            ev, prim, Float64, horizon), [1.5, 1.2])
+    @test !isapprox(g, g_up)
+end
+
 @testitem "latent Competing: sampled anchor integrates to bare mixture term (#363)" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, Competing,

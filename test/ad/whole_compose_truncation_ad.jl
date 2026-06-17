@@ -44,6 +44,76 @@
     @test all(!=(0), g)
 end
 
+@testitem "δ-bounded truncation gradient: ForwardDiff (#520)" tags=[
+    :ad, :forwarddiff] begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: WindowedHorizon, truncate_to_window
+    using ADTypes: AutoForwardDiff
+    using DifferentiationInterface: gradient
+    using ForwardDiff: ForwardDiff
+
+    # The δ-bounded right-truncation normaliser `cdf(upper) - cdf(lower)` must
+    # differentiate w.r.t. the delay params through BOTH the leaf primitive and
+    # the whole-compose chain denominator. LogNormal delays keep the truncation
+    # `logcdf` off the Gamma shape-derivative path.
+    evs = [Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0]),
+        Vector{Union{Missing, Float64}}([0.5, missing, 7.0])]
+    whs = [WindowedHorizon(8.0, 6.0), WindowedHorizon(9.0, 7.0)]
+
+    function f(θ)
+        inc = primary_censored(LogNormal(θ[1], θ[2]), Uniform(0, 1))
+        delta = primary_censored(LogNormal(θ[3], θ[4]), Uniform(0, 1))
+        seq = Sequential((inc, delta), (:onset_mid, :mid_obs))
+        chain = sum(eachindex(evs)) do i
+            CensoredDistributions.event_logpdf(seq, evs[i]; horizon = whs[i])
+        end
+        # The leaf δ-bounded primitive too.
+        leaf = logpdf(truncate_to_window(LogNormal(θ[1], θ[2]), 6.0, 3.0), 4.0)
+        return chain + leaf
+    end
+
+    θ = [1.0, 0.5, 0.5, 0.4]
+    @test isfinite(f(θ))
+    g = gradient(f, AutoForwardDiff(), θ)
+    @test g isa AbstractVector && length(g) == 4 && all(isfinite, g)
+    @test all(!=(0), g)
+end
+
+@testitem "δ-bounded truncation gradient: Mooncake reverse (#520)" tags=[
+    :ad, :mooncake, :mooncake_reverse] begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: WindowedHorizon, truncate_to_window
+    using ADTypes: AutoMooncake, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    using ForwardDiff: ForwardDiff
+    using Mooncake: Mooncake
+
+    # Fully-observed records (the missing-intermediate `event_logpdf` path hits a
+    # pre-existing Mooncake limitation in the string-based event-name derivation),
+    # δ-bounded per record. The δ-bounded denominator routes through the chain
+    # `logcdf` at both edges and must trace under Mooncake reverse.
+    evs = [Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0]),
+        Vector{Union{Missing, Float64}}([0.5, 3.0, 7.0])]
+    whs = [WindowedHorizon(8.0, 6.0), WindowedHorizon(9.0, 7.0)]
+
+    function f(θ)
+        inc = primary_censored(LogNormal(θ[1], θ[2]), Uniform(0, 1))
+        delta = primary_censored(LogNormal(θ[3], θ[4]), Uniform(0, 1))
+        seq = Sequential((inc, delta), (:onset_mid, :mid_obs))
+        chain = sum(eachindex(evs)) do i
+            CensoredDistributions.event_logpdf(seq, evs[i]; horizon = whs[i])
+        end
+        leaf = logpdf(truncate_to_window(LogNormal(θ[1], θ[2]), 6.0, 3.0), 4.0)
+        return chain + leaf
+    end
+
+    θ = [1.0, 0.5, 0.5, 0.4]
+    ref = gradient(f, AutoForwardDiff(), θ)
+    g = gradient(f, AutoMooncake(; config = nothing), θ)
+    @test g isa AbstractVector && length(g) == 4 && all(isfinite, g)
+    @test isapprox(g, ref; rtol = 1e-6, atol = 1e-8)
+end
+
 @testitem "compose-over wrappers gradient: ForwardDiff (#363)" tags=[
     :ad, :forwarddiff] begin
     using CensoredDistributions, Distributions

@@ -111,9 +111,9 @@ function _record_logpdf(r::EventRecord{<:Sequential}, x::AbstractVector)
     # endpoint-observed term. A non-positive window is an empty-support truncation
     # (`-Inf`), matching `event_logpdf`'s guard.
     last_seg = _lookup_seg(bundle.segs, obs[1], obs[end])
-    window = r.horizon - vals[1]
+    window = _horizon_time(r.horizon) - vals[1]
     lp = window <= minimum(last_seg) ? convert(typeof(lp), -Inf) :
-         lp - logcdf(last_seg, window)
+         lp - _truncation_lognorm(last_seg, window, r.horizon)
     return _weight_lp(lp, r.weight)
 end
 
@@ -156,11 +156,11 @@ function _record_logpdf(r::EventRecord{<:Parallel}, x::AbstractVector)
     o = x[1]
     insupport(primary, o) || return _weight_lp(convert(T, -Inf), r.weight)
     lp = convert(T, logpdf(primary, o))
-    window = r.horizon === nothing ? nothing : r.horizon - o
+    window = r.horizon === nothing ? nothing : _horizon_time(r.horizon) - o
     @inbounds for i in eachindex(cores)
         events[i + 1] === missing && continue
         seg = window === nothing ? cores[i] :
-              truncate_to_horizon(cores[i], window)
+              _truncate_horizon(cores[i], window, r.horizon)
         lp += convert(T, logpdf(seg, x[i + 1] - o))
     end
     return _weight_lp(lp, r.weight)

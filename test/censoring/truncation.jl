@@ -122,6 +122,102 @@ end
     @test_throws ArgumentError truncate_chain((), (), 5.0)
 end
 
+@testitem "truncate_to_window δ-bounded normaliser" begin
+    using Distributions
+
+    # The δ-bounded variant adds a finite lower edge a width δ below the upper
+    # edge, giving the observation window [upper - δ, upper]; its log-normaliser
+    # is log(cdf(delay, upper) - cdf(delay, upper - δ)), the finite-window mass.
+    delay = LogNormal(1.5, 0.5)
+    for (upper, δ) in ((6.0, 4.0), (10.0, 3.0), (8.0, 6.5))
+        lower = upper - δ
+        td = truncate_to_window(delay, upper, δ)
+        lognorm = log(cdf(delay, upper) - cdf(delay, lower))
+        for x in (lower + 0.2):0.7:(upper - 0.1)
+            @test logpdf(td, x) ≈ logpdf(delay, x) - lognorm atol=1e-10
+        end
+        # Mass below the lower edge and above the upper edge is excluded.
+        @test pdf(td, lower - 0.5) == 0.0
+        @test pdf(td, upper + 0.5) == 0.0
+    end
+end
+
+@testitem "truncate_to_window upper-only special case is byte-identical" begin
+    using Distributions
+
+    # δ = nothing (and any δ ≥ upper, i.e. the lower edge clamps to the
+    # distribution minimum) must reproduce the upper-only `truncate_to_horizon`
+    # BYTE-FOR-BYTE: same object, same logpdf bits.
+    for delay in (LogNormal(1.5, 0.5), Gamma(2.0, 1.0),
+        convolve_distributions(LogNormal(1.2, 0.4), Gamma(2.0, 0.8)))
+        for upper in (3.0, 6.0, 12.0)
+            th = truncate_to_horizon(delay, upper)
+            # δ = nothing routes to the upper-only primitive: the SAME object.
+            @test truncate_to_window(delay, upper, nothing) === th
+            # A δ wider than the upper edge collapses the lower edge to the
+            # distribution minimum, where `cdf(minimum) = 0`, so the DENSITY is
+            # byte-identical to the upper-only form (the lower-bounded object is a
+            # distinct struct, but its logpdf bits match exactly).
+            wide = truncate_to_window(delay, upper, upper + 100.0)
+            for x in 0.5:0.9:(upper - 0.1)
+                @test logpdf(truncate_to_window(delay, upper, nothing), x) ===
+                      logpdf(th, x)
+                @test logpdf(wide, x) === logpdf(th, x)
+            end
+        end
+    end
+end
+
+@testitem "truncate_to_window degenerate window errors" begin
+    using Distributions
+
+    delay = Gamma(2.0, 1.0)
+    # A non-positive window width δ is an empty observation window and errors.
+    @test_throws ArgumentError truncate_to_window(delay, 6.0, 0.0)
+    @test_throws ArgumentError truncate_to_window(delay, 6.0, -1.0)
+end
+
+@testitem "truncate_to_window matches Monte Carlo on the finite window" begin
+    using Distributions, Random, Statistics
+    rng = MersenneTwister(20240618)
+
+    # The δ-bounded truncated delay matches samples kept only inside the finite
+    # window [upper - δ, upper].
+    delay = LogNormal(1.2, 0.4)
+    upper, δ = 8.0, 5.0
+    lower = upper - δ
+    td = truncate_to_window(delay, upper, δ)
+
+    n = 600_000
+    draws = rand(rng, delay, n)
+    accepted = filter(t -> lower <= t <= upper, draws)
+    @test length(accepted) > 10_000
+    for x in (lower + 0.5, (lower + upper) / 2, upper - 0.5)
+        @test cdf(td, x) ≈ mean(accepted .<= x) atol=5e-3
+    end
+end
+
+@testitem "truncate_to_window AD over the params (ForwardDiff)" begin
+    using Distributions, ForwardDiff
+
+    # The δ-bounded normaliser cdf(upper) - cdf(lower) must differentiate w.r.t.
+    # the delay params. LogNormal `logcdf` is ForwardDiff-friendly (the same
+    # restriction the whole-compose truncation AD tests document).
+    upper, δ = 6.0, 3.0
+    function nll(theta)
+        d = LogNormal(theta[1], theta[2])
+        return -logpdf(truncate_to_window(d, upper, δ), 4.0)
+    end
+    g = ForwardDiff.gradient(nll, [1.4, 0.5])
+    @test all(isfinite, g)
+    # The δ lower edge MOVES the gradient relative to the upper-only form.
+    g_up = ForwardDiff.gradient(
+        theta -> -logpdf(
+            truncate_to_window(LogNormal(theta[1], theta[2]), upper, nothing),
+            4.0), [1.4, 0.5])
+    @test !isapprox(g, g_up)
+end
+
 @testitem "truncate_chain right-truncation matches Monte Carlo" begin
     using Distributions, Random, Statistics
     rng = MersenneTwister(20240617)
