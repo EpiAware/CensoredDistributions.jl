@@ -80,7 +80,7 @@ using CairoMakie, PairPlots
 # drop the two alternative-source sensitivity rows that the upstream main fit
 # excludes.
 
-datadir = joinpath(@__DIR__, "andv-data")
+datadir = joinpath(@__DIR__, "data", "andv")
 ll = CSV.read(joinpath(datadir, "linelist.csv"), DataFrame;
     missingstring = ["NA", ""])
 

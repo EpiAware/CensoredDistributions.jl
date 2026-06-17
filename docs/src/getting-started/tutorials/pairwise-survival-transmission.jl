@@ -259,7 +259,7 @@ that starts each source's contact-interval clock — and measure time in days
 from the first prodrome in the outbreak.
 """
 
-datadir = joinpath(@__DIR__, "hagelloch-data")
+datadir = joinpath(@__DIR__, "data", "hagelloch")
 
 raw = CSV.read(joinpath(datadir, "linelist.csv"), DataFrame;
     missingstring = ["NA", ""])

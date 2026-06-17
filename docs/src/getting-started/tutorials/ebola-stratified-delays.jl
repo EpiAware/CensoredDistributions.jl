@@ -117,7 +117,7 @@ We read the dates, take the onset-to-test delay in days, and anchor every date t
 the earliest onset so the real-time horizon can be expressed as a day offset.
 """
 
-datadir = joinpath(@__DIR__, "ebola-data")
+datadir = joinpath(@__DIR__, "data", "ebola")
 
 ll = CSV.read(joinpath(datadir, "linelist.csv"), DataFrame;
     missingstring = ["NA", ""])
