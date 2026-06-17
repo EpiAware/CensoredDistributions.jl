@@ -27,48 +27,22 @@ EnzymeRules.inactive(::typeof(_subevent_slice), args...) = nothing
 # *location* at which to clamp an infinite integration limit
 # (`_finite_window` in `src/distributions/Convolved.jl`). It is a
 # non-differentiable hyperparameter of the quadrature (like the node
-# count), so both Enzyme rules return a constant `Float64` with no
-# tangent / no cotangent. Crucially this stops Enzyme tracing INTO the
-# function at all, so it never reaches `quantile(::Gamma)` →
+# count), so it is marked `EnzymeRules.inactive`: Enzyme runs the primal
+# unchanged and treats the returned endpoint as a constant, contributing no
+# tangent / no cotangent in either mode. Crucially this stops Enzyme tracing
+# INTO the function at all, so it never reaches `quantile(::Gamma)` →
 # `SpecialFunctions.gamma_inc_inv_qsmall`, which it cannot differentiate
-# (issue #314: `IllegalTypeAnalysisException`). Other backends get the
-# same treatment via the ChainRules `@non_differentiable _primal` mark
-# and the ForwardDiff/ReverseDiff primal-stripping methods.
-function EnzymeRules.forward(
-        ::EnzymeRules.FwdConfig,
-        ::Enzyme.Const{typeof(_window_quantile)},
-        ::Type{RT}, comp::Enzyme.Annotation{<:UnivariateDistribution},
-        p::Enzyme.Annotation) where {RT <: Enzyme.Annotation}
-    primal = _window_quantile(comp.val, p.val)
-    if RT <: Enzyme.Duplicated
-        return Enzyme.Duplicated(primal, zero(primal))
-    elseif RT <: Enzyme.DuplicatedNoNeed
-        return zero(primal)
-    else
-        return primal
-    end
-end
-
-function EnzymeRules.augmented_primal(
-        config::EnzymeRules.RevConfig,
-        ::Enzyme.Const{typeof(_window_quantile)},
-        ::Type{<:Enzyme.Annotation},
-        comp::Enzyme.Annotation{<:UnivariateDistribution},
-        p::Enzyme.Annotation)
-    primal = EnzymeRules.needs_primal(config) ?
-             _window_quantile(comp.val, p.val) : nothing
-    return EnzymeRules.AugmentedReturn(primal, nothing, nothing)
-end
-
-function EnzymeRules.reverse(
-        ::EnzymeRules.RevConfig,
-        ::Enzyme.Const{typeof(_window_quantile)},
-        ::Type{<:Enzyme.Annotation}, ::Nothing,
-        comp::Enzyme.Annotation{<:UnivariateDistribution},
-        p::Enzyme.Annotation)
-    # No cotangent flows back: the window endpoint is non-differentiable.
-    return (nothing, nothing)
-end
+# (issue #314: `IllegalTypeAnalysisException`). `inactive` covers every
+# activity / batch-width / mode permutation uniformly — unlike a bespoke
+# `forward`/`reverse` pair, which had to enumerate `Duplicated` /
+# `BatchDuplicated` / `Const` returns and still missed the `Active` scalar
+# return that a `Difference` over an unbounded-above subtrahend produces under
+# Enzyme reverse. Other backends get the same treatment via the ChainRules
+# `@non_differentiable _primal` mark, the ForwardDiff/ReverseDiff
+# primal-stripping methods and the Mooncake `@zero_derivative` rule. Marking
+# the value (not just the params) inactive is correct: the endpoint is a fixed
+# quadrature hyperparameter that carries no gradient.
+EnzymeRules.inactive(::typeof(_window_quantile), args...) = nothing
 
 # `EnzymeRules.@easy_rule` expands into both the reverse-mode
 # (`augmented_primal` / `reverse`) and forward-mode (`forward`) rules

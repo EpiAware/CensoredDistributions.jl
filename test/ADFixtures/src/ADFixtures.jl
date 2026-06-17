@@ -725,6 +725,60 @@ function scenarios(; with_reference::Bool = false)
             [2.0, 1.5, -0.5, 0.8], (Constant(obs),))
     end
 
+    # Difference (Z = X - Y), the dual of Convolved. The analytic Normal-Normal
+    # pair differentiates through the closed-form difference; the Gamma-LogNormal
+    # pairs exercise the AD-safe numeric cross-correlation quadrature (the same
+    # fixed-domain Gauss-Legendre construction as Convolved). Two pairs cover
+    # gradients through the minuend X parameters and through the subtrahend Y
+    # parameters: when Y is the unbounded-above integration factor the upper
+    # quadrature window is a quantile of the differentiated component, so the
+    # window-clamp must stay off the AD path (the `_window_quantile` zero-adjoint
+    # rule) for Mooncake/Enzyme not to trace `gamma_inc_inv`. Literal
+    # constructors keep Enzyme forward working (#278). Guarded on `difference`
+    # existing for the AirspeedVelocity baseline build, as for Convolved above.
+    if isdefined(CensoredDistributions, :difference)
+        _push!("Difference Normal-Normal analytical",
+            (θ,
+                obs) -> sum(
+                z -> logpdf(
+                    CensoredDistributions.difference(
+                        Normal(θ[1], θ[2]), Normal(0.0, 1.0)), z),
+                obs),
+            [1.0, 2.0], (Constant(obs),))
+        # Gradient through the minuend X (the f_X factor inside the integral).
+        _push!("Difference Gamma-LogNormal numerical wrt X",
+            (θ,
+                obs) -> sum(
+                z -> logpdf(
+                    CensoredDistributions.difference(
+                        Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), z),
+                obs),
+            [3.0, 1.0], (Constant(obs),))
+        # Gradient through the subtrahend Y (the f_Y integration factor and the
+        # window-quantile bound). The differentiated Gamma is unbounded above,
+        # so the upper window endpoint routes through `_window_quantile`; the
+        # zero-adjoint rule keeps that bound a non-differentiated constant.
+        _push!("Difference LogNormal-Gamma numerical wrt Y",
+            (θ,
+                obs) -> sum(
+                z -> logpdf(
+                    CensoredDistributions.difference(
+                        LogNormal(0.5, 0.4), Gamma(θ[1], θ[2])), z),
+                obs),
+            [3.0, 1.0], (Constant(obs),))
+        # Difference moments (#548): mean is the difference of the means and var
+        # the SUM of the variances, so the gradient flows through each
+        # component's closed-form `mean`/`var`. The `obs` context is unused but
+        # keeps the scenario shape uniform.
+        _push!("Difference Gamma-Normal mean+var moments",
+            (θ,
+                _obs) -> let d = CensoredDistributions.difference(
+                    Gamma(θ[1], θ[2]), Normal(θ[3], θ[4]))
+                mean(d) + var(d)
+            end,
+            [3.0, 1.5, 2.0, 0.5], (Constant(obs),))
+    end
+
     # Completeness thinning helpers (#349). `thin_by_completeness(R, delay,
     # window) = R * cdf(delay, window)`, so the gradient flows through `R` and
     # the delay-distribution parameters via the CDF. The Convolved-chain form
