@@ -21,9 +21,7 @@ build/
 # Data
 *.csv
 # Keep bundled tutorial data (redistributed with the docs).
-!docs/src/getting-started/tutorials/data/*.csv
-!docs/src/getting-started/tutorials/andv-data/*.csv
-!docs/src/getting-started/tutorials/ebola-data/*.csv
+!docs/src/getting-started/tutorials/data/**/*.csv
 *.tsv
 *.parquet
 *.dat

@@ -373,7 +373,7 @@ and apply the cleaning of the re-analysis: a small set of admission dates and on
 notification date encode biologically impossible offsets and are set to missing.
 """
 
-datadir = joinpath(@__DIR__, "data")
+datadir = joinpath(@__DIR__, "data", "bdbv")
 
 linelist = CSV.read(joinpath(datadir, "linelist.csv"), DataFrame;
     missingstring = ["NA", ""])
