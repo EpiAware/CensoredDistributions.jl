@@ -251,6 +251,21 @@ function backend_broken_scenarios()
     # the compiled backends are registered broken on the same pre-pass grounds.
     vectorised_bdbv = "Vectorised nested Competing per-record branch_probs logpdf"
     vectorised_select = "Vectorised Select per-record kind logpdf"
+    # The Difference (Z = X - Y) numeric path whose DIFFERENTIATED subtrahend Y is
+    # unbounded above: its upper quadrature window is an extreme quantile of Y, so
+    # `_window_quantile(Gamma(θ), p)` is reached on the AD path with the Gamma
+    # parameters ACTIVE. The window is a non-differentiated hyperparameter and the
+    # ChainRules `@non_differentiable` / Mooncake `@zero_derivative` shields keep
+    # ForwardDiff, ReverseDiff and both Mooncake modes correct (verified). Enzyme
+    # passes the `_window_quantile` result back as an `Active` return, a shape the
+    # existing `EnzymeRules.reverse`/`forward` methods (written for a `Const` /
+    # `Duplicated` return) do not match, so both Enzyme modes error. This is the
+    # same dual-stripped-window limitation tracked for the Convolved trailing-Gamma
+    # quadrature; Convolved sidesteps it because its finite upper bound avoids the
+    # quantile, whereas a Difference over an unbounded-above Y always needs it.
+    # Registered broken for both Enzyme modes; the analytic + Mooncake backends
+    # cover its gradient.
+    difference_y_window = "Difference LogNormal-Gamma numerical wrt Y"
     compiled_broken = Set{String}(
         [vectorised_seq, vectorised_bdbv, vectorised_select])
     return Dict{String, Set{String}}(
@@ -266,14 +281,14 @@ function backend_broken_scenarios()
         "Enzyme reverse" => union(
             Set{String}(
                 [nested_comp, nested_hazard, nonterminal_comp, dic_seq_total,
-                whole_compose_trunc]),
+                whole_compose_trunc, difference_y_window]),
             compiled_broken),
         # Enzyme FORWARD: only the non-terminal Competing remains broken; the
         # plain nested tree, the Competing/hazard trees, and
         # `double_interval_censored(Sequential)` are now fixed (#319/#444 fixed
         # forward; reverse stays broken, see above).
         "Enzyme forward" => union(
-            Set{String}([nonterminal_comp]),
+            Set{String}([nonterminal_comp, difference_y_window]),
             compiled_broken)
     )
 end
@@ -723,6 +738,60 @@ function scenarios(; with_reference::Bool = false)
                 mean(d) + var(d)
             end,
             [2.0, 1.5, -0.5, 0.8], (Constant(obs),))
+    end
+
+    # Difference (Z = X - Y), the dual of Convolved. The analytic Normal-Normal
+    # pair differentiates through the closed-form difference; the Gamma-LogNormal
+    # pairs exercise the AD-safe numeric cross-correlation quadrature (the same
+    # fixed-domain Gauss-Legendre construction as Convolved). Two pairs cover
+    # gradients through the minuend X parameters and through the subtrahend Y
+    # parameters: when Y is the unbounded-above integration factor the upper
+    # quadrature window is a quantile of the differentiated component, so the
+    # window-clamp must stay off the AD path (the `_window_quantile` zero-adjoint
+    # rule) for Mooncake/Enzyme not to trace `gamma_inc_inv`. Literal
+    # constructors keep Enzyme forward working (#278). Guarded on `difference`
+    # existing for the AirspeedVelocity baseline build, as for Convolved above.
+    if isdefined(CensoredDistributions, :difference)
+        _push!("Difference Normal-Normal analytical",
+            (θ,
+                obs) -> sum(
+                z -> logpdf(
+                    CensoredDistributions.difference(
+                        Normal(θ[1], θ[2]), Normal(0.0, 1.0)), z),
+                obs),
+            [1.0, 2.0], (Constant(obs),))
+        # Gradient through the minuend X (the f_X factor inside the integral).
+        _push!("Difference Gamma-LogNormal numerical wrt X",
+            (θ,
+                obs) -> sum(
+                z -> logpdf(
+                    CensoredDistributions.difference(
+                        Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), z),
+                obs),
+            [3.0, 1.0], (Constant(obs),))
+        # Gradient through the subtrahend Y (the f_Y integration factor and the
+        # window-quantile bound). The differentiated Gamma is unbounded above,
+        # so the upper window endpoint routes through `_window_quantile`; the
+        # zero-adjoint rule keeps that bound a non-differentiated constant.
+        _push!("Difference LogNormal-Gamma numerical wrt Y",
+            (θ,
+                obs) -> sum(
+                z -> logpdf(
+                    CensoredDistributions.difference(
+                        LogNormal(0.5, 0.4), Gamma(θ[1], θ[2])), z),
+                obs),
+            [3.0, 1.0], (Constant(obs),))
+        # Difference moments (#548): mean is the difference of the means and var
+        # the SUM of the variances, so the gradient flows through each
+        # component's closed-form `mean`/`var`. The `obs` context is unused but
+        # keeps the scenario shape uniform.
+        _push!("Difference Gamma-Normal mean+var moments",
+            (θ,
+                _obs) -> let d = CensoredDistributions.difference(
+                    Gamma(θ[1], θ[2]), Normal(θ[3], θ[4]))
+                mean(d) + var(d)
+            end,
+            [3.0, 1.5, 2.0, 0.5], (Constant(obs),))
     end
 
     # Completeness thinning helpers (#349). `thin_by_completeness(R, delay,

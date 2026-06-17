@@ -52,6 +52,13 @@ export AnalyticalSolver, NumericSolver
 # Exported distributions
 export ExponentiallyTilted
 
+# Exported difference constructor: the distribution of Z = X - Y for two
+# independent components, the dual of the sum `convolve_distributions` builds.
+# Z has two-sided (possibly negative) support, so it is a derived observation,
+# not a non-negative delay leaf. `Difference` is the type; `difference` the
+# friendly constructor.
+export Difference, difference
+
 # Exported affine transform: a deterministic shift+scale of a delay, nesting as
 # a leaf. `Affine` is the type; `affine` the friendly constructor.
 export Affine, affine
@@ -174,6 +181,9 @@ include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")
 include("distributions/Convolved.jl")
+# Difference (Z = X - Y), the dual of Convolved. After Convolved.jl since it
+# reuses `_window_quantile` / `_CONVOLVED_TAIL` for the quadrature window clamp.
+include("distributions/Difference.jl")
 
 # Right-truncation helpers: depend on Convolved / convolve_distributions.
 include("censoring/truncation.jl")

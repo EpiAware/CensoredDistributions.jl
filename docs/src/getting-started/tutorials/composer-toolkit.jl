@@ -565,6 +565,8 @@ event_names(event(spliced, :admit_death))
 # | `parallel(:a => d1, :b => d2)` | a [`Parallel`](@ref) branch set (shared origin) | builds |
 # | `competing(:a => (d1, p1), :b => (d2, p2))` | a [`Competing`](@ref) node (one outcome occurs); the last prob may be omitted as the residual `1 - sum(others)` | builds |
 # | `selecting(:a => d1, :b => d2)` | a [`Select`](@ref) disjunction (data picks the branch) | builds |
+# | `convolve_distributions(d1, d2)` | a [`Convolved`](@ref) sum `X + Y` (delays add) | builds |
+# | `difference(d1, d2)` | a [`Difference`](@ref) `X - Y`, the dual of the sum; two-sided support, so an observation not a delay leaf | builds |
 # | `primary_censored(d, pe)` | primary-event censoring leaf | leaf wrap |
 # | `interval_censored(d; interval)` | interval-censoring leaf | leaf wrap |
 # | `double_interval_censored(d; interval)` | primary + truncation + interval leaf | leaf wrap |
