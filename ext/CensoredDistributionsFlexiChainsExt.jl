@@ -5,7 +5,7 @@ module CensoredDistributionsFlexiChainsExt
 # when both DynamicPPL and FlexiChains are available.
 
 using CensoredDistributions: CensoredDistributions, Sequential, Parallel,
-                             Competing, Select, component_names
+                             Resolve, Choose, component_names
 import CensoredDistributions: chain_to_params, update, strip_prefix
 using DynamicPPL: VarName
 using FlexiChains: FlexiChains
@@ -63,7 +63,7 @@ _select_draws(col, ::Colon) = vec(col)
 _select_draws(col, sel) = vec(col)[sel]
 
 # Look up one parameter by its dotted name (`prefix.path...`); `nothing` if
-# absent (e.g. a `Competing`'s branch probabilities kept fixed in the template).
+# absent (e.g. a `Resolve`'s branch probabilities kept fixed in the template).
 _read_value(lookup, key) = get(lookup, key, nothing)
 
 # Form the dotted name a submodel-sampled parameter carries: the `~`-bound
@@ -88,7 +88,7 @@ function _node_params(d::Union{Sequential, Parallel}, lookup, prefix, path)
     return NamedTuple{names}(Tuple(vals))
 end
 
-function _node_params(c::Competing, lookup, prefix, path)
+function _node_params(c::Resolve, lookup, prefix, path)
     delays = map(zip(c.names, c.delays)) do (name, delay)
         _node_params(delay, lookup, prefix, (path..., name))
     end
@@ -104,7 +104,7 @@ end
 
 # A racing-hazard node has only its outcome-delay params in the chain (no
 # branch_probs block, since the winning probability is derived).
-function _node_params(c::CensoredDistributions.HazardCompeting, lookup, prefix,
+function _node_params(c::CensoredDistributions.Compete, lookup, prefix,
         path)
     delays = map(zip(c.names, c.delays)) do (name, delay)
         _node_params(delay, lookup, prefix, (path..., name))
@@ -112,13 +112,13 @@ function _node_params(c::CensoredDistributions.HazardCompeting, lookup, prefix,
     return NamedTuple{c.names}(Tuple(delays))
 end
 
-# A `Select` walks its alternatives by name (mirroring the core
-# `params`/`update` traversal), so a posterior reads back onto a Select
+# A `Choose` walks its alternatives by name (mirroring the core
+# `params`/`update` traversal), so a posterior reads back onto a Choose
 # template. The nested
 # NamedTuple is keyed by the alternative names; a shared-tagged leaf inside an
 # alternative reads its values from the top level under its tag (see the leaf
 # method), so a tie across alternatives maps to the one chain entry.
-function _node_params(d::Select, lookup, prefix, path)
+function _node_params(d::Choose, lookup, prefix, path)
     vals = map(zip(d.names, d.alternatives)) do (name, alt)
         _node_params(alt, lookup, prefix, (path..., name))
     end
