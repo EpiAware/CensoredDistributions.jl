@@ -75,6 +75,36 @@ chain = compose((path = [onset_admit, admit_death],));
 
 event_names(chain)
 
+# The same stack also lowers from a Tables.jl table or a matrix, so a
+# column-oriented data source builds a composer without a hand-written
+# NamedTuple.
+# A table has `name` and `dist` columns, one row per branch.
+# A `chain` column folds rows sharing a non-zero id into a [`Sequential`](@ref),
+# and a `compete`/`prob` column pair folds rows into a [`Competing`](@ref) node
+# whose `prob` entries are the branch probabilities.
+# Here the death and discharge rows share a `compete` group, while the
+# notification row stays a plain branch.
+
+table = (name = [:death, :discharge, :onset_notif],
+    dist = [Gamma(1.5, 1.0), Gamma(2.0, 1.5), Gamma(1.5, 1.0)],
+    compete = [1, 1, 0],
+    prob = [0.3, 0.7, missing]);
+
+table_stack = compose(table);
+
+event_names(table_stack)
+
+# A matrix lowers the same way: rows are [`Parallel`](@ref) branches and the
+# columns within a row are [`Sequential`](@ref) steps.
+# `names` labels the rows and `step_names` labels the columns.
+# A one-row matrix is a single chain, so this builds the onset-to-admission then
+# admission-to-death sequence.
+
+matrix_stack = compose([onset_admit admit_death];
+    names = [:path], step_names = [:onset_admit, :admit_death]);
+
+event_names(matrix_stack)
+
 # ## The four composers
 #
 # Each front-end lowers to these composers, which can also be built directly.
@@ -113,6 +143,12 @@ resolution_residual = competing(:death => (Gamma(1.5, 1.0), cfr),
 # Its marginal is the time to resolution regardless of which outcome occurs.
 
 mean(resolution)
+
+# A `Competing` node carries its own time-to-resolution event slot alongside the
+# named per-outcome slots, so its flat event layout pairs that resolution slot
+# (defaulting to `:event_1`) with the `:death` and `:discharge` outcome names.
+
+event_names(resolution)
 
 # [`Select`](@ref) is a data-selected disjunction: the alternatives are
 # independent sub-models with different origins, and a data field picks which
@@ -222,6 +258,11 @@ event_names(primary_only_stack)
 # the assembled chain in one call: the factorised per-segment numerator is
 # divided by one denominator, the CDF of the convolution from the origin to the
 # last observed event evaluated at `horizon - origin`.
+# The convolution itself is the sum-of-independent-delays primitive
+# [`convolve_distributions`](@ref), which returns a [`Convolved`](@ref); a chain
+# endpoint convolves its steps this way.
+# The [An Rt renewal model with delay convolution](@ref rt-renewal-convolution)
+# tutorial uses it directly.
 
 obs_chain = sequential(
     :onset_admit => double_interval_censored(LogNormal(1.2, 0.5); interval = 1),
@@ -229,8 +270,8 @@ obs_chain = sequential(
 
 ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0]);
 
-# Without a horizon the chain scores the full density. Passing `horizon` adds the
-# whole-chain right-truncation correction in the same call.
+# Without a horizon the chain scores the full density. Passing `horizon` adds
+# the whole-chain right-truncation correction in the same call.
 
 full_lp = CensoredDistributions.event_logpdf(obs_chain, ev)
 
@@ -264,18 +305,19 @@ CensoredDistributions.event_logpdf(obs_chain, ev_mid_missing; horizon = 8.0)
 # horizon, for example a fixed recall period or a study that enrols and follows
 # cases for a set span.
 # `truncate_to_window(d, horizon, δ)` adds a lower edge a width `δ` below the
-# horizon, truncating to the finite window `[horizon - δ, horizon]` normalised by
-# `cdf(d, horizon) - cdf(d, horizon - δ)`.
-# Per record, a reserved `obs_window` row field carries `δ` alongside `obs_time`,
-# so a row `(onset = 0, ..., obs_time = 8, obs_window = 3)` scores the record over
-# the window `[5, 8]`.
+# horizon, truncating to the finite window `[horizon - δ, horizon]` normalised
+# by `cdf(d, horizon) - cdf(d, horizon - δ)`.
+# Per record, a reserved `obs_window` row field carries `δ` alongside
+# `obs_time`, so a row `(onset = 0, ..., obs_time = 8, obs_window = 3)` scores
+# the record over the window `[5, 8]`.
 # Leaving `obs_window` out (or `truncate_to_window(d, horizon, nothing)`)
 # reproduces the upper-only horizon exactly.
 
-windowed = CensoredDistributions.truncate_to_window(LogNormal(1.5, 0.5), 6.0, 4.0)
+window_dist = LogNormal(1.5, 0.5);
 
-window_lognorm = log(cdf(LogNormal(1.5, 0.5), 6.0) -
-                     cdf(LogNormal(1.5, 0.5), 2.0))
+windowed = CensoredDistributions.truncate_to_window(window_dist, 6.0, 4.0)
+
+window_lognorm = log(cdf(window_dist, 6.0) - cdf(window_dist, 2.0))
 
 # ## Scoring and simulation from one object
 #
@@ -298,10 +340,10 @@ only(logjoint(demo(obs_chain, row), (;)))
 
 # For many records, `record_distributions` assembles a vector of per-record
 # distributions and `batched_event_logpdf` scores them at once.
-# Each record bakes in its own missingness pattern, so one call handles a mix of
-# missingness across the dataset: where the intermediate admission is observed
-# the chain conditions on it, and where it is `missing` the same chain integrates
-# it out (the two delays convolve into one onset-to-death gap).
+# Each record bakes in its own missingness pattern, so one call handles a mix
+# of missingness across the dataset: where the intermediate admission is
+# observed the chain conditions on it, and where it is `missing` the same chain
+# integrates it out (the two delays convolve into one onset-to-death gap).
 # We use a small batch of records so the mix is visible: three observe the
 # admission, three leave it `missing`, and one onset is even repeated to show
 # that nothing special happens per record.
@@ -319,7 +361,8 @@ recs = CensoredDistributions.record_distributions(obs_chain, rows);
 length(recs)
 
 # Scoring the whole batch at once: the conditioned and integrated-out records
-# contribute to one log density, with no per-record bookkeeping at the call site.
+# contribute to one log density, with no per-record bookkeeping at the call
+# site.
 # `batched_event_logpdf` takes the records keyed by event name and reads each
 # row's missingness directly, so a `missing` admission stays `missing` rather
 # than being filled with a placeholder value.
@@ -461,7 +504,8 @@ rand(Xoshiro(11), ld)
 # path and the parameter name, with the support a prior must respect.
 # It prints as a table and is a Tables.jl source (a
 # [`ParamsTable`](@ref CensoredDistributions.ParamsTable)), so
-# `tbl.edge`/`tbl.param` read its columns and `DataFrame(tbl)` makes a DataFrame.
+# `tbl.edge`/`tbl.param` read its columns and `DataFrame(tbl)` makes a
+# DataFrame.
 
 template = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)));
@@ -541,7 +585,15 @@ resolution_tree = compose((resolution = three_way, onset = Gamma(1.0, 1.0)));
 
 pruned = prune(resolution_tree, :resolution, :transfer);
 
-event_names(event(pruned, :resolution))
+# Pruning drops the `:transfer` outcome and renormalises the remaining arm, so
+# the death and discharge probabilities scale up to sum to one again.
+# Before pruning the three arms carry their original probabilities.
+
+winning_probabilities(three_way)
+
+# After pruning, the death and discharge arms scale up to sum to one.
+
+winning_probabilities(event(pruned, :resolution))
 
 # `splice` wraps a node in a chain, here adding a reporting delay after the
 # notification branch.
@@ -559,8 +611,8 @@ event_names(event(spliced, :admit_death))
 # | Syntax | What it does | Shape-preserving? |
 # |---|---|---|
 # | `compose((a = d1, b = d2))` | NamedTuple front-end; a `Vector` value is a chain | builds |
-# | `compose(table)` | table front-end (a `name`/`dist` column source) | builds |
-# | `compose(matrix; names)` | matrix front-end | builds |
+# | `compose(table)` | table front-end (a `name`/`dist` column source); an optional `chain` column folds rows into a `Sequential`, a `compete`/`prob` column pair into a `Competing` | builds |
+# | `compose(matrix; names, step_names)` | matrix front-end (rows are `Parallel` branches, columns within a row `Sequential` steps) | builds |
 # | `sequential(:a => d1, :b => d2)` | a [`Sequential`](@ref) chain (steps add up) | builds |
 # | `parallel(:a => d1, :b => d2)` | a [`Parallel`](@ref) branch set (shared origin) | builds |
 # | `competing(:a => (d1, p1), :b => (d2, p2))` | a [`Competing`](@ref) node (one outcome occurs); the last prob may be omitted as the residual `1 - sum(others)` | builds |
