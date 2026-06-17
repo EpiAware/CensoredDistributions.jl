@@ -88,7 +88,7 @@ end
 
 md"""
 Created 5 epidemic scenarios for
-comparison. Now lets plot the primary event timing
+comparison. Now let's plot the primary event timing
 distributions.
 """
 
@@ -116,7 +116,7 @@ primary_pdf_df = vcat(
 fig_primary_events = draw(
     data(primary_pdf_df) *
     mapping(
-        :x => "Days before observation end",
+        :x => "Primary event time within window (days)",
         :pdf => "Probability density",
         color = :scenario => "Scenario"
     ) *
@@ -341,8 +341,8 @@ md"""
    - **Growth rate magnitude**: Stronger growth
      (larger |r|) creates more divergence from the
      uniform case
-   - **Window length**: Longer windows increases
-     divergence for same growth rate
+   - **Window length**: Longer windows increase
+     divergence for the same growth rate
 
 3. **When to use `ExponentiallyTilted`:**
    - Most important when primary censoring intervals are
