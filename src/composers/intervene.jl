@@ -140,6 +140,50 @@ end
 @deprecate intervene(d::Union{Sequential, Parallel, Competing, Select},
     edits::Pair...) update(d, edits...)
 
+@doc "
+    intervene(d, edits...)
+
+Deprecated alias of [`update`](@ref)`(d, edits...)`. Use `update` instead.
+
+# Arguments
+- `d`: the composed distribution to edit.
+- `edits`: one or more `path => new_node` pairs.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+tree = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+update(tree, :admit_death => Gamma(3.0, 1.5))
+```
+
+# See also
+- [`update`](@ref): the current verb.
+" intervene
+
+@doc "
+    swap_child(d, parent_path, edit)
+
+Deprecated alias for replacing a child by parent path. Use
+[`update`](@ref)`(d, (parent_path..., name) => new)` instead.
+
+# Arguments
+- `d`: the composed distribution to edit.
+- `parent_path`: the path to the parent node.
+- `edit`: a `name => new_node` pair naming the child to replace.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+tree = compose((resolution = compose((death = Gamma(1.5, 1.0),)),))
+update(tree, (:resolution, :death) => Gamma(3.0, 1.5))
+```
+
+# See also
+- [`update`](@ref): the current verb.
+"
 function swap_child(d::Union{Sequential, Parallel, Competing, Select},
         parent_path, edit::Pair)
     Base.depwarn(
@@ -189,9 +233,9 @@ event_names(event(tree2, :resolution))
 - [`splice`](@ref): insert a before/after step at a node (the other topology edit)
 - [`update`](@ref): replace a node or its values (keeps the shape)
 "
-# A single `Symbol` goes through `_as_path` (so a dotted `:a.b` splits); two or
-# more `Symbol`s are the literal varargs path.
 function prune(d::Union{Sequential, Parallel, Competing, Select}, path::Symbol)
+    # A single `Symbol` goes through `_as_path` (so a dotted `:a.b` splits); two
+    # or more `Symbol`s are the literal varargs path.
     return _prune_path(d, _as_path(path))
 end
 
@@ -214,6 +258,31 @@ end
 # `cut_branch` was the drop-a-branch verb; it is now `prune`.
 @deprecate cut_branch(d::Union{Sequential, Parallel, Competing, Select}, path) prune(
     d, path)
+
+@doc "
+    cut_branch(d, path)
+
+Deprecated alias of [`prune`](@ref)`(d, path)`. Use `prune` instead.
+
+# Arguments
+- `d`: the composed distribution to edit.
+- `path`: the branch to drop, as a `Symbol`, dotted `Symbol`, or tuple of edge
+  names.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+node = competing(:death => (Gamma(1.5, 1.0), 0.3),
+    :disch => (Gamma(2.0, 1.5), 0.5),
+    :transfer => (Gamma(1.0, 1.0), 0.2))
+tree = compose((resolution = node, onset = Gamma(1.0, 1.0)))
+prune(tree, :resolution, :transfer)
+```
+
+# See also
+- [`prune`](@ref): the current verb.
+" cut_branch
 
 # Remove the child `name` from a composer, rebuilding the node without it.
 function _drop_child(d::Union{Sequential, Parallel}, name::Symbol)
