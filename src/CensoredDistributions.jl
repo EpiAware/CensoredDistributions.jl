@@ -181,6 +181,10 @@ include("censoring/truncation.jl")
 include("composers/Sequential.jl")
 include("composers/Parallel.jl")
 include("composers/Competing.jl")
+# Racing-hazard competing node (the `min`-of-delays dual of convolve). Split out
+# of Competing.jl; after it since it builds on `AbstractCompeting`/`Competing`
+# helpers (`_n_branches`, `_is_no_event`, `_is_nonterminal`).
+include("composers/hazard_competing.jl")
 include("composers/Select.jl")
 include("composers/nesting.jl")
 include("composers/equality.jl")
@@ -189,10 +193,10 @@ include("composers/introspection.jl")
 # Linear chain trick: lower an Exp/Erlang composed delay to its (rate, stages)
 # compartment structure. After introspection so it reuses `free_leaf` to peel
 # censoring; depends on `Sequential`.
-include("composers/linear_chain.jl")
+include("composers/bridges/linear_chain.jl")
 # Catalyst reaction-network bridge stubs (methods in the Catalyst extension).
 # After linear_chain.jl since the extension methods reuse `linear_chain_stages`.
-include("composers/reaction_compartments.jl")
+include("composers/bridges/reaction_compartments.jl")
 # Affine transform leaf: after introspection so it can extend
 # `free_leaf`/`rewrap_leaf` for transparent inner-delay introspection.
 include("distributions/Affine.jl")
@@ -230,7 +234,7 @@ include("utils/convolve_with_vector.jl")
 # logit-scale reference + report effects and form the per-(reference, report)
 # expected-count matrix. After convolve_with_vector, whose `_delay_pmf` it
 # reuses as the baseline PMF.
-include("utils/hazard.jl")
+include("utils/reporting_hazard.jl")
 
 # Censored specialisations of the generic composers: included last
 # as they depend on the composers, the censored types, `get_dist_recursive`
@@ -255,6 +259,16 @@ include("composers/named_outputs.jl")
 # the censored specialisations (`event_logpdf`, `_sequential_segment`,
 # `_composer_rand`) and the row-parsing helpers in `tree_events.jl`.
 include("composers/record_dists.jl")
+# Vectorised LATENT scoring pair (stacked primary priors + vectorised observed
+# conditional). Split out of record_dists.jl; after it since it reuses the row
+# helpers (`_row_namedtuple`, `_row_event_vector`, `_weight_lp`) and the
+# `_alternative_record` Select build, and defines the shared `_narrow` helper.
+include("composers/record_latent.jl")
+# Grouped per-stratum assembly (`record_distributions(ds, rows; group)` and
+# `batched_event_logpdf`). Split out of record_dists.jl; after record_latent.jl
+# since it reuses `_narrow`, and after record_dists.jl's single-`d`
+# `record_distributions` which it dispatches each stratum through.
+include("composers/record_grouped.jl")
 
 # Turing-free `primary_censored_model` function stub. Has no methods
 # until DynamicPPL is loaded; the methods live in the package extension.
