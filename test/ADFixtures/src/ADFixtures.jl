@@ -251,19 +251,6 @@ function backend_broken_scenarios()
     # the compiled backends are registered broken on the same pre-pass grounds.
     vectorised_bdbv = "Vectorised nested Competing per-record branch_probs logpdf"
     vectorised_select = "Vectorised Select per-record kind logpdf"
-    # The Difference (Z = X - Y) numeric path whose DIFFERENTIATED subtrahend Y is
-    # unbounded above: its upper quadrature window is an extreme quantile of Y, so
-    # `_window_quantile(Gamma(θ), p)` is reached on the AD path with the Gamma
-    # parameters ACTIVE. The window is a non-differentiated hyperparameter and the
-    # ChainRules `@non_differentiable` / Mooncake `@zero_derivative` shields keep
-    # ForwardDiff, ReverseDiff and both Mooncake modes correct (verified). Enzyme
-    # FORWARD is correct too (the `_window_quantile` rule returns scalar and
-    # batched zero shadows). Enzyme REVERSE treats the endpoint as an `Active`
-    # scalar return and passes the cotangent in a shape the value-level rule
-    # cannot emit a matching structured zero for, so it errors. Registered broken
-    # for Enzyme REVERSE only; the analytic, Mooncake and Enzyme-forward backends
-    # cover its gradient.
-    difference_y_window = "Difference LogNormal-Gamma numerical wrt Y"
     compiled_broken = Set{String}(
         [vectorised_seq, vectorised_bdbv, vectorised_select])
     return Dict{String, Set{String}}(
@@ -279,7 +266,7 @@ function backend_broken_scenarios()
         "Enzyme reverse" => union(
             Set{String}(
                 [nested_comp, nested_hazard, nonterminal_comp, dic_seq_total,
-                whole_compose_trunc, difference_y_window]),
+                whole_compose_trunc]),
             compiled_broken),
         # Enzyme FORWARD: only the non-terminal Competing remains broken; the
         # plain nested tree, the Competing/hazard trees, and
