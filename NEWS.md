@@ -119,14 +119,21 @@
   `NumericSolver` are now exported. Passing a concrete method object is
   the type-stable way to choose the CDF backend, and is preferred over
   the deprecated `force_numeric` flag.
+- `convolve_distributions` (and the `Convolved` type) accept the same
+  `method` keyword, `AnalyticalSolver()` (the default) or `NumericSolver()`,
+  to choose between the analytic convolution and forced numeric quadrature.
+  This completes the `force_numeric` -> `method` migration across every
+  censoring/convolution entry point. Closes #515.
 
 ### Deprecated
 
-- The `force_numeric` keyword of `primary_censored` and
-  `double_interval_censored` is deprecated. Pass `method = NumericSolver()`
-  (or `method = AnalyticalSolver()`) instead. `force_numeric` still works
-  but emits a deprecation warning and, being a runtime `Bool`, does not
-  guarantee a concrete return type.
+- The `force_numeric` keyword of `primary_censored`,
+  `double_interval_censored` and `convolve_distributions` is deprecated.
+  Pass `method = NumericSolver()` (or `method = AnalyticalSolver()`)
+  instead. `force_numeric` still works but emits a deprecation warning
+  and, being a runtime `Bool`, does not guarantee a concrete return type.
+  The `Convolved` struct now stores a `method` field in place of the old
+  `force_numeric::Bool` field.
 
 ### Breaking
 

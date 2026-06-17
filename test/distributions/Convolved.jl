@@ -81,7 +81,7 @@ end
     end
 end
 
-@testitem "Convolved force_numeric matches analytic ground truth" begin
+@testitem "Convolved NumericSolver matches analytic ground truth" begin
     using Distributions
 
     # For pairs that HAVE a closed form, force the numeric quadrature path
@@ -96,10 +96,10 @@ end
         (Exponential(1.5), Exponential(1.5), 0.3, 8.0)
     ]
     for (a, b, lo, hi) in cases
-        dn = convolve_distributions(a, b; force_numeric = true)
+        dn = convolve_distributions(a, b; method = NumericSolver())
         ref = convolve(a, b)
 
-        # force_numeric must actually bypass the analytic specialisation.
+        # NumericSolver must actually bypass the analytic specialisation.
         @test CensoredDistributions._maybe_analytic(dn) === nothing
         @test CensoredDistributions._maybe_analytic(
             convolve_distributions(a, b)) !== nothing
@@ -117,6 +117,35 @@ end
         pb = pdf(dn, xs)
         @test maximum(abs.(cb .- [cdf(ref, x) for x in xs])) < 2e-4
         @test maximum(abs.(pb .- [pdf(ref, x) for x in xs])) < 6e-3
+    end
+end
+
+@testitem "Convolved deprecated force_numeric still selects the path" begin
+    using Distributions
+
+    a = Normal(1.0, 2.0)
+    b = Normal(-0.5, 1.5)
+
+    # `force_numeric` is deprecated in favour of `method`, but must keep
+    # working: `force_numeric = true` maps to NumericSolver (bypasses the
+    # analytic specialisation) and `false` to AnalyticalSolver. The depwarn
+    # only surfaces with `--depwarn=yes`, so behaviour is asserted directly.
+    dn = convolve_distributions(a, b; force_numeric = true)
+    @test CensoredDistributions._maybe_analytic(dn) === nothing
+    @test dn.method isa NumericSolver
+
+    da = convolve_distributions(a, b; force_numeric = false)
+    @test CensoredDistributions._maybe_analytic(da) !== nothing
+    @test da.method isa AnalyticalSolver
+
+    # Passing both `method` and `force_numeric` is an error.
+    @test_throws ArgumentError convolve_distributions(
+        a, b; method = NumericSolver(), force_numeric = true)
+
+    # Old and new routes give identical densities.
+    for x in range(-3.0, 8.0; length = 6)
+        @test cdf(dn, x) ≈ cdf(
+            convolve_distributions(a, b; method = NumericSolver()), x)
     end
 end
 
