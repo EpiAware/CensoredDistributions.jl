@@ -192,8 +192,12 @@ fwd = convolve_distributions(severity, series; events = (:death, :recover))
     derived_death = wp.death)
 
 md"""
-The three views of the same object agree: the simulated argmin-cause frequency,
-the derived winning probability, and the forward stream mass.
+The three views of the same object agree.
+The derived winning probability and the forward stream mass are two analytic
+reductions of the same hazards, so they match exactly.
+The simulated argmin-cause frequency is one Monte Carlo estimate from the line
+list (here `n = 101` cases), so it matches the derived probability only up to
+Monte Carlo error, which shrinks as the line list grows.
 """
 
 md"""
@@ -283,4 +287,58 @@ Each step of this tutorial maps onto a row of the table in the introduction:
 A branching-process developer can replace a bespoke per-event delay / observation
 layer with one composed object that both simulates each case and scores the
 resulting line list.
+
+## Multi-state framing
+
+The object built above is a multi-state model in all but name.
+A case starts healthy, then races towards death or recovery; death opens a
+non-terminal sub-chain to burial; and the report acts as a detection gate on top
+of the disease states.
+The day-recorded events are transition times observed only to the day they fall
+in, that is, interval-censored transitions.
+
+Survival and biostatistics readers will recognise this as the multi-state
+vocabulary of Putter and colleagues and of Geskus.
+The healthy-then-death-or-recovery structure is the illness-death model, the
+racing delays are cause-specific hazards, and the death-then-burial sub-chain is
+an intermediate (non-terminal) state feeding a further transition.
+Naming the structure this way lets a survival reader port an existing model onto
+the composer without re-deriving it.
+
+The mapping from multi-state concepts to composer primitives is:
+
+| Multi-state concept | Composer primitive |
+|---|---|
+| cause-specific hazards (which-and-when coupled) | racing-hazard [`HazardCompeting`](@ref) via [`competing`](@ref) |
+| fixed competing split (probabilities are free) | [`Competing`](@ref) with branch probabilities |
+| sojourn in a state (clock resets on entry) | a [`Sequential`](@ref) step (clock-reset gives a semi-Markov sojourn) |
+| intermediate (non-terminal) state | a [`competing`](@ref) outcome holding a subtree |
+| right-censoring of a transition that need not occur | a [`NoEvent`](@ref) branch, or whole-chain truncation |
+| transition time observed only to the day | an [`interval_censored`](@ref) or [`double_interval_censored`](@ref) leaf |
+| states as compartments (a phase-type sojourn) | [`linear_chain_reactions`](@ref) |
+
+This mapping mirrors the concept-to-primitive table in the introduction and the
+reference page [Composing censored distributions](@ref composer-toolkit), where
+the canonical version lives with the primitives; this page lists the multi-state
+names alongside.
+The compartment row links to [Composed delays as compartments: the linear chain
+trick](@ref linear-chain-sir), which builds states as compartments with
+[`linear_chain_reactions`](@ref).
+
+### What this is not
+
+The framing has honest limits.
+
+- No cycles or recurrence: each composed path runs forward through its states
+  once and never returns, so recurrent-event and back-and-forth transitions are
+  out of scope.
+- No calendar-time intensities: every clock is a sojourn time measured from state
+  entry, not a transition intensity indexed by calendar time, so time-varying
+  transition rates are not represented here.
+- Exact-but-censored transition times: the line list records each transition
+  time, censored to the day, rather than the panel-observed state at fixed visit
+  times that a panel multi-state fit marginalises over.
+- Non-terminal racing caveat: when a racing-hazard outcome carries a further
+  sub-chain, the cause split and the downstream chain interact, and the
+  normalisation of such a non-terminal racing node needs care.
 """
