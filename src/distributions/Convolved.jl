@@ -331,11 +331,11 @@ _primal(x::Real) = x
 # hyperparameter of the quadrature, like the node count). Previously the
 # live `Dual`/`TrackedReal` params flowed into `quantile`, and Enzyme
 # cannot push duals through `SpecialFunctions.gamma_inc_inv_qsmall`
-# (issue #314: `IllegalTypeAnalysisException`).
+# (`IllegalTypeAnalysisException`).
 # `@noinline` so the call survives as a call site for the per-backend AD
 # rules (the Enzyme `EnzymeRules` rule and the ChainRules
 # `@non_differentiable` mark) to attach to; if it inlined, Enzyme would
-# type-analyse `quantile`/`gamma_inc_inv` directly and abort (#314).
+# type-analyse `quantile`/`gamma_inc_inv` directly and abort.
 @noinline function _window_quantile(comp::UnivariateDistribution, p::Real)
     primal = _primal_distribution(comp)
     return quantile(primal, p)
@@ -359,7 +359,7 @@ end
 # This lets the numeric path handle components unbounded on either side
 # (e.g. Normal+Normal under a `NumericSolver`). The endpoint quantile is
 # computed on AD-stripped params (`_window_quantile`) so the window stays
-# a non-differentiated constant across every AD backend (issue #314).
+# a non-differentiated constant across every AD backend.
 function _finite_window(last_comp, lower::Real, upper::Real)
     lo = isfinite(lower) ? lower : _window_quantile(last_comp, _CONVOLVED_TAIL)
     hi = isfinite(upper) ? upper :

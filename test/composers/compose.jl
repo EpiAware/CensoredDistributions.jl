@@ -7,7 +7,7 @@
     # one-entry NamedTuple is a Parallel-of-one. When that single branch is
     # itself a NESTED censored composer (a Parallel carrying a Resolve), the
     # whole tree shares one latent origin; `rand` must walk the tree, not fall
-    # through to the plain per-leaf-value path (issue #436).
+    # through to the plain per-leaf-value path.
     dic(x) = double_interval_censored(x; primary_event = Uniform(0.0, 1.0),
         interval = 1.0)
     nested_comp = Resolve(:death => (dic(Gamma(2.0, 3.5)), 0.4),
@@ -41,7 +41,7 @@ end
     # branches; a single-branch `compose((x = ...,))` is a Parallel-of-one and
     # does NOT collapse to the bare child. Collapsing would drop the branch name
     # the NamedTuple front-end exists to thread through, and break the
-    # `compose(nt)::Parallel` invariant other front-ends match by `==` (#436).
+    # `compose(nt)::Parallel` invariant other front-ends match by `==`.
     chain = Sequential((Gamma(2.0, 1.0), LogNormal(0.5, 0.4)))
     single = compose((path = chain,))
     @test single isa CensoredDistributions.Parallel

@@ -476,7 +476,7 @@ function example_fixtures()
         onset_notif = dic(G(0.7, 20.0))))
     sel = CensoredDistributions.choose(:index => dic(G(2.0, 1.0)),
         :sourced => compose((a = dic(G(4.0, 1.5)), b = dic(G(1.0, 2.0)))))
-    # A `Choose` with equal-width alternatives nested AS a composer child (#424):
+    # A `Choose` with equal-width alternatives nested AS a composer child:
     # the Parallel admits it and the flat event path commits to its first
     # alternative. There is no closed-form moment for the Choose branch, so the
     # overall moment and per-event latent view are skipped.
@@ -518,7 +518,7 @@ function example_fixtures()
         InterfaceFixture(; name = "choose", dist = sel, draw = 3.0,
             kind = :index, path = (:index,), overall = :none,
             has_endpoint = false),
-        # A `Choose` nested as a composer child (#424): the Parallel admits it and
+        # A `Choose` nested as a composer child: the Parallel admits it and
         # the flat event path commits to the Choose's first alternative.
         InterfaceFixture(; name = "Choose-in-Parallel", dist = sel_in_par,
             draw = _insupport_event_draw(sel_in_par), path = (:branch_1,),

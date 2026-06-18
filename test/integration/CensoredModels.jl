@@ -218,7 +218,7 @@ end
 end
 
 # ===========================================================================
-# Composer models (#335, PR3d): NamedTuple-row data interface
+# Composer models: NamedTuple-row data interface
 # ===========================================================================
 # `composed_distribution_model(d, row)` is the single generic record entry: a
 # leaf/univariate `d` delegates to the matching leaf model, a composed `d`
@@ -321,7 +321,7 @@ end
           5 * logpdf(cmp, 4.0)
 end
 
-@testitem "Resolve self-dispatch: observed outcome conditions (#329)" begin
+@testitem "Resolve self-dispatch: observed outcome conditions" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -349,7 +349,7 @@ end
         demo(cmp, (death = 4.0, disch = 2.5)), (;))
 end
 
-@testitem "Resolve self-dispatch: unknown outcome marginalises (#329)" begin
+@testitem "Resolve self-dispatch: unknown outcome marginalises" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -372,7 +372,7 @@ end
     @test lj0 ≈ 0.0
 end
 
-@testitem "Resolve self-dispatch: per-row branch-prob override (#329)" begin
+@testitem "Resolve self-dispatch: per-row branch-prob override" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -406,7 +406,7 @@ end
         demo(cmp, (death = 4.0, branch_probs = (death = 0.6, disch = 0.6))), (;))
 end
 
-@testitem "Resolve self-dispatch: covariate CFR recovers beta (#329)" begin
+@testitem "Resolve self-dispatch: covariate CFR recovers beta" begin
     using CensoredDistributions, Distributions, Random
     using Turing: Turing, NUTS, sample, @model, to_submodel
     using DynamicPPL: prefix
@@ -451,7 +451,7 @@ end
     @test abs(mean(chain[:b1]) - beta1) < 0.6
 end
 
-@testitem "Resolve self-dispatch: AD flows through the MARGINALISED path (#372)" begin
+@testitem "Resolve self-dispatch: AD flows through the MARGINALISED path" begin
     using CensoredDistributions, Distributions
     using Turing: Turing, @model, to_submodel, AutoForwardDiff
     using DynamicPPL: DynamicPPL, LogDensityFunction
@@ -462,7 +462,7 @@ end
     # UNKNOWN-outcome (marginalised) records: a resolved resolution time but no
     # per-outcome column, so the mixture is evaluated. The per-record CFR is
     # logistic(beta * x), passed into the node, so the gradient w.r.t. beta MUST
-    # flow through the branch probabilities on the MARGINALISE path (#372: the old
+    # flow through the branch probabilities on the MARGINALISE path (an earlier
     # `float.(probs)` stripped the Dual and zeroed this gradient).
     specs = [(t = 4.0, x = 0.6), (t = 2.5, x = -0.9), (t = 6.0, x = 1.3)]
 
@@ -482,7 +482,7 @@ end
     @test length(g) == 1
     @test all(isfinite, g)
     # The beta gradient is non-zero ONLY if the Dual reaches the marginalised
-    # mixture weights, which is exactly the #372 fix.
+    # mixture weights.
     @test any(!iszero, g)
 end
 
@@ -534,7 +534,7 @@ end
     @test any(!iszero, g)
 end
 
-@testitem "Nested Resolve: bdbv tree scores per-record by name (#333)" begin
+@testitem "Nested Resolve: bdbv tree scores per-record by name" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -565,7 +565,7 @@ end
     @test only(logjoint(demo(d, disch_row), (;))) ≈ ref_disch
 end
 
-@testitem "Nested Resolve: per-row branch_probs override (#333)" begin
+@testitem "Nested Resolve: per-row branch_probs override" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -597,7 +597,7 @@ end
     @test_throws ArgumentError logjoint(demo(d, bad), (;))
 end
 
-@testitem "Nested Resolve: N-ary override and conditioning (#333)" begin
+@testitem "Nested Resolve: N-ary override and conditioning" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -675,7 +675,7 @@ end
     @test any(!iszero, g)
 end
 
-@testitem "latent Nested Resolve: AD through sampled admit + per-row prob (#363)" begin
+@testitem "latent Nested Resolve: AD through sampled admit + per-row prob" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent
     using Turing: Turing, @model, to_submodel, AutoForwardDiff
@@ -727,7 +727,7 @@ end
     @test any(!iszero, g)
 end
 
-@testitem "Nested Resolve: covariate CFR recovers beta in bdbv tree (#333)" begin
+@testitem "Nested Resolve: covariate CFR recovers beta in bdbv tree" begin
     using CensoredDistributions, Distributions, Random
     using Turing: Turing, NUTS, sample, @model, to_submodel
     using DynamicPPL: prefix
@@ -810,7 +810,7 @@ end
     @test only(logjoint(demo_w(seq, row, 6), (;))) ≈ 6 * base
 end
 
-@testitem "Nested Resolve: latent-wrapped tree conditions on outcome (#363)" begin
+@testitem "Nested Resolve: latent-wrapped tree conditions on outcome" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent
     using DynamicPPL: @model, to_submodel, logjoint
@@ -1149,7 +1149,7 @@ end
     @test lat ≈ manual rtol=1e-10
 end
 
-@testitem "composer model: latent dic chain initialises in-support (#423)" begin
+@testitem "composer model: latent dic chain initialises in-support" begin
     using CensoredDistributions, Distributions, Random
     using DynamicPPL: @model, to_submodel, logjoint, condition, @varname
 
@@ -1195,14 +1195,14 @@ end
     @test lat ≈ manual rtol = 1e-10
 end
 
-@testitem "composer model: latent dic chain NUTS inits (#423)" tags = [:turing] begin
+@testitem "composer model: latent dic chain NUTS inits" tags = [:turing] begin
     using CensoredDistributions, Distributions, Random
     using DynamicPPL, Turing
     using FlexiChains: VNChain
 
     # End-to-end: a latent fit of a `double_interval_censored` chain whose data
     # includes a same-interval record must find valid initial parameters and
-    # sample (it failed to initialise under NUTS before #423).
+    # sample (it previously failed to initialise under NUTS).
     dic(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
         interval = 1.0)
     template = Sequential((dic(Gamma(2.0, 1.5)), dic(Gamma(1.5, 2.0))),
@@ -1369,7 +1369,7 @@ end
     @test logjoint(fit(rows), (;)) ≈ manual
 end
 
-@testitem "by-name row: reordered row scores identically (#362)" begin
+@testitem "by-name row: reordered row scores identically" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -1397,7 +1397,7 @@ end
     @test only(logjoint(demo(seq, w_first), (;))) ≈ 3 * base
 end
 
-@testitem "by-name row: mixed missingness factorises by name (#362)" begin
+@testitem "by-name row: mixed missingness factorises by name" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -1415,7 +1415,7 @@ end
     @test only(logjoint(demo(seq, row), (;))) ≈ logpdf(seq, ev)
 end
 
-@testitem "by-name row: name mismatch and missing event error (#362)" begin
+@testitem "by-name row: name mismatch and missing event error" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -1435,7 +1435,7 @@ end
     @test_throws ArgumentError logjoint(demo(seq, short), (;))
 end
 
-@testitem "by-name row: nested tree keys by name at every depth (#362)" begin
+@testitem "by-name row: nested tree keys by name at every depth" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -1461,7 +1461,7 @@ end
     @test only(logjoint(demo(seq, shuffled), (;))) ≈ base
 end
 
-@testitem "by-name row: positional default names fall back positionally (#362)" begin
+@testitem "by-name row: positional default names fall back positionally" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -1480,7 +1480,7 @@ end
     @test only(logjoint(demo(seq, row), (;))) ≈ logpdf(seq, ev)
 end
 
-@testitem "per-record horizon: whole-compose truncation at D (#329)" begin
+@testitem "per-record horizon: whole-compose truncation at D" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -1517,7 +1517,7 @@ end
     @test only(logjoint(demo(seq, row3), (;))) ≈ logpdf(seq, ev)
 end
 
-@testitem "per-record horizon: index single vs sourced convolved (#329)" begin
+@testitem "per-record horizon: index single vs sourced convolved" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -1549,7 +1549,7 @@ end
           logpdf(single, 4.0) - logcdf(single, D)
 end
 
-@testitem "per-record horizon: non-positive window guard (#329)" begin
+@testitem "per-record horizon: non-positive window guard" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -1567,7 +1567,7 @@ end
     @test lj == -Inf
 end
 
-@testitem "per-record horizon: observed-intermediate whole-compose (#366)" begin
+@testitem "per-record horizon: observed-intermediate whole-compose" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -1577,11 +1577,11 @@ end
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
 
-    # With the intermediate admit OBSERVED and a per-record horizon, #366 scores
-    # whole-compose TOTAL truncation: the factorised per-segment numerator over a
-    # single conv-to-last-observed denominator. Match the hand-rolled per-record
-    # decomposition (the andv index-vs-sourced terms generalised to an observed
-    # intermediate).
+    # With the intermediate admit OBSERVED and a per-record horizon, the scorer
+    # applies whole-compose TOTAL truncation: the factorised per-segment
+    # numerator over a single conv-to-last-observed denominator. Match the
+    # hand-rolled per-record decomposition (the andv index-vs-sourced terms
+    # generalised to an observed intermediate).
     D = 8.0
     o, a, dth = 0.0, 2.0, 5.0
     # Numerator: each observed segment conditions on its own edge.
@@ -1600,7 +1600,7 @@ end
     @test !isapprox(logcdf(conv, D - o), per_segment)
 end
 
-@testitem "per-record horizon: leaf record truncates at D (#329)" begin
+@testitem "per-record horizon: leaf record truncates at D" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -1615,7 +1615,7 @@ end
     @test only(logjoint(demo(pc, (delay = 2.0,)), (;))) ≈ logpdf(pc, 2.0)
 end
 
-@testitem "per-record horizon: per-record loop with differing D (#329)" begin
+@testitem "per-record horizon: per-record loop with differing D" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint, prefix
 
@@ -1645,7 +1645,7 @@ end
     @test logjoint(fit(rows), (;)) ≈ m1 + 2 * m2
 end
 
-@testitem "per-record horizon: AD through the truncated path (#329)" begin
+@testitem "per-record horizon: AD through the truncated path" begin
     using CensoredDistributions, Distributions
     using Turing: Turing, @model, to_submodel, AutoForwardDiff
     using DynamicPPL: DynamicPPL, LogDensityFunction
@@ -1680,7 +1680,7 @@ end
     using DynamicPPL: @model, to_submodel, logjoint
 
     # An index case (its own short origin) vs a sourced case (a longer coupled
-    # delay), selected by the row's `:kind` field (#356).
+    # delay), selected by the row's `:kind` field.
     idx = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     src = primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))
     d = choose(:index => idx, :sourced => src)
@@ -1725,7 +1725,7 @@ end
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
-    # The hanta index-vs-sourced split (#323, #356): two ALTERNATIVE WHOLE
+    # The hanta index-vs-sourced split: two ALTERNATIVE WHOLE
     # records with INDEPENDENT anchors, NOT shared-origin branches. The index
     # case is its own primary-censored leaf; the sourced case is a longer,
     # independently-anchored chain. Unlike a shared-origin Parallel, Choose makes

@@ -1,4 +1,4 @@
-# AD coverage for the consolidated composer API (#516, #520). The new public
+# AD coverage for the consolidated composer API. The new public
 # constructors (`sequential` / `parallel`) and the `update` node-replace edit are
 # construction-time operations, so they must not disturb the differentiated
 # scoring path: an object built through them and then scored differentiates w.r.t.
@@ -7,7 +7,7 @@
 # flows through the rebuilt object's `event_logpdf` exactly as for a directly
 # constructed tree.
 
-@testitem "composer-api built object gradient: ForwardDiff (#516)" tags=[
+@testitem "composer-api built object gradient: ForwardDiff" tags=[
     :ad, :forwarddiff] begin
     using CensoredDistributions, Distributions
     using ADTypes: AutoForwardDiff
@@ -39,7 +39,7 @@
     @test all(!=(0), g)
 end
 
-@testitem "composer-api built object gradient: Mooncake reverse (#516)" tags=[
+@testitem "composer-api built object gradient: Mooncake reverse" tags=[
     :ad, :mooncake, :mooncake_reverse] begin
     using CensoredDistributions, Distributions
     using ADTypes: AutoMooncake, AutoForwardDiff

@@ -141,7 +141,7 @@ See also: [`double_interval_censored`](@ref)
 # Explicit keyword signature (NOT `; kwargs...`): forwarding a `kwargs...`
 # splat lowers to a dynamic `Core.kwcall`, which Enzyme cannot specialise. It
 # falls to `runtime_generic_augfwd` and then fails to allocate a shadow for the
-# freshly-built `Convolved` observed total (`EnzymeNoShadowError`, #444). Naming
+# freshly-built `Convolved` observed total (`EnzymeNoShadowError`). Naming
 # the keywords keeps the inner call statically dispatched, so Enzyme (and every
 # other backend) differentiates the `double_interval_censored(Sequential)` path.
 # `method` selects the primary-censoring solver (the migrated replacement for

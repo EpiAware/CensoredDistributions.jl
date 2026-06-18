@@ -1,14 +1,14 @@
-# Marginal == latent density-equivalence regression tests (#453).
+# Marginal == latent density-equivalence regression tests.
 #
 # The marginal and latent forms of a censored composer are ONE model scored two
 # ways: the marginal integrates the latent origin/intermediate events out inside
 # `logpdf`; the latent SAMPLES them. Integrating the sampled latents back out of
-# the latent joint MUST reproduce the marginal density. The bug fixed in #453 was
+# the latent joint MUST reproduce the marginal density. An earlier bug was
 # that the latent form re-applied PRIMARY censoring on a SAMPLED-origin edge (the
 # origin/intermediate was already sampled), double-counting the within-window
 # uncertainty, so latent-integrated != marginal and neither matched the target
 # models. The rule: an edge between two OBSERVED events keeps its declared
-# censoring (#419); an edge with a SAMPLED endpoint scores the BARE core.
+# censoring; an edge with a SAMPLED endpoint scores the BARE core.
 #
 # These tests integrate the latent joint over its sampled latents on a grid and
 # assert it equals the marginal `logpdf` to grid error, across representative
@@ -85,7 +85,7 @@ end
     # second intermediate and terminal observed. The marginal convolves the bare
     # cores across the single unobserved-intermediate run; the latent samples that
     # intermediate. Integrating it reproduces the marginal — and the BOTH-OBSERVED
-    # final edge keeps its declared scoring (#419), so the test mixes both policies.
+    # final edge keeps its declared scoring, so the test mixes both policies.
     e1 = Normal(0.4, 0.5)
     e2 = Gamma(2.0, 0.8)
     e3 = LogNormal(0.6, 0.3)
@@ -145,7 +145,7 @@ end
     end
 end
 
-@testitem "marginal == latent: nested Resolve, observed anchor (#363)" begin
+@testitem "marginal == latent: nested Resolve, observed anchor" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, Resolve,
                                  composed_distribution_model
@@ -180,7 +180,7 @@ end
     end
 end
 
-@testitem "marginal == latent: nested Resolve, right-truncated (#517)" begin
+@testitem "marginal == latent: nested Resolve, right-truncated" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, Resolve,
                                  composed_distribution_model, event_names,
@@ -190,7 +190,7 @@ end
     using ForwardDiff: gradient
 
     # The nested-Resolve scorer must honour a per-record right-truncation
-    # `horizon` exactly as the top-level Resolve path does (#517). Before the fix
+    # `horizon` exactly as the top-level Resolve path does. Previously
     # the nested scorer ignored the horizon, scoring the UNtruncated branch density
     # (a likelihood mis-specification) and breaking the top-level-vs-nested
     # symmetry. The chain is onset -> admit -> {death, discharge} with the admit
@@ -220,7 +220,7 @@ end
 
         # The marginal nested-tree scorer with vs without a horizon. (The flat
         # public marginal entry guards nested-tree horizons separately; the SCORER
-        # itself now threads the horizon, which is what #517 fixes.)
+        # itself threads the horizon.)
         marg_trunc = _nested_tree_logpdf(seq, ev, prim, Float64, horizon)
         marg_untrunc = _nested_tree_logpdf(seq, ev, prim, Float64)
 
@@ -295,7 +295,7 @@ end
     @test !isapprox(g, g0)
 end
 
-@testitem "marginal == latent: nested Resolve via PUBLIC flat entry (#517)" begin
+@testitem "marginal == latent: nested Resolve via PUBLIC flat entry" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, Resolve,
                                  composed_distribution_model, event_logpdf,
@@ -307,7 +307,7 @@ end
 
     # The PUBLIC marginal entry `event_logpdf(::Sequential, events; horizon)` must
     # accept a nested-tree record carrying a per-record `horizon` and thread it down
-    # to the (now horizon-capable) nested scorer (#517). Before this fix the entry
+    # to the (now horizon-capable) nested scorer. Previously the entry
     # GUARDED/REJECTED a nested-tree record with a horizon (it threw an
     # `ArgumentError`), even though the underlying `_nested_tree_logpdf` already
     # truncates each nested Resolve node at the per-record window. The chain is
@@ -449,7 +449,7 @@ end
     using DynamicPPL: logjoint, @model, to_submodel
     using ForwardDiff: gradient
 
-    # The δ-bounded variant of the #517 nested-Resolve right-truncation: the
+    # The δ-bounded variant of the nested-Resolve right-truncation: the
     # conditioned branch is truncated to the FINITE window `[window - δ, window]`
     # (window = horizon - anchor) rather than `(-∞, window]`. The marginal nested
     # scorer, the public flat entry, and the latent form must all be density-
@@ -538,7 +538,7 @@ end
     @test !isapprox(g, g_up)
 end
 
-@testitem "latent Resolve: sampled anchor integrates to bare mixture term (#363)" begin
+@testitem "latent Resolve: sampled anchor integrates to bare mixture term" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, Resolve,
                                  convolve_distributions,
@@ -549,7 +549,7 @@ end
     # samples the unobserved admission; integrating it out must reproduce the
     # branch-prob-weighted BARE convolution at the observed death time:
     #   log p_death + logpdf(conv(bare_oa, bare_death), t_death).
-    # Both edges go bare on a sampled endpoint (#453), so the integral is the bare
+    # Both edges go bare on a sampled endpoint, so the integral is the bare
     # onset->death convolution, scaled by the death branch probability. (The
     # marginal nested-Resolve scorer needs an observed anchor, so this sampled-
     # anchor marginalisation is a capability the latent form adds.)
@@ -590,7 +590,7 @@ end
 
     # The andv sourced branch at the published posterior means. Source onset is the
     # observed continuous anchor (srconset = 0), the infection is the sampled
-    # latent, both edges are BARE (the #453 fix), so the marginal sourced delay is
+    # latent, both edges are BARE, so the marginal sourced delay is
     # the BARE convolution `delta + inc` and the latent integrates to it.
     inc = LogNormal(3.06, 0.32)
     delta = Normal(0.17, 0.62)
@@ -633,8 +633,8 @@ end
     using DynamicPPL: @model, to_submodel, logjoint, VarInfo
 
     # The index branch is observed from the case's own exposure, so it keeps its
-    # DECLARED double-interval censoring (#419) and right-truncation at its own
-    # `obs_time` window. This guards that the #453 sampled-origin change does not
+    # DECLARED double-interval censoring and right-truncation at its own
+    # `obs_time` window. This guards that the sampled-origin change does not
     # touch the observed-origin (index) edge scoring.
     inc = LogNormal(3.06, 0.32)
     pwindow = 1.0

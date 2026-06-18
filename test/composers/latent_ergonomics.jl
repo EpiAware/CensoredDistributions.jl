@@ -90,12 +90,12 @@ end
     # admit to pin its value and compare against the hand-written decomposition.
     e1 = 2.1
     cond = condition(demo(lseq, row), (@varname(obs.e[2]) => e1,))
-    # #453: an edge with a SAMPLED endpoint scores the BARE core (no primary
+    # An edge with a SAMPLED endpoint scores the BARE core (no primary
     # smear), matching the marginal which convolves the bare cores across the
     # unobserved-intermediate run. Here admit is sampled, so BOTH edges (onset->
     # admit and admit->death) are bare. The origin onset conditions through its
     # primary prior. Only an edge between two OBSERVED events keeps declared
-    # censoring (#419), exercised in the fully-observed test below.
+    # censoring, exercised in the fully-observed test below.
     manual = logpdf(get_primary_event(seq.components[1]), o) +
              logpdf(get_dist(seq.components[1]), e1 - o) +
              logpdf(get_dist(seq.components[2]), dd - e1)
@@ -218,7 +218,7 @@ end
 
     inf = 5.0
     cond = condition(demo(d, row), (@varname(obs.obs.e[2]) => inf,))
-    # #453: the infection is the SAMPLED intermediate, so BOTH edges score the
+    # The infection is the SAMPLED intermediate, so BOTH edges score the
     # BARE core (no primary smear) — the marginalisation-consistent, target-matching
     # scoring. Integrating the infection out reproduces the bare convolution
     # `delta + inc`, the published sourced delay. The observed source onset

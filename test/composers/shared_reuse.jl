@@ -1,9 +1,9 @@
-# A `shared(:tag, ...)` leaf is TRANSPARENT to scoring (#394): a tree carrying a
+# A `shared(:tag, ...)` leaf is TRANSPARENT to scoring: a tree carrying a
 # shared censored leaf must score IDENTICALLY to the same tree built from
 # independent identical (untagged) leaves. The censored-tree traversal strips
 # every other wrapper (`Truncated`, `IntervalCensored`, `Weighted`) to recover a
 # leaf's origin primary event and secondary interval; the shared wrapper must be
-# stripped the same way (#395 follow-up). Before the fix the origin-primary and
+# stripped the same way. Previously the origin-primary and
 # leaf-interval traversals did NOT descend through `Shared`, so a
 # `shared(:inc, primary_censored(...))` first step silently scored as an
 # UNCENSORED origin and a shared `double_interval_censored` leaf dropped its

@@ -1,7 +1,7 @@
 # Direct unit tests for the edge-name parsers that the tree walks rely on.
 # These were previously only exercised indirectly through `event_names` /
 # `params_table`, yet the underscored event split has already caused a Mooncake
-# regression (#409, the no-`Regex` rewrite). Two distinct namespaces are tested:
+# regression (the no-`Regex` rewrite). Two distinct namespaces are tested:
 #
 #   - the UNDERSCORED event/value split (`tree_events.jl`):
 #     `:onset_admit` -> `(:onset, :admit)`, with the positional-default

@@ -85,8 +85,8 @@ _is_no_event(::Any) = false
 # sub-stochastic, scored only through the event-vector path.
 _has_no_event(c::AbstractOneOf) = any(_is_no_event, c.delays)
 
-# `_is_composer_outcome` / `_is_nonterminal` (the non-terminal one_of predicate,
-# #466 Feature 3) reference `Sequential` / `Parallel` / `Choose`, which are loaded
+# `_is_composer_outcome` / `_is_nonterminal` (the non-terminal one_of predicate)
+# reference `Sequential` / `Parallel` / `Choose`, which are loaded
 # AFTER this file, so they are defined in `nesting.jl` (loaded once all composer
 # types exist) rather than here.
 
@@ -358,7 +358,7 @@ end
 # A `(delay, branch_prob)` mixture payload vs a bare-delay hazard payload. A
 # one_of OUTCOME delay may be a plain univariate leaf OR a composer SUBTREE
 # (`Sequential` / `Parallel` / `Choose` / nested `Resolve`, the non-terminal
-# branch of #466 Feature 3); `_is_one_of_branch` (defined in `nesting.jl`, once
+# branch); `_is_one_of_branch` (defined in `nesting.jl`, once
 # those types exist) is the runtime admit-check, so the predicates stay value-based
 # rather than referencing the later-loaded composer types in their signatures. A
 # `NoEvent` marker is admitted only in the mixture (it carries the no-event mass
@@ -550,7 +550,7 @@ end
 # time-to-resolution and no scalar `logpdf` / `mean` / `as_mixture`. It is scored
 # only through the event-vector path (its outcome subtree's slice), so the scalar
 # methods error with a clear message pointing at the event-vector / NamedTuple
-# path. (#466 Feature 3.) Defined AFTER `as_mixture` so the `@doc` block above
+# path. Defined AFTER `as_mixture` so the `@doc` block above
 # `as_mixture` attaches to it (an intervening function definition would steal the
 # docstring and leave `as_mixture` undocumented, an Aqua failure).
 function _nonterminal_marginal_error(what::AbstractString)

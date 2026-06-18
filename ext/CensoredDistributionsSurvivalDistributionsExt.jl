@@ -34,7 +34,7 @@ import SurvivalDistributions as SD
 # `SurvivalDistributions.LogLogistic` needs NO special AD routing here: its
 # `logccdf` is built from elementary operations (`log1p`/`exp`), so it
 # differentiates through the generic elementary `logccdf` fallback under every
-# backend without a `_*_ad_safe` method (#487).
+# backend without a `_*_ad_safe` method.
 
 function _gg_cdf(d::SD.GeneralizedGamma, u::Real)
     return _gamma_cdf(shape(d.G), scale(d.G), u^d.gamma)

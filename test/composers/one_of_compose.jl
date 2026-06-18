@@ -1,6 +1,6 @@
 # A `Resolve` node flows through the `compose` front-end as a `Parallel` branch
 # (it is univariate, so it nests off the shared latent origin of the other
-# censored branches). Since #333 a NESTED `Resolve` exposes one EVENT slot per
+# censored branches). A NESTED `Resolve` exposes one EVENT slot per
 # OUTCOME (its death/discharge columns), so the event vector carries those slots
 # rather than a single opaque resolution event, and the nested scorer
 # self-dispatches on which outcome is observed.
@@ -21,7 +21,7 @@
     @test d == Parallel(cmp, d_notif)
 end
 
-@testitem "compose: nested Resolve branch self-dispatches (#333)" begin
+@testitem "compose: nested Resolve branch self-dispatches" begin
     using Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -30,7 +30,7 @@ end
     d_notif = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
     d = compose((resolution = cmp, notification = d_notif))
 
-    # The Resolve branch contributes one EVENT slot per OUTCOME (#333), so the
+    # The Resolve branch contributes one EVENT slot per OUTCOME, so the
     # event vector is [origin, death, disch, notification]. The observed outcome
     # is identified positionally; death observed here conditions on that branch.
     o, y_notif = 0.2, 2.5
@@ -49,8 +49,8 @@ end
 
     # Death observed at gap `3.0 - o` from the shared origin: condition on the
     # death branch (log p_death + its delay logpdf). The notif branch conditions
-    # on its OWN declared censoring at its gap (the nested-tree convention,
-    # #345), not the bare core.
+    # on its OWN declared censoring at its gap (the nested-tree convention),
+    # not the bare core.
     expected = log(0.3) + logpdf(death_d, 3.0 - o) +
                logpdf(d_notif, y_notif - o)
     @test direct ≈ expected
@@ -77,7 +77,7 @@ end
     @test dm == Parallel(cmp, d_notif)
 
     # Scores identically to the NamedTuple front-end for the same structure.
-    # The Resolve contributes its two outcome slots (#333), so the event
+    # The Resolve contributes its two outcome slots, so the event
     # vector is [origin, death, disch, notification].
     ev = Vector{Union{Missing, Float64}}([0.2, 3.0, missing, 2.5])
     @test logpdf(dm, ev) ≈ logpdf(compose((a = cmp, b = d_notif)), ev)

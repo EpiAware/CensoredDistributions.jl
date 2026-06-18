@@ -1,4 +1,4 @@
-# Tests for `composed_parameters_model` (#353): the priors -> Turing-submodel
+# Tests for `composed_parameters_model`: the priors -> Turing-submodel
 # helper that samples a composed distribution's parameters from user priors and
 # returns the reconstructed distribution, ready to score.
 
@@ -203,7 +203,7 @@ end
     @test any(!iszero, grad)
 end
 
-@testitem "nested Resolve: Mooncake reverse == ForwardDiff (#497)" tags=[:turing] begin
+@testitem "nested Resolve: Mooncake reverse == ForwardDiff" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
     using ADTypes: AutoForwardDiff, AutoMooncake
     import Mooncake
@@ -213,7 +213,7 @@ end
     # reconstruct -> score loop with a PER-RECORD covariate branch probability.
     # The Resolve rebuild used to route the reconstructed component tuple through
     # `Tuple(::Vector{Any})`, which gave the composed object a heterogeneous edge
-    # type whose reverse data Mooncake could not `increment!!` (#497) -- so the
+    # type whose reverse data Mooncake could not `increment!!` -- so the
     # nested-Resolve case studies fell back to `AutoForwardDiff`. The reconstruct
     # path now builds the component tuple by a type-stable head/tail recursion, so
     # Mooncake reverse builds a rule and its gradient MATCHES ForwardDiff.
@@ -284,7 +284,7 @@ end
     @test g_mc≈g_fd rtol=1e-5 atol=1e-7
 end
 
-@testitem "Choose top: Mooncake reverse == ForwardDiff (#497)" tags=[:turing] begin
+@testitem "Choose top: Mooncake reverse == ForwardDiff" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
     using ADTypes: AutoForwardDiff, AutoMooncake
     import Mooncake
@@ -294,7 +294,7 @@ end
     # reconstruct -> score loop. `event(delays, :index)` inside the differentiated
     # model splits a dotted edge `Symbol` via `_split_edge`, whose `split(string,
     # '.')` is pointer-arithmetic string search that aborted Mooncake reverse with
-    # the uncatchable `sub_ptr intrinsic hit` (#497) -- so the andv case study fell
+    # the uncatchable `sub_ptr intrinsic hit` -- so the andv case study fell
     # back to `AutoForwardDiff`. `_split_edge` now carries a Mooncake `@zero_adjoint`
     # (it is constant string -> `Tuple{Symbol...}` work with zero derivative), so
     # Mooncake builds a rule and its gradient MATCHES ForwardDiff.

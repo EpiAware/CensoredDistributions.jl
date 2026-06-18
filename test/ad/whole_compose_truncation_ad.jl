@@ -1,11 +1,11 @@
 # AD coverage for the whole-compose conv-to-last-observed right-truncation
-# denominator (#366). With an OBSERVED intermediate and a per-record horizon the
+# denominator. With an OBSERVED intermediate and a per-record horizon the
 # Sequential record scores a factorised numerator over a single
 # `-logcdf(conv-to-last-observed, window)` denominator. The gradient w.r.t. the
 # delay params must flow: the denominator convolves the leaf cores and evaluates
 # a CDF at the (constant) window, all on the differentiated param type.
 
-@testitem "whole-compose truncation gradient: ForwardDiff (#366)" tags=[
+@testitem "whole-compose truncation gradient: ForwardDiff" tags=[
     :ad, :forwarddiff] begin
     using CensoredDistributions, Distributions
     using ADTypes: AutoForwardDiff
@@ -44,7 +44,7 @@
     @test all(!=(0), g)
 end
 
-@testitem "δ-bounded truncation gradient: ForwardDiff (#520)" tags=[
+@testitem "δ-bounded truncation gradient: ForwardDiff" tags=[
     :ad, :forwarddiff] begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: WindowedHorizon, truncate_to_window
@@ -79,7 +79,7 @@ end
     @test all(!=(0), g)
 end
 
-@testitem "δ-bounded truncation gradient: Mooncake reverse (#520)" tags=[
+@testitem "δ-bounded truncation gradient: Mooncake reverse" tags=[
     :ad, :mooncake, :mooncake_reverse] begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: WindowedHorizon, truncate_to_window
@@ -114,14 +114,14 @@ end
     @test isapprox(g, ref; rtol = 1e-6, atol = 1e-8)
 end
 
-@testitem "compose-over wrappers gradient: ForwardDiff (#363)" tags=[
+@testitem "compose-over wrappers gradient: ForwardDiff" tags=[
     :ad, :forwarddiff] begin
     using CensoredDistributions, Distributions
     using ADTypes: AutoForwardDiff
     using DifferentiationInterface: gradient
     using ForwardDiff: ForwardDiff
 
-    # The wrap-over-composer paths added in #363 must differentiate: a
+    # The wrap-over-composer paths must differentiate: a
     # Sequential collapsed then truncated/censored, a Parallel and a Choose with
     # the wrapper distributed into branches/alternatives. θ = leaf
     # LogNormal log-means; LogNormal keeps truncation `logcdf` off the Gamma

@@ -145,7 +145,7 @@ end
     # Two rows, two latent values each, so four stacked priors.
     @test length(priors) == 4
     # The origin prior is the first edge's primary event; the second latent value
-    # is the first edge's BARE core (#453): the endpoint-observed chain samples the
+    # is the first edge's BARE core: the endpoint-observed chain samples the
     # origin and the intermediate, so the intermediate gap is the bare delay (no
     # primary smear), matching the per-record chain submodel and the marginal.
     @test priors[1] == get_primary_event(e1)
@@ -198,7 +198,7 @@ end
     @test logjoint(cv, (;)) ≈ logjoint(cp, (;))
 end
 
-@testitem "vectorised latent chain floors the shift on an interval edge (#443)" begin
+@testitem "vectorised latent chain floors the shift on an interval edge" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, prefix, logjoint, @addlogprob!,
                       condition, @varname
@@ -208,8 +208,8 @@ end
     # A SINGLE-edge chain whose edge carries SECONDARY interval censoring
     # (double_censored). The origin is the latent primary; the terminal is
     # observed. The per-record path floors the sampled origin to the edge's
-    # interval (#423); the vectorised path used to reconstruct from the CONTINUOUS
-    # origin without flooring, diverging for an interval edge (#443). Floored and
+    # interval; the vectorised path used to reconstruct from the CONTINUOUS
+    # origin without flooring, diverging for an interval edge. Floored and
     # continuous shifts disagree here, so this guards the flooring.
     e1 = double_interval_censored(Gamma(2.0, 1.0); primary_event = Uniform(0, 1),
         interval = 1.0)
@@ -240,7 +240,7 @@ end
     @test logjoint(cv, (;)) ≈ logjoint(cp, (;))
 
     # The vectorised score equals the FLOORED-shift edge score, NOT the
-    # continuous-shift score (which would be the pre-#461 bug).
+    # continuous-shift score (the earlier bug).
     floored = logpdf(e1, 6.3 - floor(o1)) + logpdf(e1, 9.1 - floor(o2))
     continuous = logpdf(e1, 6.3 - o1) + logpdf(e1, 9.1 - o2)
     @test latent_observed_logpdf(chain, rows, [o1, o2]) ≈ floored
@@ -296,7 +296,7 @@ end
     @test logjoint(cv, (;)) ≈ logjoint(cp, (;))
 end
 
-@testitem "latent_primary_priors returns a concretely-typed vector (#595)" begin
+@testitem "latent_primary_priors returns a concretely-typed vector" begin
     using CensoredDistributions, Distributions, Test
     using CensoredDistributions: latent, latent_primary_priors, choose,
                                  Sequential
@@ -306,7 +306,7 @@ end
     # `latent_primary_priors` is `@inferred`-clean. This keeps
     # `product_distribution(latent_primary_priors(...))` type-stable so Mooncake
     # compiles one tight gradient rule (fast cold start) rather than a broad rule
-    # off a runtime-narrowed `Vector{Any}` (#595).
+    # off a runtime-narrowed `Vector{Any}`.
     d = latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
     rows = [(delay = 3.0,), (delay = 5.0,)]
     p = @inferred latent_primary_priors(d, rows)

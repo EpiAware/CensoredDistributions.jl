@@ -9,7 +9,7 @@
 # (`r"^step_\d+$"` etc.); `Base.compile(::Regex)` uses a try/catch Mooncake
 # reverse cannot differentiate, so when a helper was inlined into the traced
 # scoring path Mooncake reverse failed to build a rule and the bdbv tutorial fell
-# back to AutoForwardDiff (#409, gating Mooncake-everywhere in #438). The helpers
+# back to AutoForwardDiff. The helpers
 # now do a plain `startswith` + ASCII-digit scan with no `Regex`, so the Mooncake
 # reverse gradient over the routed-tree logpdf compiles and matches ForwardDiff.
 
@@ -45,7 +45,7 @@
     @test all(!=(0), g)
 end
 
-# Mooncake reverse over the SAME routed-tree logpdf (#409 regression). Before the
+# Mooncake reverse over the SAME routed-tree logpdf. Before the
 # regex was removed from the `tree_events.jl` edge-name helpers, Mooncake reverse
 # could not compile a rule here (the `Base.compile(::Regex)` try/catch on the
 # scoring path); now the regex-free string parsing lets the reverse gradient

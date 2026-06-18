@@ -1,4 +1,4 @@
-@testitem "completeness_probability equals the delay CDF (#349)" begin
+@testitem "completeness_probability equals the delay CDF" begin
     using Distributions
 
     d = LogNormal(1.5, 0.5)
@@ -13,7 +13,7 @@
     end
 end
 
-@testitem "thin_by_completeness scales R by completeness (#349)" begin
+@testitem "thin_by_completeness scales R by completeness" begin
     using Distributions
 
     d = LogNormal(1.5, 0.5)
@@ -30,7 +30,7 @@ end
     @test thin_by_completeness(R, d, 1e6) ≈ R
 end
 
-@testitem "andv real-time decomposition (index, sourced, R_eff) (#323)" begin
+@testitem "andv real-time decomposition (index, sourced, R_eff)" begin
     using Distributions
 
     # The andv real-time model carries three terms that the exported helpers

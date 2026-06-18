@@ -1,5 +1,5 @@
 # Integration tests for SurvivalDistributions.jl families as composable delay
-# leaves (issue #465).
+# leaves.
 #
 # SurvivalDistributions.jl provides parametric delay families (LogLogistic,
 # GeneralizedGamma, PowerGeneralizedWeibull, ExponentiatedWeibull) and a
@@ -297,7 +297,7 @@ end
     # has no `ForwardDiff.Dual` method and STRIPS the Dual / throws. The
     # extension routes the public `logcdf` through the AD-safe
     # `_logcdf_ad_safe` (`_gamma_cdf`-backed) so the bare call differentiates
-    # w.r.t. the three GG parameters. Locks in #46 Task 2b.
+    # w.r.t. the three GG parameters.
     function fd_grad(f, θ; h = 1e-6)
         g = similar(θ)
         for i in eachindex(θ)

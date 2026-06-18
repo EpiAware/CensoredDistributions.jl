@@ -79,8 +79,8 @@ function latent_primary_priors(d, rows)
     # up front lets us fill a `Vector{T}` directly, so the return type is
     # inferrable and `product_distribution(latent_primary_priors(...))` is type-
     # stable: Mooncake then compiles one tight gradient rule (fast cold start)
-    # instead of a broad/dynamic one off a `Vector{Any}` narrowed at runtime
-    # (#595). The values are byte-identical to the previous `_narrow` build.
+    # instead of a broad/dynamic one off a `Vector{Any}` narrowed at runtime.
+    # The values are byte-identical to the previous `_narrow` build.
     T = _latent_prior_eltype(d)
     priors = Vector{T}()
     for row in rowvec
@@ -135,7 +135,7 @@ _promote_prior_type(::Type{S}, ::Type{T}) where {S, T} = promote_type(S, T)
 # primary then the first `k - 1` edges as the intermediate gap priors, so a
 # `k`-edge chain row stacks `k` priors. The endpoint-observed chain SAMPLES the
 # origin and every intermediate, so each gap `E_i - E_{i-1}` is distributed as the
-# BARE edge core (#453): when both endpoints of an edge are sampled latents the
+# BARE edge core: when both endpoints of an edge are sampled latents the
 # marginal convolves the bare cores, so the latent gap prior and the terminal
 # conditional must be bare too for marginal == latent (no spurious primary smear).
 _latent_row_priors(alt::Latent) = _latent_row_priors(alt.dist)
@@ -233,11 +233,11 @@ function _latent_row_observed_logpdf(chain::Sequential, events, block)
     # terminal is observed for the endpoint-observed chain (origin and EVERY
     # intermediate sampled). Reconstruct the latent event times from the origin
     # draw and the intermediate gaps, then condition the observed terminal on the
-    # last edge. #453 rule, matching the per-record `_latent_edge`: when there is a
-    # sampled INTERMEDIATE before the terminal (k >= 2) the whole observed->observed
-    # segment is a marginalised run, so the terminal edge scores the BARE core; a
-    # SINGLE-edge chain (k == 1) is the origin->terminal segment and keeps its
-    # DECLARED censoring with the floored sampled origin (#419/#423).
+    # last edge. The bare-core rule matches the per-record `_latent_edge`: when
+    # there is a sampled INTERMEDIATE before the terminal (k >= 2) the whole
+    # observed->observed segment is a marginalised run, so the terminal edge
+    # scores the BARE core; a SINGLE-edge chain (k == 1) is the origin->terminal
+    # segment and keeps its DECLARED censoring with the floored sampled origin.
     edges = chain.components
     k = length(edges)
     prev = block[1]

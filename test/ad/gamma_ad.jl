@@ -44,7 +44,7 @@ end
     # Mooncake's canonical rule test, run for both reverse and forward
     # mode. `@from_chainrules` (default mode) lifts the `rrule` into an
     # `rrule!!` and the `frule` into an `frule!!`, so both interfaces are
-    # registered (#270). For each mode, verifies (a) the rule is actually
+    # registered. For each mode, verifies (a) the rule is actually
     # invoked (is_primitive = true asserts this) and (b) primal +
     # derivative match Richardson-extrapolated finite differences.
     using Random: MersenneTwister
@@ -71,7 +71,7 @@ end
     end
 end
 
-@testitem "Enzyme direct rule on _gamma_cdf (issue #259)" tags=[
+@testitem "Enzyme direct rule on _gamma_cdf" tags=[
     :ad, :enzyme, :enzyme_reverse] begin
     # Pins the fix in CensoredDistributionsEnzymeExt: the original
     # `Enzyme.@import_rrule` lift returned the wrong ∂P/∂k (~8% off). The
@@ -99,7 +99,7 @@ end
     end
 end
 
-@testitem "Enzyme gamma rule (issue #263)" tags=[:ad, :enzyme, :enzyme_reverse] begin
+@testitem "Enzyme gamma rule" tags=[:ad, :enzyme, :enzyme_reverse] begin
     # Pins the `SpecialFunctions.gamma` rule in
     # CensoredDistributionsEnzymeExt. With only EnzymeSpecialFunctionsExt
     # loaded, Enzyme mis-lowers `gamma` to the `loggamma` known-op and

@@ -1,5 +1,5 @@
-# Reference tests for the censored specialisations of the generic composers
-# (#329, PR3b). Each asserts the data-driven, dispatch-selected behaviour:
+# Reference tests for the censored specialisations of the generic composers.
+# Each asserts the data-driven, dispatch-selected behaviour:
 # single-edge == primary_censored, unobserved intermediate == convolution
 # reference, observed intermediate == conditioning, Parallel == shared-origin
 # Monte-Carlo, and the delay-adjusted CFR recovery via Resolve.
@@ -39,8 +39,8 @@ end
     using Distributions
 
     pe = Uniform(0, 1)
-    # An observed-bounded edge conditions on its OWN declared censoring (#329
-    # "condition on its (censored) value"): each edge is scored through its own
+    # An observed-bounded edge conditions on its OWN declared censoring
+    # ("condition on its (censored) value"): each edge is scored through its own
     # censored logpdf at the day-observed gap, NOT the bare continuous core.
     d1 = primary_censored(LogNormal(1.2, 0.5), pe)
     # A day-resolution edge: double_interval_censored carries primary + interval
@@ -64,7 +64,7 @@ end
 @testitem "Sequential plain step path is unchanged (generic)" begin
     using Distributions
 
-    # A concrete one-value-per-step vector still hits the generic PR3a path.
+    # A concrete one-value-per-step vector still hits the generic per-leaf path.
     s = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     @test logpdf(s, [1.5, 2.0]) ≈
           logpdf(Gamma(2.0, 1.0), 1.5) + logpdf(LogNormal(0.5, 0.4), 2.0)
@@ -111,7 +111,7 @@ end
     @test logpdf(par, evd) ≈ logpdf(primary_censored(b1, pe), y1) rtol=1e-6
 end
 
-@testitem "Parallel branch of primary_censored(Sequential) flat path (#363)" begin
+@testitem "Parallel branch of primary_censored(Sequential) flat path" begin
     using Distributions, Random, Statistics
 
     # `primary_censored(Sequential(...))` COLLAPSES the chain to a
@@ -119,7 +119,7 @@ end
     # shared-origin path. The flat path strips each branch to its
     # `_marginal_core`; the regression is that the nested `Convolved` must stay
     # intact (not unwrap into its component VECTOR) so `rand`/`logpdf`/the
-    # `_param_eltype` machinery see a distribution, not a vector (#363).
+    # `_param_eltype` machinery see a distribution, not a vector.
     pe = Uniform(0.0, 1.0)
     coreA = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     seqbranch = primary_censored(
@@ -326,7 +326,7 @@ end
     adj = grid[argmin([negll(c) for c in grid])]
     @test adj ≈ true_cfr atol=0.01
 
-    # The Resolve node lowers to the CFR-weighted mixture (PR3a as_mixture).
+    # The Resolve node lowers to the CFR-weighted mixture (`as_mixture`).
     node = Resolve(:death => (death_delay, true_cfr),
         :disch => (disch_delay, 1 - true_cfr))
     @test pdf(node, 4.0) ≈
@@ -404,7 +404,7 @@ end
     using Distributions, Random
     Random.seed!(13)
 
-    # No primary censoring: the generic per-leaf-value realisation (PR3a) is kept.
+    # No primary censoring: the generic per-leaf-value realisation is kept.
     @test length(rand(Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)))) == 2
     @test length(rand(Parallel(Gamma(2.0, 1.0), LogNormal(1.0, 0.5)))) == 2
 end
@@ -427,7 +427,7 @@ end
     @test logpdf(chain, ev) ≈ logpdf(ref, 5.0) rtol=1e-6
 end
 
-# --- Recursive nested-composer (irregular tree) scoring (#329, #333, #345) ---
+# --- Recursive nested-composer (irregular tree) scoring ---------------------
 
 @testitem "Nested tree: a Parallel step inside a Sequential recurses" begin
     using Distributions
@@ -543,11 +543,11 @@ end
 end
 
 # Per-backend AD gradient correctness for the nested tree (ForwardDiff /
-# ReverseDiff / Mooncake pass; Enzyme is the heterogeneous-edge gap #319) is
+# ReverseDiff / Mooncake pass; Enzyme is the heterogeneous-edge gap) is
 # covered by the dedicated AD fixture suite (`test/ADFixtures`, scenario
 # "Nested tree censored observed logpdf") with the proper AD-backend deps.
 
-# --- Nested Resolve self-dispatch (#333) ----------------------------------
+# --- Nested Resolve self-dispatch ------------------------------------------
 
 @testitem "Nested Resolve: outcome event names anchor at the parent" begin
     using Distributions
@@ -569,7 +569,7 @@ end
     @test length(d) == 3
 end
 
-@testitem "Nested Resolve: conditions on the observed outcome (#333)" begin
+@testitem "Nested Resolve: conditions on the observed outcome" begin
     using Distributions
 
     edge(mu,
@@ -600,7 +600,7 @@ end
     @test logpdf(d, evd) ≈ refd rtol=1e-10
 
     # No outcome observed -> the Resolve contributes no factor (the resolved-
-    # but-unknown-outcome encoding for a nested node is deferred, #329).
+    # but-unknown-outcome encoding for a nested node is deferred).
     evm = Vector{Union{Missing, Float64}}(
         [onset, admit, missing, missing, notif])
     @test logpdf(d, evm) ≈
@@ -624,7 +624,7 @@ end
     @test (@inferred logpdf(d, ev)) isa Float64
 end
 
-@testitem "Nested Resolve: N-ary (three outcomes) self-dispatch (#333)" begin
+@testitem "Nested Resolve: N-ary (three outcomes) self-dispatch" begin
     using Distributions
 
     edge(mu,
@@ -920,11 +920,11 @@ end
     @test saw_noninteger
 end
 
-@testitem "event_logpdf observed-intermediate whole-compose (#366)" begin
+@testitem "event_logpdf observed-intermediate whole-compose" begin
     using Distributions
 
     # Whole-compose TOTAL truncation of an OBSERVED-intermediate Sequential
-    # record (#366): the factorised per-segment numerator over a single
+    # record: the factorised per-segment numerator over a single
     # conv-to-last-observed denominator. Equals the hand-rolled per-record
     # decomposition (the andv index-vs-sourced terms generalised to an observed
     # intermediate).
@@ -960,7 +960,7 @@ end
           num2 - logcdf(conv, D - o2)
 end
 
-@testitem "event_logpdf whole-compose reduces to endpoint-observed (#366)" begin
+@testitem "event_logpdf whole-compose reduces to endpoint-observed" begin
     using Distributions
 
     # With the intermediate UNOBSERVED the chain has a single observed segment,
@@ -978,7 +978,7 @@ end
           logpdf(seg, 5.0) - logcdf(seg, D)
 end
 
-@testitem "event_logpdf whole-compose three-segment patterns (#366)" begin
+@testitem "event_logpdf whole-compose three-segment patterns" begin
     using Distributions
 
     # A three-step chain with the middle two intermediates: an observed middle
@@ -1016,7 +1016,7 @@ end
           num3 - logcdf(to_c, D)
 end
 
-@testitem "event_logpdf whole-compose origin-missing (#366)" begin
+@testitem "event_logpdf whole-compose origin-missing" begin
     using Distributions
     using CensoredDistributions: record_distributions
 

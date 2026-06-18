@@ -10,7 +10,7 @@
 # STRATUM), and `group`, an INTEGER stratum id per record (a 1-based index into
 # `ds`). Record `i` is built from `ds[group[i]]`.
 #
-# AD-SAFETY (the #321 Enzyme footgun): the group key is the INTEGER stratum id
+# AD-SAFETY (the Enzyme footgun): the group key is the INTEGER stratum id
 # from an AD-free data pass; the params arrive as `Dual`s INSIDE the `ds`
 # distributions and are built once per stratum, never keyed by a float. Records
 # are bucketed by their integer stratum, each stratum's records are built ONCE

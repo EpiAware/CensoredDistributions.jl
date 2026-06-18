@@ -143,12 +143,13 @@ function _reject_latent_horizon(row::NamedTuple)
     return nothing
 end
 
-# The per-record horizon to apply to a latent composer's nested Resolve branches
-# (#517). A latent composer with a nested Resolve node CAN honour an `obs_time`
-# horizon (the conditioned branch is right-truncated at the remaining window from
-# its anchor, density-identical to the marginal). A latent composer with NO nested
-# Resolve has only leaf-twin edges, whose latent-form right-truncation is out of
-# scope, so a horizon there is rejected exactly as before.
+# The per-record horizon to apply to a latent composer's nested Resolve
+# branches. A latent composer with a nested Resolve node CAN honour an
+# `obs_time` horizon (the conditioned branch is right-truncated at the remaining
+# window from its anchor, density-identical to the marginal). A latent composer
+# with NO nested Resolve has only leaf-twin edges, whose latent-form
+# right-truncation is out of scope, so a horizon there is rejected exactly as
+# before.
 function _latent_one_of_horizon(plan, row::NamedTuple)
     isempty(plan.one_ofs) && (_reject_latent_horizon(row); return nothing)
     return _row_horizon(row)
@@ -389,7 +390,7 @@ end
 # the AD-safe integer-keyed grouped scoring. The table scores AND samples with the
 # standard `obs ~ product_distribution(...)` tilde, dual-purpose like the shared
 # entry. `ds` is built ONCE per stratum (its sampled params carried inside),
-# never keyed by a float, so the #321 Enzyme footgun is avoided.
+# never keyed by a float, so the Enzyme footgun is avoided.
 function composed_distribution_model(
         ds::AbstractVector, table; group, weight = nothing)
     weight === nothing || throw(ArgumentError(
@@ -669,7 +670,7 @@ end
 # choice is made at SCORING time (see `_latent_edge`):
 #   - `always_bare = false` (a `Sequential` step at any depth, or a nested
 #     `Parallel` branch): the edge keeps DECLARED censoring only when BOTH its
-#     endpoints are observed (#419); a sampled endpoint makes it bare.
+#     endpoints are observed; a sampled endpoint makes it bare.
 #   - `always_bare = true` (the ROOT flat shared-origin `Parallel` branches): the
 #     branch ALWAYS scores the bare core, matching the marginal
 #     `_parallel_conditional_logpdf` (which conditions each branch on the
@@ -753,7 +754,7 @@ end
 # body reads the row's observed outcome, conditions its branch on the (possibly
 # sampled) anchor, and adds the branch-probability term. Each outcome here must be
 # a LEAF delay (the standalone-Resolve latent path): a composer-subtree outcome
-# (#466 F3) would itself carry latents, a distinct construction handled by the
+# would itself carry latents, a distinct construction handled by the
 # marginal model. Mis-indexing is avoided because the cursor advances by the
 # Resolve's full event-slot width in `_latent_plan!`.
 function _latent_plan_step!(plan, node::Resolve, o_idx::Int, ev_idx::Int,
@@ -789,7 +790,7 @@ end
 # likelihood. A per-record `horizon` (default `nothing`) RIGHT-TRUNCATES the
 # conditioned branch at the remaining window from the anchor exactly as the
 # marginal nested-Resolve scorer (`_one_of_tree_logpdf`) does, so the
-# truncated nested-Resolve term is density-identical in both forms (#517). The
+# truncated nested-Resolve term is density-identical in both forms. The
 # truncation is applied to the branch core BEFORE the latent shift, so the shifted
 # edge is `truncated(delay; upper = window)` anchored at the (observed/sampled)
 # predecessor, matching the marginal `truncate_to_horizon(delay, horizon - o)`.
@@ -821,7 +822,7 @@ end
 # Right-truncate a latent nested-Resolve branch at the remaining window from its
 # anchor (`horizon - anchor`), or return it unchanged when no horizon applies.
 # Mirrors the marginal `_one_of_truncate` / `_one_of_window` so the latent
-# conditioned branch matches the marginal one (#517), including a δ-bounded
+# conditioned branch matches the marginal one, including a δ-bounded
 # horizon (a `WindowedHorizon`), which δ-bounds the branch to `[window - δ,
 # window]`; a plain horizon is byte-identical to `truncate_to_horizon`.
 _latent_one_of_branch(delay, ::Nothing, anchor) = delay
@@ -911,8 +912,8 @@ end
     # censoring (see `_latent_edge`). Captured before any `~` fills a slot.
     sampled = [v === missing for v in e]
     plan = _latent_plan!(_LatentPlan(), chain, 1, 2, false)
-    # A per-record `obs_time` horizon right-truncates a nested Resolve branch
-    # (#517); the leaf-twin truncation (a chain with no Resolve node) stays out of
+    # A per-record `obs_time` horizon right-truncates a nested Resolve branch;
+    # the leaf-twin truncation (a chain with no Resolve node) stays out of
     # scope, so reject a horizon there as before.
     horizon = _latent_one_of_horizon(plan, row)
     # Origin E_0. A MISSING origin must be SAMPLED, so the chain needs a primary
@@ -944,7 +945,7 @@ end
     # Nested Resolve nodes: condition on each record's observed outcome (data),
     # added after the leaf loop so a sampled anchor (`e[shift_idx]`) is filled. The
     # branch-probability override (covariate CFR) rides the row's `branch_probs`. A
-    # per-record `horizon` right-truncates each conditioned branch (#517).
+    # per-record `horizon` right-truncates each conditioned branch.
     for c in plan.one_ofs
         DynamicPPL.@addlogprob! _latent_one_of_logprob(
             c, e, sampled, row, w, horizon)
@@ -986,8 +987,8 @@ end
     # Root flat Parallel branches are always bare (the marginal conditional scores
     # each branch on the continuous core).
     plan = _latent_plan!(_LatentPlan(), tree, 1, 2, true)
-    # A per-record `obs_time` horizon right-truncates a nested Resolve branch
-    # (#517); a Parallel with no nested Resolve keeps the leaf-twin truncation out
+    # A per-record `obs_time` horizon right-truncates a nested Resolve branch;
+    # a Parallel with no nested Resolve keeps the leaf-twin truncation out
     # of scope and rejects a horizon as before.
     horizon = _latent_one_of_horizon(plan, row)
     # Shared origin. A MISSING origin must be SAMPLED, so the branches need a shared
@@ -1013,7 +1014,7 @@ end
         end
     end
     # Nested Resolve nodes: condition on each record's observed outcome (data); a
-    # per-record `horizon` right-truncates each conditioned branch (#517).
+    # per-record `horizon` right-truncates each conditioned branch.
     for c in plan.one_ofs
         DynamicPPL.@addlogprob! _latent_one_of_logprob(
             c, e, sampled, row, w, horizon)
@@ -1124,9 +1125,9 @@ Base.rand(rng::AbstractRNG, d::_ShiftedDelay) = d.shift + rand(rng, d.delay)
 #     marginal; scoring it bare makes latent-integrated == marginal.
 #   - TARGET OBSERVED, PREDECESSOR OBSERVED, or the SAMPLED ORIGIN: DECLARED edge,
 #     shifted by the FLOORED predecessor (`_latent_shift`). A single
-#     observed-bounded edge conditions on its declared interval/double censoring
-#     (#419); the origin->first-observed edge keeps the declared edge and floors
-#     the sampled continuous origin so the floored gap stays in-support (#423).
+#     observed-bounded edge conditions on its declared interval/double
+#     censoring; the origin->first-observed edge keeps the declared edge and
+#     floors the sampled continuous origin so the floored gap stays in-support.
 function _latent_edge(edge, shift, pred_sampled::Bool, pred_is_origin::Bool,
         target_sampled::Bool, always_bare::Bool)
     bare = always_bare || target_sampled ||
@@ -1150,7 +1151,7 @@ _bare_edge(edge) = CensoredDistributions._bare_latent_edge(edge)
 # floored target against a continuous predecessor, so a target that floors into the
 # SAME interval as its predecessor gives a NEGATIVE gap (out of support, `-Inf`)
 # for any shift above the floored target -- the `double_interval_censored`
-# latent-init failure of #423. Flooring the shift to the edge's interval
+# latent-init failure. Flooring the shift to the edge's interval
 # discretises the predecessor the SAME way the observed events are, so the scored
 # gap is `floor(target) - floor(shift)` (matching the marginal, which scores the
 # floored origin's observed gap) and stays in-support. An edge without secondary

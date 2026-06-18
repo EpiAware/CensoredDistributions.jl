@@ -39,9 +39,9 @@
 # inside a Turing `@model`.
 #
 # Relationship to ModifiedDistributions.jl. This is a hazard-MODIFICATION of a
-# delay (a sibling concern to that package's remit). For this PR it lives here,
-# next to the delay-discretisation and convolution it feeds; a future move of the
-# hazard-modification leaves into ModifiedDistributions is tracked by issue #128.
+# delay (a sibling concern to that package's remit). For now it lives here,
+# next to the delay-discretisation and convolution it feeds; the
+# hazard-modification leaves may move into ModifiedDistributions in future.
 
 @doc raw"
 

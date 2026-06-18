@@ -5,7 +5,7 @@ using CensoredDistributions: _gamma_cdf, _gamma_cdf_value_and_partials,
 using ChainRulesCore: ChainRulesCore, NoTangent
 
 # The quadrature-window endpoint is a non-differentiable hyperparameter
-# (just *where* to integrate; issue #314), so its primal-stripping helper
+# (just *where* to integrate), so its primal-stripping helper
 # and the window-quantile call itself carry no gradient. Marking them
 # `@non_differentiable` keeps reverse-mode AD — and Mooncake, which lifts
 # ChainRules rules — off `quantile`'s `gamma_inc_inv` path for a `Gamma`

@@ -1,5 +1,5 @@
-# AD coverage for a `shared(:tag, ...)` censored leaf in a nested tree (#395
-# follow-up). The shared wrapper is transparent to scoring, so the
+# AD coverage for a `shared(:tag, ...)` censored leaf in a nested tree.
+# The shared wrapper is transparent to scoring, so the
 # origin-primary traversal now descends through it (the fix that makes a shared
 # censored leaf at a tree origin score identically to the untagged leaf). The
 # gradient w.r.t. the shared leaf's params must flow, and a shared leaf used in
@@ -11,7 +11,7 @@
 # wrapper). Mooncake reverse is NOT run here: a `Missing`-bearing event vector
 # trips Mooncake's `non-boolean (Missing) used in boolean context` on the
 # nested-tree marginalisation path for the UNtagged tree too (a pre-existing
-# limitation, #333), so it is covered by the observed-origin item below instead.
+# limitation), so it is covered by the observed-origin item below instead.
 @testitem "shared censored leaf latent-origin gradient: ForwardDiff" tags=[
     :ad, :forwarddiff] begin
     using CensoredDistributions, Distributions

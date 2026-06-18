@@ -79,7 +79,7 @@ function _vectorised_choose_logpdf(d, rows)
     return total
 end
 
-# Horizon-aware whole-compose truncation log density (#366): score each record's
+# Horizon-aware whole-compose truncation log density: score each record's
 # event vector at its own per-record horizon and sum. With an OBSERVED-intermediate
 # record and an endpoint-observed record this exercises BOTH the factorised
 # observed-intermediate numerator AND the conv-to-last-observed right-truncation
@@ -137,7 +137,7 @@ work as passing, so a partially-working backend is not forced to be
 all-or-nothing. Empty today: every backend in [`backends`](@ref) is full
 on all scenarios. Enzyme forward relies on `scenarios` constructing each
 distribution as a literal rather than capturing a `Type` (see the comment
-there and #278).
+there).
 """
 function broken_backends()
     return NamedTuple{(:name, :backend)}[]
@@ -158,10 +158,10 @@ failures). Returns a `Vector{String}`.
 """
 function broken_scenario_names()
     # No scenario fails on every backend. `IntervalCensored Gamma
-    # arbitrary` previously did (#217/#257): it routed through stock
+    # arbitrary` previously did: it routed through stock
     # `Distributions.cdf(Gamma, x)` → `gamma_inc`, which no AD backend
     # covers. It now routes through the `_gamma_cdf` helper, so it works
-    # everywhere except Mooncake forward (the shared #270 gap, listed in
+    # everywhere except Mooncake forward (the shared gap, listed in
     # `backend_broken_scenarios`).
     return String[]
 end
@@ -175,7 +175,7 @@ backend `name` from [`working_backends`](@ref).
 
 """
 function backend_broken_scenarios()
-    # NOTE (#319/#444): the nested-tree heterogeneous-edge family no longer fails
+    # NOTE: the nested-tree heterogeneous-edge family no longer fails
     # WHOLESALE on Enzyme. The recursion built a fresh `Vector{Union{Missing,
     # Float64}}` sub-event view per node (`_subevent_slice`); Enzyme's type
     # analysis could not prove the layout of that non-bits-union `Array`
@@ -184,27 +184,27 @@ function backend_broken_scenarios()
     # no gradient -- only the leaf distribution PARAMS do), so it is now marked
     # `EnzymeRules.inactive` in `CensoredDistributionsEnzymeExt`. With that shield
     # the plain nested tree differentiates on BOTH Enzyme modes;
-    # `double_interval_censored(Sequential)` (#444, the explicit-keyword `wrap.jl`
+    # `double_interval_censored(Sequential)` (the explicit-keyword `wrap.jl`
     # signature replacing a kwargs-splat dynamic `Core.kwcall`) and the Resolve /
     # hazard trees differentiate on Enzyme FORWARD. The residual reverse-only and
     # non-terminal gaps below are SEPARATE, deeper Enzyme limitations (documented
     # per scenario). ForwardDiff / ReverseDiff / Mooncake differentiate every one
     # of these correctly.
 
-    # The nested-Resolve tree (#333) and the nested racing-hazard tree (#466)
+    # The nested-Resolve tree and the nested racing-hazard tree
     # recurse through the heterogeneous censored-edge walk plus a one_of /
     # racing branch. With the `_subevent_slice` shield they now differentiate on
     # Enzyme FORWARD (verified against the ForwardDiff reference). Enzyme REVERSE
     # still fails with `EnzymeNoShadowError`: building the reverse shadow for the
     # `MixtureModel` / `Compete` branch struct nested inside the
     # `Parallel{Tuple{Sequential{...}, PrimaryCensored{...}}}` tree hits Enzyme's
-    # mixed-activity shadow construction (the #278/#319-family struct-shadow gap),
+    # mixed-activity shadow construction (the upstream struct-shadow gap),
     # which is upstream and not reachable from a value-level rule. Registered
     # broken for Enzyme REVERSE only.
     nested_comp = "Nested Resolve tree conditioned logpdf"
     nested_hazard = "Nested racing-hazard tree conditioned logpdf"
-    # The external censoring wrapper over a `Sequential` (#363). #319/#444 fixed
-    # this on Enzyme FORWARD (the explicit-keyword `wrap.jl` signature avoids the
+    # The external censoring wrapper over a `Sequential`. This works
+    # on Enzyme FORWARD (the explicit-keyword `wrap.jl` signature avoids the
     # dynamic kwargs splat there), and it differentiates on every analytic backend
     # and on Mooncake (both modes). Enzyme REVERSE still fails: the augmented
     # primal pass re-introduces a `Core.kwcall` and cannot build a reverse shadow
@@ -213,7 +213,7 @@ function backend_broken_scenarios()
     # gap as nested_comp/nested_hazard, not reachable from a value-level rule.
     # Registered broken for Enzyme REVERSE only.
     dic_seq_total = "double_interval_censored(Sequential) over total"
-    # The whole-compose conv-to-last-observed right-truncation denominator (#366):
+    # The whole-compose conv-to-last-observed right-truncation denominator:
     # its single `-logcdf(conv-to-last-observed, window)` builds a freshly
     # allocated `Convolved` observed total whose reverse shadow Enzyme cannot
     # construct (`EnzymeNoShadowError`), the same reverse-only struct-shadow gap as
@@ -221,13 +221,13 @@ function backend_broken_scenarios()
     # ReverseDiff and Mooncake reverse/forward; registered broken for Enzyme
     # REVERSE only.
     whole_compose_trunc = "Whole-compose conv-to-last-observed truncation logpdf"
-    # The non-terminal whole-tree Resolve (#466 Feature 3) scores a
+    # The non-terminal whole-tree Resolve scores a
     # composer-VALUED one_of outcome's subtree through the nested `_tree_score`,
     # AND carries a differentiated branch probability `θ[7]` whose complement
     # `1 - θ[7]` feeds the racing/one_of weighting. It still fails on BOTH
     # Enzyme modes with `IllegalTypeAnalysisException` -- a deeper upstream Enzyme
     # type-analysis gap on this combined composer-subtree-plus-active-branch-prob
-    # path, distinct from the `_subevent_slice` allocation that #319 fixed.
+    # path, distinct from the `_subevent_slice` allocation fixed earlier.
     # Registered broken for both Enzyme modes.
     nonterminal_comp = "Non-terminal Resolve whole-tree conditioned logpdf"
     # The vectorised path runs an AD-FREE pre-pass that collects the table rows
@@ -260,9 +260,9 @@ function backend_broken_scenarios()
         "Mooncake forward" => copy(compiled_broken),
         # Enzyme REVERSE: the Resolve/hazard trees (reverse shadow construction),
         # the non-terminal Resolve, and `double_interval_censored(Sequential)`
-        # (#363, reverse-only `EnzymeNoShadowError` on the freshly-built `Convolved`
+        # (reverse-only `EnzymeNoShadowError` on the freshly-built `Convolved`
         # observed total via a re-introduced `Core.kwcall`) remain broken; the
-        # plain nested tree is fixed (#319/#444).
+        # plain nested tree is fixed.
         "Enzyme reverse" => union(
             Set{String}(
                 [nested_comp, nested_hazard, nonterminal_comp, dic_seq_total,
@@ -270,8 +270,8 @@ function backend_broken_scenarios()
             compiled_broken),
         # Enzyme FORWARD: only the non-terminal Resolve remains broken; the
         # plain nested tree, the Resolve/hazard trees, and
-        # `double_interval_censored(Sequential)` are now fixed (#319/#444 fixed
-        # forward; reverse stays broken, see above).
+        # `double_interval_censored(Sequential)` are now fixed on forward;
+        # reverse stays broken, see above.
         "Enzyme forward" => union(
             Set{String}([nonterminal_comp]),
             compiled_broken)
@@ -319,7 +319,7 @@ function scenarios(; with_reference::Bool = false)
 
     function _push!(name, f, θ₀, contexts)
         # Globally-broken scenarios may break the reference backend
-        # itself (e.g. #217). Construct them without res1 so the test
+        # itself. Construct them without res1 so the test
         # runner can still mark them broken without erroring here.
         res1 = (with_reference && !(name in skip_ref)) ?
                _reference(f, θ₀, contexts) : nothing
@@ -346,8 +346,8 @@ function scenarios(; with_reference::Bool = false)
     # Delay distributions are still written as literals rather than a
     # captured `ctor::Type`. Capturing a distribution `Type` in a function
     # that also makes a keyword call (`method = ...`) trips an upstream
-    # Enzyme forward-mode "mixed activity for jl_new_struct" limitation
-    # (#278): the keyword-call lowering builds a struct mixing the active
+    # Enzyme forward-mode "mixed activity for jl_new_struct" limitation,
+    # because the keyword-call lowering builds a struct mixing the active
     # `Type` and `Vector` fields with the inactive solver-method argument.
     # Literal constructors avoid the captured-`Type` field, so Enzyme
     # forward differentiates every scenario; the analytical/numerical split
@@ -462,7 +462,7 @@ function scenarios(; with_reference::Bool = false)
     # and the whole path runs through numeric integration. Exercises
     # gradient flow through both the delay distribution params and the
     # primary event's tilt parameter. Written as literal constructors
-    # rather than a captured `ctor::Type` loop, for the #278 reason above.
+    # rather than a captured `ctor::Type` loop, for the reason above.
     _push!("PrimaryCensored Gamma+ExponentiallyTilted numerical",
         (θ,
             obs) -> sum(
@@ -594,7 +594,7 @@ function scenarios(; with_reference::Bool = false)
     # The logpdf is `log h(t) - H(t)`, both piecewise-linear in the hazards, so
     # the gradient is all-continuous arithmetic and differentiates on every
     # backend. Guarded on the constructor existing for the AirspeedVelocity
-    # baseline build, as with the other PR-tree scenarios above.
+    # baseline build, as with the other scenarios above.
     if isdefined(CensoredDistributions, :piecewise_hazard)
         _push!("PiecewiseHazard logpdf wrt hazards",
             (θ,
@@ -605,7 +605,7 @@ function scenarios(; with_reference::Bool = false)
             [0.2, 0.8, 0.3], (Constant(obs),))
     end
 
-    # Affine transform (#344). The change-of-variables logpdf is
+    # Affine transform. The change-of-variables logpdf is
     # `logpdf(inner, (y - shift) / scale) - log(scale)`, so the gradient flows
     # through the inner delay parameters (θ[1], θ[2]) AND the affine scale (θ[3])
     # and shift (θ[4]). Guarded on `affine` existing for the AirspeedVelocity
@@ -636,7 +636,7 @@ function scenarios(; with_reference::Bool = false)
             obs),
         [2.0, 1.5], (Constant(obs_int),))
 
-    # SurvivalDistributions.jl leaf (#465). A GeneralizedGamma delay family
+    # SurvivalDistributions.jl leaf. A GeneralizedGamma delay family
     # scored through its own `logpdf` — the gradient a sampler takes when fitting
     # one of these families. GeneralizedGamma's `logpdf` differentiates on every
     # backend (ForwardDiff / ReverseDiff / Mooncake reverse+forward / Enzyme
@@ -650,7 +650,7 @@ function scenarios(; with_reference::Bool = false)
             x -> logpdf(SD.GeneralizedGamma(θ[1], θ[2], θ[3]), x), obs),
         [1.0, 1.5, 2.0], (Constant(obs),))
 
-    # CENSORED GeneralizedGamma paths (#465 follow-up). The censoring integrands
+    # CENSORED GeneralizedGamma paths. The censoring integrands
     # query the leaf CDF/survival via `_cdf_ad_safe` / `_logccdf_ad_safe`. For a
     # GeneralizedGamma those route through the inner `Gamma(nu/gamma,
     # sigma^gamma)` at the transformed point `t^gamma` and into the package's
@@ -685,7 +685,7 @@ function scenarios(; with_reference::Bool = false)
     # Gamma+LogNormal pair has no analytic convolution and exercises the
     # AD-safe numeric quadrature path (the same fixed-domain Gauss-Legendre
     # construction as PrimaryCensored). Literal constructors keep Enzyme
-    # forward working (#278).
+    # forward working.
     # Guarded on `convolve_distributions` existing: AirspeedVelocity benchmarks
     # the PR against the `main` baseline, building the baseline package
     # while still loading this (PR-tree) fixtures module. Referencing
@@ -709,7 +709,7 @@ function scenarios(; with_reference::Bool = false)
                         Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), x),
                 obs),
             [2.0, 1.0], (Constant(obs),))
-        # Gamma as the INTEGRATION (last) component (#314). The numeric
+        # Gamma as the INTEGRATION (last) component. The numeric
         # quadrature clamps the infinite window with a quantile of the last
         # component; a trailing `Gamma` would route that quantile through
         # `gamma_inc_inv`, which Enzyme cannot differentiate. The
@@ -726,7 +726,7 @@ function scenarios(; with_reference::Bool = false)
                         LogNormal(0.5, 0.4), Gamma(θ[1], θ[2])), x),
                 obs),
             [2.0, 1.0], (Constant(obs),))
-        # Convolved analytic moments (#352): mean/var are the sums of the
+        # Convolved analytic moments: mean/var are the sums of the
         # component moments, so the gradient flows through each component's
         # closed-form `mean`/`var` w.r.t. its parameters. The `obs` context is
         # unused (the moments take no evaluation point) but keeps the scenario
@@ -750,7 +750,7 @@ function scenarios(; with_reference::Bool = false)
     # quadrature window is a quantile of the differentiated component, so the
     # window-clamp must stay off the AD path (the `_window_quantile` zero-adjoint
     # rule) for Mooncake/Enzyme not to trace `gamma_inc_inv`. Literal
-    # constructors keep Enzyme forward working (#278). Guarded on `difference`
+    # constructors keep Enzyme forward working. Guarded on `difference`
     # existing for the AirspeedVelocity baseline build, as for Convolved above.
     if isdefined(CensoredDistributions, :difference)
         _push!("Difference Normal-Normal analytical",
@@ -782,7 +782,7 @@ function scenarios(; with_reference::Bool = false)
                         LogNormal(0.5, 0.4), Gamma(θ[1], θ[2])), z),
                 obs),
             [3.0, 1.0], (Constant(obs),))
-        # Difference moments (#548): mean is the difference of the means and var
+        # Difference moments: mean is the difference of the means and var
         # the SUM of the variances, so the gradient flows through each
         # component's closed-form `mean`/`var`. The `obs` context is unused but
         # keeps the scenario shape uniform.
@@ -795,7 +795,7 @@ function scenarios(; with_reference::Bool = false)
             [3.0, 1.5, 2.0, 0.5], (Constant(obs),))
     end
 
-    # Completeness thinning helpers (#349). `thin_by_completeness(R, delay,
+    # Completeness thinning helpers. `thin_by_completeness(R, delay,
     # window) = R * cdf(delay, window)`, so the gradient flows through `R` and
     # the delay-distribution parameters via the CDF. The Convolved-chain form
     # routes the CDF through the AD-safe numeric convolution quadrature.
@@ -818,7 +818,7 @@ function scenarios(; with_reference::Bool = false)
         end
     end
 
-    # Right-truncation (#332). The index single-delay term right-truncates a
+    # Right-truncation. The index single-delay term right-truncates a
     # LogNormal to the remaining window. This is the NaN-gradient regression:
     # an upper-only `truncated(dist; upper = window)` never differentiates
     # `logcdf(LogNormal, 0) = -Inf`, so the gradient stays finite. The chain
@@ -849,7 +849,7 @@ function scenarios(; with_reference::Bool = false)
             [1.0, 0.75], (Constant(obs),))
     end
 
-    # Pluggable integration path (#208). The numeric primary-censored CDF
+    # Pluggable integration path. The numeric primary-censored CDF
     # routes its quadrature through the package's default `GaussLegendre`
     # solver passed explicitly via the `solver` keyword. This is the cost
     # the integration refactor touches, so benchmarking it per backend
@@ -883,7 +883,7 @@ function scenarios(; with_reference::Bool = false)
     # the numerical path does far more work per call, which is where the
     # compiled forward backends (Enzyme, Mooncake) can close the gap on
     # ForwardDiff's Dual-number propagation. Literal constructors keep
-    # Enzyme forward working (#278).
+    # Enzyme forward working.
     n_hd = 32
     obs_hd = collect(range(0.5, 8.0; length = n_hd))
     _push!("PrimaryCensored LogNormal+Uniform analytical $(n_hd)d",
@@ -921,7 +921,7 @@ function scenarios(; with_reference::Bool = false)
             eachindex(obs_hd)),
         fill(2.0, n_hd), (Constant(obs_hd),))
 
-    # Generic composers (#331). Differentiate the composer `logpdf` wrt the
+    # Generic composers. Differentiate the composer `logpdf` wrt the
     # leaf-distribution parameters, with the value vector passed as a Constant
     # context. The composers are plain (no censoring), so gradients flow only
     # through the leaf delay logpdfs the slice recursion sums. Literal
@@ -953,12 +953,12 @@ function scenarios(; with_reference::Bool = false)
                 Sequential(LogNormal(θ[3], θ[4]), Gamma(θ[5], θ[6]))), x),
         [2.0, 1.0, 0.5, 0.4, 2.0, 1.0], (Constant(nest3),))
 
-    # Choose data-selected disjunction (#356). The gradient flows through the
+    # Choose data-selected disjunction. The gradient flows through the
     # SELECTED alternative's own `logpdf` (the type-stable selection barriers
     # into the chosen concrete type), with the selection name fixed and the
     # value passed as a Constant context. Guarded on `choose` existing so
     # the AirspeedVelocity baseline build (which lacks `Choose`) skips it. Literal
-    # constructors keep Enzyme forward happy (#278).
+    # constructors keep Enzyme forward happy.
     if isdefined(CensoredDistributions, :choose)
         sel_obs = [0.5, 1.2, 2.5, 3.8]
         _push!("Choose Gamma|LogNormal sourced logpdf",
@@ -973,11 +973,11 @@ function scenarios(; with_reference::Bool = false)
             [2.0, 1.0, 0.5, 0.4], (Constant(sel_obs),))
     end
 
-    # Censored composer specialisations (#333). The event vector (carrying
+    # Censored composer specialisations. The event vector (carrying
     # `Missing`) travels as an inactive Constant context; the gradient flows
     # through the censored leaf delay parameters along the marginalise/condition
     # path selected by the missingness. Literal constructors keep Enzyme forward
-    # happy (#278). Guarded on `primary_censored` existing for the AirspeedVelocity
+    # happy. Guarded on `primary_censored` existing for the AirspeedVelocity
     # baseline build, as with the other PR-tree scenarios above.
     if isdefined(CensoredDistributions, :primary_censored) &&
        isdefined(CensoredDistributions, :Sequential)
@@ -992,7 +992,7 @@ function scenarios(; with_reference::Bool = false)
         # is left out of the per-backend AD suite rather than worked around.
         #
         # Observed intermediate: every event observed, so each observed-bounded
-        # edge conditions on its OWN declared censoring (#329) -- here each edge
+        # edge conditions on its OWN declared censoring -- here each edge
         # is scored through its own `primary_censored` logpdf at the day gap.
         seq_ev_obs = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
         _push!("Sequential censored observed-intermediate logpdf",
@@ -1025,8 +1025,8 @@ function scenarios(; with_reference::Bool = false)
                 rows),
             [1.2, 0.5, 2.0, 1.0], (Constant(batch_rows),))
 
-        # Whole-compose conv-to-last-observed right-truncation denominator
-        # (#366). One observed-intermediate record and one endpoint-observed
+        # Whole-compose conv-to-last-observed right-truncation denominator.
+        # One observed-intermediate record and one endpoint-observed
         # record (missing intermediate), each right-truncated at its OWN
         # per-record horizon. The observed-intermediate record scores a
         # factorised numerator; both records share a single
@@ -1066,7 +1066,7 @@ function scenarios(; with_reference::Bool = false)
         # the quadrature branch the compiled backends crash on; its gradient is
         # likewise verified on ForwardDiff and ReverseDiff in the main suite.
 
-        # Nested-composer (irregular tree) fully-observed scoring (#345): a
+        # Nested-composer (irregular tree) fully-observed scoring: a
         # two-level tree onset -> {admit -> {death, discharge}, notif}, every
         # event observed. The recursive walk conditions each edge on its own
         # declared `primary_censored` censoring at the day gap, so the gradient
@@ -1095,7 +1095,7 @@ function scenarios(; with_reference::Bool = false)
                 ev),
             [1.4, 0.4, 2.0, 1.0, 2.0, 1.2, 1.9, 0.5], (Constant(tree_ev),))
 
-        # Nested-Resolve tree (#333): onset -> {admit -> Resolve(death,
+        # Nested-Resolve tree: onset -> {admit -> Resolve(death,
         # discharge), notif}, the death outcome observed. The Resolve exposes
         # one event slot per outcome, so the event vector is
         # [onset, admit, death, discharge, notif] with discharge `Missing`
@@ -1103,7 +1103,7 @@ function scenarios(; with_reference::Bool = false)
         # (log p_death + logpdf(Gamma, gap)), so the gradient over the death
         # branch shape/scale + the surrounding edge params is all-continuous
         # arithmetic, differentiating on every analytic backend (Enzyme shares
-        # the #319 heterogeneous-edge gap, registered broken above).
+        # the heterogeneous-edge gap, registered broken above).
         comp_ev = Vector{Union{Missing, Float64}}(
             [0.0, 4.0, 12.0, missing, 9.0])
         _push!("Nested Resolve tree conditioned logpdf",
@@ -1121,14 +1121,14 @@ function scenarios(; with_reference::Bool = false)
                 ev),
             [1.4, 0.4, 2.0, 3.0, 2.0, 1.0, 1.9, 0.5], (Constant(comp_ev),))
 
-        # Non-terminal whole-tree Resolve (#466 Feature 3): onset ->
+        # Non-terminal whole-tree Resolve: onset ->
         # Resolve(death => admit_burial CHAIN, recover => leaf), the death
         # SUBTREE observed. A composer-valued outcome spans its subtree's event
         # slots, so the event vector is [onset, admit, burial, recover] with
         # recover `Missing` (inactive). The death branch scores
         # log p_death + (subtree chain density), so the gradient over the subtree
         # leaf params + the branch probability is all-continuous arithmetic,
-        # differentiating on every analytic backend (Enzyme shares the #319
+        # differentiating on every analytic backend (Enzyme shares the
         # heterogeneous-edge gap, registered broken below).
         nt_comp_ev = Vector{Union{Missing, Float64}}(
             [0.0, 4.0, 12.0, missing])
@@ -1150,8 +1150,8 @@ function scenarios(; with_reference::Bool = false)
                 ev),
             [2.0, 1.0, 1.5, 1.2, 3.0, 2.0, 0.4], (Constant(nt_comp_ev),))
 
-        # Vectorised nested-Resolve (bdbv) with a PER-RECORD covariate CFR
-        # (#333): each record's Resolve branch probability comes from a
+        # Vectorised nested-Resolve (bdbv) with a PER-RECORD covariate CFR:
+        # each record's Resolve branch probability comes from a
         # differentiated covariate, injected as the reserved `branch_probs`. The
         # death outcome is observed (conditioned branch), so the gradient over the
         # branch shape/scale AND the per-record CFR is all-continuous arithmetic.
@@ -1185,7 +1185,7 @@ function scenarios(; with_reference::Bool = false)
             [1.4, 0.4, 2.0, 3.0, 2.0, 1.0, 1.9, 0.5, 0.2, -0.3],
             (Constant(bdbv_rows),))
 
-        # Nested racing-hazard tree (#466): onset -> {Hazard(death, recover),
+        # Nested racing-hazard tree: onset -> {Hazard(death, recover),
         # notif}, the death outcome observed. The Sequential's first step targets
         # `onset`, then the Compete exposes one event slot per outcome, so
         # the event vector is [origin, onset, death, recover, notif] with recover
@@ -1229,13 +1229,13 @@ function scenarios(; with_reference::Bool = false)
             [2.0, 1.0, 4.0, 1.5], (Constant(hanta_rows),))
     end
 
-    # External censoring wrappers over composers (#334). Combine first, then
+    # External censoring wrappers over composers. Combine first, then
     # censor: a Sequential collapses to the convolution of its steps (its
     # observed total) before censoring, so the gradient flows through the
     # numeric convolution and the interval/primary CDF. A Parallel distributes
     # the wrapper into each branch. Guarded on the censoring wrappers existing
     # so the AirspeedVelocity baseline (which lacks the composer overloads)
-    # skips them. Literal constructors keep Enzyme forward happy (#278).
+    # skips them. Literal constructors keep Enzyme forward happy.
     if isdefined(CensoredDistributions, :Sequential)
         _push!("interval_censored(Sequential) over total",
             (θ,

@@ -528,8 +528,8 @@ end
     # The interface methods return a concrete `Float64` and infer as such.
     # The numeric path uses the Integrals.jl-free `gl_integrate` dot
     # product, whose accumulator type is seeded from the integrand, so the
-    # quadrature element type no longer leaks as `Any` (the gap closed in
-    # #208; previously `Integrals.solve` hid it behind a free parameter).
+    # quadrature element type no longer leaks as `Any` (previously
+    # `Integrals.solve` hid it behind a free parameter).
     analytic = convolve_distributions(Normal(0.0, 1.0), Normal(1.0, 2.0))
     numeric = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     for d in (analytic, numeric)
@@ -541,7 +541,7 @@ end
     end
 end
 
-@testitem "Convolved mean/var/std equal the component sums (#352)" begin
+@testitem "Convolved mean/var/std equal the component sums" begin
     using Distributions
 
     # A Convolved is a sum of independent components, so its mean/var are the
@@ -563,7 +563,7 @@ end
     @test var(dn) ≈ var(d) + var(Exponential(2.0))
 end
 
-@testitem "Convolved moments cross-check against sampling (#352)" begin
+@testitem "Convolved moments cross-check against sampling" begin
     using Distributions, Random, Statistics
 
     rng = MersenneTwister(2024)

@@ -54,7 +54,7 @@
             runnable)
         # `scenario_intact = false`: some scenarios carry a `Missing`-bearing
         # event vector as a `Constant` context (the censored-composer
-        # marginalisation path, #333). DIT's default post-run equality check
+        # marginalisation path). DIT's default post-run equality check
         # compares the scenario structs with `==`, and comparing a vector that
         # contains `missing` returns `missing`, which `==` then uses in a
         # boolean context and errors. The gradients themselves are correct; only
@@ -72,7 +72,7 @@
         check_broken(broken_scens, backend)
     end
 
-    # A partial backend (#225): every scenario through `check_broken`, so
+    # A partial backend: every scenario through `check_broken`, so
     # the supported subset passes and the rest are marked broken.
     function test_partial_backend(name)
         backend = _entry(name).backend
