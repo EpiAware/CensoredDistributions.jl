@@ -117,6 +117,9 @@ total = convolve_distributions(
 # ForwardDiff reference.
 # The other survival families have no such AD-safe routing, so their gradients
 # are unverified.
-# The piecewise-constant hazard distribution works as a bare leaf but its
-# `logcdf` throws upstream, so it cannot yet route the numeric censoring
+# The SurvivalDistributions.jl piecewise-constant hazard works as a bare leaf
+# but its `logcdf` throws upstream, so it cannot yet route the numeric censoring
 # quadrature.
+# For a nonparametric piecewise-constant hazard leaf with an AD-safe survival,
+# the package ships its own [`piecewise_hazard`](@ref), shown in the
+# [composer toolkit](@ref composer-toolkit).

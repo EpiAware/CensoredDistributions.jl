@@ -17,7 +17,7 @@ getting_started_pages = Any[
             "Bundibugyo Ebola delays" => "getting-started/tutorials/bdbv-linelist-analysis.md",
             "Real-time Andes virus delays" => "getting-started/tutorials/andv-linelist-analysis.md",
             "Stratified Sierra Leone Ebola delays" => "getting-started/tutorials/ebola-stratified-delays.md",
-            "Branching-process one_of outcomes" => "getting-started/tutorials/branching-one_of.md",
+            "Branching-process competing outcomes" => "getting-started/tutorials/branching-competing.md",
             "Pairwise survival of transmission" => "getting-started/tutorials/pairwise-survival-transmission.md",
             "Rt renewal with delay convolution" => "getting-started/tutorials/rt-renewal-convolution.md",
             "Epinowcast-style hazard nowcasting" => "getting-started/tutorials/epinowcast-nowcasting.md",
@@ -43,7 +43,7 @@ dev_pages = [
 
 pages = [
     "Getting started" => getting_started_pages,
-    "Modules" => module_pages,
+    "API reference" => module_pages,
     "Development" => dev_pages,
     "Release notes" => "release-notes.md"
 ]

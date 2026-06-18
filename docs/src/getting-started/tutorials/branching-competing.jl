@@ -1,5 +1,5 @@
 md"""
-# [A branching-process-like natural history with one_of outcomes](@id branching-one_of)
+# [A branching-process-like natural history with competing outcomes](@id branching-competing)
 
 ## Introduction
 
@@ -15,7 +15,7 @@ scored from a single object.
 ### What are we going to do in this exercise
 
 We build one natural-history object for a case and exercise the enriched
-one_of-outcome composition:
+disjunction composition with the resolve and compete outcomes:
 
 1. Map each modelling concept onto a composed primitive:
 
@@ -108,8 +108,8 @@ Each case's natural history is one composed object anchored on its infection:
   report time is written.
 - `onset -> {death, recover}`: a racing-hazard [`compete`](@ref) node; the first of
   the two latent delays wins, and which-and-when is coupled. These are the
-  cause-specific latent times that drive the one_of-risk hazards, so they
-  stay continuous — the derived winning split below integrates over them.
+  cause-specific latent times that drive the competing-risk hazards, so they
+  stay continuous, and the derived winning split below integrates over them.
 
 A single `rand` draws the whole event path.
 """
@@ -206,10 +206,10 @@ md"""
 With the same object we score the line list and recover the severity delays in a
 small Turing model. We rebuild the natural-history object from sampled
 parameters and score the *whole* line list in one `~` through the batch
-[`composed_distribution_model`](@ref) — pass the vector of records and the
-one_of node self-dispatches per record on which outcome slot is observed (and
-handles the optional report and the missing slots internally), with no manual
-per-record loop. The records are anchored at zero here (the infection time is
+[`composed_distribution_model`](@ref), passing the vector of records, and the
+disjunction node self-dispatches per record on which outcome slot is observed
+(and handles the optional report and the missing slots internally), with no
+manual per-record loop. The records are anchored at zero here (the infection time is
 the known anchor), so we re-centre each record on its own infection time.
 """
 
@@ -241,7 +241,7 @@ death, `3.0` for recover) within Monte Carlo error.
 md"""
 ## Outcomes that continue into a further chain
 
-A one_of outcome is not limited to a single leaf delay: an outcome can carry a
+A resolve outcome is not limited to a single leaf delay; an outcome can carry a
 whole composer subtree, so winning that outcome unfolds further events. Here the
 `death` outcome carries its own sub-chain `death -> burial` (the burial date is
 recorded to the day, a [`double_interval_censored`](@ref) leaf), while `recover`
@@ -277,9 +277,9 @@ Each step of this tutorial maps onto a row of the table in the introduction:
   simulator would otherwise hand-roll;
 - the [`double_interval_censored`](@ref) leaves are the day-resolution recorded
   events (onset and report dates);
-- the no-event `one_of` branch is the per-case detection / asymptomatic gate;
-- the racing-hazard `one_of` is the one_of-risk severity outcome;
-- a `one_of` outcome holding a subtree is an outcome that opens a further
+- the no-event `resolve` branch is the per-case detection / asymptomatic gate;
+- the racing-hazard `compete` node is the competing-risk severity outcome;
+- a `resolve` outcome holding a subtree is an outcome that opens a further
   event chain (death then burial);
 - `convolve_distributions(object, series)` is the aggregate forward observation
   layer.

@@ -15,9 +15,9 @@
 # 1. Compose a record from per-event delays with [`compose`](@ref), starting
 #    from plain [Distributions.jl](https://juliastats.org/Distributions.jl)
 #    leaves.
-# 2. Build the four composers directly ([`Sequential`](@ref),
-#    [`Parallel`](@ref), [`Resolve`](@ref), [`Choose`](@ref)) and see how they
-#    nest.
+# 2. Build the five composers directly ([`Sequential`](@ref),
+#    [`Parallel`](@ref), [`Resolve`](@ref), [`Compete`](@ref), [`Choose`](@ref))
+#    and see how they nest.
 # 3. Swap the plain leaves for censored ones
 #    ([`double_interval_censored`](@ref), and the rarer
 #    [`primary_censored`](@ref)) as drop-in replacements the same stack handles
@@ -82,6 +82,10 @@ event_names(chain)
 # A `chain` column folds rows sharing a non-zero id into a [`Sequential`](@ref),
 # and a `compete`/`prob` column pair folds rows into a [`Resolve`](@ref) node
 # whose `prob` entries are the branch probabilities.
+# The `compete` here is the table column that groups rows; it carries explicit
+# `prob` entries, so it builds a fixed-probability [`Resolve`](@ref), not the
+# racing-hazard [`compete`](@ref) composer met later (whose probabilities are
+# derived from the delays).
 # Here the death and discharge rows share a `compete` group, while the
 # notification row stays a plain branch.
 
@@ -105,7 +109,7 @@ matrix_stack = compose([onset_admit admit_death];
 
 event_names(matrix_stack)
 
-# ## The four composers
+# ## The five composers
 #
 # Each front-end lowers to these composers, which can also be built directly.
 # They differ in how the branches relate.
@@ -123,9 +127,9 @@ seq = sequential(:onset_admit => onset_admit, :admit_death => admit_death);
 
 par = parallel(:onset_admit => onset_admit, :onset_notif => admit_death);
 
-# [`Resolve`](@ref) is a set of one_of outcomes: exactly one occurs,
-# governed by branch probabilities that sum to one.
-# A death-versus-discharge competition makes the death probability the
+# [`Resolve`](@ref) is a disjunction where exactly one outcome occurs,
+# governed by fixed branch probabilities that sum to one.
+# A death-versus-discharge split makes the death probability the
 # case-fatality ratio.
 
 cfr = 0.3;
@@ -149,6 +153,29 @@ mean(resolution)
 # (defaulting to `:event_1`) with the `:death` and `:discharge` outcome names.
 
 event_names(resolution)
+
+# [`Compete`](@ref) is the racing-hazard sibling of `Resolve`, built with the
+# [`compete`](@ref) verb from bare `name => delay` outcomes (no probabilities).
+# The cause-specific delays race, the first to fire wins, and which outcome wins
+# is coupled to when it fires.
+# Where `resolve` takes the winning probability as a fixed parameter, `compete`
+# derives it from the hazards: the marginal any-event time is `min` of the
+# racing delays, with survival the product of the per-cause survivals.
+
+racing = compete(:death => Gamma(1.5, 1.0), :discharge => Gamma(2.0, 1.5));
+
+# [`winning_probabilities`](@ref) reads the derived per-cause split, and
+# [`occurrence_probability`](@ref) sums it (one when every cause eventually
+# fires; below one when a [`NoEvent`](@ref) branch carries leftover mass for a
+# case that need not resolve at all).
+
+winning_probabilities(racing)
+
+# Reach for `compete` when the outcome split is driven by competing risks on a
+# shared clock, so the probabilities follow from the delays rather than being
+# set; reach for `resolve` when the split is a fixed probability independent of
+# timing; reach for `choose` (below) when a data field selects which sub-model a
+# record follows.
 
 # [`Choose`](@ref) is a data-selected disjunction: the alternatives are
 # independent sub-models with different origins, and a data field picks which
@@ -407,13 +434,13 @@ per_record = [CensoredDistributions.batched_event_logpdf(obs_chain, [row])
 # draw, every event hung off it, and each `Resolve` resolution sampled.
 # Sampling a `Resolve` node draws which outcome occurs from the branch
 # probabilities and then draws that outcome's time, so exactly one outcome slot
-# is filled and the one_of outcomes that did not occur are left `missing`.
-# The one_of node is itself sampled; the `missing` slots are the outcomes
+# is filled and the outcomes that did not occur are left `missing`.
+# The disjunction node is itself sampled; the `missing` slots are the outcomes
 # that lost, not an un-sampled node.
 #
 # We build a simulation tree with the default `double_interval_censored` leaves:
 # a death-versus-discharge resolution off the admission, alongside a
-# notification branch. The named per-outcome event slots come from the one_of
+# notification branch. The named per-outcome event slots come from the resolve
 # outcome names.
 
 sim_resolution = resolve(
@@ -430,8 +457,8 @@ sim_tree = compose((
 
 event_names(sim_tree)
 
-# A draw fills the origin, the admission, exactly one of the one_of
-# resolution outcomes, and the notification. The other outcome is `missing`.
+# A draw fills the origin, the admission, exactly one of the resolution
+# outcomes, and the notification. The other outcome is `missing`.
 
 draw = rand(Xoshiro(7), sim_tree)
 
@@ -444,7 +471,7 @@ resolved = only(o for o in (:death, :discharge) if !ismissing(draw[o]));
 
 (outcome = resolved, time = draw[resolved])
 
-# Exactly one resolution outcome is sampled; the other one_of slot is
+# Exactly one resolution outcome is sampled; the other outcome slot is
 # `missing`.
 
 count(!ismissing, (draw.death, draw.discharge))
@@ -637,7 +664,8 @@ event_names(event(spliced, :admit_death))
 # | `compose(matrix; names, step_names)` | matrix front-end (rows are `Parallel` branches, columns within a row `Sequential` steps) | builds |
 # | `sequential(:a => d1, :b => d2)` | a [`Sequential`](@ref) chain (steps add up) | builds |
 # | `parallel(:a => d1, :b => d2)` | a [`Parallel`](@ref) branch set (shared origin) | builds |
-# | `resolve(:a => (d1, p1), :b => (d2, p2))` | a [`Resolve`](@ref) node (one outcome occurs); the last prob may be omitted as the residual `1 - sum(others)` | builds |
+# | `resolve(:a => (d1, p1), :b => (d2, p2))` | a [`Resolve`](@ref) node (one outcome occurs by fixed probability); the last prob may be omitted as the residual `1 - sum(others)` | builds |
+# | `compete(:a => d1, :b => d2)` | a [`Compete`](@ref) racing-hazard node (bare delays race, the first wins, the winning probability derived from the hazards) | builds |
 # | `choose(:a => d1, :b => d2)` | a [`Choose`](@ref) disjunction (data picks the branch) | builds |
 # | `convolve_distributions(d1, d2)` | a [`Convolved`](@ref) sum `X + Y` (delays add) | builds |
 # | `difference(d1, d2)` | a [`Difference`](@ref) `X - Y`, the dual of the sum; two-sided support, so an observation not a delay leaf | builds |
@@ -673,9 +701,10 @@ event_names(event(spliced, :admit_death))
 #
 # - [`compose`](@ref) lowers a NamedTuple, table, or matrix to the same composer
 #   stack.
-# - [`Sequential`](@ref), [`Parallel`](@ref), [`Resolve`](@ref), and
-#   [`Choose`](@ref) are conjunctive chains, shared-origin branches, one_of
-#   outcomes, and data-selected disjunctions.
+# - [`Sequential`](@ref), [`Parallel`](@ref), [`Resolve`](@ref),
+#   [`Compete`](@ref), and [`Choose`](@ref) are conjunctive chains, shared-origin
+#   branches, fixed-probability disjunctions, racing-hazard disjunctions (the
+#   winning probability derived from the delays), and data-selected disjunctions.
 # - The composers nest, including a composer as a chain step and a
 #   `choose` of a `choose`.
 # - Censoring is a drop-in leaf swap: plain Distributions leaves teach the
