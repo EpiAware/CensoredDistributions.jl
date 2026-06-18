@@ -19,7 +19,7 @@ The contact interval has a hazard of infectious contact ``\lambda(\tau)``,
 and its distribution is the quantity we want to estimate.
 A susceptible ``j`` is infected at the minimum contact time over all its
 infectious sources, and *who-infected-whom* is the ``\arg\min``.
-This is exactly a **one_of risks across sources** problem: the sources race,
+This is exactly a **competing risks across sources** problem: the sources race,
 the first contact wins, and timing and cause are coupled.
 
 This page maps that structure directly onto the CensoredDistributions composer
@@ -47,7 +47,7 @@ compact version omits infectious-period gating (explained where we compute it).
 
 2. Identify the baseline contact interval as a stock `Weibull` leaf and put a
    log-rate regression ``\lambda_0 e^{\beta' x_{ij}}`` on its rate.
-3. Build the pairwise survival likelihood as a racing-hazard one_of node.
+3. Build the pairwise survival likelihood as a racing-hazard compete node.
 4. Fit the Hagelloch data, recover the transmission coefficients ``\beta`` and
    the within-household effect, and read off an illustrative household ``R_0``.
 
@@ -413,7 +413,7 @@ remains is only the per-susceptible loop and the log-sum-exp reduction.
 through `logpdf(source_node(...), t_j)` differentiates cleanly under the
 Mooncake backend used here; `susceptible_loglik` is a *per-susceptible inlining*
 of that node `logpdf`, equivalent to it (checked below), that skips rebuilding a
-fresh `one_of` node of a new arity for each susceptible on every gradient
+fresh `compete` node of a new arity for each susceptible on every gradient
 step.
 Each source's rate is the regression ``\lambda_0\, e^{\beta' x_{ij}}`` evaluated
 at the pair's covariates; the shared shape ``\gamma`` carries the hazard's time
@@ -446,7 +446,7 @@ function susceptible_loglik(log_lambda0, beta, gamma, gaps, covs)
 end
 
 md"""
-The direct computation agrees with the racing-hazard `one_of` node it stands
+The direct computation agrees with the racing-hazard `compete` node it stands
 in for. For one Hagelloch susceptible with several at-risk sources we build the
 node with `source_node` and check its marginal at ``t_j`` against
 `susceptible_loglik`.
@@ -677,9 +677,9 @@ chance baseline (one over the number of at-risk sources): the fitted
 contact-hazard regression, driven only by timing and the household/class
 covariates and never shown the recorded tree, points at the recorded infector
 several times more often than chance.
-This is a *minority* of the mass, not a confident reconstruction — the same
+This is a *minority* of the mass, not a confident reconstruction, since the same
 un-gated at-risk window that biases ``R_\text{household}`` low also leaves many
-old sources one_of for each susceptible — so read it as evidence that the
+old sources competing for each susceptible, so read it as evidence that the
 timing-and-covariate signal is informative about who-infected-whom, not as a
 recovered transmission tree.
 
@@ -698,38 +698,12 @@ survival method [kenah2011contact](@cite) on the composer stack:
   whose cause-resolved marginal is the pairwise likelihood and whose
   ``\arg\min`` draws give the who-infected-whom posterior;
 - the **right-censoring** of non-winning pairs is the racing survival
-  ``\prod_k S_k``, the no-event branch of the one_of likelihood.
+  ``\prod_k S_k``, the no-event branch of the compete likelihood.
 
-Compared with the `transtat` reference implementation, several extensions are
-outside the scope of this page:
-
-- `transtat` separates the **infectious period** from the contact interval, so
-  a source stops contributing hazard once it recovers; here the at-risk window
-  is closed only by the study horizon. A recovery-time leaf
-  (`infectiousness onset → recovery`) would gate each source's survival term.
-- The **external / community hazard** (infection from outside the close-contact
-  groups) is a further one_of source with its own constant hazard, scored as
-  an extra racing branch per susceptible.
-- the **contact-hazard regression** here carries two pair covariates (household
-  and school class); `transtat` allows arbitrary covariates on the
-  contact-interval scale, and adding more (age gap, spatial distance from
-  `x_loc`/`y_loc`) is just a longer `x_{ij}` and a longer ``\beta`` — the rest of
-  the likelihood is unchanged.
-- The **left-truncation** of pairs observed only after the source became
-  infectious enters `transtat`'s likelihood as a conditioning survival; the
-  closed-outbreak Hagelloch data sidestep it, but a real-time line list would
-  need it.
-- [`winning_probabilities`](@ref) integrates the cause-resolved split over a
-  *shared* support floor, so for the anchored (per-source-clock) sources here we
-  read the who-infected-whom split by Monte Carlo ``\arg\min`` instead. A
-  composer that integrated each cause from its own support floor would give the
-  derived split directly; that is a natural extension of the racing-hazard node
-  for staggered onsets.
-- The **contact-interval censoring** (infection dates recorded to the day) is
-  left as a point evaluation here for clarity; wrapping each anchored leaf in a
-  [`double_interval_censored`](@ref) primary/secondary window would carry the
-  date uncertainty into the likelihood, the core CensoredDistributions surface.
-
-These extensions connect the racing-hazard composer to the full
-contact-interval framework and reuse the same likelihood structure.
+The page stays compact, leaving several `transtat` features for the reader to
+add on the same likelihood structure: an infectious-period leaf that gates each
+source's survival term, an external community hazard as an extra racing branch,
+more pair covariates as a longer ``x_{ij}``, left-truncation as a conditioning
+survival, and day-resolution censoring by wrapping each anchored leaf in
+[`double_interval_censored`](@ref).
 """

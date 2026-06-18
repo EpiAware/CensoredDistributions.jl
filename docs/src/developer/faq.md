@@ -19,12 +19,10 @@ Better yet, add Revise to your `startup.jl` file as described in the [Julia setu
 
 ### Q: I get "Package not found" errors during development
 
-**A:** Make sure you're in the right environment:
+**A:** See the environment advice in the [getting-started FAQ](@ref faq); for development also add the local package in dev mode:
 
 ```julia
 using Pkg
-Pkg.activate(".")           # Activate current directory
-Pkg.instantiate()           # Install dependencies
 Pkg.develop(PackageSpec(path="."))  # Add local package in dev mode
 ```
 

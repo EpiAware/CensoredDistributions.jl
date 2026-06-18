@@ -2,6 +2,19 @@
 
 Welcome to the `CensoredDistributions` documentation! This section is designed to help you get started with the package. It includes a quickstart guide, frequently asked questions (FAQ) section, and tutorials that will help you get started with `CensoredDistributions` for specific tasks. See the sidebar for the list of topics.
 
+## What is in the package
+
+The package has four layers, each building on the one before:
+
+- **Censoring leaves** wrap a delay distribution to account for primary-event censoring, truncation, and interval censoring.
+The quickstart below builds these step by step (`primary_censored`, `interval_censored`, `double_interval_censored`).
+- **Composers** assemble per-event delays into one object per record.
+[Composing censored distributions](@ref composer-toolkit) is the conceptual hub, covering `compose` and the five composers (`Sequential`, `Parallel`, `Resolve`, `Compete`, `Choose`) and the `piecewise_hazard` leaf.
+- **Fitting** attaches parameters and priors and runs a Turing fit ([Fitting with Turing.jl](@ref), [Fit marginal, sample event based](@ref fit-marginal-sample-event-based)).
+- **Bridges and case studies** apply the stack to line lists, renewal models, nowcasting, and ODE compartments.
+
+A first-time reader can read the quickstart below for censoring, then move to [Composing censored distributions](@ref composer-toolkit) for the composed stack.
+
 # Introduction
 
 Delay distributions play a crucial role in various fields, including epidemiology, reliability analysis, and survival analysis. These distributions describe the time between two events of interest, such as the incubation period of a disease or the time to failure of a component.
@@ -256,14 +269,18 @@ For more information on the package and its integration with other packages, see
 
 **Case studies and applications**
 
-- **[Bundibugyo Ebola delays](@ref bdbv-linelist-analysis)**: A one_of-risks line-list workflow on the 2012 Isiro Bundibugyo data
-- **[Real-time Andes virus delays](@ref andv-linelist-analysis)**: Marginal-versus-latent delay fitting on the Epuyén hantavirus line list
-- **[Stratified Sierra Leone Ebola delays](@ref ebola-stratified-delays)**: A partially pooled stratified onset-to-test delay model
-- **[Branching-process one_of outcomes](@ref branching-one_of)**: A per-case natural history with one_of and racing-hazard outcomes
-- **[Pairwise survival of transmission](@ref pairwise-survival-transmission)**: Kenah's pairwise survival framework as a racing-hazard composition
-- **[An Rt renewal model with delay convolution](@ref rt-renewal-convolution)**: A renewal model fitting Rt to cases and deaths through a shared delay stack
-- **[Epinowcast-style hazard nowcasting](@ref epinowcast-nowcasting)**: A discrete-time reporting-hazard nowcasting model
-- **[Composed delay as ODE compartments](@ref linear-chain-sir)**: Bridging a composed delay to ODE compartments with the linear chain trick
+Pick a case study by the concept it shows:
+
+| Concept | Case study |
+|---|---|
+| Fixed-probability resolution (case-fatality split) | [Bundibugyo Ebola delays](@ref bdbv-linelist-analysis) |
+| Marginal-versus-latent delay fitting | [Real-time Andes virus delays](@ref andv-linelist-analysis) |
+| Partially pooled stratification | [Stratified Sierra Leone Ebola delays](@ref ebola-stratified-delays) |
+| Fixed-probability and racing-hazard outcomes in a simulator | [Branching-process competing outcomes](@ref branching-competing) |
+| Racing hazards for who-infected-whom | [Pairwise survival of transmission](@ref pairwise-survival-transmission) |
+| Renewal Rt through a shared delay stack | [An Rt renewal model with delay convolution](@ref rt-renewal-convolution) |
+| Reporting-hazard nowcasting | [Epinowcast-style hazard nowcasting](@ref epinowcast-nowcasting) |
+| ODE-compartment bridge (the linear chain trick) | [Composed delay as ODE compartments](@ref linear-chain-sir) |
 
 ### Methodological background
 

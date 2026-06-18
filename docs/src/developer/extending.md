@@ -262,35 +262,21 @@ end
 
 ## Editing a composed tree
 
+The edit verbs ([`update`](@ref), [`prune`](@ref), [`splice`](@ref)) and the
+path-addressing rule are tabulated in the syntax reference of
+[Composing censored distributions](@ref composer-toolkit); this section covers
+only the internals behind them.
+
 A composed tree is immutable, so an edit returns a fresh tree rather than
 mutating in place.
 Each verb walks the tree by name path and rebuilds only the touched spine, so
 the result is still a valid composed distribution that scores and `rand`s.
-The edits split into two kinds: those that keep the tree shape and those that
-change it.
-
-| Verb | Edit | Changes shape? |
-|---|---|---|
-| [`update`](@ref)`(d, params::NamedTuple)` | replace free parameter values | no |
-| [`update`](@ref)`(d, path => new_node)` | replace whole nodes | no |
-| [`prune`](@ref)`(d, path)` | drop a branch (renormalise a `Resolve` arm) | yes |
-| [`splice`](@ref)`(d, path; before, after)` | insert a before/after step | yes |
-
-[`update`](@ref) is the single verb for both shape-preserving edits.
-A nested `NamedTuple` replaces free parameter values; `path => new_node` pairs
-replace whole nodes.
-Both dispatch on the second argument, sharing the recursive reconstruction.
-
-[`prune`](@ref) and [`splice`](@ref) are the two topology edits.
-`prune` drops a branch, renormalising the remaining [`Resolve`](@ref)
-probabilities.
-`splice` wraps a node in a [`Sequential`](@ref) with a `before` and/or `after`
-step, inserting an extra delay without rebuilding the rest of the tree.
-
-A path is addressed the same way [`event`](@ref) reads it: a `Symbol` (a
-top-level child), a dotted `Symbol` (`:admit_path.admit_death`), or a tuple of
-edge names from the root.
-So the address `event` reads is the one `update` / `prune` / `splice` write.
+The shape-preserving edits ([`update`](@ref)) share one recursive
+reconstruction, dispatching on whether the second argument is a parameter
+`NamedTuple` or a `path => new_node` replacement.
+The topology edits ([`prune`](@ref), [`splice`](@ref)) rebuild the spine around
+the touched node, `prune` renormalising the remaining [`Resolve`](@ref)
+probabilities and `splice` wrapping the node in a [`Sequential`](@ref).
 
 ```@example extending
 base = compose((onset_admit = Gamma(2.0, 1.0),

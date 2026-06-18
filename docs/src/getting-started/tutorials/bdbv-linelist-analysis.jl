@@ -31,9 +31,9 @@ surveillance lag.
 Two features of the data shape the model.
 Dates are recorded to the day, so each delay is doubly interval censored: the
 onset day and the later event day are both windows rather than instants.
-Resolution is a one_of-risks problem: an admitted case either dies or is
+Resolution is a disjunction: an admitted case either dies or is
 discharged, never both, and the fraction that die is the case-fatality ratio.
-A one_of-outcomes node keeps the resolution time and the outcome together,
+A [`resolve`](@ref) node keeps the resolution time and the outcome together,
 and lets the case-fatality ratio depend on covariates.
 
 This page assembles the case as one composed distribution.
@@ -121,7 +121,7 @@ end
 template = delay_tree()
 
 md"""
-The recursive `show` lays out the branching structure, with the one_of death
+The recursive `show` lays out the branching structure, with the resolve death
 and discharge outcomes nested under the admission step.
 """
 
@@ -140,7 +140,7 @@ md"""
 
 [`params_table`](@ref) lists every free parameter of the composed delays as a
 flat table.
-The Gamma shapes and scales are the free delay parameters; the one_of node's
+The Gamma shapes and scales are the free delay parameters; the resolve node's
 branch probabilities are not estimated as free parameters here, because the
 case-fatality ratio is covariate-driven (below) and enters per record.
 We read the table into a DataFrame and drop the branch-probability rows with a
@@ -181,7 +181,7 @@ md"""
 
 Whether an admitted case dies is a logistic regression on health-worker status,
 a probable (rather than confirmed) case definition, and standardised age.
-The regression stays in plain Turing code; the one_of node only consumes the
+The regression stays in plain Turing code; the resolve node only consumes the
 resulting probability.
 The per-case death probability is passed in through the reserved `:branch_probs`
 row field, and the node conditions on the observed outcome, so the
@@ -207,7 +207,7 @@ The whole record set fits through one [`composed_distribution_model`](@ref) call
 on a vector of rows.
 Each row carries the event columns, the per-case `:branch_probs` from
 `death_prob`, and (when present) a `weight`.
-The one_of node self-dispatches on which outcome column is present, and
+The resolve node self-dispatches on which outcome column is present, and
 unobserved delays for a case are marginalised internally.
 """
 
@@ -236,7 +236,7 @@ The composed distribution is the model's generative half: the `obs` likelihood i
 `bdbv` walks it to read a record, and `rand(d)` walks the same object to draw a
 full event path for a new case.
 A single draw returns the named event record (a labelled `NamedTuple`), with
-exactly one of death or discharge populated by the one_of node.
+exactly one of death or discharge populated by the resolve node.
 """
 
 rand(MersenneTwister(1), delay_tree(cfr = 0.6))
@@ -385,7 +385,7 @@ md"""
 Admission-date offsets the Rosello deposit encodes as outliers (−89, −5, −4, −1,
 and 328720 days from onset) are set to missing, as are negative offsets.
 Death and discharge are made mutually exclusive by the recorded outcome, so each
-resolved case carries exactly one of the two as its one_of outcome.
+resolved case carries exactly one of the two as its resolve outcome.
 """
 
 admit_outliers = (-89, -5, -4, -1, 328720)
@@ -595,17 +595,11 @@ comparison
 md"""
 ## Marginal versus latent
 
-The fit above is the marginal form, with each delay's primary event integrated
-out inside `logpdf` and the death-versus-discharge split read off the
-[`Resolve`](@ref) node through the per-record `:branch_probs`.
-The original Isiro re-analysis at
+The fit above is the marginal form; the original Isiro re-analysis at
 [epiforecasts/bdbv-linelist-analysis](https://github.com/epiforecasts/bdbv-linelist-analysis)
-used the latent form instead, sampling each delay's primary event per record and
-conditioning the observed time on it.
-The two forms are one family on the same parameters, so the marginal-fit priors
-drop straight into the latent form; see [Marginal versus latent](@ref
-marginal-versus-latent) for the concept and [Fit marginal, sample event
-based](@ref) for the how-to.
+used the latent form instead, and the two are one family on the same parameters
+(see [Marginal versus latent](@ref marginal-versus-latent) for the concept and
+[Fit marginal, sample event based](@ref) for the how-to).
 This section runs the latent form on the real records and checks the two agree.
 
 The latent fit reuses the package's vectorised latent path
@@ -853,7 +847,7 @@ md"""
   admission to a [`Resolve`](@ref) resolution, plus a notification branch, with
   every leaf censored directly through [`double_interval_censored`](@ref).
 - The case-fatality ratio is a logistic regression in plain Turing, fed to the
-  one_of node per record through the reserved `:branch_probs` field.
+  resolve node per record through the reserved `:branch_probs` field.
 - Priors come from [`params_table`](@ref) and [`build_priors`](@ref), which
   derives weakly informative defaults from each parameter's support; the records
   score through the vectorised [`composed_distribution_model`](@ref).
