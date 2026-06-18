@@ -36,6 +36,14 @@ Because it is a `UnivariateDistribution`, a `PiecewiseHazard` nests as a leaf in
 natural fit for the racing-hazard [`compete`](@ref) node, which multiplies branch
 survivals, so a flexible cause-specific hazard drops straight in.
 
+# Fields
+- `breaks`: interior breakpoints ``b_1 < \\dots < b_{K-1}`` (length `K - 1`).
+- `hazards`: per-interval constant hazard values ``h_1, \\dots, h_K > 0``
+  (length `K`); the differentiable parameters.
+- `cumhaz`: cumulative hazard cached at each interior breakpoint,
+  ``H(b_1), \\dots, H(b_{K-1})``, so the survival and distribution functions
+  need no running sum.
+
 # See also
 - [`piecewise_hazard`](@ref): constructor function
 """
