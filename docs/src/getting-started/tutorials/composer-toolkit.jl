@@ -571,11 +571,20 @@ tbl.edge, tbl.param
 # It derives a default prior per row from that leaf's support: a positive scale
 # parameter gets a positive-truncated prior, a location parameter an unbounded
 # one, a `[0, 1]` probability a `Uniform(0, 1)`.
-# So `build_priors(tbl)` alone yields a complete set, and a `default` function
-# or per-parameter override replaces only the rows you care about, all defined
-# against the table rather than by hand-matching the tree.
+# So `build_priors(tbl)` alone yields a complete set, all defined against the
+# table rather than by hand-matching the tree.
 
 priors = build_priors(tbl);
+
+priors.onset_admit.shape
+
+# [`update`](@ref) recentres only the priors you care about, addressing each
+# leaf by its name path (the same path [`update`](@ref)`(d, path => new_node)`
+# uses on the tree) with a NamedTuple of the fields to replace, leaving every
+# other parameter at its default, a brms-style partial override.
+
+priors = update(priors,
+    :onset_admit => (shape = truncated(Normal(1.0, 1.5); lower = 0.05),));
 
 priors.onset_admit.shape
 

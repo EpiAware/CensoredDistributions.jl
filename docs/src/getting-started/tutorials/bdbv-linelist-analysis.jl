@@ -159,22 +159,21 @@ on the template value with a width that scales with its magnitude, so the data
 dominate.
 We override only the four Gamma shapes, recentring them near one (the shape of an
 exponential-like delay) rather than on the template.
-[`build_priors`](@ref) takes the overrides as a flat `(edge, param) => prior`
-mapping keyed against the table's `edge` column (the dotted path
-[`params_table`](@ref) prints), so we name only the four rows we care about and
-every other parameter keeps its support-derived default, a brms-style partial
-override.
+[`update`](@ref) edits the prior table by path, the same name path
+[`update`](@ref)`(d, path => new_node)` uses on the tree, with a tuple of names
+for a nested edge and a bare name for a top-level one, then a `(shape = prior,)`
+NamedTuple of the fields to replace.
+So we name only the four leaves we care about and every other parameter keeps
+its support-derived default, a brms-style partial override.
 """
 
 shape_prior = truncated(Normal(1.0, 1.5); lower = 0.05)
 
-shape_overrides = Dict(
-    (Symbol("admit_path.onset_admit"), :shape) => shape_prior,
-    (Symbol("admit_path.admit_resolution.death"), :shape) => shape_prior,
-    (Symbol("admit_path.admit_resolution.discharge"), :shape) => shape_prior,
-    (Symbol("onset_notif"), :shape) => shape_prior)
-
-priors = build_priors(delay_table; priors = shape_overrides)
+priors = update(build_priors(delay_table),
+    (:admit_path, :onset_admit) => (shape = shape_prior,),
+    (:admit_path, :admit_resolution, :death) => (shape = shape_prior,),
+    (:admit_path, :admit_resolution, :discharge) => (shape = shape_prior,),
+    :onset_notif => (shape = shape_prior,))
 
 md"""
 ## The case-fatality ratio
