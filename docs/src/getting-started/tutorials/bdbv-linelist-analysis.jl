@@ -601,91 +601,28 @@ used the latent form instead, and the two are one family on the same parameters
 [Fit marginal, sample event based](@ref) for the how-to).
 This section runs the latent form on the real records and checks the two agree.
 
-The latent fit reuses the package's vectorised latent path
-([`composer toolkit`](@ref composer-toolkit) covers the table scoring), so the
-whole record set scores in one pair of statements rather than a per-record
-submodel loop.
-Each observed delay segment is a single-edge [`latent`](@ref) chain that samples
-its origin event and conditions the observed time on it at the floored gap, the
-latent counterpart of the marginal leaf.
-A [`Choose`](@ref) routes each record's segments by a `:kind` field, so
-`latent_primary_priors` stacks every segment's origin prior and
-`latent_observed_logpdf` scores the whole table at once.
+The latent model is the marginal `bdbv` with one swap.
+[`latent_segments`](@ref)`(delays)` lowers the same composed `delays` object into
+the latent form, a [`Choose`](@ref) of single-edge [`latent`](@ref) chains, one
+per delay segment, that samples each origin event and conditions the observed
+time on it at the floored gap rather than integrating it out.
+[`latent_records`](@ref)`(template, obs_rows)` turns the SAME record schema the
+marginal model scores (the event columns plus the per-record `:branch_probs`)
+into the per-segment rows the vectorised latent path consumes.
+The whole record set then scores in one
+`primaries ~ product_distribution(...)` statement plus one
+[`latent_observed_logpdf`](@ref), with the death-versus-discharge split folded in
+through each resolved segment's branch probability, so there is no per-record
+submodel and no hand-rolled segment machinery.
 Because admission is recorded for every resolved case here, no admission time is
-sampled; the onset → admission and admission → resolution segments are
-independent observed leaves, the death-versus-discharge split enters as a
-per-record Bernoulli term (the latent counterpart of `:branch_probs`), and the
-notification delay scores through its own segment.
+sampled and the onset → admission and admission → resolution segments are
+independent observed leaves; a single-edge chain is density-identical to the
+marginal leaf, so the latent fit recovers the same delays as the marginal fit.
 
-`delay_leaves` pulls the four fitted leaves off the reconstructed composed object
-with [`event`](@ref), which descends a name path in one call (the same dotted
-path [`params_table`](@ref) prints), so the latent fit reuses exactly the delays
-the [`composed_parameters_model`](@ref) block sampled, with no second parameter
-set.
-"""
-
-function delay_leaves(d)
-    return (
-        onset_admit = event(d, :admit_path, :onset_admit),
-        admit_death = event(d, :admit_path, :admit_resolution, :death),
-        admit_discharge = event(d, :admit_path, :admit_resolution,
-            :discharge),
-        onset_notif = event(d, :onset_notif))
-end
-
-md"""
-Each delay segment becomes a single-edge [`latent`](@ref) chain whose origin
-event is sampled and whose observed time conditions on it at the floored gap.
-The four segments are gathered into one [`Choose`](@ref) keyed by a `:kind`
-field, so a record's rows route to the right segment by name.
-A single-edge chain is density-identical to the marginal leaf, so the latent fit
-recovers the same delays as the marginal fit.
-"""
-
-function latent_segments(leaves)
-    edge(leaf, name) = latent(sequential(name => leaf))
-    return choose(
-        :onset_admit => edge(leaves.onset_admit, :onset_admit),
-        :admit_death => edge(leaves.admit_death, :admit_death),
-        :admit_discharge => edge(leaves.admit_discharge, :admit_discharge),
-        :onset_notif => edge(leaves.onset_notif, :onset_notif))
-end
-
-md"""
-`latent_rows` turns one record into its observed segments, namely the
-onset → admission segment when admission is recorded, the admission → resolution
-segment for the outcome that occurred, and the notification segment if present.
-Each row names its origin event as `missing` (the sampled latent) and its
-observed event as the segment's delay, tagged with the `:kind` that selects its
-segment.
-The admission → resolution segment's delay is the recorded resolution day minus
-the recorded admission day.
-"""
-
-function latent_rows(r)
-    rows = NamedTuple[]
-    r.admit !== missing &&
-        push!(rows, (kind = :onset_admit, onset = missing, admit = r.admit))
-    if r.death !== missing
-        push!(rows,
-            (kind = :admit_death, admit = missing, death = r.death - r.admit))
-    elseif r.discharge !== missing
-        push!(rows, (kind = :admit_discharge, admit = missing,
-            discharge = r.discharge - r.admit))
-    end
-    r.notif !== missing &&
-        push!(rows, (kind = :onset_notif, onset = missing, notif = r.notif))
-    return rows
-end
-
-md"""
-The latent model shares the parameter block and the case-fatality regression
-with the marginal `bdbv`.
-It builds the segment table once, samples every segment's origin event in one
-`primaries ~ product_distribution(...)` statement, and scores the whole table
-with one `latent_observed_logpdf`, so there is no per-record submodel.
-The death-versus-discharge split enters as a vectorised Bernoulli term on the
-resolved records, the latent counterpart of the marginal `:branch_probs`.
+The latent model shares the parameter block, the case-fatality regression, the
+priors and the data with the marginal `bdbv`, differing only by the
+[`latent_segments`](@ref) / [`latent_records`](@ref) wrapper on the composed
+object.
 """
 
 @model function bdbv_latent(template, priors, rows)
@@ -697,18 +634,18 @@ resolved records, the latent counterpart of the marginal `:branch_probs`.
     β_age ~ Normal(0, 1)
     β = (; β0, β_hcw, β_def, β_age)
 
-    segments = latent_segments(delay_leaves(delays))
-    table = reduce(vcat, map(latent_rows, rows))
+    obs_rows = map(rows) do r
+        p = death_prob(β, r)
+        (onset = r.onset, admit = r.admit, death = r.death,
+            discharge = r.discharge, notif = r.notif,
+            branch_probs = (death = p, discharge = 1 - p))
+    end
+
+    segments = latent_segments(delays)
+    table = latent_records(template, obs_rows)
 
     primaries ~ product_distribution(latent_primary_priors(segments, table))
     Turing.@addlogprob! latent_observed_logpdf(segments, table, primaries)
-
-    cfr = sum(rows) do r
-        r.death === missing && r.discharge === missing && return 0.0
-        p = death_prob(β, r)
-        return r.death !== missing ? log(p) : log(1 - p)
-    end
-    Turing.@addlogprob! cfr
 end
 
 md"""
