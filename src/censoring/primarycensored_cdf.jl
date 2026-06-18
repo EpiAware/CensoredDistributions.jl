@@ -71,6 +71,18 @@ end
 AnalyticalSolver() = AnalyticalSolver(GaussLegendre(; n = 64))
 NumericSolver() = NumericSolver(GaussLegendre(; n = 64))
 
+# Show a solver method as its type wrapping its fallback solver's compact show,
+# so the quadrature rule never dumps its node and weight arrays.
+function Base.show(io::IO, m::AnalyticalSolver)
+    print(io, "AnalyticalSolver(", m.solver, ")")
+    return nothing
+end
+
+function Base.show(io::IO, m::NumericSolver)
+    print(io, "NumericSolver(", m.solver, ")")
+    return nothing
+end
+
 # Resolve the solver method from the keyword arguments. Dispatching on the
 # argument types (rather than branching on a `Bool` value) keeps the return
 # type concrete without relying on constant propagation through nested

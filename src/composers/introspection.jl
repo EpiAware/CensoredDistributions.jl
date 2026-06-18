@@ -113,6 +113,119 @@ function _show_children(io::IO, node, prefix::String)
     return nothing
 end
 
+# --- opt-in detailed inspection --------------------------------------------
+#
+# `show` is deliberately compact (structure plus short leaf labels); `inspect`
+# is the explicit opt-in for the full nested detail, recursing the same tree but
+# printing each leaf's full `text/plain` show (every field, including a leaf's
+# solver) under an indented prefix.
+
+@doc "
+
+Print a composed distribution's full nested detail.
+
+`inspect(io, d)` walks the same tree as `show` but prints each leaf's full
+`text/plain` representation (every field, including a censored leaf's solver),
+so it is the opt-in companion to the compact structural `show`. A composer node
+prints its header and recurses; a leaf prints its detailed multi-line show
+indented under its name. Writes to `io` (default `stdout`) and returns nothing.
+
+# Arguments
+- `io`: the IO stream to print to (default `stdout`).
+- `d`: the composed distribution (or bare leaf) to inspect.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+tree = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+inspect(tree)
+```
+
+# See also
+- [`event_tree`](@ref): the nested tree of event names
+- [`params_table`](@ref): the flat parameter inventory
+"
+function inspect(io::IO, d)
+    if _is_composer_dist(d)
+        println(io, _node_header(d))
+        _inspect_children(io, d, "")
+    else
+        _inspect_leaf(io, d, "")
+    end
+    return nothing
+end
+
+inspect(d) = inspect(stdout, d)
+
+# Recurse the composer tree like `_show_children`, but print each leaf's full
+# `text/plain` detail (rather than its compact one-line label) indented under
+# its name.
+function _inspect_children(io::IO, node, prefix::String)
+    children = _named_children(node)
+    n = length(children)
+    for i in 1:n
+        last = i == n
+        connector = last ? "└─ " : "├─ "
+        name, child, note = children[i]
+        label = isempty(note) ? "$(name): " : "$(name) ($(note)): "
+        child_prefix = prefix * (last ? "   " : "│  ")
+        if _is_composer_dist(child)
+            println(io, prefix, connector, label, _node_header(child))
+            _inspect_children(io, child, child_prefix)
+        else
+            println(io, prefix, connector, label)
+            _inspect_leaf(io, child, child_prefix)
+        end
+    end
+    return nothing
+end
+
+# Print a leaf's detail, unwrapping any censoring layers onto their own lines so
+# every component (delay, primary event, truncation, interval, solver) is
+# visible, while still summarising a quadrature solver by its type and node
+# COUNT rather than dumping its node and weight arrays.
+function _inspect_leaf(io::IO, leaf, prefix::String)
+    for line in _leaf_detail_lines(leaf)
+        println(io, prefix, line)
+    end
+    return nothing
+end
+
+# The detail lines for a (possibly censored) leaf, peeling each censoring
+# wrapper into a labelled line and recursing into its inner distribution. A
+# plain leaf is its own single compact line.
+function _leaf_detail_lines(d::PrimaryCensored)
+    return vcat("PrimaryCensored",
+        _indent_field("dist", _leaf_detail_lines(get_dist(d))),
+        "  primary_event: $(d.primary_event)", "  method: $(d.method)")
+end
+
+function _leaf_detail_lines(d::IntervalCensored)
+    spec = is_regular_intervals(d) ? "interval: $(d.boundaries)" :
+           "boundaries: $(length(d.boundaries)) edges"
+    return vcat("IntervalCensored",
+        _indent_field("dist", _leaf_detail_lines(d.dist)), "  $spec")
+end
+
+function _leaf_detail_lines(d::Truncated)
+    return vcat("Truncated",
+        _indent_field("dist", _leaf_detail_lines(d.untruncated)),
+        "  lower: $(d.lower)", "  upper: $(d.upper)")
+end
+
+_leaf_detail_lines(leaf) = [sprint(show, leaf)]
+
+# Indent a field's value lines under `  <name>: `, putting the first value line
+# on the label line and aligning any continuation lines beneath it.
+function _indent_field(name::String, lines::Vector{String})
+    isempty(lines) && return ["  $name: "]
+    head = "  $name: $(first(lines))"
+    tail = ["    " * l for l in lines[2:end]]
+    return vcat(head, tail)
+end
+
 # --- nested name-keyed params (hand-rolled, type-stable) --------------------
 
 @doc "

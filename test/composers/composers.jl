@@ -292,6 +292,61 @@ end
     @test occursin("a1 (p = 0.5)", out2)
 end
 
+@testitem "Composer show is compact; inspect gives detail" begin
+    using Distributions
+    const CD = CensoredDistributions
+
+    # A censored leaf holds a Gauss-Legendre quadrature solver. The compact
+    # show of a composed tree (and of a bare leaf) must NOT dump the solver's
+    # node/weight arrays, only the structure and short leaf labels.
+    leaf = double_interval_censored(Gamma(1.8, 1.4); interval = 1.0)
+    leaf_t = double_interval_censored(
+        Gamma(1.8, 1.4); interval = 1.0, upper = 10.0)
+    stack = compose((onset_admit = leaf, admit_death = leaf_t))
+
+    # A node from one of the leaf solver's 64-point quadrature arrays. Its
+    # absence is the marker that no array was dumped.
+    quad = "0.9993050"
+
+    out3 = sprint(show, MIME"text/plain"(), stack)
+    out2 = sprint(show, stack)
+    @test !occursin(quad, out3)
+    @test !occursin(quad, out2)
+    # The tree show is a handful of lines (header + one per branch), not the
+    # hundreds the array dump produced.
+    @test count(==('\n'), out3) <= 6
+    # Each leaf is summarised on one short line with its family and key params.
+    @test occursin("Parallel (2 branches)", out3)
+    @test occursin("IntervalCensored", out3)
+    @test occursin("PrimaryCensored", out3)
+    @test occursin("Gamma", out3)
+    @test occursin("interval=1.0", out3)
+
+    # A bare leaf's own show (2-arg and text/plain) is compact too.
+    @test !occursin(quad, sprint(show, leaf))
+    @test !occursin(quad, sprint(show, MIME"text/plain"(), leaf))
+    # A truncated (upper-bounded) leaf stays compact, including its bound.
+    @test !occursin(quad, sprint(show, leaf_t))
+    @test occursin("Truncated", sprint(show, leaf_t))
+    @test occursin("upper=10.0", sprint(show, leaf_t))
+
+    # The solver itself shows as its type and node COUNT, never the arrays.
+    @test sprint(show, CD.AnalyticalSolver()) ==
+          "AnalyticalSolver(GaussLegendre(64))"
+    @test sprint(show, CD.GaussLegendre(; n = 64)) == "GaussLegendre(64)"
+
+    # `inspect` is the opt-in detailed render: it still avoids the arrays but
+    # expands each leaf, naming the inner delay, primary event and solver.
+    det = sprint(inspect, stack)
+    @test !occursin(quad, det)
+    @test occursin("primary_event", det)
+    @test occursin("method", det)
+    @test occursin("GaussLegendre(64)", det)
+    @test occursin("Gamma", det)
+    # Detail is longer than the compact tree, line for line.
+    @test count(==('\n'), det) > count(==('\n'), out3)
+end
+
 @testitem "compose threads names through every input format (#351)" begin
     using Distributions
     const CD = CensoredDistributions
