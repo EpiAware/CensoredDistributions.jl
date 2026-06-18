@@ -147,6 +147,32 @@ function params(d::PrimaryCensored)
     return (d0params..., d1params...)
 end
 
+# Show a primary-censored distribution as a one-line summary of its delay and
+# primary-event distributions, so the solver's quadrature rule is never dumped.
+# Detailed nested inspection is available via `inspect`.
+function Base.show(io::IO, d::PrimaryCensored)
+    print(io, "PrimaryCensored(", get_dist(d),
+        "; primary_event=", d.primary_event, ")")
+    return nothing
+end
+
+# A `Truncated` wrapping a primary-censored delay (the `double_interval_censored`
+# upper/lower path) otherwise falls to the Distributions multi-line struct dump,
+# which prints the inner solver's quadrature arrays; show it as a one-line
+# summary instead. The Distributions `_use_multline_show` of the inner delay also
+# drives an enclosing `IntervalCensored`'s dump, so this keeps both compact.
+function Base.show(io::IO, d::Truncated{<:PrimaryCensored})
+    print(io, "Truncated(", d.untruncated)
+    if d.lower === nothing
+        print(io, "; upper=", d.upper, ")")
+    elseif d.upper === nothing
+        print(io, "; lower=", d.lower, ")")
+    else
+        print(io, "; lower=", d.lower, ", upper=", d.upper, ")")
+    end
+    return nothing
+end
+
 function Base.eltype(::Type{<:PrimaryCensored{D1, D2}}) where {D1, D2}
     return promote_type(eltype(D1), eltype(D2))
 end

@@ -92,6 +92,17 @@ end
 is_regular_intervals(d::IntervalCensored{D, <:Real}) where {D} = true
 is_regular_intervals(d::IntervalCensored{D, <:AbstractVector}) where {D} = false
 
+# Show an interval-censored distribution as a one-line summary of its inner
+# distribution and its interval spec, summarising an arbitrary-boundary vector by
+# its count so a long boundary array is never dumped. Detailed nested inspection
+# is available via `inspect`.
+function Base.show(io::IO, d::IntervalCensored)
+    spec = is_regular_intervals(d) ? "interval=$(d.boundaries)" :
+           "boundaries=$(length(d.boundaries))"
+    print(io, "IntervalCensored(", d.dist, "; ", spec, ")")
+    return nothing
+end
+
 # Get interval width for regular intervals
 interval_width(d::IntervalCensored{D, <:Real}) where {D} = d.boundaries
 
