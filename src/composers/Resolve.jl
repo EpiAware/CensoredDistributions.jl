@@ -236,6 +236,7 @@ mean(node)
 # See also
 - [`Resolve`](@ref): the composer type
 - [`compete`](@ref): the racing-hazard sibling constructor (bare delays)
+- [`choose`](@ref): the data-selected disjunction sibling constructor
 - [`as_mixture`](@ref): the `MixtureModel` lowering
 - [`compose`](@ref): the front-end that nests a `Resolve` as a branch
 - [`Sequential`](@ref), [`Parallel`](@ref): the sibling composers
@@ -294,6 +295,7 @@ winning_probabilities(node)
 # See also
 - [`Compete`](@ref): the composer type
 - [`resolve`](@ref): the fixed-probability sibling constructor (`(delay, prob)`)
+- [`choose`](@ref): the data-selected disjunction sibling constructor
 - [`winning_probabilities`](@ref): the derived per-cause winning probabilities
 - [`compose`](@ref): the front-end that nests the node as a branch
 "

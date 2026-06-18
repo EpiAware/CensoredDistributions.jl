@@ -36,9 +36,17 @@ _node_header(c::Resolve) = "Resolve ($(_n_branches(c)) outcomes)"
 function _node_header(c::Compete)
     return "Compete ($(_n_branches(c)) racing outcomes)"
 end
+# A `Choose` is not `<: AbstractOneOf` (no shared origin, no branch
+# probabilities, `.alternatives` not `.delays`), so it has its own header.
+function _node_header(d::Choose)
+    return "Choose ($(_n_alternatives(d)) alternatives, " *
+           "selector = $(repr(d.selector)))"
+end
 
-# Is a child a composer (has named children) or a leaf?
-_is_composer_dist(::Union{Sequential, Parallel, AbstractOneOf}) = true
+# Is a child a composer (has named children) or a leaf? `Choose` is deliberately
+# NOT `<: AbstractOneOf`, so it is listed explicitly to take part in the shared
+# tree render (recursing into a nested `Choose` rather than printing it flat).
+_is_composer_dist(::Union{Sequential, Parallel, AbstractOneOf, Choose}) = true
 _is_composer_dist(::Any) = false
 
 # Named children of a composer as `(name, child[, note])` triples. The note is
@@ -61,6 +69,12 @@ function _named_children(c::Compete)
         (c.names[i], c.delays[i], "racing")
     end
 end
+# A `Choose` alternative carries no branch probability (the active one is chosen
+# by the row's selector value), so its children take no annotation.
+function _named_children(d::Choose)
+    return ntuple(i -> (d.names[i], d.alternatives[i], ""),
+        _n_alternatives(d))
+end
 
 # --- recursive indented-tree show (hand-rolled, type-stable) ---------------
 #
@@ -70,7 +84,8 @@ end
 # level, composer children recursing and leaf delays printed inline. The compact
 # `show(io, d)` one-liners on each type are kept for inline/array display.
 
-# Entry point shared by the three composer `show(::MIME"text/plain")` methods.
+# Entry point shared by the composer `show(::MIME"text/plain")` methods
+# (`Sequential`, `Parallel`, `Resolve`, `Compete`, `Choose`).
 function _show_composer_tree(io::IO, d)
     println(io, _node_header(d))
     _show_children(io, d, "")
@@ -122,7 +137,7 @@ end
 _child_params(c::Union{Sequential, Parallel}) = _composed_params(c)
 _child_params(c::Resolve) = _one_of_params(c)
 _child_params(c::Compete) = _hazard_one_of_params(c)
-_child_params(c::Choose) = _select_params(c)
+_child_params(c::Choose) = _choose_params(c)
 _child_params(c) = params(c)
 
 # A racing-hazard node's nested params: each outcome name -> its delay's params.
@@ -149,7 +164,7 @@ end
 # (`index.…`/`sourced.…`); a tag shared across alternatives via `shared(:tag,...)`
 # still appears once per occurrence here and is inventoried/sampled once by
 # `params_table`/the prior model.
-function _select_params(d::Choose)
+function _choose_params(d::Choose)
     vals = map(_child_params, d.alternatives)
     return NamedTuple{d.names}(vals)
 end

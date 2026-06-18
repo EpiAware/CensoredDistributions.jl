@@ -678,7 +678,7 @@ end
 @testitem "composed_parameters_model: shared param sampled once, placed everywhere" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Random
 
-    # `inc` is shared across the index and sourced branches of a select: one
+    # `inc` is shared across the index and sourced branches of a choose: one
     # free parameter, sampled once, placed in both occurrences.
     inc = shared(:inc, Gamma(2.0, 1.0))
     template = choose(:index => inc,
@@ -812,7 +812,7 @@ end
     import Statistics
 
     # A `Choose` with one leaf alternative and one nested-composer alternative.
-    # Each alternative carries its own free parameters under the select path, so
+    # Each alternative carries its own free parameters under the choose path, so
     # the chain bridge must walk the alternatives like the core
     # `params`/`update`.
     template = choose(:index => Gamma(2.0, 1.0),

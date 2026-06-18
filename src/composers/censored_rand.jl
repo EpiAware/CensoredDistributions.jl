@@ -312,7 +312,7 @@ end
 
 function _one_of_outcome_rand!(out, rng::AbstractRNG, delay::Choose, origin,
         start::Int, ::Type{T}) where {T}
-    return _one_of_outcome_rand!(out, rng, _flat_select_alternative(delay),
+    return _one_of_outcome_rand!(out, rng, _flat_choose_alternative(delay),
         origin, start, T)
 end
 
@@ -462,7 +462,7 @@ end
 # the Choose before sampling, so a routed record samples its chosen alternative.
 function _tree_rand_step!(out, rng::AbstractRNG, step::Choose, origin, idx,
         ::Type{T}) where {T}
-    return _tree_rand_step!(out, rng, _flat_select_alternative(step), origin,
+    return _tree_rand_step!(out, rng, _flat_choose_alternative(step), origin,
         idx, T)
 end
 
@@ -532,7 +532,7 @@ function _discretise_one_of_outcome!(out, delay::Union{Sequential, Parallel},
     return nothing
 end
 function _discretise_one_of_outcome!(out, delay::Choose, start::Int, w::Int)
-    return _discretise_one_of_outcome!(out, _flat_select_alternative(delay),
+    return _discretise_one_of_outcome!(out, _flat_choose_alternative(delay),
         start, w)
 end
 function _discretise_one_of_outcome!(out, delay::AbstractOneOf,
@@ -550,5 +550,5 @@ end
 # A nested `Choose` discretises its DEFAULT alternative's slot(s), matching the
 # default the simulation walk filled.
 function _discretise_step!(out, step::Choose, idx::Int)
-    return _discretise_step!(out, _flat_select_alternative(step), idx)
+    return _discretise_step!(out, _flat_choose_alternative(step), idx)
 end

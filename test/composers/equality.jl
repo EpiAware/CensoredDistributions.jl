@@ -1,5 +1,5 @@
 # `==` / `hash` contract for the composer types (`src/composers/equality.jl`).
-# The `Choose` case is covered in `select.jl`; this pins the rest of the module:
+# The `Choose` case is covered in `choose.jl`; this pins the rest of the module:
 # the STRUCTURAL equality of `Sequential` / `Parallel` (names ignored), the
 # name-bearing equality of `Resolve` / `Compete`, the `NoEvent`
 # singleton, and the cross-type `Resolve != Compete`. The hash/==

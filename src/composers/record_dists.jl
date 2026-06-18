@@ -261,7 +261,7 @@ function record_distributions(d::Sequential, rows)
     # A tree with a nested Choose routes per record by the row's selector, so each
     # record resolves its own (Choose-free) tree before parsing (the selector
     # field is data, not an event).
-    _count_selects(d) > 0 && return _select_resolved_records(d, rows)
+    _count_chooses(d) > 0 && return _choose_resolved_records(d, rows)
     parsed = _parse_rows(d, rows)
     # A nested tree (a nested composer or a Resolve step) has no flat
     # collapsed-segment layout; build each record generically (correctness first).
@@ -271,7 +271,7 @@ function record_distributions(d::Sequential, rows)
 end
 
 function record_distributions(d::Parallel, rows)
-    _count_selects(d) > 0 && return _select_resolved_records(d, rows)
+    _count_chooses(d) > 0 && return _choose_resolved_records(d, rows)
     parsed = _parse_rows(d, rows)
     _nested_trait(d.components) isa _Nested && return _generic_records(d, parsed)
     primary = _shared_primary_event(d.components)
@@ -305,18 +305,18 @@ end
 # resolves its OWN (Choose-free) tree from the row's selector(s), strips the
 # selector field(s) so they are not matched as events, then parses + builds a
 # generic record over the resolved tree. A record missing a needed selector field
-# errors in `_resolve_selects`, so a data record never silently routes to the
+# errors in `_pick_choose`, so a data record never silently routes to the
 # first alternative. The resolved tree may itself be flat or nested; either way
 # the generic record scores it through `event_logpdf`, equal to the per-record
 # loop over the resolved trees.
-function _select_resolved_records(d::Union{Sequential, Parallel}, rows)
+function _choose_resolved_records(d::Union{Sequential, Parallel}, rows)
     rowvec = collect(Tables.rows(rows))
     isempty(rowvec) && throw(ArgumentError(
         "record_distributions needs at least one record; got an empty table"))
-    fields = _select_fields(d)
+    fields = _choose_fields(d)
     out = map(rowvec) do row
         nt = _row_namedtuple(row)
-        resolved = _resolve_selects(d, nt)
+        resolved = _pick_choose(d, nt)
         inner = _drop_named_fields(nt, fields)
         p = _parse_row(resolved, inner)
         _generic_record(resolved, p)
@@ -326,23 +326,23 @@ end
 
 # The selector field names of every nested `Choose` in a tree (each Choose's
 # `selector`), so they are stripped from a row before event matching. RECURSES
-# through the same nesting as `_count_selects`/`_resolve_selects` (composer
+# through the same nesting as `_count_chooses`/`_pick_choose` (composer
 # components, an `AbstractOneOf`'s outcome `delays`, a Choose's alternatives, a
 # Latent's inner dist), so a Choose nested inside a one_of-outcome subtree has
 # its selector field stripped too (else the field would be matched as a spurious
 # event).
-_select_fields(::UnivariateDistribution) = Symbol[]
-function _select_fields(d::Choose)
+_choose_fields(::UnivariateDistribution) = Symbol[]
+function _choose_fields(d::Choose)
     vcat([d.selector],
-        reduce(vcat, map(_select_fields, d.alternatives); init = Symbol[]))
+        reduce(vcat, map(_choose_fields, d.alternatives); init = Symbol[]))
 end
-function _select_fields(d::Union{Sequential, Parallel})
-    return reduce(vcat, map(_select_fields, d.components); init = Symbol[])
+function _choose_fields(d::Union{Sequential, Parallel})
+    return reduce(vcat, map(_choose_fields, d.components); init = Symbol[])
 end
-function _select_fields(c::AbstractOneOf)
-    return reduce(vcat, map(_select_fields, c.delays); init = Symbol[])
+function _choose_fields(c::AbstractOneOf)
+    return reduce(vcat, map(_choose_fields, c.delays); init = Symbol[])
 end
-_select_fields(d::Latent) = _select_fields(d.dist)
+_choose_fields(d::Latent) = _choose_fields(d.dist)
 
 # Drop several named fields from a NamedTuple, preserving the order of the rest.
 function _drop_named_fields(row::NamedTuple, fields)
@@ -613,7 +613,7 @@ function record_distributions(d::Choose, rows)
     rowvec = collect(Tables.rows(rows))
     isempty(rowvec) && throw(ArgumentError(
         "record_distributions needs at least one record; got an empty table"))
-    recs = [_select_record(d, _row_namedtuple(row)) for row in rowvec]
+    recs = [_choose_record(d, _row_namedtuple(row)) for row in rowvec]
     # The records are scored together via `product_distribution`, which requires a
     # rectangular event matrix: every record must have the SAME number of event
     # slots. Different alternatives may have different event-slot counts (a leaf is
@@ -634,7 +634,7 @@ end
 
 # Build one Choose record: read the selector, pick the alternative, and build
 # that alternative's record distribution from the row (selector field stripped).
-function _select_record(d::Choose, row::NamedTuple)
+function _choose_record(d::Choose, row::NamedTuple)
     kind = row[d.selector]
     kind isa Symbol || throw(ArgumentError(
         "the Choose selector field $(repr(d.selector)) must hold a Symbol " *

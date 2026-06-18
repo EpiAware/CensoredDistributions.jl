@@ -147,7 +147,7 @@ _origin_interval(d::AbstractOneOf) = _shared_origin_interval(d.delays)
 # representative. Mirrors the `_tree_primary_event` recursion so a Parallel whose
 # origin-anchor branch is itself a `Choose`/`Latent` still discretises its origin
 # slot (reached only when that branch is the first censored one, e.g. a
-# single-branch `compose((x = select(...),))`, issue #436).
+# single-branch `compose((x = choose(...),))`, issue #436).
 _origin_interval(d::Choose) = _shared_origin_interval(d.alternatives)
 _origin_interval(d::Latent) = _origin_interval(d.dist)
 _origin_interval(d::UnivariateDistribution) = _leaf_interval(d)

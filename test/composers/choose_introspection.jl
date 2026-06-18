@@ -3,7 +3,7 @@
 # composers: its alternatives namespaced per alternative name, a tag shared
 # across alternatives inventoried once, and the whole `params_table` /
 # `build_priors` / `update` / `event_*` surface working on a `Choose`. Kept in
-# its own file (not appended to `select.jl`) to avoid #460 merge conflicts.
+# its own file (not appended to `choose.jl`) to avoid #460 merge conflicts.
 
 @testitem "Choose params is nested and name-keyed (standalone) (#377)" begin
     using CensoredDistributions, Distributions
@@ -17,7 +17,7 @@
 
     # The NAME-keyed nested params (what prior introspection threads) is keyed by
     # the alternative names, each value that alternative's own params.
-    ps = CD._select_params(sel)
+    ps = CD._choose_params(sel)
     @test keys(ps) == (:index, :sourced)
     @test ps.index == (2.0, 1.0)
     @test ps.sourced == (0.5, 0.4)

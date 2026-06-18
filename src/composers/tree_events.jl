@@ -120,7 +120,7 @@ end
 # (a leaf alternative) or its default alternative's own first edge (a composer
 # alternative); the alternatives share the slot layout, so the default names it.
 function _edge_origin_pair(edge_name::Symbol, child::Choose)
-    return _edge_origin_pair(edge_name, _flat_select_alternative(child))
+    return _edge_origin_pair(edge_name, _flat_choose_alternative(child))
 end
 function _root_origin_name_or_nothing(d::Union{Sequential, Parallel})
     name1 = component_names(d)[1]
@@ -210,7 +210,7 @@ end
 function _walk_one_of_outcome!(names, oname::Symbol, delay::Choose,
         origin::Symbol, counter)
     return _walk_one_of_outcome!(names, oname,
-        _flat_select_alternative(delay), origin, counter)
+        _flat_choose_alternative(delay), origin, counter)
 end
 
 # A nested `Resolve` outcome (a one_of node as a one_of branch) recurses
@@ -229,7 +229,7 @@ end
 # alternative recurses through its own walk.
 function _walk_edge!(names, edge_name::Symbol, child::Choose,
         origin::Symbol, counter)
-    return _walk_edge!(names, edge_name, _flat_select_alternative(child),
+    return _walk_edge!(names, edge_name, _flat_choose_alternative(child),
         origin, counter)
 end
 

@@ -115,7 +115,7 @@ child_nleaves(c::Union{Sequential, Parallel}) = length(c)
 # common width is the nested Choose's leaf count; disagreeing widths cannot
 # share one flat slot and error (a `length(::Choose)` has no single answer).
 function child_nleaves(c::Choose)
-    n = child_nleaves(_flat_select_alternative(c))
+    n = child_nleaves(_flat_choose_alternative(c))
     widths = map(child_nleaves, c.alternatives)
     all(==(n), widths) || throw(ArgumentError(
         "a nested Choose needs every alternative to have the same leaf count " *
@@ -191,7 +191,7 @@ _event_child_nleaves(c::Union{Sequential, Parallel}) = _event_nleaves(c.componen
 # alternative must expose the same number of event slots to share one flat slot,
 # so the chosen alternative for a row lands in the same slice whichever it is.
 function _event_child_nleaves(c::Choose)
-    n = _event_child_nleaves(_flat_select_alternative(c))
+    n = _event_child_nleaves(_flat_choose_alternative(c))
     widths = map(_event_child_nleaves, c.alternatives)
     all(==(n), widths) || throw(ArgumentError(
         "a nested Choose needs every alternative to expose the same number of " *
@@ -269,7 +269,7 @@ end
 # alternative (a deterministic default so flat `logpdf`/`rand` round-trip); the
 # selector-driven choice lives in the row/record path, not the flat path.
 function child_logpdf(c::Choose, x, offset, n::Int)
-    return child_logpdf(_flat_select_alternative(c), x, offset, n)
+    return child_logpdf(_flat_choose_alternative(c), x, offset, n)
 end
 # A latent alternative on the flat path scores through its marginal node (the
 # flat slot carries observed values; the latent primary is integrated out).
@@ -282,14 +282,14 @@ const _child_logpdf = child_logpdf
 
 # The alternative a nested Choose commits to on the data-free path: the FIRST.
 # The row/record path overrides this by the row's selector value (`_pick` /
-# `_resolve_selects`). This is the SINGLE source of the "Choose routes to its
+# `_pick_choose`). This is the SINGLE source of the "Choose routes to its
 # first alternative" rule shared by every tree walk -- the flat value path here,
 # the event-name walk (`tree_events.jl`), the per-event moment / discretisation /
 # sampling walks (`composed_moments.jl` / `censored_rand.jl`), and the AD'd
 # scorer (`censored_scoring_tree.jl` / `censored_one_of.jl`). It is a pure
 # structural accessor (no leaf values, no closures), so the scorer routing
 # through it stays AD-safe (it inlines to the bare `first(c.alternatives)`).
-_flat_select_alternative(c::Choose) = first(c.alternatives)
+_flat_choose_alternative(c::Choose) = first(c.alternatives)
 
 # Concatenate the per-child draws into one flat vector of element type `T`.
 function _composite_rand(rng::AbstractRNG, components::Tuple, ::Type{T}) where {T}
@@ -354,7 +354,7 @@ end
 # A nested `Choose` samples its FIRST alternative on the flat path, matching the
 # committed alternative the flat `child_logpdf` scores.
 function child_rand!(out, offset, rng::AbstractRNG, c::Choose)
-    return child_rand!(out, offset, rng, _flat_select_alternative(c))
+    return child_rand!(out, offset, rng, _flat_choose_alternative(c))
 end
 # A latent alternative samples its observed value through its marginal node on
 # the flat path (the latent primary is not part of the flat slot).

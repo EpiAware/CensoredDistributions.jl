@@ -118,7 +118,7 @@ event_names(d)
 
 # See also
 - [`Parallel`](@ref): the composer type
-- [`sequential`](@ref), [`resolve`](@ref), [`compete`](@ref): the sibling constructors
+- [`sequential`](@ref), [`resolve`](@ref), [`compete`](@ref), [`choose`](@ref): the sibling constructors
 - [`compose`](@ref): the NamedTuple/table/matrix front-end
 "
 function parallel(branches::Pair...)
