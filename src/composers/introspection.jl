@@ -888,9 +888,10 @@ For each row the prior is chosen in order:
    unless a different `default` function is given).
 
 By default every row gets a sensible support-derived prior, so
-`build_priors(params_table(tree))` alone yields a complete prior NamedTuple. A
-user overrides only the parameters they care about (brms-style partial override)
-through `priors`.
+`build_priors(params_table(tree))` alone yields a complete prior NamedTuple. To
+recentre only the parameters you care about (brms-style partial override), edit
+the result with [`update`](@ref)`(priors, path => fields)`, addressing each leaf
+by the same name path the tree [`update`](@ref) uses.
 
 `row` is a `NamedTuple` `(; edge, param, value, support)` (the table's columns
 for that row), so a custom `default` can pick a prior from the parameter's
@@ -904,7 +905,8 @@ for that row), so a custom `default` can pick a prior from the parameter's
 - `priors`: per-parameter overrides, either a `(edge, param) => prior` mapping
   (e.g. a `Dict`) or a nested `NamedTuple` keyed like the tree
   (`(onset_admit = (shape = prior,),)`); only the listed parameters are
-  overridden (default: empty).
+  overridden (default: empty). Prefer editing the assembled table with
+  [`update`](@ref).
 - `default`: a function `row -> prior` for rows not overridden (default:
   [`default_prior`](@ref), deriving the prior family from the parameter's
   support).
@@ -916,15 +918,16 @@ using CensoredDistributions, Distributions
 tree = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
 tbl = params_table(tree)
-# Support-derived defaults everywhere, overriding only one parameter.
-nested = build_priors(tbl;
-    priors = (onset_admit = (shape = truncated(Normal(2, 0.5); lower = 0),),))
+# Support-derived defaults everywhere, then recentre one parameter by path.
+nested = update(build_priors(tbl),
+    :onset_admit => (shape = truncated(Normal(2, 0.5); lower = 0),))
 nested.onset_admit.shape
 ```
 
 # See also
 - [`params_table`](@ref): the flat inventory keyed against.
 - [`default_prior`](@ref): the support-derived per-row default.
+- [`update`](@ref): recentre priors by path on the assembled table.
 - [`composed_parameters_model`](@ref), [`update`](@ref): consume the result.
 "
 function build_priors(table; priors = Dict{Tuple{Symbol, Symbol}, Any}(),
@@ -970,6 +973,84 @@ end
 function _prior_override(priors, edge::Symbol, param::Symbol)
     key = (edge, param)
     return haskey(priors, key) ? priors[key] : nothing
+end
+
+# --- update: override fields of a nested prior NamedTuple --------------------
+#
+# `build_priors` returns the nested prior NamedTuple; `update` edits it in the
+# same path convention the tree `update` uses, so a user recentres a handful of
+# priors without rebuilding the whole structure or reaching for a flat
+# `(edge, param) => prior` Dict.
+
+# Merge `fields` into the leaf prior group at `path`, walking the nested
+# NamedTuple by name and rebuilding the spine on the way back up. An empty path
+# merges into `node` itself; an unknown name or a path that runs past a leaf
+# group errors (mirroring the tree-update `_child_index` behaviour).
+function _override_priors(node::NamedTuple, path::Tuple, fields::NamedTuple)
+    if isempty(path)
+        for f in keys(fields)
+            haskey(node, f) || throw(ArgumentError(
+                "update(priors, ...): no prior field $(repr(f)); " *
+                "have $(collect(keys(node)))"))
+        end
+        return merge(node, fields)
+    end
+    name = first(path)
+    haskey(node, name) || throw(ArgumentError(
+        "update(priors, ...): no prior named $(repr(name)); " *
+        "have $(collect(keys(node)))"))
+    child = node[name]
+    child isa NamedTuple || throw(ArgumentError(
+        "update(priors, ...): path runs past prior leaf at $(repr(name))"))
+    edited = _override_priors(child, Base.tail(path), fields)
+    return merge(node, NamedTuple{(name,)}((edited,)))
+end
+
+@doc "
+
+Override prior fields of a [`build_priors`](@ref) table by path.
+
+`update(priors, path => fields, ...)` returns a new nested prior `NamedTuple`
+with the per-field priors in each `fields` `NamedTuple` merged in at the leaf
+addressed by `path`, leaving every other prior at its [`build_priors`](@ref)
+default. A `path` is a `Symbol` (a top-level name) or a tuple of names (a nested
+path), the SAME address convention [`update`](@ref)`(d, path => new_node)` uses
+on a composed distribution. `fields` is a `NamedTuple` of the parameter priors
+to replace at that leaf (e.g. `(shape = prior,)`, `(mu = ..., sigma = ...)`); an
+unknown path or field errors clearly.
+
+This replaces the flat `(edge, param) => prior` override Dict. Define the
+support-derived defaults with `build_priors(table)`, then recentre only the
+priors you care about with `update`.
+
+# Arguments
+- `priors`: a nested prior `NamedTuple` from [`build_priors`](@ref).
+- `edits`: one or more `path => fields` pairs, `path` a `Symbol` or tuple of
+  names and `fields` a `NamedTuple` of per-parameter prior overrides.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+inner = compose((death = Gamma(1.5, 1.0), discharge = Gamma(2.0, 1.5)))
+tree = compose((admit_resolution = inner, onset_notif = Gamma(2.0, 1.0)))
+shape_prior = truncated(Normal(1.0, 1.5); lower = 0.05)
+priors = update(build_priors(params_table(tree)),
+    (:admit_resolution, :death) => (shape = shape_prior,),
+    :onset_notif => (shape = shape_prior,))
+priors.onset_notif.shape
+```
+
+# See also
+- [`build_priors`](@ref): assembles the nested prior NamedTuple this edits.
+- [`update`](@ref)`(d, path => new_node)`: the same path convention on a tree.
+"
+function update(priors::NamedTuple, edits::Pair...)
+    out = priors
+    for (path, fields) in edits
+        out = _override_priors(out, _as_path(path), fields)
+    end
+    return out
 end
 
 # --- name introspection ----------------------------------------------------

@@ -579,6 +579,70 @@ end
     @test_throws ArgumentError build_priors(tbl; default = nothing)
 end
 
+@testitem "update overrides priors-table fields by path" begin
+    using Distributions
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    priors = build_priors(params_table(tree))
+
+    shape_prior = truncated(Normal(1.0, 1.5); lower = 0.05)
+    sigma_prior = truncated(Normal(0.0, 0.5); lower = 0)
+
+    # A single Symbol addresses a top-level name; a tuple a nested path. The
+    # RHS is a NamedTuple of per-field overrides.
+    updated = update(priors,
+        :onset_admit => (shape = shape_prior,),
+        :admit_death => (sigma = sigma_prior,))
+
+    # The named fields are replaced exactly.
+    @test updated.onset_admit.shape === shape_prior
+    @test updated.admit_death.sigma === sigma_prior
+    # Sibling fields keep their support-derived defaults.
+    @test updated.onset_admit.scale === priors.onset_admit.scale
+    @test updated.admit_death.mu === priors.admit_death.mu
+    # The input is not mutated.
+    @test priors.onset_admit.shape !== shape_prior
+end
+
+@testitem "update on a priors table walks a nested path" begin
+    using Distributions
+
+    inner = compose((death = Gamma(1.5, 1.0), discharge = Gamma(2.0, 1.5)))
+    tree = compose((admit_resolution = inner, onset_notif = Gamma(2.0, 1.0)))
+    priors = build_priors(params_table(tree))
+
+    shape_prior = truncated(Normal(1.0, 1.5); lower = 0.05)
+    updated = update(priors,
+        (:admit_resolution, :death) => (shape = shape_prior,),
+        :onset_notif => (shape = shape_prior,))
+
+    @test updated.admit_resolution.death.shape === shape_prior
+    @test updated.onset_notif.shape === shape_prior
+    # Untouched leaf and field unchanged.
+    @test updated.admit_resolution.discharge.shape ===
+          priors.admit_resolution.discharge.shape
+    @test updated.admit_resolution.death.scale ===
+          priors.admit_resolution.death.scale
+end
+
+@testitem "update on a priors table errors on an unknown path" begin
+    using Distributions
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),))
+    priors = build_priors(params_table(tree))
+    prior = Normal(0.0, 1.0)
+
+    # Unknown top-level name.
+    @test_throws ArgumentError update(priors, :missing => (shape = prior,))
+    # Unknown nested step.
+    @test_throws ArgumentError update(priors,
+        (:onset_admit, :nope) => (shape = prior,))
+    # Unknown field at a known leaf.
+    @test_throws ArgumentError update(priors,
+        :onset_admit => (bogus = prior,))
+end
+
 @testitem "build_priors derives support-based defaults (brms-style)" begin
     using Distributions
 

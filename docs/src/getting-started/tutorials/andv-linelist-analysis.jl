@@ -221,15 +221,17 @@ param_inventory = params_table(template)
 
 # [`build_priors`](@ref) turns the table into the nested prior NamedTuple that
 # [`composed_parameters_model`](@ref) consumes, giving each parameter a
-# support-derived default. We override the four with the upstream model's priors:
-# the incubation log-mean and log-SD, and the transmission-timing mean and SD.
+# support-derived default. [`update`](@ref) then overrides the four with the
+# upstream model's priors (the incubation log-mean and log-SD, and the
+# transmission-timing mean and SD), addressing each leaf by its name path. The
+# shared `inc` tag is a top-level name and the transmission timing sits under
+# `sourced`.
 
-priors = build_priors(param_inventory;
-    priors = (
-        inc = (mu = Normal(3.0, 0.5),
-            sigma = truncated(Normal(0.0, 0.5); lower = 0)),
-        sourced = (srconset_infection = (mu = Normal(0.0, 5.0),
-            sigma = truncated(Normal(0.0, 1.0); lower = 0)),)))
+priors = update(build_priors(param_inventory),
+    :inc => (mu = Normal(3.0, 0.5),
+        sigma = truncated(Normal(0.0, 0.5); lower = 0)),
+    (:sourced, :srconset_infection) => (mu = Normal(0.0, 5.0),
+        sigma = truncated(Normal(0.0, 1.0); lower = 0)))
 
 # ## The model
 #
