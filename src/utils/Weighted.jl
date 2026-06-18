@@ -294,11 +294,11 @@ function _logpdf_product(
     # batched `logpdf` (the `weight(dist, weights)` aggregation pattern over an
     # `IntervalCensored`: many duplicate observation/window combinations against
     # one distribution), these are scored in a SINGLE vectorised `logpdf(dist, x)`
-    # call rather than a per-observation loop, reusing the batched PDF methods
-    # (#132). The vectorised call returns the same values as the per-element loop
-    # (it just caches shared CDF evaluations), so the weighted sum is numerically
-    # identical; the loop fallback (`_weighted_base_logpdfs`) keeps every other
-    # case correct.
+    # call rather than a per-observation loop, reusing the batched PDF
+    # methods. The vectorised call returns the same values as the per-element
+    # loop (it just caches shared CDF evaluations), so the weighted sum is
+    # numerically identical; the loop fallback (`_weighted_base_logpdfs`) keeps
+    # every other case correct.
     logpdfs = _weighted_base_logpdfs(d.v, values)
     constructor_weights = [wd.weight for wd in d.v]
 
@@ -331,7 +331,7 @@ end
 # Whether a distribution provides a specialised, value-identical batched
 # `logpdf(d, ::AbstractVector{<:Real})` over a vector of scalar observations that
 # is worth a single vectorised call. Only `IntervalCensored` does (it caches the
-# shared interval CDFs, #132); everything else falls back to the per-observation
+# shared interval CDFs); everything else falls back to the per-observation
 # loop. Composer `logpdf(::AbstractVector)` methods score a single MULTIVARIATE
 # event, not a batch, so they are deliberately excluded.
 _has_batched_logpdf(::UnivariateDistribution) = false

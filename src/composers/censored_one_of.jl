@@ -7,7 +7,7 @@
 # branch-probability override, and the per-record nested-`Choose` routing.
 # Builds on the generic nested-tree scoring in `censored_scoring_tree.jl`.
 
-# --- one_of outcome-slice layout (leaf OR composer subtree, #466 F3) -------
+# --- one_of outcome-slice layout (leaf OR composer subtree) ---------------
 #
 # Each one_of outcome occupies a CONTIGUOUS slice of the event vector starting
 # at `ev_idx`: a LEAF outcome is one slot, a NON-TERMINAL outcome whose payload is
@@ -79,7 +79,7 @@ end
 # A per-record observation `horizon` (default `nothing`) RIGHT-TRUNCATES the
 # conditioned branch at the remaining window from the anchor, mirroring the
 # top-level `_maybe_truncate` so a nested Resolve honours the same real-time
-# right-truncation as the top-level node (#517). With `horizon === nothing` the
+# right-truncation as the top-level node. With `horizon === nothing` the
 # scoring is byte-identical to the untruncated path.
 function _tree_step(step::Resolve, events, o_idx::Int, ev_idx::Int,
         primary, ::Type{T}, horizon = nothing) where {T}
@@ -99,7 +99,7 @@ end
 #
 # A per-record `horizon` (default `nothing`) right-truncates the branch density at
 # the remaining window from the anchor (`horizon - events[o_idx]`), matching the
-# top-level `_maybe_truncate` semantics (#517).
+# top-level `_maybe_truncate` semantics.
 function _one_of_tree_logpdf(c::Resolve, probs, o_idx::Int, events,
         ev_idx::Int, primary, ::Type{T}, horizon = nothing) where {T}
     obs_i,
@@ -143,7 +143,7 @@ end
 # parent origin (shared like a nested-composer origin). The mixture weight
 # `log p_k` is added by the caller, so this is the conditional `f(payload | k)`.
 # A per-record `horizon` (default `nothing`) right-truncates a LEAF branch at the
-# remaining window from the anchor (#517); the composer-subtree / nested-Resolve
+# remaining window from the anchor; the composer-subtree / nested-Resolve
 # payloads thread it on into their own recursion.
 function _one_of_outcome_payload_logpdf(delay::UnivariateDistribution, o,
         o_idx::Int, events, obs_start::Int, obs_w::Int, primary, ::Type{T},
@@ -163,7 +163,7 @@ end
 # so its own origin primary (if any) seeds the recursion; the parent-level primary
 # is passed through for a sampled-origin sub-chain. A per-record `horizon` threads
 # on into the subtree recursion so a Resolve nested inside this subtree also
-# truncates (#517); the subtree shares the parent anchor, so the same absolute
+# truncates; the subtree shares the parent anchor, so the same absolute
 # horizon applies.
 function _one_of_outcome_payload_logpdf(
         delay::Union{Sequential, Parallel}, o, o_idx::Int, events,
@@ -186,7 +186,7 @@ end
 # A nested `Resolve` outcome (a one_of node as a one_of branch): recurse
 # through the one_of scorer on the outcome's slice, anchored at the parent
 # origin (the inner one_of's outcomes hang off the same shared anchor). The
-# per-record `horizon` threads on so the inner Resolve truncates too (#517).
+# per-record `horizon` threads on so the inner Resolve truncates too.
 function _one_of_outcome_payload_logpdf(delay::Resolve, o, o_idx::Int,
         events, obs_start::Int, obs_w::Int, primary, ::Type{T},
         horizon = nothing) where {T}
@@ -260,7 +260,7 @@ function _hazard_outcome_payload(step::Compete, obs_i::Int,
     return _hazard_cause_logpdf(step, obs_i, convert(T, y) - convert(T, o))
 end
 
-# A COMPOSER racing outcome (#466 F3 / #479): the cause-resolved density of a
+# A COMPOSER racing outcome: the cause-resolved density of a
 # NON-TERMINAL racing branch is its subtree's own censored event density TIMES the
 # survival of the OTHER causes up to the branch's resolution time `t`, mirroring
 # the leaf formula `f_j(t) ∏_{k≠j} S_k(t)`. The subtree replaces the within-branch

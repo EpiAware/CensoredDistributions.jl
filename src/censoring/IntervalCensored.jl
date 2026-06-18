@@ -287,7 +287,7 @@ Element type for the cached interval CDF values and the `0`/`1` boundary
 seeds in the batched PDF path.
 
 This must follow the underlying DISTRIBUTION's parameter type, not just the
-evaluation points (#403). When the distribution carries AD `Dual`/tracked
+evaluation points. When the distribution carries AD `Dual`/tracked
 parameters but `x` and the boundaries are plain `Float64`, a type derived
 from the eval points alone (e.g. `Float64`) would strip the AD numbers and
 break gradients on the batched path. `eltype(d)` reports the support type
@@ -296,7 +296,7 @@ enough; we promote in the actual CDF result type from `_cdf_ad_safe`.
 """
 function _interval_cdf_eltype(d::IntervalCensored, x::AbstractVector{<:Real})
     # The CDF value type follows the distribution's PARAMETER type (carrying any
-    # AD `Dual`/tracked number, #403). `partype` reads it directly from the
+    # AD `Dual`/tracked number). `partype` reads it directly from the
     # parameters without EVALUATING the CDF, so the type probe never traces a
     # computation onto the AD tape. An earlier probe that evaluated `cdf` at the
     # distribution minimum tripped ReverseDiff: `cdf(LogNormal, 0.0)` has a NaN
@@ -319,7 +319,7 @@ function _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector{<:Real}
     dist_max = maximum(get_dist(d))
 
     # Boundary `0`/`1` seeds must carry the distribution's (possibly AD)
-    # parameter type so gradients flow through the batched path (#403).
+    # parameter type so gradients flow through the batched path.
     T = _interval_cdf_eltype(d, x)
 
     return map(x) do xi
@@ -354,7 +354,7 @@ function pdf(d::IntervalCensored, x::AbstractVector{<:Real})
     boundaries = _collect_unique_boundaries(d, x)
 
     # Element type for the CDF VALUES follows the distribution's parameter
-    # type so AD `Dual`/tracked numbers flow through the batched path (#403);
+    # type so AD `Dual`/tracked numbers flow through the batched path;
     # the dictionary KEYS stay at the (non-AD) evaluation/boundary type so
     # lookups by `get_interval_bounds` values still hit.
     Tval = _interval_cdf_eltype(d, x)
@@ -394,7 +394,7 @@ function logpdf(d::IntervalCensored, x::AbstractVector{<:Real})
     pdf_vals = pdf(d, x)
 
     # Follow the PDF value type (which carries any AD `Dual`/tracked parameter
-    # type, #403) rather than the eval points, so `log`/`-Inf` conversions do
+    # type) rather than the eval points, so `log`/`-Inf` conversions do
     # not strip gradients on the batched path.
     T = promote_type(eltype(x), eltype(pdf_vals))
 

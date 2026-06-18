@@ -1,11 +1,11 @@
-# Choose wired into the params/prior introspection interface (#377). The
+# Choose wired into the params/prior introspection interface. The
 # name-keyed nested params path must treat a `Choose` node like the other
 # composers: its alternatives namespaced per alternative name, a tag shared
 # across alternatives inventoried once, and the whole `params_table` /
 # `build_priors` / `update` / `event_*` surface working on a `Choose`. Kept in
-# its own file (not appended to `choose.jl`) to avoid #460 merge conflicts.
+# its own file (not appended to `choose.jl`) to keep the diff isolated.
 
-@testitem "Choose params is nested and name-keyed (standalone) (#377)" begin
+@testitem "Choose params is nested and name-keyed (standalone)" begin
     using CensoredDistributions, Distributions
     const CD = CensoredDistributions
 
@@ -25,12 +25,12 @@
     @test CD._child_params(sel) == ps
 end
 
-@testitem "Choose nested under a composer yields a name-keyed subtree (#377)" begin
+@testitem "Choose nested under a composer yields a name-keyed subtree" begin
     using CensoredDistributions, Distributions
     const CD = CensoredDistributions
 
     # A `Choose` as a child of a `Sequential` (the tree the event/introspection
-    # layer walks). Before #377 `_child_params` fell through to the positional
+    # layer walks). Previously `_child_params` fell through to the positional
     # `params(::Choose)`, injecting a bare tuple into an otherwise name-keyed
     # tree; now it recurses to a name-keyed subtree.
     sel = choose(:index => Gamma(2.0, 1.0), :sourced => LogNormal(0.5, 0.4))
@@ -54,7 +54,7 @@ end
     @test cp.sourced == (onset_admit = (2.0, 1.0), admit_death = (0.5, 0.4))
 end
 
-@testitem "params_table row-groups a Choose per alternative (#377)" begin
+@testitem "params_table row-groups a Choose per alternative" begin
     using CensoredDistributions, Distributions
     const Tables = CensoredDistributions.Tables
 
@@ -81,7 +81,7 @@ end
     @test :index in tbl2.edge
 end
 
-@testitem "params_table inventories a shared tag once across Choose (#377)" begin
+@testitem "params_table inventories a shared tag once across Choose" begin
     using CensoredDistributions, Distributions
 
     # A parameter tied across alternatives via `shared(:inc, ...)` is inventoried
@@ -101,7 +101,7 @@ end
     @test tbl.value == [2.0, 1.0, 0.5, 0.4]
 end
 
-@testitem "build_priors round-trips a Choose params table (#377)" begin
+@testitem "build_priors round-trips a Choose params table" begin
     using CensoredDistributions, Distributions
 
     sel = choose(:index => Gamma(2.0, 1.0), :sourced => LogNormal(0.5, 0.4))
@@ -132,7 +132,7 @@ end
     @test Set(keys(shnested.inc)) == Set((:shape, :scale))
 end
 
-@testitem "update reconstructs a Choose from a nested NamedTuple (#377)" begin
+@testitem "update reconstructs a Choose from a nested NamedTuple" begin
     using CensoredDistributions, Distributions
     const CD = CensoredDistributions
 
@@ -160,7 +160,7 @@ end
     @test get_dist(event(CD._pick(shupd, :sourced), :inc)) == Gamma(3.0, 1.5)
 end
 
-@testitem "Choose event_tree / event_names name introspection (#377)" begin
+@testitem "Choose event_tree / event_names name introspection" begin
     using CensoredDistributions, Distributions
 
     sel = choose(:index => Gamma(2.0, 1.0),

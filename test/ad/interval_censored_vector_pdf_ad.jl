@@ -1,8 +1,8 @@
 # AD coverage for the vectorised `pdf`/`logpdf` of `IntervalCensored`.
 #
 # The batched path caches the interval CDFs in an array whose element type
-# must follow the DISTRIBUTION's parameter type, not the evaluation points
-# (#403). When the distribution carries `Dual`/tracked parameters but the
+# must follow the DISTRIBUTION's parameter type, not the evaluation points.
+# When the distribution carries `Dual`/tracked parameters but the
 # grid and boundaries are plain `Float64`, a type pinned to the eval points
 # strips the AD numbers and either errors (`Float64(::Dual)`) or returns a
 # zero gradient. The gradient of a scalar summary of the batched PDF w.r.t.
@@ -16,7 +16,7 @@
     grid = collect(0.0:1.0:10.0)
 
     # Scalar-broadcast reference: maps the scalar `pdf` over the grid, which
-    # keeps `Dual`s alive (the scalar path is unaffected by #403).
+    # keeps `Dual`s alive (the scalar path is unaffected).
     function obj_scalar(theta)
         ic = interval_censored(Gamma(theta[1], theta[2]), 1.0)
         return sum(pdf.(Ref(ic), grid))

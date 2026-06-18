@@ -1,4 +1,4 @@
-# Tests for the Catalyst extension (issues #400/#177/#125): the linear chain
+# Tests for the Catalyst extension: the linear chain
 # trick lowered onto Catalyst reactions. `linear_chain_reactions` slots a
 # composed delay onto one transition; we solve and check the recovered mean
 # dwell time and the per-transition compartment structure. Whole-model assembly

@@ -87,7 +87,7 @@ end
 
     # The three front-ends build the same nested STRUCTURE; their node names may
     # differ (each format carries its own), and `==` compares structure only
-    # (#351, Option A). These assertions exercise that relaxed equivalence.
+    # (Option A). These assertions exercise that relaxed equivalence.
 
     # --- irregular tree: NamedTuple, column table, row table agree ---
     nt = (a = Gamma(2.0, 1.0), b = [LogNormal(0.5, 0.4), Gamma(1.0, 1.0)])
@@ -187,8 +187,8 @@ end
         CD.Parallel(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)), Normal(0.0, 1.0))
 
     # A Choose with equal-width alternatives IS a valid compose child (it occupies
-    # a fixed flat slot); the flat path commits to its first alternative (see
-    # issue #413). The supported direction also includes a composer INSIDE a Choose.
+    # a fixed flat slot); the flat path commits to its first alternative. The
+    # supported direction also includes a composer INSIDE a Choose.
     sel = choose(:s1 => Gamma(2.0, 1.0), :s2 => Gamma(5.0, 1.0))
     withsel = compose((k = sel, m = Normal(0.0, 1.0)))
     @test withsel isa CD.Parallel
@@ -347,7 +347,7 @@ end
     @test count(==('\n'), det) > count(==('\n'), out3)
 end
 
-@testitem "compose threads names through every input format (#351)" begin
+@testitem "compose threads names through every input format" begin
     using Distributions
     const CD = CensoredDistributions
 
@@ -368,7 +368,7 @@ end
     # Positional fallback only when no names are supplied.
     @test CD.component_names(c_mat_default) == (:branch_1, :branch_2)
 
-    # Structurally equal regardless of names (relaxed equivalence, #351).
+    # Structurally equal regardless of names (relaxed equivalence).
     @test c_nt == c_tbl == c_mat == c_mat_default
 
     # Chained table: branch named by its first row; steps by their own rows.
@@ -387,7 +387,7 @@ end
     @test CD.component_names(cm.components[1]) == (:s1, :s2)
 end
 
-@testitem "params is nested and name-keyed for composed dists (#351)" begin
+@testitem "params is nested and name-keyed for composed dists" begin
     using Distributions
 
     tree = compose((onset_admit = LogNormal(1.5, 0.4),
@@ -414,7 +414,7 @@ end
     @test pc.branch_probs == (0.3, 0.7)
 end
 
-@testitem "params_table flattens to edge|param|value|support (#351)" begin
+@testitem "params_table flattens to edge|param|value|support" begin
     using Distributions
     # `Tables` is a CensoredDistributions dependency; reach it through the
     # package rather than adding a direct test dep.
@@ -453,7 +453,7 @@ end
     @test ct.value[bp] == [0.3, 0.7]
 end
 
-@testitem "name introspection: event_names, event_tree and event (#351)" begin
+@testitem "name introspection: event_names, event_tree and event" begin
     using Distributions
 
     tree = compose((onset_admit = LogNormal(1.5, 0.4),

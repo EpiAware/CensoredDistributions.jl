@@ -148,7 +148,7 @@ end
 @testitem "Vectorised weighted logpdf equals per-obs weighted sum" begin
     using Distributions
 
-    # The `weight(dist, weights)` aggregation pattern (#134): one shared
+    # The `weight(dist, weights)` aggregation pattern: one shared
     # distribution, many duplicate observation/window combinations collapsed to
     # weighted unique values. The Product{Weighted} logpdf is scored in a single
     # vectorised `logpdf(dist, x)` call (reusing the cached-CDF batched PDF) and

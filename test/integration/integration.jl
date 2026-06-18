@@ -1,4 +1,4 @@
-# Tests for the pluggable integration interface (issue #208): the core
+# Tests for the pluggable integration interface: the core
 # default `GaussLegendre` solver, its numerical equivalence to the prior
 # Integrals.jl GaussLegendre path, and the optional Integrals.jl extension.
 

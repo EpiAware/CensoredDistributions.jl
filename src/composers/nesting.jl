@@ -19,8 +19,8 @@ _is_composable(::Any) = false
 
 # Whether a value is admissible as a one_of OUTCOME delay: a univariate leaf
 # (a plain delay, the `NoEvent` marker, or a nested `Resolve`) OR a composer
-# SUBTREE (`Sequential` / `Parallel` / `Choose`, the non-terminal branch of #466
-# Feature 3). Used by the `one_of` / `Resolve` / `Compete`
+# SUBTREE (`Sequential` / `Parallel` / `Choose`, the non-terminal branch).
+# Used by the `one_of` / `Resolve` / `Compete`
 # constructors to validate a branch payload without referencing the later-loaded
 # composer types in their method signatures.
 _is_one_of_branch(::UnivariateDistribution) = true
@@ -28,7 +28,7 @@ _is_one_of_branch(::Union{Sequential, Parallel, Choose}) = true
 _is_one_of_branch(::Any) = false
 
 # Whether an outcome's payload is itself a composer SUBTREE (a non-terminal
-# one_of branch, #466 Feature 3) rather than a leaf delay. A nested `Resolve`
+# one_of branch) rather than a leaf delay. A nested `Resolve`
 # (univariate but multi-slot) also counts: its event layout spans more than one
 # slot. A leaf delay (including the `NoEvent` marker) is terminal. Defined here
 # (not in `Resolve.jl`) so `Sequential` / `Parallel` / `Choose` are all loaded.
@@ -38,7 +38,7 @@ _is_composer_outcome(::UnivariateDistribution) = false
 # Whether a one_of node is NON-TERMINAL: any outcome's payload is a composer
 # subtree. A non-terminal one_of node is MULTIVARIATE (its outcomes span their
 # subtrees' event slots), so its scalar `logpdf` / `mean` / `as_mixture` error and
-# its outputs are NamedTuples (#466 Feature 3); an all-leaf node is the unchanged
+# its outputs are NamedTuples; an all-leaf node is the unchanged
 # univariate (collapsible) terminal node.
 _is_nonterminal(c::AbstractOneOf) = any(_is_composer_outcome, c.delays)
 
@@ -158,10 +158,10 @@ _event_child_nleaves(c) = _child_nleaves(c)
 # `Compete`) expose event slots PER OUTCOME. A LEAF outcome (a plain
 # delay) occupies ONE slot; a NON-TERMINAL outcome whose payload is itself a
 # composer subtree (`Sequential`/`Parallel`/`Choose`/nested `Resolve`) occupies
-# its WHOLE subtree's event-slot width (#466 Feature 3), anchored at the outcome's
+# its WHOLE subtree's event-slot width, anchored at the outcome's
 # resolution event (shared like a nested-composer origin). The all-leaf fast path
 # is exactly `_n_branches(c)` (every outcome contributes one slot), preserving the
-# #474 terminal-Resolve layout; a composer outcome instead recurses through
+# terminal-Resolve layout; a composer outcome instead recurses through
 # `_event_child_nleaves`, so its sub-event slots are summed in. Dispatch on the
 # shared supertype so the mixture and racing nodes share the layout.
 function _event_child_nleaves(c::AbstractOneOf)

@@ -45,11 +45,11 @@ _origin_primary_event(d::PrimaryCensored) = d.primary_event
 _origin_primary_event(d::Truncated) = _origin_primary_event(d.untruncated)
 _origin_primary_event(d::IntervalCensored) = _origin_primary_event(d.dist)
 _origin_primary_event(d::Weighted) = _origin_primary_event(d.dist)
-# A `shared(:tag, ...)` leaf is TRANSPARENT to scoring (#394), so a shared
+# A `shared(:tag, ...)` leaf is TRANSPARENT to scoring, so a shared
 # censored leaf at a tree origin must surface its wrapped leaf's primary event
 # like the other censoring wrappers; without this the origin's latent primary is
 # lost and a `shared(:inc, primary_censored(...))` first step scores as an
-# UNCENSORED origin (#395 follow-up: the shared wrapper was stripped by
+# UNCENSORED origin (the shared wrapper was stripped by
 # `_marginal_core` / `cdf` but not by the origin-primary traversal, diverging
 # from the untagged leaf).
 _origin_primary_event(d::Shared) = _origin_primary_event(d.dist)
@@ -73,7 +73,7 @@ _origin_primary_event(d::Latent) = _origin_primary_event(d.dist)
 # alone would over-unwrap that nested `Convolved` into its component VECTOR (via
 # `get_dist(::Convolved)`), and a vector is not a distribution: the downstream
 # `rand`/`logpdf`/`_param_eltype` machinery would then draw a random COMPONENT
-# rather than the convolution sum and `params(::Vector)` would error (#363). So
+# rather than the convolution sum and `params(::Vector)` would error. So
 # strip one wrapper layer at a time and stop at the first `Convolved`.
 _marginal_core(d::UnivariateDistribution) = _strip_to_core(d)
 _marginal_core(d::Convolved) = d
@@ -100,7 +100,7 @@ end
 _leaf_interval(d::IntervalCensored) = d
 _leaf_interval(d::Truncated) = _leaf_interval(d.untruncated)
 _leaf_interval(d::Weighted) = _leaf_interval(d.dist)
-# A `shared(:tag, ...)` leaf is transparent to scoring (#394), so recover the
+# A `shared(:tag, ...)` leaf is transparent to scoring, so recover the
 # secondary interval THROUGH the shared wrapper like the other wrappers;
 # otherwise a `shared(:inc, double_interval_censored(...))` leaf drops its
 # interval discretisation and scores its gaps continuously, diverging from the
@@ -108,7 +108,7 @@ _leaf_interval(d::Weighted) = _leaf_interval(d.dist)
 _leaf_interval(d::Shared) = _leaf_interval(d.dist)
 _leaf_interval(::UnivariateDistribution) = nothing
 
-# The BARE continuous core of an edge for a SAMPLED-endpoint latent edge (#453):
+# The BARE continuous core of an edge for a SAMPLED-endpoint latent edge:
 # every censoring layer stripped (the same `_marginal_core` the marginal scorer
 # uses), so NO primary AND no secondary interval. When an edge's predecessor or
 # target is a sampled continuous latent, the marginal form scores the edge on this
@@ -120,7 +120,7 @@ _leaf_interval(::UnivariateDistribution) = nothing
 # sampled continuous time. Shared by the per-record latent scoring (the DynamicPPL
 # ext) and the vectorised endpoint-observed chain path so the two latent forms and
 # the marginal all agree. An OBSERVED-to-OBSERVED edge keeps its declared
-# censoring (#419) and never reaches here.
+# censoring and never reaches here.
 _bare_latent_edge(edge) = _marginal_core(edge)
 
 # Apply a leaf's secondary interval to a recorded (continuous) event time: floor
@@ -147,7 +147,7 @@ _origin_interval(d::AbstractOneOf) = _shared_origin_interval(d.delays)
 # representative. Mirrors the `_tree_primary_event` recursion so a Parallel whose
 # origin-anchor branch is itself a `Choose`/`Latent` still discretises its origin
 # slot (reached only when that branch is the first censored one, e.g. a
-# single-branch `compose((x = choose(...),))`, issue #436).
+# single-branch `compose((x = choose(...),))`).
 _origin_interval(d::Choose) = _shared_origin_interval(d.alternatives)
 _origin_interval(d::Latent) = _origin_interval(d.dist)
 _origin_interval(d::UnivariateDistribution) = _leaf_interval(d)

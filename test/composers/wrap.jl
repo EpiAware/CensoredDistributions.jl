@@ -1,5 +1,5 @@
-# External censoring wrappers over composers (PR3c, #334). The semantics:
-# combine first, then censor (#329). A Sequential collapses to the convolution
+# External censoring wrappers over composers. The semantics:
+# combine first, then censor. A Sequential collapses to the convolution
 # of its steps (its observed total) before censoring; a Parallel distributes
 # the wrapper into every branch; Convolved/Resolve are already univariate and
 # flow through the existing wrapper methods unchanged.
@@ -7,14 +7,14 @@
 @testitem "observed_distribution: combine-then-censor scalar lowering" begin
     using Distributions
 
-    # This is the COMBINE-THEN-CENSOR layer (#334): you observe the chain TOTAL,
+    # This is the COMBINE-THEN-CENSOR layer: you observe the chain TOTAL,
     # the single elapsed time origin -> terminal event, with every intermediate
     # event MARGINALISED. That total is the convolution of the chain steps, so a
     # `Sequential` lowers to a univariate `Convolved` and the `Convolved`
     # assertion below is correct for THIS layer.
     #
     # This is DISTINCT from the general per-record lowering
-    # (`composed_distribution_model` / `logpdf(::Sequential, events)`, #329/#333),
+    # (`composed_distribution_model` / `logpdf(::Sequential, events)`),
     # where OBSERVED intermediates do NOT marginalise but FACTORISE into one
     # independent per-edge term each and only fully-missing intermediates
     # marginalise. The contrast test in
@@ -137,7 +137,7 @@ end
 @testitem "double_interval_censored(convolve_distributions(...), primary)" begin
     using Distributions
 
-    # The canonical #329 example: combine first, then censor.
+    # The canonical example: combine first, then censor.
     d = double_interval_censored(
         convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4));
         primary_event = Uniform(0, 1), upper = 10.0, interval = 1.0)
@@ -148,7 +148,7 @@ end
 end
 
 # ---------------------------------------------------------------------------
-# Coverage matrix (#363): every composer x every wrapper constructs and gives a
+# Coverage matrix: every composer x every wrapper constructs and gives a
 # finite logpdf. This is the deliverable the maintainer asked for: truncation /
 # censoring / interval-censoring compose over a composed distribution as you'd
 # expect. truncate_to_horizon now joins the censoring wrappers over composers,

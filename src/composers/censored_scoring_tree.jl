@@ -116,7 +116,7 @@ end
 # A per-record observation `horizon` (default `nothing`) threads down to any
 # nested `Resolve`/`Compete` node so it right-truncates its conditioned
 # branch at the remaining window from its anchor, mirroring the top-level
-# `_maybe_truncate` (#517). `horizon === nothing` is byte-identical to the
+# `_maybe_truncate`. `horizon === nothing` is byte-identical to the
 # untruncated walk; the plain leaf/chain edges ignore the horizon (their
 # whole-compose right-truncation is applied by the flat scorer's collapsed
 # denominator, not here).

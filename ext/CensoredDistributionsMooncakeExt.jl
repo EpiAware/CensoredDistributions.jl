@@ -33,7 +33,7 @@ Mooncake.@from_chainrules Mooncake.DefaultCtx Tuple{typeof(_gamma_cdf), Real, Re
 # zero-adjoint primitive runs the primal unchanged and returns a zero cotangent,
 # letting the gradient flow through the delay parameters with no behaviour change.
 #
-# NOTE (#409): `_is_positional_edge_name` / `_all_positional_event_names` no
+# NOTE: `_is_positional_edge_name` / `_all_positional_event_names` no
 # longer compile a `Regex`. They previously matched `r"^step_\d+$"` etc., and
 # `Base.compile(::Regex)` uses a try/catch Mooncake reverse cannot differentiate;
 # even shielded here, that try/catch broke Mooncake reverse wherever the helper

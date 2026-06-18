@@ -25,7 +25,7 @@
 #     stream `series ⊛ pmf(f_j ∏_{k≠j} S_k)`, sub-stochastic (NOT renormalised).
 #
 # Ships against plain `Distributions.ccdf` / `logccdf` / `logpdf`, so a stock
-# `Gamma`/`LogNormal` leaf AND a #470 SurvivalDistributions leaf both race. The
+# `Gamma`/`LogNormal` leaf AND a SurvivalDistributions leaf both race. The
 # logpdf is a log-sum-exp of `logpdf` + `logccdf` terms (AD-safe, no `float`
 # stripping).
 
@@ -211,8 +211,8 @@ See also: [`Compete`](@ref)
 ccdf(c::Compete, t::Real) = exp(_hazard_logsurvival(c, t))
 logccdf(c::Compete, t::Real) = _hazard_logsurvival(c, t)
 
-# A racing-hazard node is a univariate leaf for the survival surface (#465 / the
-# forward path): its AD-safe survival is just `_hazard_logsurvival`, so an outer
+# A racing-hazard node is a univariate leaf for the survival surface on the
+# forward path: its AD-safe survival is just `_hazard_logsurvival`, so an outer
 # `_logccdf_ad_safe`/`_ccdf_ad_safe` query (e.g. a parent racing node) recurses
 # through the already-AD-safe terms rather than the stock `logccdf`.
 _logccdf_ad_safe(c::Compete, t::Real) = _hazard_logsurvival(c, t)

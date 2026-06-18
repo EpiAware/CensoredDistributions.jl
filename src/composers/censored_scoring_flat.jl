@@ -71,8 +71,8 @@ end
 # `horizon` (real-time right-truncation). The WHOLE composed distribution is
 # truncated per record at the horizon (the same combine-then-censor semantics as
 # wrapping a chain in `double_interval_censored`): the record is included only if
-# its LAST OBSERVED event occurred by the horizon `D`. Resolved semantics (#366,
-# maintainer decision): whole-compose TOTAL truncation.
+# its LAST OBSERVED event occurred by the horizon `D`. Resolved semantics
+# (maintainer decision): whole-compose TOTAL truncation.
 #
 #   numerator   = the untruncated factorised per-segment density (unchanged): an
 #                 observed intermediate conditions on its own edge at the observed
@@ -348,8 +348,8 @@ WHOLE composed distribution is right-truncated at that observation time for the
 record, the same combine-then-censor direction as wrapping the compose in
 [`double_interval_censored`](@ref) but with the upper bound supplied per record.
 
-For a [`Sequential`](@ref) the truncation is whole-compose TOTAL truncation
-(#366): the factorised per-segment numerator is divided by a single
+For a [`Sequential`](@ref) the truncation is whole-compose TOTAL truncation:
+the factorised per-segment numerator is divided by a single
 ``F(\text{window})`` denominator, where the denominator delay is the convolution
 of every component from the origin to the LAST OBSERVED event and
 ``\text{window} = \text{horizon} - \text{origin}``. A record is then included
@@ -361,7 +361,7 @@ For a [`Parallel`](@ref) each branch endpoint is truncated at
 contributes the ``-\log F(\text{window})`` correction, upper-only and AD-safe.
 
 For a NESTED tree (a chain/set whose step or branch is itself a composer) the
-per-record `horizon` threads down to the nested scorer (#517): each nested
+per-record `horizon` threads down to the nested scorer: each nested
 [`Resolve`](@ref)/`Compete` node is right-truncated at the remaining
 window from its anchor (`horizon - anchor`), the same right-truncation the
 top-level node applies, while plain leaf/chain edges ignore the horizon. The
@@ -398,7 +398,7 @@ function event_logpdf(
     # Dispatch on the nested/flat trait. A FLAT chain takes the whole-compose
     # TOTAL truncation (the collapsed conv-to-last-observed denominator). A NESTED
     # tree threads the per-record horizon down to the now horizon-capable nested
-    # scorer (#517), which right-truncates each nested `Resolve`/`Compete`
+    # scorer, which right-truncates each nested `Resolve`/`Compete`
     # node at the remaining window from its anchor, exactly as the top-level
     # `Resolve` truncation does; plain leaf/chain edges ignore the horizon.
     return _seq_event_logpdf_horizon(_nested_trait(d.components), d, events,

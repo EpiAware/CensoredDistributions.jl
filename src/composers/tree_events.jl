@@ -29,7 +29,7 @@
 # nothing else (the positional-default shape `prefix_1`, `prefix_2`, ...). Plain
 # string scan, NO `Regex`: a compiled `Regex` uses a try/catch that Mooncake
 # reverse cannot differentiate, and this runs on the AD'd scoring path (it is
-# reached from `_flat_event_names` inside the differentiated `logpdf`). See #409.
+# reached from `_flat_event_names` inside the differentiated `logpdf`).
 function _has_positional_suffix(s::AbstractString, prefix::AbstractString)
     startswith(s, prefix) || return false
     rest = SubString(s, ncodeunits(prefix) + 1)
@@ -170,7 +170,7 @@ end
 # parent `origin`. A LEAF outcome (a plain delay) is one event slot named by the
 # outcome: the death/discharge columns of a record are each their own slot, so the
 # observed outcome is identified by which slot is present. A NON-TERMINAL outcome
-# whose payload is a composer SUBTREE (#466 Feature 3) instead emits the SUBTREE's
+# whose payload is a composer SUBTREE instead emits the SUBTREE's
 # event names, anchored at the outcome's resolution event (the subtree origin),
 # sharing that slot exactly like a nested-composer origin: the outcome's resolution
 # IS the subtree origin, so the subtree's `_walk_targets!` hangs off it rather than

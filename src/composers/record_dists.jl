@@ -104,7 +104,7 @@ function _record_logpdf(r::EventRecord{<:Sequential}, x::AbstractVector)
         lp += logpdf(seg, vals[j + 1] - vals[j])
     end
     r.horizon === nothing && return _weight_lp(lp, r.weight)
-    # Denominator: whole-compose TOTAL truncation (#366). A single
+    # Denominator: whole-compose TOTAL truncation. A single
     # conv-to-last-observed right-truncation term `-logcdf(C, window)`, where `C`
     # is the prebuilt origin->last-observed segment and `window = horizon -
     # origin`. With one observed segment `C` IS that segment, reducing to the
@@ -416,7 +416,7 @@ end
 # scored as zero and SAMPLED through `rand`, the generative path).
 #
 # A record carrying a per-record horizon also needs the conv-to-last-observed run
-# `(obs[1], obs[end])` for its whole-compose TOTAL truncation denominator (#366),
+# `(obs[1], obs[end])` for its whole-compose TOTAL truncation denominator,
 # so that origin->last-observed segment is registered (and built once, shared)
 # alongside the per-segment numerator runs. For an endpoint-observed record this
 # is the same run as its single segment.

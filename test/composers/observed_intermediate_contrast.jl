@@ -1,4 +1,4 @@
-# Contrast between the two lowerings of the SAME `Sequential` chain (#329/#333).
+# Contrast between the two lowerings of the SAME `Sequential` chain.
 #
 # 1. The general per-record event-vector scoring
 #    (`logpdf(::Sequential, events)`, the path rows flow through via

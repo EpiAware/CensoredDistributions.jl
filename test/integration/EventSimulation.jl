@@ -1,5 +1,5 @@
 # Event-based simulation and posterior event recovery now use the standard
-# entry points (the `predict_events` convenience was dropped, #425):
+# entry points (the `predict_events` convenience was dropped):
 #   - forward-simulating full event paths: `rand(latent(d))` (a single labelled
 #     event record) and a comprehension `[rand(latent(d)) for _ in 1:n]` for a
 #     batch;
@@ -106,7 +106,7 @@ end
 
     # The recovered variables are the per-record latent primaries `rec_i.p`
     # (only `p` is sampled; the observed `y` is conditioned), one per record.
-    # Consistency with the marginal-equals-latent equivalence (#301): every
+    # Consistency with the marginal-equals-latent equivalence: every
     # recovered primary lies in the unit window and reproduces the observed
     # delay gap as a positive value (`y_i - p_i > 0`).
     for i in 1:n

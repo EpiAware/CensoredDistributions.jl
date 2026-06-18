@@ -153,8 +153,8 @@ function _chain_inner!(specs, edge_name, child::Parallel, prefix, ops, counter)
 end
 
 # A Resolve chain edge: one event per LEAF outcome, each thinned by its branch
-# probability; a NON-TERMINAL outcome whose payload is a composer SUBTREE (#466
-# Feature 3) fans the subtree's own events out, each carrying the outcome's
+# probability; a NON-TERMINAL outcome whose payload is a composer SUBTREE
+# fans the subtree's own events out, each carrying the outcome's
 # branch-probability thinning in the forward op PREFIX so its sub-stream is the
 # outcome's mass times the subtree convolution. Terminal (continues from the
 # shared prefix). A no-event outcome produces NO event series and is skipped (its
@@ -355,7 +355,7 @@ end
 # parameter type the delay carries (a plain `Float64` or an AD `Dual`/tracked
 # number), so the build itself differentiates and the masses propagate gradients.
 # When the parameters change the caller builds a NEW object; there is no hidden
-# param-keyed cache that could go stale under sampling (the #321 footgun), and
+# param-keyed cache that could go stale under sampling (the Enzyme footgun), and
 # no interpolation/approximation — the masses are EXACTLY the `_delay_pmf`
 # interval probabilities the rebuild-every-time path computes, so results are
 # numerically identical.

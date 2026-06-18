@@ -176,7 +176,7 @@ end
 # Parallel-of-one whose only branch is itself a censored composer, and the whole
 # tree shares one latent origin found inside that branch. Probing leaf-only would
 # miss it, fall through to the plain per-leaf-value `rand`, and error on the
-# nested record (issue #436).
+# nested record.
 _tree_primary_event(d::Sequential) = _tree_primary_event(d.components[1])
 _tree_primary_event(d::Parallel) = _shared_tree_primary_event(d.components)
 _tree_primary_event(d::UnivariateDistribution) = _origin_primary_event(d)
@@ -284,7 +284,7 @@ function _tree_rand_step!(out, rng::AbstractRNG, step::Resolve, origin, idx,
     # scores as the conditioned (one-outcome) Resolve. A no-event win leaves
     # EVERY slot missing (no time recorded), so the record scores as a latent
     # non-occurrence. A NON-TERMINAL (composer) outcome recurses into its subtree,
-    # which shares the parent `origin` as its anchor (#466 Feature 3).
+    # which shares the parent `origin` as its anchor.
     i = _sample_branch(rng, step.branch_probs)
     start = idx + _one_of_outcome_start(step.delays, i)
     if !_is_no_event(step.delays[i])
@@ -332,8 +332,8 @@ end
 # races the leaf causes. On a COMPOSER-cause win the SAME realisation that produced
 # the winning racing time is recorded (re-anchored on the real origin), so the
 # recorded subtree IS the race-winning draw rather than a second independent walk
-# (#466 Feature 3; fixes the rand/likelihood mismatch where the scorer reads the
-# recorded resolution time). The terminal for a following step is the shared origin.
+# (so the rand/likelihood agree where the scorer reads the recorded resolution
+# time). The terminal for a following step is the shared origin.
 function _tree_rand_step!(out, rng::AbstractRNG, step::Compete, origin,
         idx, ::Type{T}) where {T}
     n = _n_branches(step)
@@ -500,7 +500,7 @@ function _discretise_event_record!(out, d::Parallel, event_start::Int)
 end
 
 # Discretise one step/branch's slots, advancing the cursor by its event-slot
-# count (a Resolve spans one slot per outcome, #333).
+# count (a Resolve spans one slot per outcome).
 function _discretise_step!(out, step::Union{Sequential, Parallel}, idx::Int)
     return _discretise_event_record!(out, step, idx)
 end
@@ -519,7 +519,7 @@ end
 
 # Discretise ONE one_of outcome's slice. A LEAF outcome floors its single slot
 # to the leaf's interval; a COMPOSER outcome discretises its subtree's slots
-# through the subtree's own depth-first pass (#466 Feature 3).
+# through the subtree's own depth-first pass.
 function _discretise_one_of_outcome!(out, delay::UnivariateDistribution,
         start::Int, ::Int)
     out[start] === missing ||

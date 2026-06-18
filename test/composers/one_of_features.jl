@@ -1,4 +1,4 @@
-# Tests for the enriched `one_of` composition (#466): the shared `one_of`
+# Tests for the enriched `one_of` composition: the shared `one_of`
 # constructor + `AbstractOneOf` supertype, the no-event branch (Feature 1),
 # and the racing-hazard `Compete` combinator (Feature 2) with its three
 # consistent duals (rand argmin/min, logpdf marginal + cause-resolved, forward
@@ -49,7 +49,7 @@
     @test occursin("compete", err_r.msg)
 end
 
-@testitem "one_of: residual last-outcome probability (#46)" begin
+@testitem "one_of: residual last-outcome probability" begin
     using Distributions
     import ForwardDiff
 
@@ -309,7 +309,7 @@ end
     @test_throws ArgumentError convolve_distributions(ne, series; events = (:none,))
 end
 
-@testitem "racing-hazard: SurvivalDistributions leaves race (#470)" begin
+@testitem "racing-hazard: SurvivalDistributions leaves race" begin
     using Distributions
     import SurvivalDistributions as SD
 
@@ -345,7 +345,7 @@ end
     @test lj_non ≈ log(1 - ρ)
 end
 
-@testitem "non-terminal Resolve: whole-tree event-name layout (#466 F3)" begin
+@testitem "non-terminal Resolve: whole-tree event-name layout" begin
     using Distributions
 
     # A composer-valued outcome (death => a Sequential subchain) spans its
@@ -368,7 +368,7 @@ end
     @test enames == (:event_1, :admit, :burial, :recover)
 end
 
-@testitem "non-terminal Resolve: composer-outcome slice scoring (#466 F3)" begin
+@testitem "non-terminal Resolve: composer-outcome slice scoring" begin
     using Distributions
 
     admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
@@ -401,7 +401,7 @@ end
     @test logpdf(d, evr) ≈ log(pr) + logpdf(recover, 5.0)
 end
 
-@testitem "non-terminal Resolve: rand round-trips through logpdf (#466 F3)" begin
+@testitem "non-terminal Resolve: rand round-trips through logpdf" begin
     using Distributions, Random
 
     onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
@@ -434,8 +434,8 @@ end
     # other outcome's slots) and at the right branch frequency. When the
     # composer-valued `death` outcome wins, BOTH of its subtree slots are filled
     # and time-ordered (origin < admit < burial); when `recover` wins, its
-    # single slot is filled and the subtree slots stay missing. (#46 Task 2a
-    # lock-in: the non-terminal whole-tree path samples into the right slots.)
+    # single slot is filled and the subtree slots stay missing. (The
+    # non-terminal whole-tree path samples into the right slots.)
     onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
     admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     burial = Gamma(1.5, 1.0)
@@ -477,7 +477,7 @@ end
     @test n_death / N ≈ p_death atol = 0.03
 end
 
-@testitem "non-terminal Resolve: scalar marginal errors (#466 F3)" begin
+@testitem "non-terminal Resolve: scalar marginal errors" begin
     using Distributions
 
     admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
@@ -514,7 +514,7 @@ end
     end
 end
 
-@testitem "non-terminal Resolve: forward stream recurses subtrees (#466 F3)" begin
+@testitem "non-terminal Resolve: forward stream recurses subtrees" begin
     using Distributions
 
     # A composer-valued outcome fans its SUBTREE's events out, each carrying the
@@ -533,7 +533,7 @@ end
     @test sum(fwd.recover) ≈ pr atol = 1e-3
 end
 
-@testitem "non-terminal Resolve: AD agrees across duals (#466 F3)" begin
+@testitem "non-terminal Resolve: AD agrees across duals" begin
     using Distributions
     using ForwardDiff: gradient
 
@@ -555,7 +555,7 @@ end
     @test g[3] ≈ 2.5 atol = 1e-6
 end
 
-@testitem "non-terminal Resolve: small Turing recovery (#466 F3)" tags=[:turing] begin
+@testitem "non-terminal Resolve: small Turing recovery" tags=[:turing] begin
     using Distributions, Random
     using Turing
     using Statistics: mean
@@ -593,7 +593,7 @@ end
     @test isapprox(p_hat, p_true; atol = 0.08)
 end
 
-@testitem "non-terminal Compete: cross-cause survival weighting (#479)" begin
+@testitem "non-terminal Compete: cross-cause survival weighting" begin
     using Distributions
 
     # A NON-TERMINAL racing-hazard outcome (death => a chain) must weight its
@@ -637,7 +637,7 @@ end
     @test logpdf(d, evr) ≈ expected_r
 end
 
-@testitem "non-terminal Compete: three duals agree (#479)" begin
+@testitem "non-terminal Compete: three duals agree" begin
     using Distributions, Random
 
     # Plain (uncensored) leaves so the composer cause's marginal racing time is a
@@ -685,7 +685,7 @@ end
     # integrand), and the subtree density at its resolution is f_death's
     # contribution. Integrating exp(scored cross-cause + subtree marginal density)
     # over the resolution time recovers the death winning probability, tying the
-    # scoring path (the #479 fix) to the derived winning prob and the MC frequency.
+    # scoring path to the derived winning prob and the MC frequency.
     cross(t) = CensoredDistributions._hazard_cross_cause_logsurvival(haz, 1, t)
     @test exp(cross(2.5)) ≈ ccdf(recover, 2.5)  # the scored S_recover factor.
     p_death_scored = sum(pdf(death_T, t) * exp(cross(t)) for t in ts) * dt
@@ -693,7 +693,7 @@ end
     @test p_death_scored≈fd_mc atol = 5e-3
 end
 
-@testitem "non-terminal Compete: rand round-trips (#479)" begin
+@testitem "non-terminal Compete: rand round-trips" begin
     using Distributions, Random
 
     onset = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
@@ -726,7 +726,7 @@ end
 @testitem "non-terminal Compete: rand fidelity (composer-win subtree)" begin
     using Distributions, Random, Statistics
 
-    # DISTRIBUTIONAL fidelity (the #466 F3 rand/likelihood mismatch fix): for a
+    # DISTRIBUTIONAL fidelity (the rand/likelihood agreement): for a
     # NON-TERMINAL racing outcome (death => a chain) drawn through the nested
     # event-record path, the RECORDED subtree must be the SAME realisation that
     # WON the race. Its resolution time then follows the CONDITIONAL distribution
@@ -798,7 +798,7 @@ end
     @test smean < uncond_mean - 0.2
 end
 
-@testitem "non-terminal Compete: AD through the tree logpdf (#479)" begin
+@testitem "non-terminal Compete: AD through the tree logpdf" begin
     using Distributions
     using ForwardDiff: gradient
 

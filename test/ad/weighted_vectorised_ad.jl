@@ -1,4 +1,4 @@
-# AD coverage for the vectorised weighted-observation logpdf (#134).
+# AD coverage for the vectorised weighted-observation logpdf.
 #
 # `weight(dist, weights)` scores a Product{Weighted} of one shared distribution
 # in a SINGLE vectorised `logpdf(dist, x)` call (the cached-CDF batched PDF),
@@ -12,7 +12,7 @@
 # ReverseDiff. The value type is now read from `partype` without evaluating the
 # CDF, keeping the batched path AD-safe.
 
-@testitem "vectorised weighted logpdf gradient: ForwardDiff (#134)" tags=[
+@testitem "vectorised weighted logpdf gradient: ForwardDiff" tags=[
     :ad, :forwarddiff] begin
     using CensoredDistributions, Distributions
     using ADTypes: AutoForwardDiff
@@ -44,7 +44,7 @@
     @test isapprox(g_vec, g_loop; rtol = 1e-8, atol = 1e-10)
 end
 
-@testitem "vectorised weighted logpdf gradient: ReverseDiff (#134)" tags=[
+@testitem "vectorised weighted logpdf gradient: ReverseDiff" tags=[
     :ad, :reversediff] begin
     using CensoredDistributions, Distributions
     using ADTypes: AutoReverseDiff, AutoForwardDiff
@@ -72,13 +72,13 @@ end
     g_vec = gradient(f_vec, AutoReverseDiff(), θ)
     g_loop = gradient(f_loop, AutoForwardDiff(), θ)
 
-    # The LogNormal batched path must NOT regress to NaN gradients (#134 fix).
+    # The LogNormal batched path must NOT regress to NaN gradients.
     @test all(isfinite, g_vec)
     @test any(!iszero, g_vec)
     @test isapprox(g_vec, g_loop; rtol = 1e-6, atol = 1e-8)
 end
 
-@testitem "vectorised weighted logpdf gradient: Mooncake reverse (#134)" tags=[
+@testitem "vectorised weighted logpdf gradient: Mooncake reverse" tags=[
     :ad, :mooncake, :mooncake_reverse] begin
     using CensoredDistributions, Distributions
     using ADTypes: AutoMooncake, AutoForwardDiff

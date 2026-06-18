@@ -122,7 +122,7 @@ end
     const CD = CensoredDistributions
 
     # A Choose with equal-width alternatives occupies a fixed flat slot, so it is a
-    # valid composer child (#413): the constructors and `compose` accept it and the
+    # valid composer child: the constructors and `compose` accept it and the
     # flat path commits to the first alternative.
     inner = choose(:a => Gamma(2.0, 1.0), :b => Gamma(5.0, 1.0))
     @test Parallel(Gamma(2.0, 1.0), inner) isa CD.Parallel

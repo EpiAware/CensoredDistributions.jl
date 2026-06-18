@@ -6,7 +6,7 @@ using ForwardDiff: ForwardDiff, Dual, value, partials
 
 # Strip a ForwardDiff `Dual` to its primal `Float64` for the
 # non-differentiable quadrature-window quantile (`_finite_window` in
-# `src/distributions/Convolved.jl`, issue #314). Recurses through nested
+# `src/distributions/Convolved.jl`). Recurses through nested
 # `Dual`s so a higher-order tag chain still reduces to the scalar value.
 _primal(x::Dual) = _primal(value(x))
 

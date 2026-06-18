@@ -15,7 +15,7 @@ using SpecialFunctions: gamma, digamma
 # through these copied event times. On a multi-edge tree the event vector has a
 # non-bits `Union{Missing, Float64}` element type, and Enzyme's reverse type
 # analysis cannot statically prove the layout of that `Array` allocation inside the
-# differentiated recursion (`EnzymeNoTypeError` at the `Array` ctor, #319). Marking
+# differentiated recursion (`EnzymeNoTypeError` at the `Array` ctor). Marking
 # the gather inactive runs it on the primal unchanged and treats the returned slice
 # as `Const`, so Enzyme never type-analyses the union-array allocation while the
 # leaf-param gradients still flow. This is the Enzyme analogue of the Mooncake
@@ -32,7 +32,7 @@ EnzymeRules.inactive(::typeof(_subevent_slice), args...) = nothing
 # tangent / no cotangent in either mode. Crucially this stops Enzyme tracing
 # INTO the function at all, so it never reaches `quantile(::Gamma)` →
 # `SpecialFunctions.gamma_inc_inv_qsmall`, which it cannot differentiate
-# (issue #314: `IllegalTypeAnalysisException`). `inactive` covers every
+# (`IllegalTypeAnalysisException`). `inactive` covers every
 # activity / batch-width / mode permutation uniformly — unlike a bespoke
 # `forward`/`reverse` pair, which had to enumerate `Duplicated` /
 # `BatchDuplicated` / `Const` returns and still missed the `Active` scalar
