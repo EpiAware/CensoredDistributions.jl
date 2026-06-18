@@ -287,6 +287,10 @@ include("composers/record_latent.jl")
 # since it reuses `_narrow`, and after record_dists.jl's single-`d`
 # `record_distributions` which it dispatches each stratum through.
 include("composers/record_grouped.jl")
+# Batched record-aware `rand`: the forward-simulation dual to the scoring path.
+# After record_dists.jl (the per-record `record_distributions` it draws from) and
+# named_outputs.jl (the `_as_named` / `_output_names` labelling it reuses).
+include("composers/record_rand.jl")
 
 # Turing-free `primary_censored_model` function stub. Has no methods
 # until DynamicPPL is loaded; the methods live in the package extension.

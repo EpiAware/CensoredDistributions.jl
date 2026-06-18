@@ -746,3 +746,124 @@ end
     @test all(isfinite, g)
     @test any(!iszero, g)
 end
+
+# ---------------------------------------------------------------------------
+# Batched record-aware rand: the forward-simulation dual to the scoring path.
+# ---------------------------------------------------------------------------
+
+@testitem "batched rand(d, rows) draws one labelled path per row" begin
+    using CensoredDistributions, Distributions, Random
+
+    # A named Sequential chain: each event chains off the previous, so a drawn
+    # path is monotone (onset <= admit <= death).
+    seq = Sequential(
+        (primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+            primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))),
+        (:onset_admit, :admit_death))
+    rows = [(onset = missing, admit = missing, death = missing),
+        (onset = missing, admit = missing, death = missing),
+        (onset = missing, admit = missing, death = missing)]
+
+    draws = rand(Random.Xoshiro(1), seq, rows)
+    @test length(draws) == length(rows)
+    @test all(d -> d isa NamedTuple, draws)
+    @test all(d -> keys(d) == (:onset, :admit, :death), draws)
+    # Each labelled path is a monotone event sequence (a chained Sequential).
+    @test all(d -> d.onset >= 0 && d.admit >= d.onset && d.death >= d.admit,
+        draws)
+end
+
+@testitem "batched rand row equals the record's own rand (same rng)" begin
+    using CensoredDistributions, Distributions, Random
+
+    seq = compose((onset_admit = primary_censored(
+            LogNormal(1.0, 0.4), Uniform(0, 1)),
+        admit_death = primary_censored(Gamma(1.5, 1.2), Uniform(0, 1))))
+    rows = [(onset = missing, admit = missing, death = missing),
+        (onset = missing, admit = missing, death = missing)]
+
+    # The batched rand of a row must equal the single `rand` of that row's
+    # `record_distributions` entry under the SAME seeded rng.
+    recs = CensoredDistributions.record_distributions(seq, rows)
+    rng1 = Random.Xoshiro(42)
+    rng2 = Random.Xoshiro(42)
+    batched = rand(rng1, seq, rows)
+    perrec = [rand(rng2, r) for r in recs]
+    for i in eachindex(rows)
+        @test collect(values(batched[i])) == perrec[i]
+    end
+end
+
+@testitem "batched rand is reproducible under a seeded rng" begin
+    using CensoredDistributions, Distributions, Random
+
+    par = Parallel(
+        primary_censored(LogNormal(1.0, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    rows = [(event_1 = missing, event_2 = missing, event_3 = missing)
+            for _ in 1:5]
+
+    a = rand(Random.Xoshiro(7), par, rows)
+    b = rand(Random.Xoshiro(7), par, rows)
+    @test a == b
+end
+
+@testitem "batched rand routes a Choose tree per row by :kind" begin
+    using CensoredDistributions, Distributions, Random
+
+    # A Choose top: an index case (short delay) vs a sourced case (longer
+    # delay), selected by the row's `:kind`.
+    d = choose(
+        :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+        :sourced => primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
+    # Each row selects a DIFFERENT alternative by :kind; the draw must come from
+    # the alternative that row routes to. The index alternative is Gamma(2, 1)
+    # (mean 2); the sourced is Gamma(4, 1.5) (mean 6), so a large sample of each
+    # separates clearly on the mean.
+    rows = [(kind = i <= 200 ? :index : :sourced, delay = missing)
+            for i in 1:400]
+
+    draws = rand(Random.Xoshiro(3), d, rows)
+    @test length(draws) == 400
+    idx = [only(values(draws[i])) for i in 1:200]
+    src = [only(values(draws[i])) for i in 201:400]
+    # The routed-by-kind draws separate on their alternative's mean.
+    @test all(>=(0), idx)
+    @test all(>=(0), src)
+    @test mean(idx) < mean(src)
+end
+
+@testitem "batched rand row equals the routed record's rand (Choose)" begin
+    using CensoredDistributions, Distributions, Random
+
+    d = choose(
+        :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+        :sourced => primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
+    rows = [(kind = :sourced, delay = missing),
+        (kind = :index, delay = missing)]
+
+    recs = CensoredDistributions.record_distributions(d, rows)
+    rng1 = Random.Xoshiro(99)
+    rng2 = Random.Xoshiro(99)
+    batched = rand(rng1, d, rows)
+    perrec = [rand(rng2, r) for r in recs]
+    for i in eachindex(rows)
+        @test collect(values(batched[i])) == perrec[i]
+    end
+end
+
+@testitem "batched rand defaults the rng (no explicit rng arg)" begin
+    using CensoredDistributions, Distributions, Random
+
+    seq = Sequential(
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+        primary_censored(Gamma(1.5, 1.0), Uniform(0, 1)))
+    rows = [(event_1 = missing, event_2 = missing, event_3 = missing)
+            for _ in 1:4]
+
+    Random.seed!(123)
+    draws = rand(seq, rows)
+    @test length(draws) == 4
+    @test all(d -> d isa NamedTuple, draws)
+    @test all(d -> d.event_3 >= d.event_2 >= d.event_1 >= 0, draws)
+end
