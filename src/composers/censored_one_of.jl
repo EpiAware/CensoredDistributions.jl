@@ -179,7 +179,7 @@ end
 function _one_of_outcome_payload_logpdf(delay::Choose, o, o_idx::Int, events,
         obs_start::Int, obs_w::Int, primary, ::Type{T},
         horizon = nothing) where {T}
-    return _one_of_outcome_payload_logpdf(_flat_select_alternative(delay), o,
+    return _one_of_outcome_payload_logpdf(_flat_choose_alternative(delay), o,
         o_idx, events, obs_start, obs_w, primary, T, horizon)
 end
 
@@ -475,17 +475,17 @@ _replace_one_of(d::Latent, probs) = Latent(_replace_one_of(d.dist, probs))
 # Choose inside a one_of outcome was never counted and the resolution rebuild
 # was skipped, leaving an unresolved Choose to silently score its first
 # alternative; and a top-level `Latent` hit no method.)
-_count_selects(c::Choose) = 1 + _count_selects_in(c.alternatives)
-_count_selects(::UnivariateDistribution) = 0
-function _count_selects(d::Union{Sequential, Parallel})
-    return _count_selects_in(d.components)
+_count_chooses(c::Choose) = 1 + _count_chooses_in(c.alternatives)
+_count_chooses(::UnivariateDistribution) = 0
+function _count_chooses(d::Union{Sequential, Parallel})
+    return _count_chooses_in(d.components)
 end
-_count_selects(c::AbstractOneOf) = _count_selects_in(c.delays)
-_count_selects(d::Latent) = _count_selects(d.dist)
+_count_chooses(c::AbstractOneOf) = _count_chooses_in(c.delays)
+_count_chooses(d::Latent) = _count_chooses(d.dist)
 
-_count_selects_in(::Tuple{}) = 0
-function _count_selects_in(xs::Tuple)
-    return _count_selects(first(xs)) + _count_selects_in(Base.tail(xs))
+_count_chooses_in(::Tuple{}) = 0
+function _count_chooses_in(xs::Tuple)
+    return _count_chooses(first(xs)) + _count_chooses_in(Base.tail(xs))
 end
 
 # Resolve every nested `Choose` in `d` to its routed alternative for `row`,
@@ -493,12 +493,12 @@ end
 # field errors clearly (no silent commit to alternative 1). A tree with no nested
 # Choose is returned unchanged. The chosen alternative may itself nest a Choose,
 # so the rebuild recurses into it. Recurses through the SAME nesting as
-# `_count_selects` (composer components, AbstractOneOf delays, Latent inner),
+# `_count_chooses` (composer components, AbstractOneOf delays, Latent inner),
 # so a Choose nested inside a one_of-outcome subtree is resolved out.
-_resolve_selects(d, row::NamedTuple) = _resolve_selects_node(d, row)
+_pick_choose(d, row::NamedTuple) = _choose_alternative_node(d, row)
 
-_resolve_selects_node(d::UnivariateDistribution, ::NamedTuple) = d
-function _resolve_selects_node(d::Choose, row::NamedTuple)
+_choose_alternative_node(d::UnivariateDistribution, ::NamedTuple) = d
+function _choose_alternative_node(d::Choose, row::NamedTuple)
     haskey(row, d.selector) || throw(ArgumentError(
         "a nested Choose needs its selector field $(repr(d.selector)) on the " *
         "record to route; the row has no such field, so it cannot pick an " *
@@ -507,24 +507,24 @@ function _resolve_selects_node(d::Choose, row::NamedTuple)
     kind isa Symbol || throw(ArgumentError(
         "the nested Choose selector field $(repr(d.selector)) must hold a " *
         "Symbol naming the alternative; got $(typeof(kind))"))
-    return _resolve_selects_node(_pick(d, kind), row)
+    return _choose_alternative_node(_pick(d, kind), row)
 end
-function _resolve_selects_node(d::Sequential, row::NamedTuple)
-    return Sequential(map(c -> _resolve_selects_node(c, row), d.components),
+function _choose_alternative_node(d::Sequential, row::NamedTuple)
+    return Sequential(map(c -> _choose_alternative_node(c, row), d.components),
         d.names)
 end
-function _resolve_selects_node(d::Parallel, row::NamedTuple)
-    return Parallel(map(c -> _resolve_selects_node(c, row), d.components),
+function _choose_alternative_node(d::Parallel, row::NamedTuple)
+    return Parallel(map(c -> _choose_alternative_node(c, row), d.components),
         d.names)
 end
-function _resolve_selects_node(c::Resolve, row::NamedTuple)
+function _choose_alternative_node(c::Resolve, row::NamedTuple)
     return Resolve(c.names,
-        map(d -> _resolve_selects_node(d, row), c.delays), c.branch_probs)
+        map(d -> _choose_alternative_node(d, row), c.delays), c.branch_probs)
 end
-function _resolve_selects_node(c::Compete, row::NamedTuple)
+function _choose_alternative_node(c::Compete, row::NamedTuple)
     return Compete(c.names,
-        map(d -> _resolve_selects_node(d, row), c.delays))
+        map(d -> _choose_alternative_node(d, row), c.delays))
 end
-function _resolve_selects_node(d::Latent, row::NamedTuple)
-    return Latent(_resolve_selects_node(d.dist, row))
+function _choose_alternative_node(d::Latent, row::NamedTuple)
+    return Latent(_choose_alternative_node(d.dist, row))
 end

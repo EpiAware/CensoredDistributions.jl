@@ -272,13 +272,13 @@ end
 _latent_alternative(d::Latent, ::NamedTuple) = d
 _latent_alternative(::UnivariateDistribution, ::NamedTuple) = nothing
 function _latent_alternative(d::Choose, row::NamedTuple)
-    chosen = _pick(d, _select_kind(d, row))
+    chosen = _pick(d, _choose_kind(d, row))
     return chosen isa Latent ? chosen : nothing
 end
 
 # The selector value of a Choose row, validated to be a Symbol naming an
 # alternative (mirroring the per-record Choose path).
-function _select_kind(d::Choose, row::NamedTuple)
+function _choose_kind(d::Choose, row::NamedTuple)
     kind = row[d.selector]
     kind isa Symbol || throw(ArgumentError(
         "the Choose selector field $(repr(d.selector)) must hold a Symbol " *
@@ -294,7 +294,7 @@ end
 _latent_row_events(d::Latent, row::NamedTuple) = _latent_alt_events(d.dist, row)
 function _latent_row_events(d::Choose, row::NamedTuple)
     inner = _drop_named_field(row, d.selector)
-    alt = _pick(d, _select_kind(d, row))
+    alt = _pick(d, _choose_kind(d, row))
     return _latent_alt_events(_unwrap_latent(alt), inner)
 end
 
@@ -327,7 +327,7 @@ end
 # The marginal log-density of a non-latent row in a mixed Choose table: the
 # selected (marginal) alternative scored at its single observed value, weighted.
 function _marginal_row_logpdf(d::Choose, row::NamedTuple)
-    chosen = _pick(d, _select_kind(d, row))
+    chosen = _pick(d, _choose_kind(d, row))
     inner = _drop_named_field(row, d.selector)
     rec = _alternative_record(chosen, inner)
     return logpdf(rec, _record_obs_value(rec))

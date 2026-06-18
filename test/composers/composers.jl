@@ -655,7 +655,7 @@ end
 
     inc = shared(:inc, Gamma(2.0, 1.0))
     delta = LogNormal(0.5, 0.4)
-    # `inc` appears in BOTH the index and sourced branches of a select.
+    # `inc` appears in BOTH the index and sourced branches of a choose.
     tree = choose(:index => inc,
         :sourced => compose((delta = delta, inc = inc)))
     tbl = params_table(tree)

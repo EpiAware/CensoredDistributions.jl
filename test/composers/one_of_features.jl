@@ -881,7 +881,7 @@ end
     # event matching). Before the fix the Choose-resolution helpers stopped at the
     # outer `AbstractOneOf` (a nested Choose was never counted, so the
     # resolution rebuild was skipped and the Choose silently scored its FIRST
-    # alternative; `_select_fields` also missed the selector). The fix recurses
+    # alternative; `_choose_fields` also missed the selector). The fix recurses
     # through `AbstractOneOf.delays`, so the routed alternative is scored.
     sel = choose(:fast => Gamma(1.5, 1.0), :slow => Gamma(4.0, 1.0);
         selector = :speed)
@@ -891,8 +891,8 @@ end
     d = compose((resolution = haz,))
 
     # The recursion finds exactly the one nested Choose and its selector field.
-    @test CD._count_selects(d) == 1
-    @test CD._select_fields(d) == [:speed]
+    @test CD._count_chooses(d) == 1
+    @test CD._choose_fields(d) == [:speed]
 
     ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0, missing])
     # Routing to :slow scores the slow alternative; to :fast the fast one; the two

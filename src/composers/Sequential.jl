@@ -121,7 +121,7 @@ event_names(d)
 
 # See also
 - [`Sequential`](@ref): the composer type
-- [`parallel`](@ref), [`resolve`](@ref), [`compete`](@ref): the sibling constructors
+- [`parallel`](@ref), [`resolve`](@ref), [`compete`](@ref), [`choose`](@ref): the sibling constructors
 - [`compose`](@ref): the NamedTuple/table/matrix front-end
 "
 function sequential(steps::Pair...)

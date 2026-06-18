@@ -96,7 +96,7 @@ _terminal_offset(::Parallel) = -1
 # event-slot width (checked by `_event_child_nleaves`), so the Choose's terminal
 # offset is that of its (common) alternative. A following chain step hangs off the
 # same terminal regardless of which alternative routes.
-_terminal_offset(d::Choose) = _terminal_offset(_flat_select_alternative(d))
+_terminal_offset(d::Choose) = _terminal_offset(_flat_choose_alternative(d))
 function _seq_terminal_offset(components::Tuple)
     # The last step's terminal, measured from the chain's own first event. Uses
     # the EVENT-slot count (a `Resolve` step spans one slot per outcome).
@@ -213,14 +213,14 @@ end
 # FIRST alternative -- the data-free value-vector round-trip, where a constructed
 # flat vector must score back through `logpdf` without a selector. The DATA path
 # does NOT reach here: the per-record build resolves the selector into the tree
-# (`_resolve_selects`) before scoring, replacing the Choose with the routed
+# (`_pick_choose`) before scoring, replacing the Choose with the routed
 # alternative, so a real record routes by `row[selector]` and never silently
 # scores alternative 1. The chosen alternative is scored through its own
 # `_tree_step`, so a leaf conditions on its declared censoring and a composer
 # alternative recurses.
 function _tree_step(step::Choose, events, o_idx::Int, ev_idx::Int,
         primary, ::Type{T}, horizon = nothing) where {T}
-    return _tree_step(_flat_select_alternative(step), events, o_idx, ev_idx,
+    return _tree_step(_flat_choose_alternative(step), events, o_idx, ev_idx,
         primary, T, horizon)
 end
 

@@ -466,7 +466,7 @@ end
 # Reserved row fields specific to a `Resolve` node: the resolution time when the
 # outcome is unknown (`resolved`); the branch-probability override
 # (`branch_probs`) is already a shared reserved field.
-const _COMPETING_RESERVED = (_RESERVED_ROW_FIELDS..., :resolved)
+const _RESOLVE_RESERVED = (_RESERVED_ROW_FIELDS..., :resolved)
 
 # The branch probabilities to USE for this record: a reserved `branch_probs` row
 # field overrides the node's stored probabilities (regime b), else the stored ones
@@ -550,7 +550,7 @@ function _one_of_resolution_time(d::Resolve, row::NamedTuple)
         return Float64(row.resolved)
     end
     bare = filter(
-        k -> !(k in _COMPETING_RESERVED) && !(k in d.names), keys(row))
+        k -> !(k in _RESOLVE_RESERVED) && !(k in d.names), keys(row))
     isempty(bare) && return nothing
     length(bare) == 1 || throw(ArgumentError(
         "a Resolve record with an unknown outcome takes one resolution time " *
@@ -1353,7 +1353,7 @@ end
 # A `Choose`: sample each named alternative through a prefixed child submodel; a
 # tag shared across alternatives is sampled once (up front) and reused, so the
 # alternative that only carries the shared parameter samples nothing locally.
-@model function _select_params_model(d::Choose, priors::NamedTuple, shared)
+@model function _choose_params_model(d::Choose, priors::NamedTuple, shared)
     _check_composer_prior_keys(priors, d.names, "Choose", shared)
     alts ~ to_submodel(
         _children_params_model(d.alternatives, d.names, priors, shared), false)
@@ -1452,7 +1452,7 @@ end
 function _params_submodel(d::Union{Sequential, Parallel}, priors, shared)
     _composer_params_model(d, priors, shared)
 end
-_params_submodel(d::Choose, priors, shared) = _select_params_model(d, priors, shared)
+_params_submodel(d::Choose, priors, shared) = _choose_params_model(d, priors, shared)
 _params_submodel(c::Resolve, priors, shared) = _one_of_params_model(c, priors, shared)
 function _params_submodel(
         c::CensoredDistributions.Compete, priors, shared)

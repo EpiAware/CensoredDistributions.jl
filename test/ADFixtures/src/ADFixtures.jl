@@ -70,7 +70,7 @@ end
 
 # Vectorised log density of a Choose (hanta) top: each record selects its
 # alternative by `:kind` and scores its single observed value.
-function _vectorised_select_logpdf(d, rows)
+function _vectorised_choose_logpdf(d, rows)
     recs = CensoredDistributions.record_distributions(d, rows)
     total = logpdf(recs[1], [Float64(rows[1].delay)])
     for i in 2:length(recs)
@@ -1203,7 +1203,7 @@ function scenarios(; with_reference::Bool = false)
             (kind = :sourced, delay = 5.0, obs_time = 12.0)]
         _push!("Vectorised Choose per-record kind logpdf",
             (θ,
-                rows) -> _vectorised_select_logpdf(
+                rows) -> _vectorised_choose_logpdf(
                 choose(
                     :index => primary_censored(
                         Gamma(θ[1], θ[2]), Uniform(0.0, 1.0)),

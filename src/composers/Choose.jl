@@ -125,6 +125,9 @@ logpdf(d, 3.0; kind = :index)
 
 # See also
 - [`Choose`](@ref): the disjunction type
+- [`resolve`](@ref), [`compete`](@ref): the one-of sibling constructors
+- [`sequential`](@ref), [`parallel`](@ref): the sibling composers
+- [`compose`](@ref): the NamedTuple/table/matrix front-end
 "
 function choose(alternatives::Pair...; selector::Symbol = :kind)
     length(alternatives) >= 2 ||
@@ -132,7 +135,7 @@ function choose(alternatives::Pair...; selector::Symbol = :kind)
             "choose needs at least two alternatives"))
     names = Tuple(a.first for a in alternatives)
     all(n -> n isa Symbol, names) ||
-        throw(ArgumentError("each Choose alternative name must be a Symbol"))
+        throw(ArgumentError("each choose alternative name must be a Symbol"))
     dists = Tuple(a.second for a in alternatives)
     return Choose(names, dists, selector)
 end
@@ -174,7 +177,7 @@ end
 # The PUBLIC `params(::Choose)` is POSITIONAL, mirroring `params(::Resolve)`: a
 # tuple of each alternative's `params` in alternative order. The NAME-keyed nested
 # params tree (what prior introspection threads when a `Choose` is a child) goes
-# through `_select_params`/`_child_params` in `introspection.jl`, keyed by the
+# through `_choose_params`/`_child_params` in `introspection.jl`, keyed by the
 # alternative names so a nested `Choose` yields a name-keyed subtree.
 params(d::Choose) = map(params, d.alternatives)
 
@@ -204,14 +207,14 @@ See also: [`Choose`](@ref)
 # is the selected alternative's, not fixed.
 function logpdf(
         d::Choose, x::Real; kind::Union{Symbol, Nothing} = nothing)
-    return _select_logpdf(d, x, kind)
+    return _choose_logpdf(d, x, kind)
 end
 function logpdf(d::Choose, x::AbstractVector{<:Real};
         kind::Union{Symbol, Nothing} = nothing)
-    return _select_logpdf(d, x, kind)
+    return _choose_logpdf(d, x, kind)
 end
 
-function _select_logpdf(d::Choose, x, kind)
+function _choose_logpdf(d::Choose, x, kind)
     kind === nothing && throw(ArgumentError(
         "logpdf(::Choose, x) needs a `kind` choose the alternative"))
     return logpdf(_pick(d, kind), x)
@@ -260,14 +263,7 @@ Print a [`Choose`](@ref) node as its selector and named alternatives.
 See also: [`Choose`](@ref)
 "
 function Base.show(io::IO, ::MIME"text/plain", d::Choose)
-    n = _n_alternatives(d)
-    println(io,
-        "Choose node of $n alternatives (selector = $(repr(d.selector)))")
-    for k in 1:n
-        branch = k == n ? "└─ " : "├─ "
-        println(io, "  ", branch, "$(d.names[k]): $(d.alternatives[k])")
-    end
-    return nothing
+    return _show_composer_tree(io, d)
 end
 
 function Base.show(io::IO, d::Choose)

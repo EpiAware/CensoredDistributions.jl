@@ -103,12 +103,12 @@ end
     using CensoredDistributions, Distributions
     const CD = CensoredDistributions
 
-    # compose-in-select: an alternative is a compose result.
+    # compose-in-choose: an alternative is a compose result.
     tree = compose((a = Gamma(2.0, 1.0), b = LogNormal(0.5, 0.4)))
     s1 = choose(:joint => tree, :leaf => Gamma(3.0, 1.0))
     @test s1 == CD.Choose((:joint, :leaf), (tree, Gamma(3.0, 1.0)), :kind)
 
-    # select-in-select: an alternative is itself a select.
+    # choose-in-choose: an alternative is itself a choose.
     inner = choose(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0))
     s2 = choose(:nested => inner, :flat => Gamma(1.0, 1.0))
     @test s2 == CD.Choose((:nested, :flat), (inner, Gamma(1.0, 1.0)), :kind)
@@ -158,7 +158,7 @@ end
     using CensoredDistributions, Distributions, Random
     using DynamicPPL: @model, to_submodel, logjoint
 
-    # A select alternative that is itself a select: the model entry reads the
+    # A choose alternative that is itself a choose: the model entry reads the
     # selector, picks the alternative, and delegates to its own model.
     inner = choose(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0);
         selector = :sub)

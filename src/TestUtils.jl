@@ -137,7 +137,7 @@ end
 function test_interface(fix::InterfaceFixture)
     d = fix.dist
     return @testset "interface: $(fix.name)" begin
-        _check_select(d, fix)
+        _check_choose(d, fix)
         _check_moments_and_rand(d, fix)
         _check_logpdf(d, fix)
         _check_cdf(d, fix)
@@ -150,11 +150,11 @@ end
 
 # A Choose needs a selection for length/rand/logpdf, so it is checked on its
 # own track (the generic moment / logpdf checks are skipped for it).
-_is_select(::Choose) = true
-_is_select(::Any) = false
+_is_choose(::Choose) = true
+_is_choose(::Any) = false
 
-function _check_select(d::Choose, fix)
-    @testset "select" begin
+function _check_choose(d::Choose, fix)
+    @testset "choose" begin
         fix.kind === nothing && return
         chosen = event(d, fix.kind)
         # The selected alternative round-trips through `event` and scores.
@@ -163,7 +163,7 @@ function _check_select(d::Choose, fix)
     end
     return nothing
 end
-_check_select(::Any, fix) = nothing
+_check_choose(::Any, fix) = nothing
 
 # The moments have two tiers: the OVERALL `mean(d)` (a scalar for a
 # univariate-collapsible node, a per-endpoint NamedTuple for a `Parallel`) and
@@ -172,7 +172,7 @@ _check_select(::Any, fix) = nothing
 # (collapsible) output stays a scalar. The harness exercises `rand(d)` and
 # asserts each tier the fixture declares applicable.
 function _check_moments_and_rand(d, fix)
-    _is_select(d) && return nothing
+    _is_choose(d) && return nothing
     @testset "moments and rand" begin
         r = rand(d)
         # A multivariate composer realisation is a labelled NamedTuple; a
@@ -219,7 +219,7 @@ function _check_moments_and_rand(d, fix)
 end
 
 function _check_logpdf(d, fix)
-    _is_select(d) && return nothing
+    _is_choose(d) && return nothing
     fix.draw === nothing && return nothing
     @testset "logpdf finite on an in-support draw" begin
         @test isfinite(_score(d, fix.draw))
@@ -341,7 +341,7 @@ function _fill_insupport_step!(out, step::UnivariateDistribution, origin, idx)
     return idx + 1, y
 end
 # A nested `Choose` commits to its FIRST alternative on the flat (data-free) event
-# path, matching `_flat_select_alternative`: the alternatives share one event-slot
+# path, matching `_flat_choose_alternative`: the alternatives share one event-slot
 # width, so the committed alternative fills the slot and a following step hangs off
 # its terminal time whichever alternative is chosen.
 function _fill_insupport_step!(out, step::Choose, origin, idx)
@@ -387,7 +387,7 @@ function _check_event_names(d, fix)
         if d isa Choose
             @test !isempty(flat)
             @test !isempty(keys(tree))
-        elseif _contains_select(d)
+        elseif _contains_choose(d)
             # A nested Choose collapses its alternatives to one shared flat slot,
             # so the flat count tracks the event layout, not the tree leaf count.
             @test length(flat) ==
@@ -402,11 +402,11 @@ end
 
 # Whether a composer tree contains a nested `Choose` anywhere (its alternatives
 # share one flat event slot, so the tree-vs-flat leaf-count equality is relaxed).
-_contains_select(::Choose) = true
-_contains_select(c::Union{Sequential, Parallel}) = any(_contains_select, c.components)
-_contains_select(c::AbstractOneOf) = any(_contains_select, c.delays)
-_contains_select(c::Latent) = _contains_select(c.dist)
-_contains_select(::Any) = false
+_contains_choose(::Choose) = true
+_contains_choose(c::Union{Sequential, Parallel}) = any(_contains_choose, c.components)
+_contains_choose(c::AbstractOneOf) = any(_contains_choose, c.delays)
+_contains_choose(c::Latent) = _contains_choose(c.dist)
+_contains_choose(::Any) = false
 
 # Count the leaves of an `event_tree` (a nested NamedTuple keyed to leaf names).
 _tree_leaf_count(x::Symbol) = 1
