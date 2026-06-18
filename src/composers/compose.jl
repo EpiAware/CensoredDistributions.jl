@@ -39,7 +39,7 @@ composers, not a new tree type.
   rows, the column-table equivalent of a flat `NamedTuple`. An optional `chain`
   column folds rows sharing a non-zero group id into a [`Sequential`](@ref)
   branch, and an optional `compete`/`prob` column pair folds rows sharing a
-  non-zero `compete` id into a [`Competing`](@ref) node whose `prob` entries are
+  non-zero `compete` id into a [`Resolve`](@ref) node whose `prob` entries are
   the branch probabilities (each in ``[0, 1]`` and summing to one per group).
 - nested `Matrix` of distributions: rows are [`Parallel`](@ref) branches and the
   columns within a row are [`Sequential`](@ref) steps. This orientation is
@@ -73,7 +73,7 @@ compose(nt) == compose(table) == compose(mat)
 ```
 
 # See also
-- [`Sequential`](@ref), [`Parallel`](@ref), [`Competing`](@ref): the composers
+- [`Sequential`](@ref), [`Parallel`](@ref), [`Resolve`](@ref): the composers
 "
 function compose end
 
@@ -101,7 +101,7 @@ end
 # branch, each delayed by `origin` convolved with the branch tail (e.g. a shared
 # incubation, then a reporting branch and a death branch).
 function compose(origin::Union{UnivariateDistribution, Sequential, Parallel,
-            Select};
+            Choose};
         branches...)
     isempty(branches) &&
         throw(ArgumentError("compose(origin; branches...) needs ≥1 branch"))
@@ -130,10 +130,10 @@ end
 # Sequential with default `:step_i` names (a plain vector has no names to carry).
 # A pre-built composer value (Sequential/Parallel) drops in unchanged, so a
 # `compose(...)` result nests as a child and a `Sequential((...), names)` value
-# keeps readable step names. A `Competing` is a UnivariateDistribution leaf and is
+# keeps readable step names. A `Resolve` is a UnivariateDistribution leaf and is
 # covered by the first method.
 _compose_child(d::UnivariateDistribution) = d
-_compose_child(c::Union{Sequential, Parallel, Select}) = c
+_compose_child(c::Union{Sequential, Parallel, Choose}) = c
 _compose_child(nt::NamedTuple) = compose(nt)
 function _compose_child(v::Union{AbstractVector, Tuple})
     all(_is_composable, v) ||
@@ -174,9 +174,9 @@ end
 # column groups consecutive rows that share a non-zero group id into one
 # Sequential branch, so a table can also express the nested chain a NamedTuple
 # encodes with a vector value. An optional `compete`/`prob` column pair folds
-# the rows sharing a non-zero `compete` group id into one `Competing` node (the
+# the rows sharing a non-zero `compete` group id into one `Resolve` node (the
 # `prob` entries its branch probabilities), so the table can also express a
-# competing-outcome set. The generic method accepts any Tables.jl source (a
+# one_of-outcome set. The generic method accepts any Tables.jl source (a
 # column table is also matched by the NamedTuple method, which delegates here);
 # the `_compose_table` worker does the shared build.
 function compose(table)
@@ -203,7 +203,7 @@ function _compose_table(table)
         throw(ArgumentError(
             "a `prob` column needs a `compete` column to mark its outcome set"))
     if :compete in names
-        return _compose_table_competing(dists, row_names,
+        return _compose_table_one_of(dists, row_names,
             Tables.getcolumn(cols, :compete),
             :prob in names ? Tables.getcolumn(cols, :prob) : nothing,
             :chain in names ? Tables.getcolumn(cols, :chain) : nothing)
@@ -216,17 +216,17 @@ function _compose_table(table)
     return Parallel(Tuple(dists), _coerce_names(row_names, :branch, length(dists)))
 end
 
-# Fold the rows sharing a non-zero `compete` group id into one `Competing` node
+# Fold the rows sharing a non-zero `compete` group id into one `Resolve` node
 # (its `prob` entries the branch probabilities); rows with a zero/`missing`
 # `compete` id stay ordinary leaf branches (or, with a `chain` column, fold into
 # Sequential branches by chain id). Branches appear in first-seen order — the
 # row order of each group's first member — so the Parallel reads down the table,
 # named by that first row, mirroring `_compose_table_chained`.
-function _compose_table_competing(dists, row_names, compete, prob, chain)
+function _compose_table_one_of(dists, row_names, compete, prob, chain)
     all(g -> g === missing || g >= 0, compete) || throw(ArgumentError(
         "`compete` group ids must be non-negative or missing"))
     # One first-seen pass assigns each row a branch KEY: a `compete:id` for a
-    # competing group, else `chain:id` for a chained leaf (a zero/`missing`
+    # one_of group, else `chain:id` for a chained leaf (a zero/`missing`
     # `compete` AND `chain` both make a fresh singleton key). The branch order is
     # the keys' first appearance, and `members` holds each key's rows in order.
     order = Any[]
@@ -247,11 +247,11 @@ function _compose_table_competing(dists, row_names, compete, prob, chain)
         push!(get!(members, key, Int[]), i)
     end
     has_compete || throw(ArgumentError(
-        "the `compete` column marks no competing rows (all zero/missing)"))
+        "the `compete` column marks no one_of rows (all zero/missing)"))
     branches = map(order) do key
         idx = members[key]
         if key[1] === :compete
-            _competing_from_rows(dists, row_names, prob, idx, key[2])
+            _one_of_from_rows(dists, row_names, prob, idx, key[2])
         elseif length(idx) == 1
             dists[idx[1]]
         else
@@ -263,10 +263,10 @@ function _compose_table_competing(dists, row_names, compete, prob, chain)
     return Parallel(Tuple(branches), branch_names)
 end
 
-# Build one `Competing` node from a compete group's rows: `name => (dist, prob)`
+# Build one `Resolve` node from a compete group's rows: `name => (dist, prob)`
 # per row. The constructor validates the branch probabilities sum to one and lie
 # in `[0, 1]`; a missing `prob` in a compete row is an error (it is required).
-function _competing_from_rows(dists, row_names, prob, idx, gid)
+function _one_of_from_rows(dists, row_names, prob, idx, gid)
     prob === nothing && throw(ArgumentError(
         "a `compete` group needs a `prob` column of branch probabilities"))
     outcomes = map(idx) do i
@@ -276,7 +276,7 @@ function _competing_from_rows(dists, row_names, prob, idx, gid)
             "`prob`"))
         Symbol(row_names[i]) => (dists[i], p)
     end
-    return Competing(outcomes...)
+    return Resolve(outcomes...)
 end
 
 # Group rows by the `chain` column: rows sharing a non-zero group id fold into

@@ -82,9 +82,9 @@ end
 #
 # Every event a stack produces, in tree order, carrying the ordered delay leaves
 # whose convolution is the cumulative delay to the event and the forward ops
-# (thin/cumulative, Competing branch probabilities) applied to its series. A
+# (thin/cumulative, Resolve branch probabilities) applied to its series. A
 # Sequential threads the running prefix step to step (its interim events are the
-# split target names, e.g. `:admit`, `:death`); a Parallel/Competing edge fans
+# split target names, e.g. `:admit`, `:death`); a Parallel/Resolve edge fans
 # an event out per branch/outcome, keyed by the user's branch/outcome name.
 
 struct _EventSpec{L <: Tuple, O <: Tuple}
@@ -93,7 +93,7 @@ struct _EventSpec{L <: Tuple, O <: Tuple}
     ops::O
 end
 
-# A Competing branch probability is just a thinning factor, read by the convolve
+# A Resolve branch probability is just a thinning factor, read by the convolve
 # layer through the same forward-op path as `thin`.
 
 # Collect the specs a (sub)stack produces, given the shared `prefix` leaves and
@@ -152,14 +152,14 @@ function _chain_inner!(specs, edge_name, child::Parallel, prefix, ops, counter)
     return prefix, ops
 end
 
-# A Competing chain edge: one event per LEAF outcome, each thinned by its branch
+# A Resolve chain edge: one event per LEAF outcome, each thinned by its branch
 # probability; a NON-TERMINAL outcome whose payload is a composer SUBTREE (#466
 # Feature 3) fans the subtree's own events out, each carrying the outcome's
 # branch-probability thinning in the forward op PREFIX so its sub-stream is the
 # outcome's mass times the subtree convolution. Terminal (continues from the
 # shared prefix). A no-event outcome produces NO event series and is skipped (its
 # mass leaves the observed stream).
-function _chain_inner!(specs, edge_name, c::Competing, prefix, ops, counter)
+function _chain_inner!(specs, edge_name, c::Resolve, prefix, ops, counter)
     for i in eachindex(c.names)
         _is_no_event(c.delays[i]) && continue
         delay, fops = _peel_forward(c.delays[i])
@@ -173,7 +173,7 @@ end
 # SUB-density `f_j ∏_{k≠j} S_k` (sub-stochastic, NOT renormalised; its mass is
 # the derived winning probability). No thinning op — the winning mass is already
 # in the sub-density. Terminal (continues from the shared prefix).
-function _chain_inner!(specs, edge_name, c::HazardCompeting, prefix, ops, counter)
+function _chain_inner!(specs, edge_name, c::Compete, prefix, ops, counter)
     for i in eachindex(c.names)
         cause = _HazardCauseDelay(c, i)
         _collect_branch!(specs, c.names[i], cause, prefix, ops, counter)
@@ -181,7 +181,7 @@ function _chain_inner!(specs, edge_name, c::HazardCompeting, prefix, ops, counte
     return prefix, ops
 end
 
-# A Parallel/Competing branch keyed by the user's branch/outcome name: a leaf
+# A Parallel/Resolve branch keyed by the user's branch/outcome name: a leaf
 # branch is one event; a nested composer keeps its own sub-event names.
 function _collect_branch!(specs, bname, delay::UnivariateDistribution, prefix,
         ops, counter)
@@ -193,7 +193,7 @@ function _collect_branch!(specs, bname, delay::Union{Sequential, Parallel},
     _collect_specs!(specs, delay, prefix, ops, counter)
     return nothing
 end
-function _collect_branch!(specs, bname, c::AbstractCompeting, prefix, ops, counter)
+function _collect_branch!(specs, bname, c::AbstractOneOf, prefix, ops, counter)
     _chain_inner!(specs, bname, c, prefix, ops, counter)
     return nothing
 end
@@ -211,14 +211,14 @@ function _event_specs(stack::UnivariateDistribution)
     return _EventSpec[_EventSpec(:event_1, (delay,), ops)]
 end
 
-# A standalone Competing / HazardCompeting fans an event out per outcome (each
+# A standalone Resolve / Compete fans an event out per outcome (each
 # thinned by its branch probability, resp. the cause-resolved sub-density), the
-# renewal layer's per-outcome partition. Dispatches on `AbstractCompeting` so
-# both competing nodes use the same standalone entry; the per-outcome arithmetic
+# renewal layer's per-outcome partition. Dispatches on `AbstractOneOf` so
+# both one_of nodes use the same standalone entry; the per-outcome arithmetic
 # is selected inside `_chain_inner!`.
-function _event_specs(c::AbstractCompeting)
+function _event_specs(c::AbstractOneOf)
     specs = _EventSpec[]
-    _chain_inner!(specs, :competing, c, (), (), Ref(0))
+    _chain_inner!(specs, :one_of, c, (), (), Ref(0))
     return specs
 end
 

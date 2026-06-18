@@ -304,11 +304,11 @@ end
     @test only(logjoint(demo(par, row2), (;))) ≈ logpdf(par, ev2)
 end
 
-@testitem "composer model: Competing marginal == mixture logpdf" begin
+@testitem "composer model: Resolve marginal == mixture logpdf" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
-    cmp = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+    cmp = Resolve(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7))
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
@@ -321,11 +321,11 @@ end
           5 * logpdf(cmp, 4.0)
 end
 
-@testitem "Competing self-dispatch: observed outcome conditions (#329)" begin
+@testitem "Resolve self-dispatch: observed outcome conditions (#329)" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
-    cmp = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+    cmp = Resolve(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7))
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
@@ -349,11 +349,11 @@ end
         demo(cmp, (death = 4.0, disch = 2.5)), (;))
 end
 
-@testitem "Competing self-dispatch: unknown outcome marginalises (#329)" begin
+@testitem "Resolve self-dispatch: unknown outcome marginalises (#329)" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
-    cmp = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+    cmp = Resolve(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7))
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
@@ -372,11 +372,11 @@ end
     @test lj0 ≈ 0.0
 end
 
-@testitem "Competing self-dispatch: per-row branch-prob override (#329)" begin
+@testitem "Resolve self-dispatch: per-row branch-prob override (#329)" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
-    cmp = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+    cmp = Resolve(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7))
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
@@ -406,7 +406,7 @@ end
         demo(cmp, (death = 4.0, branch_probs = (death = 0.6, disch = 0.6))), (;))
 end
 
-@testitem "Competing self-dispatch: covariate CFR recovers beta (#329)" begin
+@testitem "Resolve self-dispatch: covariate CFR recovers beta (#329)" begin
     using CensoredDistributions, Distributions, Random
     using Turing: Turing, NUTS, sample, @model, to_submodel
     using DynamicPPL: prefix
@@ -434,7 +434,7 @@ end
     @model function fit(rows, xs)
         b0 ~ Normal(0, 1)
         b1 ~ Normal(0, 1)
-        cmp = Competing(:death => (death_delay, 0.5),
+        cmp = Resolve(:death => (death_delay, 0.5),
             :disch => (disch_delay, 0.5))
         for i in eachindex(rows)
             p = _logistic(b0 + b1 * xs[i])
@@ -451,7 +451,7 @@ end
     @test abs(mean(chain[:b1]) - beta1) < 0.6
 end
 
-@testitem "Competing self-dispatch: AD flows through the MARGINALISED path (#372)" begin
+@testitem "Resolve self-dispatch: AD flows through the MARGINALISED path (#372)" begin
     using CensoredDistributions, Distributions
     using Turing: Turing, @model, to_submodel, AutoForwardDiff
     using DynamicPPL: DynamicPPL, LogDensityFunction
@@ -468,7 +468,7 @@ end
 
     @model function fit(specs)
         beta ~ Normal(0.0, 1.0)
-        cmp = Competing(:death => (death_d, 0.5), :disch => (disch_d, 0.5))
+        cmp = Resolve(:death => (death_d, 0.5), :disch => (disch_d, 0.5))
         for i in eachindex(specs)
             p = _logistic(beta * specs[i].x)
             row = (resolved = specs[i].t, death = missing, disch = missing,
@@ -486,7 +486,7 @@ end
     @test any(!iszero, g)
 end
 
-@testitem "Competing self-dispatch: AD through conditioned + per-row prob" begin
+@testitem "Resolve self-dispatch: AD through conditioned + per-row prob" begin
     using CensoredDistributions, Distributions
     using Turing: Turing, @model, to_submodel, AutoForwardDiff
     using DynamicPPL: DynamicPPL, LogDensityFunction
@@ -519,7 +519,7 @@ end
     @model function fit(specs)
         sh ~ truncated(Normal(2.0, 0.5); lower = 0.2)
         beta ~ Normal(0.0, 1.0)
-        cmp = Competing(:death => (Gamma(sh, 1.5), 0.5),
+        cmp = Resolve(:death => (Gamma(sh, 1.5), 0.5),
             :disch => (disch_delay, 0.5))
         for i in eachindex(specs)
             y ~ to_submodel(
@@ -534,7 +534,7 @@ end
     @test any(!iszero, g)
 end
 
-@testitem "Nested Competing: bdbv tree scores per-record by name (#333)" begin
+@testitem "Nested Resolve: bdbv tree scores per-record by name (#333)" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -544,8 +544,8 @@ end
     e_oa, e_on = edge(1.4, 0.4), edge(1.9, 0.5)
     cfr = 0.3
     death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
-    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
-    # onset -> {admit -> Competing(death, discharge), notif}.
+    cmp = Resolve(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    # onset -> {admit -> Resolve(death, discharge), notif}.
     d = Parallel(Sequential(e_oa, cmp), e_on)
 
     @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
@@ -565,7 +565,7 @@ end
     @test only(logjoint(demo(d, disch_row), (;))) ≈ ref_disch
 end
 
-@testitem "Nested Competing: per-row branch_probs override (#333)" begin
+@testitem "Nested Resolve: per-row branch_probs override (#333)" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -574,7 +574,7 @@ end
         primary_event = Uniform(0, 1), interval = 1.0)
     e_oa, e_on = edge(1.4, 0.4), edge(1.9, 0.5)
     death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
-    cmp = Competing(:death => (death_d, 0.3), :discharge => (disch_d, 0.7))
+    cmp = Resolve(:death => (death_d, 0.3), :discharge => (disch_d, 0.7))
     d = Parallel(Sequential(e_oa, cmp), e_on)
 
     @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
@@ -597,7 +597,7 @@ end
     @test_throws ArgumentError logjoint(demo(d, bad), (;))
 end
 
-@testitem "Nested Competing: N-ary override and conditioning (#333)" begin
+@testitem "Nested Resolve: N-ary override and conditioning (#333)" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -606,7 +606,7 @@ end
         primary_event = Uniform(0, 1), interval = 1.0)
     e_oa, e_on = edge(1.4, 0.4), edge(1.9, 0.5)
     death_d, disch_d, trans_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0), Gamma(3.0, 1.0)
-    cmp = Competing(:death => (death_d, 0.2),
+    cmp = Resolve(:death => (death_d, 0.2),
         :discharge => (disch_d, 0.5), :transfer => (trans_d, 0.3))
     d = Parallel(Sequential(e_oa, cmp), e_on)
 
@@ -625,7 +625,7 @@ end
     @test_throws ArgumentError logjoint(demo(d, bad), (;))
 end
 
-@testitem "Nested Competing: AD through conditioned tree + per-row prob" begin
+@testitem "Nested Resolve: AD through conditioned tree + per-row prob" begin
     using CensoredDistributions, Distributions
     using Turing: Turing, @model, to_submodel, AutoForwardDiff
     using DynamicPPL: DynamicPPL, LogDensityFunction
@@ -659,7 +659,7 @@ end
         beta ~ Normal(0.0, 1.0)
         e_oa = double_interval_censored(LogNormal(1.4, 0.4);
             primary_event = Uniform(0, 1), interval = 1.0)
-        cmp = Competing(:death => (Gamma(sh, 3.0), 0.5),
+        cmp = Resolve(:death => (Gamma(sh, 3.0), 0.5),
             :discharge => (Gamma(2.0, 1.0), 0.5))
         d = Parallel(Sequential(e_oa, cmp), e_on)
         for i in eachindex(specs)
@@ -675,7 +675,7 @@ end
     @test any(!iszero, g)
 end
 
-@testitem "latent Nested Competing: AD through sampled admit + per-row prob (#363)" begin
+@testitem "latent Nested Resolve: AD through sampled admit + per-row prob (#363)" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent
     using Turing: Turing, @model, to_submodel, AutoForwardDiff
@@ -707,7 +707,7 @@ end
         beta ~ Normal(0.0, 1.0)
         e_oa = double_interval_censored(LogNormal(1.4, 0.4);
             primary_event = Uniform(0, 1), interval = 1.0)
-        cmp = Competing(:death => (Gamma(sh, 3.0), 0.5),
+        cmp = Resolve(:death => (Gamma(sh, 3.0), 0.5),
             :discharge => (Gamma(2.0, 1.0), 0.5))
         d = latent(Sequential((e_oa, cmp), (:onset_admit, :admit)))
         for i in eachindex(specs)
@@ -727,7 +727,7 @@ end
     @test any(!iszero, g)
 end
 
-@testitem "Nested Competing: covariate CFR recovers beta in bdbv tree (#333)" begin
+@testitem "Nested Resolve: covariate CFR recovers beta in bdbv tree (#333)" begin
     using CensoredDistributions, Distributions, Random
     using Turing: Turing, NUTS, sample, @model, to_submodel
     using DynamicPPL: prefix
@@ -740,8 +740,8 @@ end
     n = 400
     xs = randn(rng, n)
     # Simulate the bdbv tree per record: onset at 0, admit + a delay, then the
-    # competing outcome (death w.p. logistic(Xbeta)), and notif. Only the
-    # competing branch carries the covariate; the rest are fixed delays.
+    # one_of outcome (death w.p. logistic(Xbeta)), and notif. Only the
+    # one_of branch carries the covariate; the rest are fixed delays.
     onset_admit = Gamma(2.0, 1.0)
     onset_notif = Gamma(2.0, 1.5)
     rows = map(1:n) do i
@@ -758,7 +758,7 @@ end
     end
 
     # The regression is PLAIN TURING; the per-record CFR is PASSED IN to the
-    # nested Competing via the reserved `branch_probs` field.
+    # nested Resolve via the reserved `branch_probs` field.
     @model function fit(rows, xs)
         b0 ~ Normal(0, 1)
         b1 ~ Normal(0, 1)
@@ -766,7 +766,7 @@ end
             primary_event = Uniform(0, 1), interval = 1.0)
         e_on = double_interval_censored(LogNormal(0.4, 0.6);
             primary_event = Uniform(0, 1), interval = 1.0)
-        cmp = Competing(:death => (death_d, 0.5),
+        cmp = Resolve(:death => (death_d, 0.5),
             :discharge => (disch_d, 0.5))
         d = Parallel(Sequential(e_oa, cmp), e_on)
         for i in eachindex(rows)
@@ -810,7 +810,7 @@ end
     @test only(logjoint(demo_w(seq, row, 6), (;))) ≈ 6 * base
 end
 
-@testitem "Nested Competing: latent-wrapped tree conditions on outcome (#363)" begin
+@testitem "Nested Resolve: latent-wrapped tree conditions on outcome (#363)" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent
     using DynamicPPL: @model, to_submodel, logjoint
@@ -821,9 +821,9 @@ end
     e_oa = edge(1.4, 0.4)
     cfr = 0.3
     death_d, disch_d = Gamma(2.0, 3.0), Gamma(2.0, 1.0)
-    cmp = Competing(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
-    # A latent-wrapped composer with a nested Competing conditions on the recorded
-    # outcome (data), exactly like the marginal Competing path: the observed admit
+    cmp = Resolve(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    # A latent-wrapped composer with a nested Resolve conditions on the recorded
+    # outcome (data), exactly like the marginal Resolve path: the observed admit
     # anchors the conditioned branch (both endpoints observed -> declared edge), so
     # the latent contribution equals the marginal `log p[i] + logpdf(delay[i], gap)`.
     seq = Sequential(e_oa, cmp)
@@ -855,9 +855,9 @@ end
     @test only(logjoint(demo(ld, bp_row), (;))) ≈
           logpdf(e_oa, 4.0) + log(0.6) + logpdf(death_d, 8.0)
 
-    # A composer-subtree Competing outcome is still out of scope for the latent
+    # A composer-subtree Resolve outcome is still out of scope for the latent
     # path (its outcome carries internal latents); rejected clearly.
-    sub = Competing(:death => (Sequential(e_oa, edge(1.0, 0.3)), 0.3),
+    sub = Resolve(:death => (Sequential(e_oa, edge(1.0, 0.3)), 0.3),
         :discharge => (disch_d, 0.7))
     ld_sub = latent(Sequential(e_oa, sub))
     sub_row = (event_1 = 0.0, event_2 = 4.0, death = missing, discharge = 11.0)
@@ -1675,7 +1675,7 @@ end
     @test any(!iszero, g)
 end
 
-@testitem "composed_distribution_model: Select routes by the data selector" begin
+@testitem "composed_distribution_model: Choose routes by the data selector" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -1683,7 +1683,7 @@ end
     # delay), selected by the row's `:kind` field (#356).
     idx = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     src = primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))
-    d = selecting(:index => idx, :sourced => src)
+    d = choose(:index => idx, :sourced => src)
 
     @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
 
@@ -1699,7 +1699,7 @@ end
     @test lj_w ≈ 2.5 * logpdf(idx, 3.0)
 end
 
-@testitem "composed_distribution_model: Select alternative may be a composer" begin
+@testitem "composed_distribution_model: Choose alternative may be a composer" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
@@ -1709,7 +1709,7 @@ end
         primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
         primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
     leaf = primary_censored(Gamma(3.0, 1.0), Uniform(0, 1))
-    d = selecting(:sourced => chain, :index => leaf)
+    d = choose(:sourced => chain, :index => leaf)
 
     @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
 
@@ -1721,30 +1721,30 @@ end
           logpdf(leaf, 4.0)
 end
 
-@testitem "composed_distribution_model: Select branches keep independent anchors" begin
+@testitem "composed_distribution_model: Choose branches keep independent anchors" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
     # The hanta index-vs-sourced split (#323, #356): two ALTERNATIVE WHOLE
     # records with INDEPENDENT anchors, NOT shared-origin branches. The index
     # case is its own primary-censored leaf; the sourced case is a longer,
-    # independently-anchored chain. Unlike a shared-origin Parallel, Select makes
+    # independently-anchored chain. Unlike a shared-origin Parallel, Choose makes
     # no shared-primary assumption: each selected branch scores as its OWN
     # complete distribution, and the non-selected branch contributes nothing.
     index_rec = primary_censored(LogNormal(1.5, 0.5), Uniform(0, 1))
     sourced_rec = Sequential(
         primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         primary_censored(Gamma(3.0, 1.0), Uniform(0, 1)))
-    d = selecting(:index => index_rec, :sourced => sourced_rec)
+    d = choose(:index => index_rec, :sourced => sourced_rec)
 
     @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
 
-    # Selecting the index branch scores EXACTLY its own standalone leaf logpdf
+    # Choosing the index branch scores EXACTLY its own standalone leaf logpdf
     # (no shared-origin path, no contribution from the sourced branch).
     @test only(logjoint(demo(d, (kind = :index, y = 3.0)), (;))) ≈
           logpdf(index_rec, 3.0)
 
-    # Selecting the sourced branch scores EXACTLY its own standalone chain
+    # Choosing the sourced branch scores EXACTLY its own standalone chain
     # logpdf, routed through the same nested-composer recursion.
     ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
     @test only(logjoint(
@@ -1752,14 +1752,14 @@ end
         (;))) ≈ logpdf(sourced_rec, ev)
 end
 
-@testitem "composed_distribution_model: Select selector field is non-event" begin
+@testitem "composed_distribution_model: Choose selector field is non-event" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, logjoint
 
     # A custom selector name, and the selector field must hold a Symbol.
     idx = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     src = primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))
-    d = selecting(:index => idx, :sourced => src; selector = :case)
+    d = choose(:index => idx, :sourced => src; selector = :case)
 
     @model demo(dd, r) = obs ~ to_submodel(composed_distribution_model(dd, r))
 

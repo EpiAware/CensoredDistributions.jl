@@ -14,7 +14,7 @@ does not exist (for example coupled records), a latent formulation is reached by
 dispatching on the distribution type, and the primary event is sampled in a
 model via [`get_primary_event`](@ref); that lives in the DynamicPPL extension.
 
-# Method Selection
+# Method choice
 
 The CDF computation is handled by `primarycensored_cdf`, which dispatches on
 the `method`:

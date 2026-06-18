@@ -1,8 +1,8 @@
-@testitem "Select scores the data-selected alternative" begin
+@testitem "Choose scores the data-selected alternative" begin
     using CensoredDistributions, Distributions
 
-    d = selecting(:index => Gamma(2.0, 1.0), :sourced => Gamma(5.0, 1.0))
-    @test d isa CensoredDistributions.Select
+    d = choose(:index => Gamma(2.0, 1.0), :sourced => Gamma(5.0, 1.0))
+    @test d isa CensoredDistributions.Choose
     @test d.selector == :kind
     @test CensoredDistributions._n_alternatives(d) == 2
 
@@ -14,12 +14,12 @@
     @test logpdf(d, 3.0; kind = :index) != logpdf(d, 3.0; kind = :sourced)
 end
 
-@testitem "Select requires a selection for logpdf/rand" begin
+@testitem "Choose requires a selection for logpdf/rand" begin
     using CensoredDistributions, Distributions
     using Random: Xoshiro
 
-    d = selecting(:a => Gamma(2.0, 1.0), :b => Gamma(5.0, 1.0))
-    # No default selection for scoring: a Select has no single distribution to
+    d = choose(:a => Gamma(2.0, 1.0), :b => Gamma(5.0, 1.0))
+    # No default selection for scoring: a Choose has no single distribution to
     # score without a kind.
     @test_throws ArgumentError logpdf(d, 3.0)
     # An unknown name is rejected.
@@ -33,11 +33,11 @@ end
     @test y isa Real && y > 0
 end
 
-@testitem "Select rand samples the selected alternative's distribution" begin
+@testitem "Choose rand samples the selected alternative's distribution" begin
     using CensoredDistributions, Distributions
     using Random: Xoshiro
 
-    d = selecting(:short => Gamma(2.0, 0.5), :long => Gamma(20.0, 1.0))
+    d = choose(:short => Gamma(2.0, 0.5), :long => Gamma(20.0, 1.0))
     n = 4000
     short = [rand(Xoshiro(i), d; kind = :short) for i in 1:n]
     long = [rand(Xoshiro(i), d; kind = :long) for i in 1:n]
@@ -48,13 +48,13 @@ end
     @test sum(long) / n > 5 * sum(short) / n
 end
 
-@testitem "Select hot path is type stable" begin
+@testitem "Choose hot path is type stable" begin
     using CensoredDistributions, Distributions
     using Test: @inferred
 
     # Heterogeneous alternatives (different concrete types) still infer, because
     # the selection barriers into the chosen alternative's concrete type.
-    d = selecting(:index => Gamma(2.0, 1.0),
+    d = choose(:index => Gamma(2.0, 1.0),
         :sourced => LogNormal(1.0, 0.5))
     score_idx(dd, x) = logpdf(dd, x; kind = :index)
     score_src(dd, x) = logpdf(dd, x; kind = :sourced)
@@ -66,65 +66,65 @@ end
     @inferred pick_score(d, 3.0, :index)
 end
 
-@testitem "Select validates construction" begin
+@testitem "Choose validates construction" begin
     using CensoredDistributions, Distributions
 
     # At least two alternatives.
-    @test_throws ArgumentError selecting(:only => Gamma(1.0, 1.0))
+    @test_throws ArgumentError choose(:only => Gamma(1.0, 1.0))
     # Unique names.
-    @test_throws ArgumentError selecting(
+    @test_throws ArgumentError choose(
         :a => Gamma(1.0, 1.0), :a => Gamma(2.0, 1.0))
     # A custom selector field name is honoured.
-    d = selecting(:a => Gamma(1.0, 1.0), :b => Gamma(2.0, 1.0);
+    d = choose(:a => Gamma(1.0, 1.0), :b => Gamma(2.0, 1.0);
         selector = :case)
     @test d.selector == :case
 end
 
-@testitem "Select holds a composer alternative and compares structurally" begin
+@testitem "Choose holds a composer alternative and compares structurally" begin
     using CensoredDistributions, Distributions
 
-    # A Select alternative may itself be a composer (the supported nesting
-    # direction: a composer INSIDE a Select).
-    inner = selecting(:a => Gamma(2.0, 1.0),
+    # A Choose alternative may itself be a composer (the supported nesting
+    # direction: a composer INSIDE a Choose).
+    inner = choose(:a => Gamma(2.0, 1.0),
         :b => Sequential(Gamma(1.0, 1.0), LogNormal(0.5, 0.4)))
-    @test inner isa CensoredDistributions.Select
+    @test inner isa CensoredDistributions.Choose
 
     # Structural equality and hashing over names, alternatives, and selector.
-    a = selecting(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0))
-    b = selecting(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0))
+    a = choose(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0))
+    b = choose(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0))
     @test a == b
     @test hash(a) == hash(b)
-    c = selecting(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0);
+    c = choose(:x => Gamma(2.0, 1.0), :y => Gamma(5.0, 1.0);
         selector = :case)
     @test a != c
 end
 
-@testitem "selecting nests on selecting and compose results" begin
+@testitem "choose nests on choose and compose results" begin
     using CensoredDistributions, Distributions
     const CD = CensoredDistributions
 
     # compose-in-select: an alternative is a compose result.
     tree = compose((a = Gamma(2.0, 1.0), b = LogNormal(0.5, 0.4)))
-    s1 = selecting(:joint => tree, :leaf => Gamma(3.0, 1.0))
-    @test s1 == CD.Select((:joint, :leaf), (tree, Gamma(3.0, 1.0)), :kind)
+    s1 = choose(:joint => tree, :leaf => Gamma(3.0, 1.0))
+    @test s1 == CD.Choose((:joint, :leaf), (tree, Gamma(3.0, 1.0)), :kind)
 
     # select-in-select: an alternative is itself a select.
-    inner = selecting(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0))
-    s2 = selecting(:nested => inner, :flat => Gamma(1.0, 1.0))
-    @test s2 == CD.Select((:nested, :flat), (inner, Gamma(1.0, 1.0)), :kind)
+    inner = choose(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0))
+    s2 = choose(:nested => inner, :flat => Gamma(1.0, 1.0))
+    @test s2 == CD.Choose((:nested, :flat), (inner, Gamma(1.0, 1.0)), :kind)
 
-    # The supported direction (a composer/select INSIDE a Select) scores fine.
+    # The supported direction (a composer/select INSIDE a Choose) scores fine.
     @test logpdf(inner, 3.0; kind = :short) ≈ logpdf(Gamma(2.0, 1.0), 3.0)
 end
 
-@testitem "Select nests inside a Sequential/Parallel/compose" begin
+@testitem "Choose nests inside a Sequential/Parallel/compose" begin
     using CensoredDistributions, Distributions
     const CD = CensoredDistributions
 
-    # A Select with equal-width alternatives occupies a fixed flat slot, so it is a
+    # A Choose with equal-width alternatives occupies a fixed flat slot, so it is a
     # valid composer child (#413): the constructors and `compose` accept it and the
     # flat path commits to the first alternative.
-    inner = selecting(:a => Gamma(2.0, 1.0), :b => Gamma(5.0, 1.0))
+    inner = choose(:a => Gamma(2.0, 1.0), :b => Gamma(5.0, 1.0))
     @test Parallel(Gamma(2.0, 1.0), inner) isa CD.Parallel
     @test Parallel(inner, Gamma(2.0, 1.0)) isa CD.Parallel
     @test Sequential(Gamma(2.0, 1.0), inner) isa CD.Sequential
@@ -136,16 +136,16 @@ end
 
     # Alternatives with differing leaf counts cannot share one flat slot: the
     # mismatch surfaces when the flat layout is needed (length / logpdf / rand).
-    ragged = selecting(:a => Gamma(2.0, 1.0),
+    ragged = choose(:a => Gamma(2.0, 1.0),
         :b => compose((x = Gamma(2.0, 1.0), y = Gamma(2.0, 1.0))))
     rp = Parallel(Gamma(2.0, 1.0), ragged)
     @test_throws ArgumentError length(rp)
 
-    # The supported direction (a composer INSIDE a Select) still constructs AND is
+    # The supported direction (a composer INSIDE a Choose) still constructs AND is
     # operable: logpdf / rand run on the selected alternative.
     tree = compose((a = Gamma(2.0, 1.0), b = LogNormal(0.5, 0.4)))
-    s = selecting(:joint => tree, :leaf => Gamma(3.0, 1.0))
-    @test s isa CD.Select
+    s = choose(:joint => tree, :leaf => Gamma(3.0, 1.0))
+    @test s isa CD.Choose
     @test logpdf(s, [1.0, 2.0]; kind = :joint) ≈ logpdf(tree, [1.0, 2.0])
     @test logpdf(s, 1.5; kind = :leaf) ≈ logpdf(Gamma(3.0, 1.0), 1.5)
     @test rand(s; kind = :leaf) isa Real
@@ -154,15 +154,15 @@ end
     @test rand(s; kind = :joint) isa NamedTuple
 end
 
-@testitem "nested selecting scores and samples via model entry" begin
+@testitem "nested choose scores and samples via model entry" begin
     using CensoredDistributions, Distributions, Random
     using DynamicPPL: @model, to_submodel, logjoint
 
     # A select alternative that is itself a select: the model entry reads the
     # selector, picks the alternative, and delegates to its own model.
-    inner = selecting(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0);
+    inner = choose(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0);
         selector = :sub)
-    d = selecting(:nested => inner, :flat => Gamma(3.0, 1.0))
+    d = choose(:nested => inner, :flat => Gamma(3.0, 1.0))
 
     @model gen(dist, row) = obs ~ to_submodel(
         composed_distribution_model(dist, row))

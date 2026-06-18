@@ -55,8 +55,8 @@ Mooncake reverse and Mooncake forward drop the three vectorised
 per-record scenarios, where the compiled backends trace into the AD-free
 row-collection pre-pass and crash on it.
 Enzyme forward drops those three plus the non-terminal whole-tree
-Competing scenario.
-Enzyme reverse drops the most, adding the nested Competing tree, the
+Resolve scenario.
+Enzyme reverse drops the most, adding the nested Resolve tree, the
 nested racing-hazard tree, the external censoring wrapper over a
 `Sequential`, and the whole-compose conv-to-last-observed truncation,
 each of which needs a reverse shadow Enzyme cannot build for a

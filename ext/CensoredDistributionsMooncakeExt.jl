@@ -50,7 +50,7 @@ Mooncake.@from_chainrules Mooncake.DefaultCtx Tuple{typeof(_gamma_cdf), Real, Re
 Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{typeof(_split_edge_name), Symbol}
 # `_split_edge` is the DOTTED parameter-path splitter (`:a.b -> (:a, :b)`), reached
 # from `event(d, name)` and `build_priors`/`composed_parameters_model` INSIDE the
-# differentiated reconstruction (e.g. `event(delays, :index)` in the andv Select
+# differentiated reconstruction (e.g. `event(delays, :index)` in the andv Choose
 # model). It does `split(string(edge), '.')` — pointer-arithmetic string search
 # (`findnext`/`thisind`/`codeunit`) that Mooncake reverse cannot trace, aborting
 # with the uncatchable `sub_ptr intrinsic hit`, which forced the andv tutorial to
@@ -69,7 +69,7 @@ Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{
 # distribution constructor accepts a `check_args` keyword, so the DynamicPPL
 # extension's leaf reconstruction can skip the argument check where supported. Its
 # `hasmethod` lowers to a `jl_gf_invoke_lookup` foreigncall that Mooncake reverse
-# on Julia LTS has no rule for (it aborts the nested-Competing / Select
+# on Julia LTS has no rule for (it aborts the nested-Resolve / Choose
 # reconstruction there). The result is a `Bool` constant w.r.t. the sampled params
 # (only the leaf params carry gradients), so a zero-adjoint primitive runs the
 # primal unchanged and returns a zero cotangent, keeping the reconstruction AD-safe

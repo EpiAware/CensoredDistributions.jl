@@ -19,7 +19,7 @@ The contact interval has a hazard of infectious contact ``\lambda(\tau)``,
 and its distribution is the quantity we want to estimate.
 A susceptible ``j`` is infected at the minimum contact time over all its
 infectious sources, and *who-infected-whom* is the ``\arg\min``.
-This is exactly a **competing risks across sources** problem: the sources race,
+This is exactly a **one_of risks across sources** problem: the sources race,
 the first contact wins, and timing and cause are coupled.
 
 This page maps that structure directly onto the CensoredDistributions composer
@@ -40,14 +40,14 @@ compact version omits infectious-period gating (explained where we compute it).
 | Kenah pairwise concept | Composed primitive |
 |---|---|
 | contact interval ``\tau_{ij}`` with hazard ``\lambda_0(\tau)\,e^{\beta' x_{ij}}`` | a `Distributions.Weibull` leaf with a per-pair rate |
-| susceptible ``j`` infected at ``\min_i \tau_{ij}``, source ``=\arg\min`` | racing-hazard [`competing`](@ref) ([`HazardCompeting`](@ref)) |
+| susceptible ``j`` infected at ``\min_i \tau_{ij}``, source ``=\arg\min`` | racing-hazard [`compete`](@ref) node ([`Compete`](@ref)) |
 | pair right-censored (``j`` infected elsewhere / source recovers / study ends) | the racing-hazard survival ``\prod_k S_k`` (`logccdf`) |
 | contact-interval observation windows (dates to the day) | a [`double_interval_censored`](@ref) leaf (sketched in the refinements) |
 | transmission coefficients ``\beta`` (household, class, …) | a per-pair log-rate regression ``\lambda_0 e^{\beta' x_{ij}}`` |
 
 2. Identify the baseline contact interval as a stock `Weibull` leaf and put a
    log-rate regression ``\lambda_0 e^{\beta' x_{ij}}`` on its rate.
-3. Build the pairwise survival likelihood as a racing-hazard competing node.
+3. Build the pairwise survival likelihood as a racing-hazard one_of node.
 4. Fit the Hagelloch data, recover the transmission coefficients ``\beta`` and
    the within-household effect, and read off an illustrative household ``R_0``.
 
@@ -117,7 +117,7 @@ cause-resolved marginal density
 
 i.e. *some* source contacted ``j`` at ``t_j`` while every other at-risk source
 had not yet — the `logpdf` of the racing-hazard
-[`competing`](@ref) node over ``R(j)``.
+[`compete`](@ref) node over ``R(j)``.
 A pair ``(i, j)`` where ``j`` is never infected by ``i`` (``j`` is infected by
 another source first, ``i`` recovers, or the study ends) contributes the
 **survival** ``S(\text{at-risk duration})`` — the racing-hazard
@@ -185,9 +185,9 @@ md"""
 ## A racing-hazard node over sources
 
 When several sources became infectious *at the same time*, the susceptible
-faces a racing hazard on a shared clock: a [`competing`](@ref) node built from
+faces a racing hazard on a shared clock: a [`compete`](@ref) node built from
 *bare* contact-interval delays (no branch probabilities), which selects the
-racing-hazard [`HazardCompeting`](@ref) type — the winning source is *derived*
+racing-hazard [`Compete`](@ref) type — the winning source is *derived*
 from the hazards, not a free parameter.
 The node's `logpdf` is the cause-resolved marginal density
 ``\sum_i f(\tau) \prod_{k \ne i} S(\tau)``, its `logccdf` is the joint
@@ -195,7 +195,7 @@ survival ``\prod_k S_k``, and [`winning_probabilities`](@ref) is the per-source
 ``\arg\min`` (who-infected-whom) split.
 """
 
-let node = competing(:near => contact_interval(0.4, 1.6),
+let node = compete(:near => contact_interval(0.4, 1.6),
         :far => contact_interval(0.1, 1.6))
     (; marginal_logpdf = logpdf(node, 2.0),
         joint_logsurvival = logccdf(node, 2.0),
@@ -212,8 +212,8 @@ This is a deterministic shift of the contact-interval leaf by the source's
 onset, which is exactly the additive special case of the exported
 [`affine`](@ref) primitive ``Y = \text{scale}\cdot X + \text{shift}``:
 `affine(leaf; shift = o_i)` reads the underlying leaf at the gap ``t - o_i`` when
-evaluated at an outbreak time ``t``, and nests as a leaf in
-[`competing`](@ref) like any other distribution.
+evaluated at an outbreak time ``t``, and nests as a leaf in a
+[`compete`](@ref) node like any other distribution.
 This lets a racing-hazard node over sources be scored at the *susceptible's*
 infection time directly, with every source automatically read at its own gap
 ``g_{ij} = t_j - o_i`` — the node's `logpdf` at ``t_j`` is then exactly the
@@ -227,7 +227,7 @@ survival is the product of the per-source survivals.
 """
 
 let onset_near = 1.0, onset_far = 2.5, t_infect = 6.0
-    node = competing(
+    node = compete(
         :near => affine(contact_interval(0.4, 1.6); shift = onset_near),
         :far => affine(contact_interval(0.1, 1.6); shift = onset_far))
     (; marginal_logpdf = logpdf(node, t_infect),
@@ -300,7 +300,7 @@ md"""
 For each infected susceptible ``j`` we assemble its at-risk source set
 ``R(j)`` — every case whose infectiousness onset precedes ``t_j`` — anchor each
 source's contact interval at its onset, and score ``j`` through a racing-hazard
-[`competing`](@ref) node over those anchored sources, evaluated at ``j``'s
+[`compete`](@ref) node over those anchored sources, evaluated at ``j``'s
 infection time ``t_j``.
 Each pair ``(i, j)`` carries a covariate vector ``x_{ij}`` (does the pair share a
 household, a school class) and its contact-interval rate is the log-rate
@@ -350,7 +350,7 @@ function source_node(
     delays = source_delays(
         log_lambda0, beta, gamma, onset, household, class, sources, j)
     names = ntuple(k -> Symbol(:src, k), length(sources))
-    return competing((names[k] => delays[k] for k in eachindex(sources))...)
+    return compete((names[k] => delays[k] for k in eachindex(sources))...)
 end
 
 ## Count the sources infectious before j's own infection (j's at-risk set size).
@@ -393,7 +393,7 @@ For one susceptible the racing-hazard marginal at ``t_j`` is the log-sum-exp of
 each source's cause-resolved log sub-density
 ``\log f(g_{ij}) + \sum_{k \ne i} \log S(g_{kj})``.
 This is *exactly* `logpdf(source_node(...), t_j)`: `source_node` builds the
-racing-hazard [`competing`](@ref) node over the anchored sources and its marginal
+racing-hazard [`compete`](@ref) node over the anchored sources and its marginal
 `logpdf` is the per-susceptible likelihood. We verify that equality below, then
 fit through the direct reduction `susceptible_loglik`.
 
@@ -406,14 +406,14 @@ racing node is *rebuilt per susceptible* over a different at-risk source set
 ``R(j)`` (a different arity, different onsets, different pair covariates),
 and the susceptible's infection time is scored as the node's marginal rather than
 as a named-event record. So the right composed primitive is the racing-hazard
-[`competing`](@ref) node — which the package *does* supply and which the
+[`compete`](@ref) node — which the package *does* supply and which the
 agreement check below confirms is the same likelihood — and the manual part that
 remains is only the per-susceptible loop and the log-sum-exp reduction.
-`HazardCompeting`'s own `logpdf` is itself an AD-safe log-sum-exp, so fitting
+`Compete`'s own `logpdf` is itself an AD-safe log-sum-exp, so fitting
 through `logpdf(source_node(...), t_j)` differentiates cleanly under the
 Mooncake backend used here; `susceptible_loglik` is a *per-susceptible inlining*
 of that node `logpdf`, equivalent to it (checked below), that skips rebuilding a
-fresh `competing` node of a new arity for each susceptible on every gradient
+fresh `one_of` node of a new arity for each susceptible on every gradient
 step.
 Each source's rate is the regression ``\lambda_0\, e^{\beta' x_{ij}}`` evaluated
 at the pair's covariates; the shared shape ``\gamma`` carries the hazard's time
@@ -446,7 +446,7 @@ function susceptible_loglik(log_lambda0, beta, gamma, gaps, covs)
 end
 
 md"""
-The direct computation agrees with the racing-hazard `competing` node it stands
+The direct computation agrees with the racing-hazard `one_of` node it stands
 in for. For one Hagelloch susceptible with several at-risk sources we build the
 node with `source_node` and check its marginal at ``t_j`` against
 `susceptible_loglik`.
@@ -679,7 +679,7 @@ covariates and never shown the recorded tree, points at the recorded infector
 several times more often than chance.
 This is a *minority* of the mass, not a confident reconstruction — the same
 un-gated at-risk window that biases ``R_\text{household}`` low also leaves many
-old sources competing for each susceptible — so read it as evidence that the
+old sources one_of for each susceptible — so read it as evidence that the
 timing-and-covariate signal is informative about who-infected-whom, not as a
 recovered transmission tree.
 
@@ -694,11 +694,11 @@ survival method [kenah2011contact](@cite) on the composer stack:
   node needs only a `logpdf` and a `logccdf`, any richer baseline with an
   AD-safe survival (a [SurvivalDistributions.jl](@ref survival-delay-families)
   leaf, a piecewise-constant hazard) drops in;
-- the **racing across sources** is the racing-hazard [`competing`](@ref) node,
+- the **racing across sources** is the racing-hazard [`compete`](@ref) node,
   whose cause-resolved marginal is the pairwise likelihood and whose
   ``\arg\min`` draws give the who-infected-whom posterior;
 - the **right-censoring** of non-winning pairs is the racing survival
-  ``\prod_k S_k``, the no-event branch of the competing likelihood.
+  ``\prod_k S_k``, the no-event branch of the one_of likelihood.
 
 Compared with the `transtat` reference implementation, several extensions are
 outside the scope of this page:
@@ -708,7 +708,7 @@ outside the scope of this page:
   is closed only by the study horizon. A recovery-time leaf
   (`infectiousness onset → recovery`) would gate each source's survival term.
 - The **external / community hazard** (infection from outside the close-contact
-  groups) is a further competing source with its own constant hazard, scored as
+  groups) is a further one_of source with its own constant hazard, scored as
   an extra racing branch per susceptible.
 - the **contact-hazard regression** here carries two pair covariates (household
   and school class); `transtat` allows arbitrary covariates on the

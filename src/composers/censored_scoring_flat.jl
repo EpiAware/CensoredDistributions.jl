@@ -43,7 +43,7 @@ See also: [`Sequential`](@ref), [`Parallel`](@ref)
 "
 function logpdf(d::Sequential, events::AbstractVector{T}) where {T >: Missing}
     # The flat event vector carries one entry per EVENT slot plus the root
-    # origin. A nested composer contributes its whole subtree; a `Competing`
+    # origin. A nested composer contributes its whole subtree; a `Resolve`
     # contributes one slot per OUTCOME, so the count is
     # `_event_nleaves(d.components) + 1`, not `length(d) + 1` (the value layout).
     n = _event_nleaves(d.components) + 1
@@ -243,7 +243,7 @@ See also: [`Parallel`](@ref), [`Sequential`](@ref)
 "
 function logpdf(d::Parallel, events::AbstractVector{T}) where {T >: Missing}
     # One entry per EVENT slot plus the shared origin; a tree branch contributes
-    # its whole subtree's events and a `Competing` one slot per OUTCOME,
+    # its whole subtree's events and a `Resolve` one slot per OUTCOME,
     # so the length is `_event_nleaves(d.components) + 1`.
     n = _event_nleaves(d.components) + 1
     length(events) == n || throw(DimensionMismatch(
@@ -362,7 +362,7 @@ contributes the ``-\log F(\text{window})`` correction, upper-only and AD-safe.
 
 For a NESTED tree (a chain/set whose step or branch is itself a composer) the
 per-record `horizon` threads down to the nested scorer (#517): each nested
-[`Competing`](@ref)/`HazardCompeting` node is right-truncated at the remaining
+[`Resolve`](@ref)/`Compete` node is right-truncated at the remaining
 window from its anchor (`horizon - anchor`), the same right-truncation the
 top-level node applies, while plain leaf/chain edges ignore the horizon. The
 nested marginal path is then density-identical to the latent-conditioned model.
@@ -398,9 +398,9 @@ function event_logpdf(
     # Dispatch on the nested/flat trait. A FLAT chain takes the whole-compose
     # TOTAL truncation (the collapsed conv-to-last-observed denominator). A NESTED
     # tree threads the per-record horizon down to the now horizon-capable nested
-    # scorer (#517), which right-truncates each nested `Competing`/`HazardCompeting`
+    # scorer (#517), which right-truncates each nested `Resolve`/`Compete`
     # node at the remaining window from its anchor, exactly as the top-level
-    # `Competing` truncation does; plain leaf/chain edges ignore the horizon.
+    # `Resolve` truncation does; plain leaf/chain edges ignore the horizon.
     return _seq_event_logpdf_horizon(_nested_trait(d.components), d, events,
         horizon)
 end

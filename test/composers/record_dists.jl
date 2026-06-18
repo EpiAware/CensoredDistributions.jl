@@ -283,20 +283,20 @@ end
     @test all(j -> M[2, j] >= M[1, j] && M[3, j] >= M[2, j], 1:6)
 end
 
-# Shared fixtures + references for the nested-Competing (bdbv) and Select (hanta)
+# Shared fixtures + references for the nested-Resolve (bdbv) and Choose (hanta)
 # vectorised tests: the case-study trees and the per-record loop the vectorised
 # `record_distributions` path must equal.
 @testsnippet CaseStudyRecords begin
     using Distributions
 
-    # A bdbv nested-Competing tree with NAMED edges so the event names are
-    # onset/admit/death/discharge/notif: onset -> {admit -> Competing(death,
+    # A bdbv nested-Resolve tree with NAMED edges so the event names are
+    # onset/admit/death/discharge/notif: onset -> {admit -> Resolve(death,
     # discharge), notif}.
     function bdbv_tree()
         edge(mu,
             sigma) = double_interval_censored(LogNormal(mu, sigma);
             primary_event = Uniform(0, 1), interval = 1.0)
-        cmp = Competing(:death => (Gamma(2.0, 3.0), 0.3),
+        cmp = Resolve(:death => (Gamma(2.0, 3.0), 0.3),
             :discharge => (Gamma(2.0, 1.0), 0.7))
         seq = Sequential((edge(1.4, 0.4), cmp),
             (:onset_admit, :admit_resolution))
@@ -309,9 +309,9 @@ end
         total = 0.0
         for row in rows
             scored = haskey(row, :branch_probs) ?
-                     CensoredDistributions._override_competing_outcome_probs(d,
+                     CensoredDistributions._override_one_of_outcome_probs(d,
                 CensoredDistributions._coerce_branch_probs(
-                    CensoredDistributions._the_competing_node(d),
+                    CensoredDistributions._the_one_of_node(d),
                     row.branch_probs)) : d
             ev = CensoredDistributions._row_event_vector(d, row)
             w = CensoredDistributions._row_weight_field(row, nothing)
@@ -330,15 +330,15 @@ end
         end
     end
 
-    # A hanta Select top: an index case (its own origin) vs a sourced case (a longer
+    # A hanta Choose top: an index case (its own origin) vs a sourced case (a longer
     # delay), selected by the row's `:kind`.
     function hanta_select()
-        return selecting(
+        return choose(
             :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
             :sourced => primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
     end
 
-    # The per-record loop reference for a Select top: each row picks its alternative
+    # The per-record loop reference for a Choose top: each row picks its alternative
     # and scores its single observed value, right-truncated at the row's obs_time.
     function hanta_ref_loop(d, rows)
         total = 0.0
@@ -361,7 +361,7 @@ end
     end
 end
 
-@testitem "vectorised bdbv nested Competing equals per-record loop" setup=[CaseStudyRecords] begin
+@testitem "vectorised bdbv nested Resolve equals per-record loop" setup=[CaseStudyRecords] begin
     using Distributions
 
     d = bdbv_tree()
@@ -408,7 +408,7 @@ end
           Float64
 end
 
-@testitem "vectorised hanta Select equals per-record loop" setup=[CaseStudyRecords] begin
+@testitem "vectorised hanta Choose equals per-record loop" setup=[CaseStudyRecords] begin
     using Distributions
 
     d = hanta_select()
@@ -421,7 +421,7 @@ end
     @test hanta_vec_total(d, rows) ≈ hanta_ref_loop(d, rows)
 end
 
-@testitem "vectorised hanta Select samples per row when missing" setup=[CaseStudyRecords] begin
+@testitem "vectorised hanta Choose samples per row when missing" setup=[CaseStudyRecords] begin
     using Distributions, Random
     using DynamicPPL: @model, to_submodel
 
@@ -435,7 +435,7 @@ end
     @test all(M .>= 0)
 end
 
-@testitem "vectorised hanta Select scores like the per-record submodel" setup=[CaseStudyRecords] begin
+@testitem "vectorised hanta Choose scores like the per-record submodel" setup=[CaseStudyRecords] begin
     using Distributions
     using DynamicPPL: @model, to_submodel, prefix, logjoint
 
@@ -460,16 +460,16 @@ end
     @test lp_vec ≈ lp_loop
 end
 
-@testitem "vectorised Select rejects heterogeneous-length alternatives" begin
+@testitem "vectorised Choose rejects heterogeneous-length alternatives" begin
     using CensoredDistributions, Distributions
 
     # A leaf alternative is one event slot; a composer alternative is several. A
-    # table that mixes rows selecting alternatives of DIFFERENT event-slot counts
+    # table that mixes rows choose alternatives of DIFFERENT event-slot counts
     # has no rectangular event matrix. The records are heterogeneous-length, so
     # `product_distribution` would throw Distributions.jl's opaque "all
     # distributions must be of the same size". `record_distributions` raises a
     # clear `ArgumentError` instead.
-    d = selecting(
+    d = choose(
         :leaf => Gamma(2.0, 1.0),
         :pair => Sequential(Gamma(1.0, 1.0), LogNormal(0.5, 0.4)))
     rows = [(kind = :leaf, value = 2.0),

@@ -1,4 +1,4 @@
-# AD coverage for nested-`Select` tree routing. A record's nested Select is
+# AD coverage for nested-`Choose` tree routing. A record's nested Choose is
 # resolved to its routed alternative (the selector is data, a Symbol), then the
 # resolved tree scores through the numeric event-vector path. The gradient w.r.t.
 # the delay params must flow under BOTH ForwardDiff and Mooncake reverse.
@@ -13,14 +13,14 @@
 # now do a plain `startswith` + ASCII-digit scan with no `Regex`, so the Mooncake
 # reverse gradient over the routed-tree logpdf compiles and matches ForwardDiff.
 
-@testitem "nested Select routing gradient: ForwardDiff" tags=[
+@testitem "nested Choose routing gradient: ForwardDiff" tags=[
     :ad, :forwarddiff] begin
     using CensoredDistributions, Distributions
     using ADTypes: AutoForwardDiff
     using DifferentiationInterface: gradient
     using ForwardDiff: ForwardDiff
 
-    # Two records routing to DIFFERENT alternatives of a nested Select, so the
+    # Two records routing to DIFFERENT alternatives of a nested Choose, so the
     # log density depends on BOTH alternatives' params.
     rows = [(onset = 0.0, admit = 2.0, death = 5.0, kind = :a),
         (onset = 0.0, admit = 1.0, death = 7.0, kind = :b)]
@@ -32,7 +32,7 @@
         e1 = primary_censored(Gamma(θ[1], θ[2]), Uniform(0, 1))
         a = primary_censored(Gamma(θ[3], θ[4]), Uniform(0, 1))
         b = primary_censored(Gamma(θ[5], θ[6]), Uniform(0, 1))
-        inner = selecting(:a => a, :b => b)
+        inner = choose(:a => a, :b => b)
         seq = Sequential((e1, inner), (:onset_admit, :admit_death))
         recs = CensoredDistributions.record_distributions(seq, rows)
         return sum(i -> logpdf(recs[i], obs[i]), eachindex(recs))
@@ -50,7 +50,7 @@ end
 # could not compile a rule here (the `Base.compile(::Regex)` try/catch on the
 # scoring path); now the regex-free string parsing lets the reverse gradient
 # compile, stay finite, and match the ForwardDiff reference.
-@testitem "nested Select routing gradient: Mooncake reverse" tags=[
+@testitem "nested Choose routing gradient: Mooncake reverse" tags=[
     :ad, :mooncake, :mooncake_reverse] begin
     using CensoredDistributions, Distributions
     using ADTypes: AutoForwardDiff, AutoMooncake
@@ -66,7 +66,7 @@ end
         e1 = primary_censored(Gamma(θ[1], θ[2]), Uniform(0, 1))
         a = primary_censored(Gamma(θ[3], θ[4]), Uniform(0, 1))
         b = primary_censored(Gamma(θ[5], θ[6]), Uniform(0, 1))
-        inner = selecting(:a => a, :b => b)
+        inner = choose(:a => a, :b => b)
         seq = Sequential((e1, inner), (:onset_admit, :admit_death))
         recs = CensoredDistributions.record_distributions(seq, rows)
         return sum(i -> logpdf(recs[i], obs[i]), eachindex(recs))

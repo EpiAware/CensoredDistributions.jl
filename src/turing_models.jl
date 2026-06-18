@@ -141,11 +141,11 @@ distribution.
   [`convolve_distributions`](@ref) result) to
   [`double_interval_censored_model`](@ref).
 - A composed distribution ([`Sequential`](@ref), [`Parallel`](@ref),
-  [`Competing`](@ref), or their [`latent`](@ref) wrappers) recurses through the
+  [`Resolve`](@ref), or their [`latent`](@ref) wrappers) recurses through the
   composer structure, marginalising or conditioning per record per the row's
   missingness pattern, and turning the origin/shared primary on in the latent
   case.
-- A [`Select`](@ref) data-selected disjunction reads the row's selector field
+- A [`Choose`](@ref) data-selected disjunction reads the row's selector field
   (`row[d.selector]`, default `:kind`), whose value names the active
   alternative, and delegates to that selected alternative's own model. The
   selector field is stripped before delegating, so the alternative sees only its
@@ -213,7 +213,7 @@ A `template` composed distribution (from [`compose`](@ref)) defines the paramete
 inventory; [`params_table`](@ref) lists it. The user supplies `priors`, a nested
 `NamedTuple` keyed exactly like [`params`](@ref)`(template)`: leaves keyed by
 their parameter names (e.g. `:shape`/`:scale`, `:mu`/`:sigma`), composer nodes
-keyed by their edge/event names, and a [`Competing`](@ref) node optionally
+keyed by their edge/event names, and a [`Resolve`](@ref) node optionally
 carrying a `branch_probs` entry. The returned submodel samples each prior and
 rebuilds the SAME composer structure and names via [`compose`](@ref), so the
 reconstructed distribution drops straight into the matching record submodel (for
@@ -231,7 +231,7 @@ methods live in the package extension so the core stays free of `DynamicPPL`.
   that defines the parameter inventory and the structure to rebuild.
 - `priors`: a nested `NamedTuple` of priors keyed like [`params`](@ref)`(template)`
   (see [`params_table`](@ref)). Every parameter in the inventory must have a prior
-  and no extra keys are allowed; a [`Competing`](@ref) node's `branch_probs` may
+  and no extra keys are allowed; a [`Resolve`](@ref) node's `branch_probs` may
   be omitted (the template's fixed probabilities are kept) or supplied as priors.
 
 # Examples

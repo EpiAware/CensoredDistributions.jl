@@ -663,7 +663,7 @@ md"""
   full epinowcast ``\mu_{g,t}``, ``\upsilon_{g,t}`` regressions) is a natural
   extension.
 - The streams are modelled separately after sharing the reference and report
-  effects; a [`competing`](@ref) onset branch (case versus death as competing
+  effects; a [`resolve`](@ref) onset branch (case versus death as rival
   outcomes) would tie the branch probability to a case-fatality term.
 - The composed-stack truncation is shown alongside the matrix truncation as a
   cross-check; folding the per-record stack truncation directly into the

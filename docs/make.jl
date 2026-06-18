@@ -45,7 +45,7 @@ if !skip_notebooks
         "rt-renewal-convolution.jl",
         "epinowcast-nowcasting.jl",
         "linear-chain-sir.jl",
-        "branching-competing.jl",
+        "branching-one_of.jl",
         "pairwise-survival-transmission.jl"
     ]
 
@@ -110,7 +110,7 @@ else
         "rt-renewal-convolution.md" => "# [An Rt renewal model with delay convolution](@id rt-renewal-convolution)",
         "linear-chain-sir.md" => "# [A composed delay as ODE compartments: the linear chain trick](@id linear-chain-sir)",
         "epinowcast-nowcasting.md" => "# [An epinowcast-style hazard nowcasting model](@id epinowcast-nowcasting)",
-        "branching-competing.md" => "# [A branching-process-like natural history with competing outcomes](@id branching-competing)",
+        "branching-one_of.md" => "# [A branching-process-like natural history with one_of outcomes](@id branching-one_of)",
         "pairwise-survival-transmission.md" => "# [Pairwise survival analysis of transmission (Kenah)](@id pairwise-survival-transmission)"
     ]
     for (file, heading) in tutorial_stubs

@@ -258,12 +258,12 @@ logpdf(product_distribution(recs), [[0.0, 0.0, 5.0], [1.0, 0.0, 7.0]])
 - [`event_logpdf`](@ref): the per-record log density this reproduces.
 "
 function record_distributions(d::Sequential, rows)
-    # A tree with a nested Select routes per record by the row's selector, so each
-    # record resolves its own (Select-free) tree before parsing (the selector
+    # A tree with a nested Choose routes per record by the row's selector, so each
+    # record resolves its own (Choose-free) tree before parsing (the selector
     # field is data, not an event).
     _count_selects(d) > 0 && return _select_resolved_records(d, rows)
     parsed = _parse_rows(d, rows)
-    # A nested tree (a nested composer or a Competing step) has no flat
+    # A nested tree (a nested composer or a Resolve step) has no flat
     # collapsed-segment layout; build each record generically (correctness first).
     _nested_trait(d.components) isa _Nested && return _generic_records(d, parsed)
     bundle = _build_seq_bundle(d, parsed)
@@ -289,7 +289,7 @@ end
 # in a one-edge `Sequential`. Each row carries one observed event value (plus the
 # optional reserved `weight`/`count`/`obs_time`); the record scores through
 # `event_logpdf(::UnivariateDistribution, value; horizon) * weight`, the SAME
-# `_GenericRecord` path a leaf `Select` alternative uses. This is exactly the
+# `_GenericRecord` path a leaf `Choose` alternative uses. This is exactly the
 # density of the one-edge `Sequential(d)` wrapper observed from a zero origin (the
 # wrapper's single segment IS the leaf core), so the wrapped and bare forms give
 # the same logpdf; the bare form just drops the synthetic origin slot. A
@@ -301,8 +301,8 @@ function record_distributions(d::UnivariateDistribution, rows)
     return [_leaf_record(d, _row_namedtuple(row)) for row in rowvec]
 end
 
-# Build per-record distributions for a tree that nests a `Select`: each record
-# resolves its OWN (Select-free) tree from the row's selector(s), strips the
+# Build per-record distributions for a tree that nests a `Choose`: each record
+# resolves its OWN (Choose-free) tree from the row's selector(s), strips the
 # selector field(s) so they are not matched as events, then parses + builds a
 # generic record over the resolved tree. A record missing a needed selector field
 # errors in `_resolve_selects`, so a data record never silently routes to the
@@ -324,22 +324,22 @@ function _select_resolved_records(d::Union{Sequential, Parallel}, rows)
     return out
 end
 
-# The selector field names of every nested `Select` in a tree (each Select's
+# The selector field names of every nested `Choose` in a tree (each Choose's
 # `selector`), so they are stripped from a row before event matching. RECURSES
 # through the same nesting as `_count_selects`/`_resolve_selects` (composer
-# components, an `AbstractCompeting`'s outcome `delays`, a Select's alternatives, a
-# Latent's inner dist), so a Select nested inside a competing-outcome subtree has
+# components, an `AbstractOneOf`'s outcome `delays`, a Choose's alternatives, a
+# Latent's inner dist), so a Choose nested inside a one_of-outcome subtree has
 # its selector field stripped too (else the field would be matched as a spurious
 # event).
 _select_fields(::UnivariateDistribution) = Symbol[]
-function _select_fields(d::Select)
+function _select_fields(d::Choose)
     vcat([d.selector],
         reduce(vcat, map(_select_fields, d.alternatives); init = Symbol[]))
 end
 function _select_fields(d::Union{Sequential, Parallel})
     return reduce(vcat, map(_select_fields, d.components); init = Symbol[])
 end
-function _select_fields(c::AbstractCompeting)
+function _select_fields(c::AbstractOneOf)
     return reduce(vcat, map(_select_fields, c.delays); init = Symbol[])
 end
 _select_fields(d::Latent) = _select_fields(d.dist)
@@ -382,7 +382,7 @@ end
 # The raw per-record `branch_probs` override carried by a row (a NamedTuple of
 # outcome -> prob or a scalar), or `nothing` when the row carries none. Read but
 # NOT coerced here; coercion is deferred to the per-record build, which has the
-# Competing node to validate against.
+# Resolve node to validate against.
 function _row_branch_probs_field(row::NamedTuple)
     haskey(row, :branch_probs) || return nothing
     return row.branch_probs
@@ -453,13 +453,13 @@ function _par_record(d::Parallel, p::_ParsedRow, bundle::_ParSegs)
 end
 
 # ---------------------------------------------------------------------------
-# Generic per-record build: nested trees, per-record branch_probs, Select
+# Generic per-record build: nested trees, per-record branch_probs, Choose
 # ---------------------------------------------------------------------------
 #
-# A nested-Competing tree (bdbv) and a Select top need per-record handling the
+# A nested-Resolve tree (bdbv) and a Choose top need per-record handling the
 # flat shared-segment build cannot express: a nested tree scores through the
 # recursive `_tree_score`, a covariate-CFR `branch_probs` override is baked PER
-# RECORD into the record's Competing node, and a Select picks a different branch
+# RECORD into the record's Resolve node, and a Choose picks a different branch
 # (and obs_time) per row. Each such record holds its OWN (possibly overridden /
 # selected) distribution and scores by `event_logpdf(dist, events; horizon)`,
 # exactly the per-record loop the vectorised path must equal. The shared-segment
@@ -502,7 +502,7 @@ function _generic_event_logpdf(d::UnivariateDistribution, merged, horizon)
 end
 
 # Sample a generic record's full event path. A nested tree returns its flat event
-# vector (one shared origin draw, each Competing outcome sampled); a flat tree
+# vector (one shared origin draw, each Resolve outcome sampled); a flat tree
 # uses the flat-path simulation. Both yield a `[E_0, ...]` vector to fill `x`.
 function _record_rand(rng::AbstractRNG, r::_GenericRecord)
     return _generic_record_rand(rng, r.dist)
@@ -523,7 +523,7 @@ logpdf(r::_GenericRecord, x::AbstractVector) = _record_logpdf(r, x)
 function Distributions._rand!(
         rng::AbstractRNG, r::_GenericRecord, x::AbstractVector)
     path = _record_rand(rng, r)
-    # A nested tree's sampled path leaves the UNRESOLVED Competing outcome slots
+    # A nested tree's sampled path leaves the UNRESOLVED Resolve outcome slots
     # `missing` (one outcome resolves per record); the dual-purpose generative
     # matrix is `Float64`, so an unresolved slot is filled with `NaN` (a sentinel
     # the scored slots never take).
@@ -535,7 +535,7 @@ function Distributions._rand!(
 end
 
 # Build a generic per-record distribution vector: each record bakes in its own
-# `branch_probs` override (coerced + validated against the tree's single Competing
+# `branch_probs` override (coerced + validated against the tree's single Resolve
 # node) so a covariate CFR flows in per record, plus its weight / horizon.
 function _generic_records(d::Union{Sequential, Parallel}, parsed)
     return [_generic_record(d, p) for p in parsed]
@@ -548,68 +548,68 @@ function _generic_record(d, p::_ParsedRow)
         typeof(p.horizon)}(scored, p.events, p.weight, p.horizon)
 end
 
-# Apply a per-record `branch_probs` override to the tree's single Competing node,
+# Apply a per-record `branch_probs` override to the tree's single Resolve node,
 # or return the tree unchanged when the row carries none. Coercion + validation
 # reuse the shared core helpers, so the override semantics match the per-record
 # `composed_distribution_model` path exactly.
 _bake_branch_probs(d, ::Nothing) = d
 function _bake_branch_probs(d, raw)
-    node = _the_competing_node(d)
+    node = _the_one_of_node(d)
     node === nothing && throw(ArgumentError(
-        "a `branch_probs` row field needs a Competing node in the tree; none " *
+        "a `branch_probs` row field needs a Resolve node in the tree; none " *
         "found"))
     probs = _coerce_branch_probs(node, raw)
-    return _override_competing_outcome_probs(d, probs)
+    return _override_one_of_outcome_probs(d, probs)
 end
 
-# The single Competing node of a tree (for coercing a per-record override against
+# The single Resolve node of a tree (for coercing a per-record override against
 # its outcome names), or `nothing` when there is none; errors if more than one.
-# RECURSES through the same nesting as `_count_competing`/`_replace_competing`
-# (composer components, an `AbstractCompeting`'s outcome `delays`, a `Select`'s
-# alternatives, a `Latent`'s inner dist), so a Competing nested inside a
-# competing-outcome subtree or a Select alternative is found and coerced against.
-# (Previously a nested `AbstractCompeting` hit the `::UnivariateDistribution`
-# fallback — they share that supertype — so a nested Competing was missed, and
-# `Select`/`Latent` hit no method.) A `HazardCompeting` is NOT branch-prob-
+# RECURSES through the same nesting as `_count_one_of`/`_replace_one_of`
+# (composer components, an `AbstractOneOf`'s outcome `delays`, a `Choose`'s
+# alternatives, a `Latent`'s inner dist), so a Resolve nested inside a
+# one_of-outcome subtree or a Choose alternative is found and coerced against.
+# (Previously a nested `AbstractOneOf` hit the `::UnivariateDistribution`
+# fallback — they share that supertype — so a nested Resolve was missed, and
+# `Choose`/`Latent` hit no method.) A `Compete` is NOT branch-prob-
 # overridable, so it is not itself returned, but its delays are still searched.
-_the_competing_node(c::Competing) = _merge_competing(c,
-    _the_competing_node_in(c.delays))
-_the_competing_node(c::HazardCompeting) = _the_competing_node_in(c.delays)
-_the_competing_node(::UnivariateDistribution) = nothing
-function _the_competing_node(d::Union{Sequential, Parallel})
-    return _the_competing_node_in(d.components)
+_the_one_of_node(c::Resolve) = _merge_one_of(c,
+    _the_one_of_node_in(c.delays))
+_the_one_of_node(c::Compete) = _the_one_of_node_in(c.delays)
+_the_one_of_node(::UnivariateDistribution) = nothing
+function _the_one_of_node(d::Union{Sequential, Parallel})
+    return _the_one_of_node_in(d.components)
 end
-_the_competing_node(d::Select) = _the_competing_node_in(d.alternatives)
-_the_competing_node(d::Latent) = _the_competing_node(d.dist)
+_the_one_of_node(d::Choose) = _the_one_of_node_in(d.alternatives)
+_the_one_of_node(d::Latent) = _the_one_of_node(d.dist)
 
-_the_competing_node_in(::Tuple{}) = nothing
-function _the_competing_node_in(xs::Tuple)
-    return _merge_competing(_the_competing_node(first(xs)),
-        _the_competing_node_in(Base.tail(xs)))
+_the_one_of_node_in(::Tuple{}) = nothing
+function _the_one_of_node_in(xs::Tuple)
+    return _merge_one_of(_the_one_of_node(first(xs)),
+        _the_one_of_node_in(Base.tail(xs)))
 end
 
-_merge_competing(a, ::Nothing) = a
-_merge_competing(::Nothing, b) = b
-_merge_competing(::Nothing, ::Nothing) = nothing
-function _merge_competing(a, b)
+_merge_one_of(a, ::Nothing) = a
+_merge_one_of(::Nothing, b) = b
+_merge_one_of(::Nothing, ::Nothing) = nothing
+function _merge_one_of(a, b)
     throw(ArgumentError(
-        "a per-record `branch_probs` override needs exactly one Competing " *
+        "a per-record `branch_probs` override needs exactly one Resolve " *
         "node in the tree; found more than one"))
 end
 
 # ---------------------------------------------------------------------------
-# Select top: per-record branch selection
+# Choose top: per-record branch selection
 # ---------------------------------------------------------------------------
 #
-# A `Select` top routes each record to ONE of its independent alternatives, named
+# A `Choose` top routes each record to ONE of its independent alternatives, named
 # by the row's selector field (`row[d.selector]`, default `:kind`). The chosen
 # alternative is itself a leaf or a composer, so each record builds that
 # alternative's record distribution (with the record's own obs_time / weight),
 # selected per row. Different rows may pick different alternatives and carry
 # different obs_time horizons, exactly as the per-record
-# `composed_distribution_model(d::Select, row)` does.
+# `composed_distribution_model(d::Choose, row)` does.
 
-function record_distributions(d::Select, rows)
+function record_distributions(d::Choose, rows)
     rowvec = collect(Tables.rows(rows))
     isempty(rowvec) && throw(ArgumentError(
         "record_distributions needs at least one record; got an empty table"))
@@ -623,21 +623,21 @@ function record_distributions(d::Select, rows)
     # error naming the cause instead.
     n1 = length(first(recs))
     all(r -> length(r) == n1, recs) || throw(ArgumentError(
-        "vectorised record_distributions over a Select needs every selected " *
+        "vectorised record_distributions over a Choose needs every selected " *
         "alternative to have the same number of event slots; the rows select " *
         "alternatives of differing length (e.g. a leaf vs a multi-event " *
         "composer). Score each fixed-length subset of rows separately. Full " *
-        "Select-in-composer nesting is deferred; see " *
+        "Choose-in-composer nesting is deferred; see " *
         "https://github.com/EpiAware/CensoredDistributions.jl/issues/413."))
     return recs
 end
 
-# Build one Select record: read the selector, pick the alternative, and build
+# Build one Choose record: read the selector, pick the alternative, and build
 # that alternative's record distribution from the row (selector field stripped).
-function _select_record(d::Select, row::NamedTuple)
+function _select_record(d::Choose, row::NamedTuple)
     kind = row[d.selector]
     kind isa Symbol || throw(ArgumentError(
-        "the Select selector field $(repr(d.selector)) must hold a Symbol " *
+        "the Choose selector field $(repr(d.selector)) must hold a Symbol " *
         "naming the alternative; got $(typeof(kind))"))
     chosen = _pick(d, kind)
     inner = _drop_named_field(row, d.selector)
@@ -646,7 +646,7 @@ end
 
 # Build the chosen alternative's record distribution. A composer alternative
 # reuses the per-record build (so nested trees / branch_probs work under a
-# Select); a leaf alternative builds a univariate-leaf record scored through
+# Choose); a leaf alternative builds a univariate-leaf record scored through
 # `event_logpdf`.
 function _alternative_record(d::Union{Sequential, Parallel}, row::NamedTuple)
     return only(record_distributions(d, [row]))
@@ -662,14 +662,14 @@ function _alternative_record(d::Latent, row::NamedTuple)
     return _alternative_record(d.dist, row)
 end
 
-# A univariate-leaf Select alternative as a one-event record: the single observed
+# A univariate-leaf Choose alternative as a one-event record: the single observed
 # value, the reserved weight / horizon baked in, scored through the shared
 # `event_logpdf(::UnivariateDistribution, x; horizon)` so the value equals the
 # per-record leaf model.
 function _leaf_record(d::UnivariateDistribution, row::NamedTuple)
     ev = _row_event_vector(row)
     length(ev) == 1 || throw(ArgumentError(
-        "a leaf Select alternative takes one event value; got $(length(ev))"))
+        "a leaf Choose alternative takes one event value; got $(length(ev))"))
     w = _row_weight_field(row, nothing)
     h = _row_horizon_field(row)
     E = _data_value_type(eltype(ev))

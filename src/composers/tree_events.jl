@@ -90,10 +90,10 @@ function _flat_event_names(d::Union{Sequential, Parallel})
     return Tuple(names)
 end
 
-# A standalone `Competing` node has only a positional origin; its OUTCOME event
+# A standalone `Resolve` node has only a positional origin; its OUTCOME event
 # names anchor at the parent event when nested (see `_walk_edge!` below), so on
 # its own it exposes the origin plus one slot per outcome named by its outcomes.
-_flat_event_names(c::AbstractCompeting) = (:event_1, c.names...)
+_flat_event_names(c::AbstractOneOf) = (:event_1, c.names...)
 
 # The root origin event name E_0: derived from the FIRST edge's name split, else
 # positional. For a `Sequential` the first edge is `components[1]`; for a
@@ -116,10 +116,10 @@ function _edge_origin_pair(
         edge_name::Symbol, child::Union{Sequential, Parallel})
     return _root_origin_name_or_nothing(child)
 end
-# A nested `Select` as a first edge derives its origin from the EDGE name split
+# A nested `Choose` as a first edge derives its origin from the EDGE name split
 # (a leaf alternative) or its default alternative's own first edge (a composer
 # alternative); the alternatives share the slot layout, so the default names it.
-function _edge_origin_pair(edge_name::Symbol, child::Select)
+function _edge_origin_pair(edge_name::Symbol, child::Choose)
     return _edge_origin_pair(edge_name, _flat_select_alternative(child))
 end
 function _root_origin_name_or_nothing(d::Union{Sequential, Parallel})
@@ -166,7 +166,7 @@ function _walk_edge!(names, edge_name::Symbol,
     return _nested_terminal_name(child, names, origin)
 end
 
-# A nested `Competing` edge contributes EVENT name(s) per OUTCOME, anchored at the
+# A nested `Resolve` edge contributes EVENT name(s) per OUTCOME, anchored at the
 # parent `origin`. A LEAF outcome (a plain delay) is one event slot named by the
 # outcome: the death/discharge columns of a record are each their own slot, so the
 # observed outcome is identified by which slot is present. A NON-TERMINAL outcome
@@ -175,59 +175,59 @@ end
 # sharing that slot exactly like a nested-composer origin: the outcome's resolution
 # IS the subtree origin, so the subtree's `_walk_targets!` hangs off it rather than
 # introducing a fresh origin slot. The edge/parameter names are unaffected (params
-# still belong to the Competing outcomes, see `params_table`). A Competing is a
+# still belong to the Resolve outcomes, see `params_table`). A Resolve is a
 # terminal node for a FOLLOWING chain step (the chain does not continue through a
 # single outcome), so its terminal name is the shared origin it hangs off.
-function _walk_edge!(names, edge_name::Symbol, child::AbstractCompeting,
+function _walk_edge!(names, edge_name::Symbol, child::AbstractOneOf,
         origin::Symbol, counter)
     for k in eachindex(child.names)
-        _walk_competing_outcome!(names, child.names[k], child.delays[k],
+        _walk_one_of_outcome!(names, child.names[k], child.delays[k],
             origin, counter)
     end
     return origin
 end
 
-# Append the event name(s) of ONE competing outcome. A leaf outcome pushes its
+# Append the event name(s) of ONE one_of outcome. A leaf outcome pushes its
 # single name; a composer outcome walks its subtree anchored at the outcome's
 # resolution event (the subtree origin). The outcome name itself is NOT pushed for
 # a composer outcome: that name labels the resolution event, which IS the parent
 # anchor shared into the subtree (no extra slot), so the subtree's own target
 # events fill the outcome's slice.
-function _walk_competing_outcome!(names, oname::Symbol,
+function _walk_one_of_outcome!(names, oname::Symbol,
         delay::UnivariateDistribution, origin::Symbol, counter)
     push!(names, oname)
     return nothing
 end
 
-function _walk_competing_outcome!(names, oname::Symbol,
+function _walk_one_of_outcome!(names, oname::Symbol,
         delay::Union{Sequential, Parallel}, origin::Symbol, counter)
     _walk_targets!(names, delay, oname, counter)
     return nothing
 end
 
-# A `Select` outcome routes to one alternative of a shared event-slot width; its
+# A `Choose` outcome routes to one alternative of a shared event-slot width; its
 # default alternative names the slot(s), anchored at the outcome's resolution.
-function _walk_competing_outcome!(names, oname::Symbol, delay::Select,
+function _walk_one_of_outcome!(names, oname::Symbol, delay::Choose,
         origin::Symbol, counter)
-    return _walk_competing_outcome!(names, oname,
+    return _walk_one_of_outcome!(names, oname,
         _flat_select_alternative(delay), origin, counter)
 end
 
-# A nested `Competing` outcome (a competing node as a competing branch) recurses
-# through the competing walk, anchored at the outcome's resolution event.
-function _walk_competing_outcome!(names, oname::Symbol, delay::AbstractCompeting,
+# A nested `Resolve` outcome (a one_of node as a one_of branch) recurses
+# through the one_of walk, anchored at the outcome's resolution event.
+function _walk_one_of_outcome!(names, oname::Symbol, delay::AbstractOneOf,
         origin::Symbol, counter)
     _walk_edge!(names, oname, delay, oname, counter)
     return nothing
 end
 
-# A nested `Select` edge contributes the event name(s) of its DEFAULT (first)
+# A nested `Choose` edge contributes the event name(s) of its DEFAULT (first)
 # alternative: the alternatives share one event-slot width, so the slot layout is
 # the same whichever routes, and the default names the slot for `event_names`
 # / `rand`. A leaf alternative pushes the split target of the EDGE name (so a
-# `:admit_death` Select edge still names its slot `:death`); a composer
+# `:admit_death` Choose edge still names its slot `:death`); a composer
 # alternative recurses through its own walk.
-function _walk_edge!(names, edge_name::Symbol, child::Select,
+function _walk_edge!(names, edge_name::Symbol, child::Choose,
         origin::Symbol, counter)
     return _walk_edge!(names, edge_name, _flat_select_alternative(child),
         origin, counter)
@@ -260,8 +260,8 @@ end
 # `count`), a per-record observation horizon (`obs_time`, the hanta
 # right-truncation observation time D), a per-record δ-bounded observation-window
 # width (`obs_window`, which adds a LOWER edge a width δ below the horizon, giving
-# the finite window `[obs_time - δ, obs_time]`), and a per-record Competing
-# branch-probability override (`branch_probs`) that rides a nested-Competing tree
+# the finite window `[obs_time - δ, obs_time]`), and a per-record Resolve
+# branch-probability override (`branch_probs`) that rides a nested-Resolve tree
 # row and is excluded from by-name event matching.
 const _RESERVED_ROW_FIELDS = (
     :weight, :count, :obs_time, :obs_window, :branch_probs)

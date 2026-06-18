@@ -1,7 +1,7 @@
 # External censoring wrappers over composers (PR3c, #334). The semantics:
 # combine first, then censor (#329). A Sequential collapses to the convolution
 # of its steps (its observed total) before censoring; a Parallel distributes
-# the wrapper into every branch; Convolved/Competing are already univariate and
+# the wrapper into every branch; Convolved/Resolve are already univariate and
 # flow through the existing wrapper methods unchanged.
 
 @testitem "observed_distribution: combine-then-censor scalar lowering" begin
@@ -44,7 +44,7 @@
         Sequential(Gamma(2.0, 1.0), Parallel(Gamma(1.0, 1.0), Gamma(1.0, 1.0))))
 end
 
-@testitem "Convolved/Competing flow through wrappers (already univariate)" begin
+@testitem "Convolved/Resolve flow through wrappers (already univariate)" begin
     using Distributions
 
     conv = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
@@ -53,7 +53,7 @@ end
     @test dic isa CensoredDistributions.IntervalCensored
     @test cdf(dic, 4.0) isa Real
 
-    comp = Competing(:death => (Gamma(1.5, 1.0), 0.3),
+    comp = Resolve(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7))
     ic = interval_censored(comp, 1.0)
     @test ic isa CensoredDistributions.IntervalCensored
@@ -152,7 +152,7 @@ end
 # finite logpdf. This is the deliverable the maintainer asked for: truncation /
 # censoring / interval-censoring compose over a composed distribution as you'd
 # expect. truncate_to_horizon now joins the censoring wrappers over composers,
-# and Select distributes a wrapper into its alternatives.
+# and Choose distributes a wrapper into its alternatives.
 # ---------------------------------------------------------------------------
 
 @testitem "every composer x every wrapper constructs and scores finitely" begin
@@ -162,7 +162,7 @@ end
     function score_finite(d)
         if d isa CensoredDistributions.Parallel
             return isfinite(logpdf(d, fill(2.0, length(d))))
-        elseif d isa CensoredDistributions.Select
+        elseif d isa CensoredDistributions.Choose
             return isfinite(logpdf(d, 2.0; kind = first(d.names)))
         else
             return isfinite(logpdf(d, 2.0))
@@ -174,20 +174,20 @@ end
             Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))),
         ("Parallel",
             Parallel(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))),
-        ("Select",
-            selecting(:index => Gamma(2.0, 1.0),
+        ("Choose",
+            choose(:index => Gamma(2.0, 1.0),
                 :sourced => LogNormal(0.5, 0.4))),
-        ("Competing",
-            Competing(:a => (Gamma(2.0, 1.0), 0.6),
+        ("Resolve",
+            Resolve(:a => (Gamma(2.0, 1.0), 0.6),
                 :b => (LogNormal(0.5, 0.4), 0.4))),
-        ("HazardCompeting",
-            HazardCompeting(:a => Gamma(2.0, 1.0),
+        ("Compete",
+            Compete(:a => Gamma(2.0, 1.0),
                 :b => LogNormal(0.5, 0.4))),
         ("Convolved",
             convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))),
-        ("Seq[leaf,Competing]",
+        ("Seq[leaf,Resolve]",
             Sequential(Gamma(2.0, 1.0),
-                Competing(:a => (Gamma(1.5, 1.0), 0.5),
+                Resolve(:a => (Gamma(1.5, 1.0), 0.5),
                     :b => (LogNormal(0.3, 0.4), 0.5))))
     )
 
@@ -261,10 +261,10 @@ end
           logpdf(truncate_to_horizon(LogNormal(1.0, 0.5), 8.0), 3.0)
 end
 
-@testitem "Wrapping a Select distributes into its alternatives" begin
+@testitem "Wrapping a Choose distributes into its alternatives" begin
     using Distributions
 
-    sel = selecting(:index => Gamma(2.0, 1.0),
+    sel = choose(:index => Gamma(2.0, 1.0),
         :sourced => LogNormal(0.5, 0.4))
 
     # Each wrapper distributes into every alternative, preserving the
@@ -281,7 +281,7 @@ end
             ld -> double_interval_censored(ld; primary_event = Uniform(0, 1),
                 upper = 10.0, interval = 1.0)))
         wrapped = w(sel)
-        @test wrapped isa CensoredDistributions.Select
+        @test wrapped isa CensoredDistributions.Choose
         @test wrapped.names === sel.names
         @test wrapped.selector === sel.selector
         @test logpdf(wrapped, 2.0; kind = :index) ≈

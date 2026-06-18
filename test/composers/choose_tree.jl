@@ -1,20 +1,20 @@
-# A nested `Select` inside a composed TREE routes each record to ONE of its
+# A nested `Choose` inside a composed TREE routes each record to ONE of its
 # alternatives by the row's selector (`:kind`), scored as that alternative's edge.
 # This is distinct from the flat value-vector nesting (which commits to the first
 # alternative for the data-free round-trip): the EVENT/tree path must route by the
 # selector so different rows score different alternatives.
 #
-# `_nested_trait` counts a Select as nesting (a tree with a Select recurses,
-# rather than flat-segment scoring it), and `_tree_step(::Select)` picks the
+# `_nested_trait` counts a Choose as nesting (a tree with a Choose recurses,
+# rather than flat-segment scoring it), and `_tree_step(::Choose)` picks the
 # alternative. On the DATA path the per-record build resolves the selector into
 # the tree, so a wrong silent commit to alternative 1 cannot happen; the data-free
 # round-trip keeps the deterministic first-alternative default.
 
-@testitem "nested Select makes the tree trait nested" begin
+@testitem "nested Choose makes the tree trait nested" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: _nested_trait, _Nested
 
-    inner = selecting(:a => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+    inner = choose(:a => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         :b => primary_censored(Gamma(5.0, 1.0), Uniform(0, 1)))
     seq = Sequential(
         (primary_censored(Gamma(3.0, 1.0), Uniform(0, 1)), inner),
@@ -27,17 +27,17 @@
     @test _nested_trait(par.components) isa _Nested
 end
 
-@testitem "nested Select in a Sequential routes per row by selector" begin
+@testitem "nested Choose in a Sequential routes per row by selector" begin
     using CensoredDistributions, Distributions
 
     e1 = primary_censored(Gamma(3.0, 1.0), Uniform(0, 1))
     a = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     b = primary_censored(Gamma(5.0, 1.0), Uniform(0, 1))
-    inner = selecting(:a => a, :b => b)
+    inner = choose(:a => a, :b => b)
     seq = Sequential((e1, inner), (:onset_admit, :admit_death))
 
     # Two records routing to DIFFERENT alternatives. The chain is
-    # onset -> admit (edge1) -> death (the selected Select edge).
+    # onset -> admit (edge1) -> death (the selected Choose edge).
     rows = [(onset = 0.0, admit = 2.0, death = 5.0, kind = :a),
         (onset = 0.0, admit = 1.0, death = 7.0, kind = :b)]
     recs = CensoredDistributions.record_distributions(seq, rows)
@@ -54,15 +54,15 @@ end
         logpdf(e1, 2.0 - 0.0) + logpdf(b, 5.0 - 2.0))
 end
 
-@testitem "nested Select in a Parallel routes per row by selector" begin
+@testitem "nested Choose in a Parallel routes per row by selector" begin
     using CensoredDistributions, Distributions
 
     shared = Uniform(0, 1)
     e1 = primary_censored(Gamma(3.0, 1.0), shared)
     a = primary_censored(Gamma(2.0, 1.0), shared)
     b = primary_censored(Gamma(5.0, 1.0), shared)
-    inner = selecting(:a => a, :b => b)
-    # Two branches off a shared origin: a fixed branch and a Select branch.
+    inner = choose(:a => a, :b => b)
+    # Two branches off a shared origin: a fixed branch and a Choose branch.
     par = Parallel((e1, inner), (:onset_admit, :onset_death))
 
     rows = [(onset = 0.0, admit = 2.0, death = 5.0, kind = :a),
@@ -70,7 +70,7 @@ end
     recs = CensoredDistributions.record_distributions(par, rows)
 
     # Reference: the SAME Parallel with the routed alternative inlined (a plain
-    # tree, no Select). Routing must reproduce the resolved tree's score exactly.
+    # tree, no Choose). Routing must reproduce the resolved tree's score exactly.
     par_a = Parallel((e1, a), (:onset_admit, :onset_death))
     par_b = Parallel((e1, b), (:onset_admit, :onset_death))
     @test logpdf(recs[1], [0.0, 2.0, 5.0]) ≈
@@ -83,14 +83,14 @@ end
         logpdf(par_b, Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])))
 end
 
-@testitem "data-free nested Select round-trip uses the default alternative" begin
+@testitem "data-free nested Choose round-trip uses the default alternative" begin
     using CensoredDistributions, Distributions, Random
     using CensoredDistributions: _tree_step, _Flat
 
     e1 = primary_censored(Gamma(3.0, 1.0), Uniform(0, 1))
     a = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     b = primary_censored(Gamma(5.0, 1.0), Uniform(0, 1))
-    inner = selecting(:a => a, :b => b)
+    inner = choose(:a => a, :b => b)
     seq = Sequential((e1, inner), (:onset_admit, :admit_death))
 
     # The data-free EVENT-vector logpdf (no selector available) commits to the
@@ -109,15 +109,15 @@ end
         Vector{Union{Missing, Float64}}(collect(draw))))
 end
 
-@testitem "nested Select data path errors when the selector is missing" begin
+@testitem "nested Choose data path errors when the selector is missing" begin
     using CensoredDistributions, Distributions
 
     e1 = primary_censored(Gamma(3.0, 1.0), Uniform(0, 1))
-    inner = selecting(:a => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+    inner = choose(:a => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         :b => primary_censored(Gamma(5.0, 1.0), Uniform(0, 1)))
     seq = Sequential((e1, inner), (:onset_admit, :admit_death))
 
-    # A data row with no selector field cannot route the nested Select, so the
+    # A data row with no selector field cannot route the nested Choose, so the
     # per-record build errors rather than silently scoring alternative 1.
     rows = [(onset = 0.0, admit = 2.0, death = 5.0)]
     @test_throws ArgumentError CensoredDistributions.record_distributions(

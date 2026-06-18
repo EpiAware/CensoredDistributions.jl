@@ -4,12 +4,12 @@
 #
 # `update` rebuilds a tree's LEAVES with new parameter values; intervention is
 # the same recursive reconstruction with a node EDIT instead of a param update:
-# replace a named node's distribution, swap a child, cut a branch (a `Competing`
-# arm or a `Select` alternative, renormalising probs), or splice a before/after
+# replace a named node's distribution, swap a child, cut a branch (a `Resolve`
+# arm or a `Choose` alternative, renormalising probs), or splice a before/after
 # change at a named node. Each op walks the tree by name path and rebuilds only
 # the touched spine, so the result is a fresh, valid composed distribution that
 # scores (`logpdf`) and `rand`s. The walk is hand-rolled and type-stable,
-# reusing `component_names` / `_rebuild` / `Competing` / `Select` rather
+# reusing `component_names` / `_rebuild` / `Resolve` / `Choose` rather
 # than adding tree types. Distributions-led: a node-to-node edit, Turing-free.
 #
 # Paths are tuples of edge names from the root (e.g.
@@ -40,21 +40,21 @@ function _edit_step(d::Union{Sequential, Parallel}, path::Tuple, op)
     return _rebuild(d, parts)
 end
 
-function _edit_step(c::Competing, path::Tuple, op)
-    idx = _child_index(c.names, first(path), :Competing)
+function _edit_step(c::Resolve, path::Tuple, op)
+    idx = _child_index(c.names, first(path), :Resolve)
     delays = ntuple(length(c.names)) do i
         i == idx ? _edit_at(c.delays[i], Base.tail(path), op) : c.delays[i]
     end
-    return Competing(c.names, delays, c.branch_probs)
+    return Resolve(c.names, delays, c.branch_probs)
 end
 
-function _edit_step(d::Select, path::Tuple, op)
-    idx = _child_index(d.names, first(path), :Select)
+function _edit_step(d::Choose, path::Tuple, op)
+    idx = _child_index(d.names, first(path), :Choose)
     alts = ntuple(length(d.names)) do i
         i == idx ? _edit_at(d.alternatives[i], Base.tail(path), op) :
         d.alternatives[i]
     end
-    return Select(d.names, alts, d.selector)
+    return Choose(d.names, alts, d.selector)
 end
 
 # A leaf has no children: a non-empty path into it is an error.
@@ -121,11 +121,11 @@ event(tree2, :admit_death)
 ```
 
 # See also
-- [`prune`](@ref): drop a `Competing` arm or `Select` alternative (changes shape)
+- [`prune`](@ref): drop a `Resolve` arm or `Choose` alternative (changes shape)
 - [`splice`](@ref): insert a before/after step at a node (changes shape)
 - [`update`](@ref)`(d, params::NamedTuple)`: replace free parameter values
 "
-function update(d::Union{Sequential, Parallel, Competing, Select},
+function update(d::Union{Sequential, Parallel, Resolve, Choose},
         edits::Pair...)
     out = d
     for (path, new_node) in edits
@@ -137,7 +137,7 @@ end
 # `intervene` was the node-replace verb; it is now the `update(d, ::Pair...)`
 # method. `swap_child` was sugar (parent path + child name); rebuild the full
 # path and call `update`.
-@deprecate intervene(d::Union{Sequential, Parallel, Competing, Select},
+@deprecate intervene(d::Union{Sequential, Parallel, Resolve, Choose},
     edits::Pair...) update(d, edits...)
 
 @doc "
@@ -184,7 +184,7 @@ update(tree, (:resolution, :death) => Gamma(3.0, 1.5))
 # See also
 - [`update`](@ref): the current verb.
 "
-function swap_child(d::Union{Sequential, Parallel, Competing, Select},
+function swap_child(d::Union{Sequential, Parallel, Resolve, Choose},
         parent_path, edit::Pair)
     Base.depwarn(
         "`swap_child(d, parent_path, name => new)` is deprecated; use " *
@@ -194,17 +194,17 @@ function swap_child(d::Union{Sequential, Parallel, Competing, Select},
     return update(d, full => new_node)
 end
 
-# --- prune: drop a Competing arm / Select alternative / step ----------------
+# --- prune: drop a Resolve arm / Choose alternative / step ----------------
 
 @doc "
 
 Drop a branch from a composed distribution (a topology edit).
 
 `prune(d, path)` removes the node addressed by `path` from its parent, CHANGING
-the tree shape. A [`Competing`](@ref) arm is removed and the remaining branch
-probabilities are renormalised to sum to one; a [`Select`](@ref) alternative or
+the tree shape. A [`Resolve`](@ref) arm is removed and the remaining branch
+probabilities are renormalised to sum to one; a [`Choose`](@ref) alternative or
 a [`Sequential`](@ref)/[`Parallel`](@ref) step is removed. The parent must keep
-at least the minimum number of children (two for `Competing`/`Select`, one for
+at least the minimum number of children (two for `Resolve`/`Choose`, one for
 `Sequential`/`Parallel`). The result is a valid composed distribution that
 scores and `rand`s. `path` accepts the same forms as [`event`](@ref): varargs
 `Symbol`s, a dotted `Symbol`, or a tuple of edge names.
@@ -221,7 +221,7 @@ shape); [`update`](@ref) keeps the same shape and replaces contents.
 ```@example
 using CensoredDistributions, Distributions
 
-node = competing(:death => (Gamma(1.5, 1.0), 0.3),
+node = resolve(:death => (Gamma(1.5, 1.0), 0.3),
     :disch => (Gamma(2.0, 1.5), 0.5),
     :transfer => (Gamma(1.0, 1.0), 0.2))
 tree = compose((resolution = node, onset = Gamma(1.0, 1.0)))
@@ -233,18 +233,18 @@ event_names(event(tree2, :resolution))
 - [`splice`](@ref): insert a before/after step at a node (the other topology edit)
 - [`update`](@ref): replace a node or its values (keeps the shape)
 "
-function prune(d::Union{Sequential, Parallel, Competing, Select}, path::Symbol)
+function prune(d::Union{Sequential, Parallel, Resolve, Choose}, path::Symbol)
     # A single `Symbol` goes through `_as_path` (so a dotted `:a.b` splits); two
     # or more `Symbol`s are the literal varargs path.
     return _prune_path(d, _as_path(path))
 end
 
-function prune(d::Union{Sequential, Parallel, Competing, Select},
+function prune(d::Union{Sequential, Parallel, Resolve, Choose},
         name1::Symbol, name2::Symbol, rest::Symbol...)
     return _prune_path(d, (name1, name2, rest...))
 end
 
-function prune(d::Union{Sequential, Parallel, Competing, Select}, path::Tuple)
+function prune(d::Union{Sequential, Parallel, Resolve, Choose}, path::Tuple)
     return _prune_path(d, _as_path(path))
 end
 
@@ -256,7 +256,7 @@ function _prune_path(d, p::Tuple)
 end
 
 # `cut_branch` was the drop-a-branch verb; it is now `prune`.
-@deprecate cut_branch(d::Union{Sequential, Parallel, Competing, Select}, path) prune(
+@deprecate cut_branch(d::Union{Sequential, Parallel, Resolve, Choose}, path) prune(
     d, path)
 
 @doc "
@@ -273,7 +273,7 @@ Deprecated alias of [`prune`](@ref)`(d, path)`. Use `prune` instead.
 ```@example
 using CensoredDistributions, Distributions
 
-node = competing(:death => (Gamma(1.5, 1.0), 0.3),
+node = resolve(:death => (Gamma(1.5, 1.0), 0.3),
     :disch => (Gamma(2.0, 1.5), 0.5),
     :transfer => (Gamma(1.0, 1.0), 0.2))
 tree = compose((resolution = node, onset = Gamma(1.0, 1.0)))
@@ -296,26 +296,26 @@ function _drop_child(d::Union{Sequential, Parallel}, name::Symbol)
     return _rebuild_named(d, parts, kept_names)
 end
 
-function _drop_child(c::Competing, name::Symbol)
-    idx = _child_index(c.names, name, :Competing)
+function _drop_child(c::Resolve, name::Symbol)
+    idx = _child_index(c.names, name, :Resolve)
     length(c.names) >= 3 || throw(ArgumentError(
-        "prune: Competing needs at least two remaining outcomes"))
+        "prune: Resolve needs at least two remaining outcomes"))
     keep = filter(!=(idx), 1:length(c.names))
     kept_probs = Tuple(c.branch_probs[i] for i in keep)
     total = sum(kept_probs)
     total > 0 || throw(ArgumentError(
-        "prune: remaining Competing branch probabilities sum to zero"))
+        "prune: remaining Resolve branch probabilities sum to zero"))
     probs = map(p -> p / total, kept_probs)
-    return Competing(Tuple(c.names[i] for i in keep),
+    return Resolve(Tuple(c.names[i] for i in keep),
         Tuple(c.delays[i] for i in keep), probs)
 end
 
-function _drop_child(d::Select, name::Symbol)
-    idx = _child_index(d.names, name, :Select)
+function _drop_child(d::Choose, name::Symbol)
+    idx = _child_index(d.names, name, :Choose)
     length(d.names) >= 3 || throw(ArgumentError(
-        "prune: Select needs at least two remaining alternatives"))
+        "prune: Choose needs at least two remaining alternatives"))
     keep = filter(!=(idx), 1:length(d.names))
-    return Select(Tuple(d.names[i] for i in keep),
+    return Choose(Tuple(d.names[i] for i in keep),
         Tuple(d.alternatives[i] for i in keep), d.selector)
 end
 
@@ -374,18 +374,18 @@ event_names(event(tree2, :admit_death))
 - [`prune`](@ref): drop a branch (the other topology edit)
 - [`update`](@ref): replace a node or its values (keeps the shape)
 "
-function splice(d::Union{Sequential, Parallel, Competing, Select},
+function splice(d::Union{Sequential, Parallel, Resolve, Choose},
         path::Symbol; before = nothing, after = nothing)
     return _splice_path(d, _as_path(path); before, after)
 end
 
-function splice(d::Union{Sequential, Parallel, Competing, Select},
+function splice(d::Union{Sequential, Parallel, Resolve, Choose},
         name1::Symbol, name2::Symbol, rest::Symbol...;
         before = nothing, after = nothing)
     return _splice_path(d, (name1, name2, rest...); before, after)
 end
 
-function splice(d::Union{Sequential, Parallel, Competing, Select},
+function splice(d::Union{Sequential, Parallel, Resolve, Choose},
         path::Tuple; before = nothing, after = nothing)
     return _splice_path(d, _as_path(path); before, after)
 end

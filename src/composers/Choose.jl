@@ -1,16 +1,16 @@
 # ============================================================================
-# Select: a data-selected disjunction over independent sub-distributions
+# Choose: a data-selected disjunction over independent sub-distributions
 # ============================================================================
 #
-# `Select(:a => d_a, :b => d_b, ...; selector = :kind)` holds N NAMED
+# `Choose(:a => d_a, :b => d_b, ...; selector = :kind)` holds N NAMED
 # alternatives, each an INDEPENDENT (sub-)distribution. Unlike
-# [`Competing`](@ref) / [`Parallel`](@ref), the alternatives share NO common
+# [`Resolve`](@ref) / [`Parallel`](@ref), the alternatives share NO common
 # origin and carry NO branch probability: a single DATA field (the `selector`,
 # e.g. `:kind`) picks WHICH alternative scores / `rand`s / dispatches for a
 # given record. This is the index-vs-sourced split in the hanta model:
 # an `index` case (origin = its own infection) versus a `sourced` case
 # (origin = the source's onset, coupled). Neither `Parallel` (shared origin,
-# product) nor `Competing` (shared origin, probabilistic mixture) fits; this is
+# product) nor `Resolve` (shared origin, probabilistic mixture) fits; this is
 # a disjunctive node selected by data.
 #
 # The hot path is TYPE-STABLE: the selected alternative is found by a
@@ -23,29 +23,29 @@
 
 A data-selected disjunction over independent named alternatives.
 
-`Select` holds ``n`` NAMED alternatives ``D_1, \dots, D_n``, each an independent
+`Choose` holds ``n`` NAMED alternatives ``D_1, \dots, D_n``, each an independent
 sub-distribution, and a `selector` naming the DATA field that picks which
 alternative applies to a record. Exactly one alternative is active per record,
 chosen by the selector value, NOT by a branch probability and NOT off a shared
 origin. This is the disjunctive split that neither [`Parallel`](@ref) (shared
-origin, product over branches) nor [`Competing`](@ref) (shared origin,
+origin, product over branches) nor [`Resolve`](@ref) (shared origin,
 probabilistic mixture) expresses: the alternatives are genuinely independent
 sub-models with different origins, and the data says which one generated the
 record.
 
 Scoring, sampling, and model dispatch all route to the SELECTED alternative.
 `logpdf(d, x; kind)` and `rand(d; kind)` take the chosen name as the `kind`
-keyword; there is no default, so the caller MUST supply one (a `Select` has no
+keyword; there is no default, so the caller MUST supply one (a `Choose` has no
 single distribution to score or sample without a selection). The selection walk
 is type-stable: the selected alternative is found by a hand-rolled recursion
 over the name tuple that barriers into the chosen alternative's concrete type,
 so inference of the hot-path `logpdf` is preserved.
 
 An alternative may itself be any distribution or a nested composer
-([`Sequential`](@ref), [`Parallel`](@ref), [`Competing`](@ref), or another
-`Select`), so a composed tree nests INSIDE a data-selected split. The reverse — a
-`Select` as a child of a `Sequential` / `Parallel` / `compose` composer — is not
-currently supported (a `Select` has no fixed contribution length) and is rejected.
+([`Sequential`](@ref), [`Parallel`](@ref), [`Resolve`](@ref), or another
+`Choose`), so a composed tree nests INSIDE a data-selected split. The reverse — a
+`Choose` as a child of a `Sequential` / `Parallel` / `compose` composer — is not
+currently supported (a `Choose` has no fixed contribution length) and is rejected.
 
 For prior introspection ([`params_table`](@ref), [`build_priors`](@ref),
 [`update`](@ref)) the alternatives' parameters are namespaced per alternative:
@@ -61,11 +61,11 @@ shared by every alternative that uses it.
 - `selector`: the row field name (`Symbol`) whose value selects an alternative.
 
 # See also
-- [`selecting`](@ref): friendly constructor over `name => dist` pairs
-- [`Competing`](@ref): exactly one of several shared-origin outcomes (mixture)
+- [`choose`](@ref): friendly constructor over `name => dist` pairs
+- [`Resolve`](@ref): exactly one of several shared-origin outcomes (mixture)
 - [`Parallel`](@ref): independent shared-origin branches (product)
 "
-struct Select{N, K <: NTuple{N, Symbol}, A <: Tuple} <:
+struct Choose{N, K <: NTuple{N, Symbol}, A <: Tuple} <:
        Distribution{Multivariate, Continuous}
     "Tuple of the alternative names (`Symbol`s)."
     names::K
@@ -74,19 +74,19 @@ struct Select{N, K <: NTuple{N, Symbol}, A <: Tuple} <:
     "The row field name (`Symbol`) whose value selects an alternative."
     selector::Symbol
 
-    function Select(names::K, alternatives::A, selector::Symbol) where {
+    function Choose(names::K, alternatives::A, selector::Symbol) where {
             N, K <: NTuple{N, Symbol}, A <: Tuple}
         N >= 2 ||
-            throw(ArgumentError("Select needs at least two alternatives"))
+            throw(ArgumentError("Choose needs at least two alternatives"))
         length(alternatives) == N ||
             throw(ArgumentError(
-                "Select needs one alternative per name; got $N names and " *
+                "Choose needs one alternative per name; got $N names and " *
                 "$(length(alternatives)) alternatives"))
         allunique(names) ||
-            throw(ArgumentError("Select alternative names must be unique"))
+            throw(ArgumentError("Choose alternative names must be unique"))
         all(_is_composable, alternatives) ||
             throw(ArgumentError(
-                "every Select alternative must be a UnivariateDistribution " *
+                "every Choose alternative must be a UnivariateDistribution " *
                 "or a nested composer"))
         new{N, K, A}(names, alternatives, selector)
     end
@@ -94,7 +94,7 @@ end
 
 @doc "
 
-Build a [`Select`](@ref) data-selected disjunction from `name => dist`
+Build a [`Choose`](@ref) data-selected disjunction from `name => dist`
 alternatives.
 
 Each alternative is `name => dist`: the alternative name (a `Symbol`) and its
@@ -116,7 +116,7 @@ using CensoredDistributions, Distributions
 
 # An index case (its own origin) vs a sourced case (a longer coupled delay),
 # selected by the row's `:kind` field.
-d = selecting(:index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+d = choose(:index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
     :sourced => primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
 
 # Score the alternative the data names.
@@ -124,20 +124,20 @@ logpdf(d, 3.0; kind = :index)
 ```
 
 # See also
-- [`Select`](@ref): the disjunction type
+- [`Choose`](@ref): the disjunction type
 "
-function selecting(alternatives::Pair...; selector::Symbol = :kind)
+function choose(alternatives::Pair...; selector::Symbol = :kind)
     length(alternatives) >= 2 ||
         throw(ArgumentError(
-            "selecting needs at least two alternatives"))
+            "choose needs at least two alternatives"))
     names = Tuple(a.first for a in alternatives)
     all(n -> n isa Symbol, names) ||
-        throw(ArgumentError("each Select alternative name must be a Symbol"))
+        throw(ArgumentError("each Choose alternative name must be a Symbol"))
     dists = Tuple(a.second for a in alternatives)
-    return Select(names, dists, selector)
+    return Choose(names, dists, selector)
 end
 
-_n_alternatives(::Select{N}) where {N} = N
+_n_alternatives(::Choose{N}) where {N} = N
 
 # --- Type-stable selection -------------------------------------------------
 #
@@ -149,7 +149,7 @@ _n_alternatives(::Select{N}) where {N} = N
 # downstream `logpdf`/`rand` barriers into its concrete type. This is NOT a
 # runtime `Dict`/type lookup: no boxing, and a `kind` known at the call boundary
 # keeps the hot path inferable.
-@inline _pick(d::Select, kind::Symbol) = _pick_recurse(d.names, d.alternatives, kind)
+@inline _pick(d::Choose, kind::Symbol) = _pick_recurse(d.names, d.alternatives, kind)
 
 @inline function _pick_recurse(
         names::Tuple, alternatives::Tuple, kind::Symbol)
@@ -159,30 +159,30 @@ end
 
 # Base case: the name was not found in any alternative.
 @inline _pick_recurse(::Tuple{}, ::Tuple{},
-    kind::Symbol) = throw(ArgumentError("Select has no alternative named $(repr(kind))"))
+    kind::Symbol) = throw(ArgumentError("Choose has no alternative named $(repr(kind))"))
 
 # The length of a realisation is the SELECTED alternative's length. Without a
 # selection there is no single length; `length(d)` errors to flag that a
 # selection is required (mirroring `logpdf`/`rand`).
-function Base.length(::Select)
+function Base.length(::Choose)
     throw(ArgumentError(
-        "length(::Select) needs a selection; the realisation length is the " *
+        "length(::Choose) needs a selection; the realisation length is the " *
         "selected alternative's. Use `length(CensoredDistributions._pick(" *
         "d, kind))` or pass `kind` to `logpdf`/`rand`."))
 end
 
-# The PUBLIC `params(::Select)` is POSITIONAL, mirroring `params(::Competing)`: a
+# The PUBLIC `params(::Choose)` is POSITIONAL, mirroring `params(::Resolve)`: a
 # tuple of each alternative's `params` in alternative order. The NAME-keyed nested
-# params tree (what prior introspection threads when a `Select` is a child) goes
+# params tree (what prior introspection threads when a `Choose` is a child) goes
 # through `_select_params`/`_child_params` in `introspection.jl`, keyed by the
-# alternative names so a nested `Select` yields a name-keyed subtree.
-params(d::Select) = map(params, d.alternatives)
+# alternative names so a nested `Choose` yields a name-keyed subtree.
+params(d::Choose) = map(params, d.alternatives)
 
 @doc "
 
 Log probability density of the SELECTED alternative at `x`.
 
-`Select` is a data-selected disjunction, so scoring requires naming the active
+`Choose` is a data-selected disjunction, so scoring requires naming the active
 alternative through the `kind` keyword; there is no default. The selection walk
 is type-stable and the score is the selected alternative's own `logpdf`.
 
@@ -190,30 +190,30 @@ is type-stable and the score is the selected alternative's own `logpdf`.
 ```@example
 using CensoredDistributions, Distributions
 
-d = selecting(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0))
+d = choose(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0))
 logpdf(d, 3.0; kind = :short)
 ```
 
-See also: [`Select`](@ref)
+See also: [`Choose`](@ref)
 "
 # A scalar `x` scores a univariate selected alternative; a vector `x` scores a
 # (possibly composer) selected alternative whose realisation is a flat vector.
 # Both route through the type-stable `_pick`. Typing `x` keeps these methods
 # distinct from the generic multivariate `logpdf(::Distribution, ::AbstractArray)`
-# batch methods (the Aqua ambiguity check), since a `Select`'s active dimension
+# batch methods (the Aqua ambiguity check), since a `Choose`'s active dimension
 # is the selected alternative's, not fixed.
 function logpdf(
-        d::Select, x::Real; kind::Union{Symbol, Nothing} = nothing)
+        d::Choose, x::Real; kind::Union{Symbol, Nothing} = nothing)
     return _select_logpdf(d, x, kind)
 end
-function logpdf(d::Select, x::AbstractVector{<:Real};
+function logpdf(d::Choose, x::AbstractVector{<:Real};
         kind::Union{Symbol, Nothing} = nothing)
     return _select_logpdf(d, x, kind)
 end
 
-function _select_logpdf(d::Select, x, kind)
+function _select_logpdf(d::Choose, x, kind)
     kind === nothing && throw(ArgumentError(
-        "logpdf(::Select, x) needs a `kind` selecting the alternative"))
+        "logpdf(::Choose, x) needs a `kind` choose the alternative"))
     return logpdf(_pick(d, kind), x)
 end
 
@@ -223,10 +223,10 @@ Probability density of the SELECTED alternative at `x`.
 
 See also: [`logpdf`](@ref)
 "
-function pdf(d::Select, x::Real; kind::Union{Symbol, Nothing} = nothing)
+function pdf(d::Choose, x::Real; kind::Union{Symbol, Nothing} = nothing)
     return exp(logpdf(d, x; kind = kind))
 end
-function pdf(d::Select, x::AbstractVector{<:Real};
+function pdf(d::Choose, x::AbstractVector{<:Real};
         kind::Union{Symbol, Nothing} = nothing)
     return exp(logpdf(d, x; kind = kind))
 end
@@ -239,30 +239,30 @@ With a `kind` the draw is that alternative's own `rand` (a full named event
 record if the alternative is a composed tree). WITHOUT a `kind` — the
 forward-simulation path, where no data names the branch — an alternative is
 sampled uniformly and its draw returned, so `rand` produces a full path for a
-`Select` top with no manual selection.
+`Choose` top with no manual selection.
 
-See also: [`Select`](@ref)
+See also: [`Choose`](@ref)
 "
 function Base.rand(
-        rng::AbstractRNG, d::Select; kind::Union{Symbol, Nothing} = nothing)
+        rng::AbstractRNG, d::Choose; kind::Union{Symbol, Nothing} = nothing)
     chosen = kind === nothing ? d.names[rand(rng, 1:_n_alternatives(d))] : kind
     return rand(rng, _pick(d, chosen))
 end
 
-function Base.rand(d::Select; kind::Union{Symbol, Nothing} = nothing)
+function Base.rand(d::Choose; kind::Union{Symbol, Nothing} = nothing)
     rand(default_rng(), d; kind = kind)
 end
 
 @doc "
 
-Print a [`Select`](@ref) node as its selector and named alternatives.
+Print a [`Choose`](@ref) node as its selector and named alternatives.
 
-See also: [`Select`](@ref)
+See also: [`Choose`](@ref)
 "
-function Base.show(io::IO, ::MIME"text/plain", d::Select)
+function Base.show(io::IO, ::MIME"text/plain", d::Choose)
     n = _n_alternatives(d)
     println(io,
-        "Select node of $n alternatives (selector = $(repr(d.selector)))")
+        "Choose node of $n alternatives (selector = $(repr(d.selector)))")
     for k in 1:n
         branch = k == n ? "└─ " : "├─ "
         println(io, "  ", branch, "$(d.names[k]): $(d.alternatives[k])")
@@ -270,9 +270,9 @@ function Base.show(io::IO, ::MIME"text/plain", d::Select)
     return nothing
 end
 
-function Base.show(io::IO, d::Select)
+function Base.show(io::IO, d::Choose)
     parts = ["$(d.names[k])" for k in 1:_n_alternatives(d)]
-    print(io, "Select(", join(parts, " | "),
+    print(io, "Choose(", join(parts, " | "),
         "; selector=", repr(d.selector), ")")
     return nothing
 end

@@ -6,7 +6,7 @@ module CensoredDistributionsDynamicPPLExt
 
 using CensoredDistributions: CensoredDistributions, PrimaryCensored, Latent,
                              IntervalCensored, PrimaryConditional, Sequential,
-                             Parallel, Competing, Select,
+                             Parallel, Resolve, Choose,
                              get_primary_event, component_names
 import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model,
@@ -85,7 +85,7 @@ end
 #
 # Marginal vs latent is DISPATCH on the STRUCT TYPE (not a runtime predicate),
 # mirroring the leaf (`PrimaryCensored` marginal, `Latent` latent):
-#   - a bare composer (`Sequential` / `Parallel` / `Competing`) is MARGINAL: it
+#   - a bare composer (`Sequential` / `Parallel` / `Resolve`) is MARGINAL: it
 #     scores the row vector via `~ d`, so the censored composer `logpdf`
 #     auto-marginalises unobserved intermediates / the origin and conditions on
 #     observed events. The submodel log-density equals the direct
@@ -143,14 +143,14 @@ function _reject_latent_horizon(row::NamedTuple)
     return nothing
 end
 
-# The per-record horizon to apply to a latent composer's nested Competing branches
-# (#517). A latent composer with a nested Competing node CAN honour an `obs_time`
+# The per-record horizon to apply to a latent composer's nested Resolve branches
+# (#517). A latent composer with a nested Resolve node CAN honour an `obs_time`
 # horizon (the conditioned branch is right-truncated at the remaining window from
 # its anchor, density-identical to the marginal). A latent composer with NO nested
-# Competing has only leaf-twin edges, whose latent-form right-truncation is out of
+# Resolve has only leaf-twin edges, whose latent-form right-truncation is out of
 # scope, so a horizon there is rejected exactly as before.
-function _latent_competing_horizon(plan, row::NamedTuple)
-    isempty(plan.competings) && (_reject_latent_horizon(row); return nothing)
+function _latent_one_of_horizon(plan, row::NamedTuple)
+    isempty(plan.one_ofs) && (_reject_latent_horizon(row); return nothing)
     return _row_horizon(row)
 end
 
@@ -221,8 +221,8 @@ _leaf_weight(row::NamedTuple, kw_weight) = _row_weight(row, kw_weight)
 
 # Reserved row fields that are NOT events come from the CORE (`tree_events.jl`),
 # shared by the per-record and batched paths. They include the per-record
-# Competing branch-probability override `branch_probs`, so it is excluded
-# from by-name event matching for a nested Competing tree too.
+# Resolve branch-probability override `branch_probs`, so it is excluded
+# from by-name event matching for a nested Resolve tree too.
 const _RESERVED_ROW_FIELDS = CensoredDistributions._RESERVED_ROW_FIELDS
 
 _event_vector(row::NamedTuple) = CensoredDistributions._row_event_vector(row)
@@ -249,11 +249,11 @@ _row_horizon(row::NamedTuple) = CensoredDistributions._row_horizon_field(row)
 # `logpdf(d, event_vector)`, scaled by the row weight, so the submodel
 # log-density equals the direct `logpdf`.
 #
-# A NESTED `Competing` node is scored by the same path: its outcome
+# A NESTED `Resolve` node is scored by the same path: its outcome
 # columns occupy one event slot each (`_flat_event_names`), so the observed
-# outcome is identified positionally and `_tree_step(::Competing)` conditions on
+# outcome is identified positionally and `_tree_step(::Resolve)` conditions on
 # that branch. A per-record `branch_probs` field OVERRIDES the (single) nested
-# Competing's stored probabilities by rebuilding the tree for the record, so a
+# Resolve's stored probabilities by rebuilding the tree for the record, so a
 # covariate CFR `logistic(Xβ)` flows in exactly as for the top-level node.
 @model function composed_distribution_model(
         d::Union{Sequential, Parallel}, row::NamedTuple; weight = nothing)
@@ -278,61 +278,61 @@ _row_horizon(row::NamedTuple) = CensoredDistributions._row_horizon_field(row)
 end
 
 # Rebuild a composed tree with the per-record `branch_probs` override applied to
-# its single nested `Competing` node, or return it unchanged when the row
+# its single nested `Resolve` node, or return it unchanged when the row
 # carries no override. The override is coerced + validated against that node's
 # outcomes via the SHARED core helper, then the tree is rebuilt with the new
 # probabilities (their element type preserved so a covariate `Dual` flows). The
-# tree must contain exactly one Competing node for a scalar/NamedTuple override.
+# tree must contain exactly one Resolve node for a scalar/NamedTuple override.
 function _apply_branch_probs_override(d, row::NamedTuple)
     haskey(row, :branch_probs) || return d
-    node = _the_competing(d)
+    node = _the_one_of(d)
     node === nothing && throw(ArgumentError(
-        "a `branch_probs` row field needs a Competing node in the tree; none " *
+        "a `branch_probs` row field needs a Resolve node in the tree; none " *
         "found"))
     probs = CensoredDistributions._coerce_branch_probs(node, row.branch_probs)
-    return CensoredDistributions._override_competing_outcome_probs(d, probs)
+    return CensoredDistributions._override_one_of_outcome_probs(d, probs)
 end
 
-# The single Competing node of a tree (for coercing a per-record override against
+# The single Resolve node of a tree (for coercing a per-record override against
 # its outcome names), or `nothing` when there is none. Errors if more than one.
-# Mirrors the core `_count_competing`/`_replace_competing` nesting: it RECURSES
-# through composer components, an `AbstractCompeting`'s outcome `delays` (a
-# Competing can nest inside a competing-outcome subtree), a `Select`'s
+# Mirrors the core `_count_one_of`/`_replace_one_of` nesting: it RECURSES
+# through composer components, an `AbstractOneOf`'s outcome `delays` (a
+# Resolve can nest inside a one_of-outcome subtree), a `Choose`'s
 # alternatives, and a `Latent`'s inner dist. (Previously a nested
-# `AbstractCompeting` hit the `::UnivariateDistribution` fallback — they share
-# that supertype — so a Competing nested inside a competing outcome was never
-# found, and `Select`/`Latent` hit no method.) A `HazardCompeting` is NOT
+# `AbstractOneOf` hit the `::UnivariateDistribution` fallback — they share
+# that supertype — so a Resolve nested inside a one_of outcome was never
+# found, and `Choose`/`Latent` hit no method.) A `Compete` is NOT
 # branch-prob-overridable, so it is not itself returned, but its delays are still
-# searched (a Competing may nest inside one of its causes).
-function _the_competing(d)
-    found = _find_competing(d)
+# searched (a Resolve may nest inside one of its causes).
+function _the_one_of(d)
+    found = _find_one_of(d)
     return found
 end
-_find_competing(c::Competing) = _merge_found(c, _find_competing_in(c.delays))
-function _find_competing(c::CensoredDistributions.HazardCompeting)
-    return _find_competing_in(c.delays)
+_find_one_of(c::Resolve) = _merge_found(c, _find_one_of_in(c.delays))
+function _find_one_of(c::CensoredDistributions.Compete)
+    return _find_one_of_in(c.delays)
 end
-_find_competing(::UnivariateDistribution) = nothing
-_find_competing(d::Union{Sequential, Parallel}) = _find_competing_in(d.components)
-_find_competing(d::Select) = _find_competing_in(d.alternatives)
-_find_competing(d::Latent) = _find_competing(d.dist)
+_find_one_of(::UnivariateDistribution) = nothing
+_find_one_of(d::Union{Sequential, Parallel}) = _find_one_of_in(d.components)
+_find_one_of(d::Choose) = _find_one_of_in(d.alternatives)
+_find_one_of(d::Latent) = _find_one_of(d.dist)
 
-# Fold `_find_competing` over a tuple of children, erroring if more than one
-# Competing node is found anywhere (the single `branch_probs` row field is then
+# Fold `_find_one_of` over a tuple of children, erroring if more than one
+# Resolve node is found anywhere (the single `branch_probs` row field is then
 # ambiguous).
-_find_competing_in(::Tuple{}) = nothing
-function _find_competing_in(xs::Tuple)
-    return _merge_found(_find_competing(first(xs)),
-        _find_competing_in(Base.tail(xs)))
+_find_one_of_in(::Tuple{}) = nothing
+function _find_one_of_in(xs::Tuple)
+    return _merge_found(_find_one_of(first(xs)),
+        _find_one_of_in(Base.tail(xs)))
 end
 
-# Combine two search results into the single found Competing, erroring on two.
+# Combine two search results into the single found Resolve, erroring on two.
 _merge_found(a, ::Nothing) = a
 _merge_found(::Nothing, b) = b
 _merge_found(::Nothing, ::Nothing) = nothing
 function _merge_found(a, b)
     throw(ArgumentError(
-        "a per-record `branch_probs` override needs exactly one Competing " *
+        "a per-record `branch_probs` override needs exactly one Resolve " *
         "node in the tree; found more than one"))
 end
 
@@ -364,7 +364,7 @@ end
 # `NamedTuple` row and a `Vector` of rows keep their own (more specific) methods,
 # so only a column table (a DataFrame) lands here.
 function composed_distribution_model(
-        d::Union{Sequential, Parallel, Select}, table; weight = nothing)
+        d::Union{Sequential, Parallel, Choose}, table; weight = nothing)
     Tables.istable(table) || throw(ArgumentError(
         "composed_distribution_model(d, table) takes a NamedTuple row, a vector " *
         "of rows, or a Tables.jl table; got $(typeof(table))"))
@@ -426,7 +426,7 @@ end
 
 _record_has_observed(r) = any(v -> v !== missing, r.events)
 
-# A `Competing` node SELF-DISPATCHES on the row's outcome missingness
+# A `Resolve` node SELF-DISPATCHES on the row's outcome missingness
 # (decision 2), mirroring the observed-intermediate dispatch of a chain:
 #
 #   - EXACTLY ONE outcome's event time observed in the row -> CONDITION on that
@@ -455,15 +455,15 @@ _record_has_observed(r) = any(v -> v !== missing, r.events)
 # are DISTINCT row inputs. The whole record is DATA, so the
 # contribution is added with `@addlogprob!` (no spurious VarInfo variable).
 @model function composed_distribution_model(
-        d::Competing, row::NamedTuple; weight = nothing)
+        d::Resolve, row::NamedTuple; weight = nothing)
     w = _row_weight(row, weight)
-    probs = _competing_outcome_probs(d, row)
+    probs = _one_of_outcome_probs(d, row)
     horizon = _row_horizon(row)
-    DynamicPPL.@addlogprob! _competing_logprob(d, row, probs, w, horizon)
+    DynamicPPL.@addlogprob! _one_of_logprob(d, row, probs, w, horizon)
     return nothing
 end
 
-# Reserved row fields specific to a `Competing` node: the resolution time when the
+# Reserved row fields specific to a `Resolve` node: the resolution time when the
 # outcome is unknown (`resolved`); the branch-probability override
 # (`branch_probs`) is already a shared reserved field.
 const _COMPETING_RESERVED = (_RESERVED_ROW_FIELDS..., :resolved)
@@ -473,18 +473,18 @@ const _COMPETING_RESERVED = (_RESERVED_ROW_FIELDS..., :resolved)
 # (regime a). The coercion + validation is the SHARED core helper
 # (`_coerce_branch_probs`), so the top-level and nested paths agree on the
 # NamedTuple/scalar override semantics.
-function _competing_outcome_probs(d::Competing, row::NamedTuple)
+function _one_of_outcome_probs(d::Resolve, row::NamedTuple)
     haskey(row, :branch_probs) || return d.branch_probs
     return CensoredDistributions._coerce_branch_probs(d, row.branch_probs)
 end
 
-# The competing log-density for one record under branch probabilities `probs`,
+# The one_of log-density for one record under branch probabilities `probs`,
 # scaled by the weight `w`, optionally right-truncated at the per-record horizon
-# (hanta). Selects condition / marginalise / fully-missing from the row's
+# (hanta). Choose nodes condition / marginalise / fully-missing from the row's
 # outcome missingness. A `horizon` right-truncates the conditioned branch delay
-# (resp. the mixture) at the horizon (the competing time is measured from the
+# (resp. the mixture) at the horizon (the one_of time is measured from the
 # origin, so the window is the horizon itself).
-function _competing_logprob(d::Competing, row::NamedTuple, probs, w, horizon)
+function _one_of_logprob(d::Resolve, row::NamedTuple, probs, w, horizon)
     obs = _observed_outcomes(d, row)
     if length(obs) == 1
         i, gap = obs[1]
@@ -496,28 +496,28 @@ function _competing_logprob(d::Competing, row::NamedTuple, probs, w, horizon)
             return _scale(log(probs[i]), w)
         end
         branch = _maybe_truncate(d.delays[i], horizon)
-        lp = CensoredDistributions._competing_condition_logpdf(
+        lp = CensoredDistributions._one_of_condition_logpdf(
             probs, branch, gap, i)
         return _scale(lp, w)
     end
     isempty(obs) || throw(ArgumentError(
-        "a Competing record may observe at most one outcome time; got " *
+        "a Resolve record may observe at most one outcome time; got " *
         "$(length(obs)) ($(collect(first.(obs))))"))
     # No outcome observed: marginalise at the resolution time if known, else the
     # record is fully missing and contributes nothing.
-    t = _competing_resolution_time(d, row)
+    t = _one_of_resolution_time(d, row)
     t === nothing && return _scale(zero(eltype(probs)), w)
     delays = map(g -> _maybe_truncate(g, horizon), d.delays)
     # Marginalise the unknown outcome at the resolution time: the branch-prob-
     # weighted mixture log-density `log Σ_i p_i f_i(t)`, computed by the AD-safe
-    # `_competing_logmix` reduction (preserves a `Dual`/tracked prob's element
+    # `_one_of_logmix` reduction (preserves a `Dual`/tracked prob's element
     # type, unlike `MixtureModel(delays, float.(probs))`).
-    lp = CensoredDistributions._competing_logmix(probs, delays, t)
+    lp = CensoredDistributions._one_of_logmix(probs, delays, t)
     return _scale(lp, w)
 end
 
 # Right-truncate `dist` at the per-record horizon when one is supplied (the
-# competing time is measured from the origin, so the window is the horizon
+# one_of time is measured from the origin, so the window is the horizon
 # itself), else return it unchanged. A δ-bounded horizon (a `WindowedHorizon`)
 # δ-bounds the truncation to `[horizon - δ, horizon]`; a plain horizon is byte-
 # identical to `truncate_to_horizon`.
@@ -530,7 +530,7 @@ end
 # The observed outcomes of a row as `(outcome_index, gap)` pairs: a per-outcome
 # field (keyed by the outcome name) holding a non-missing time. The gap is the
 # observed delay from the origin (the value carried in the column).
-function _observed_outcomes(d::Competing, row::NamedTuple)
+function _observed_outcomes(d::Resolve, row::NamedTuple)
     out = Tuple{Int, Float64}[]
     for (i, name) in enumerate(d.names)
         haskey(row, name) || continue
@@ -545,7 +545,7 @@ end
 # present and non-missing, else a single bare event field (a non-reserved,
 # non-outcome field) for backward compatibility with a plain `(resolve = y,)`
 # row; `nothing` when no resolution time is supplied (fully missing).
-function _competing_resolution_time(d::Competing, row::NamedTuple)
+function _one_of_resolution_time(d::Resolve, row::NamedTuple)
     if haskey(row, :resolved) && row.resolved !== missing
         return Float64(row.resolved)
     end
@@ -553,7 +553,7 @@ function _competing_resolution_time(d::Competing, row::NamedTuple)
         k -> !(k in _COMPETING_RESERVED) && !(k in d.names), keys(row))
     isempty(bare) && return nothing
     length(bare) == 1 || throw(ArgumentError(
-        "a Competing record with an unknown outcome takes one resolution time " *
+        "a Resolve record with an unknown outcome takes one resolution time " *
         "(a `resolved` field or a single event value); got fields " *
         "$(collect(bare))"))
     v = row[only(bare)]
@@ -564,7 +564,7 @@ _scale(lp, ::Nothing) = lp
 _scale(lp, w) = w * lp
 
 # Marginal log-density of a constant observation `x` under `d`, scaled by an
-# optional weight `w`. Shared by the marginal composer and `Competing` models.
+# optional weight `w`. Shared by the marginal composer and `Resolve` models.
 _marginal_logprob(d, x, ::Nothing) = logpdf(d, x)
 _marginal_logprob(d, x, w) = w * logpdf(d, x)
 
@@ -578,20 +578,20 @@ function _marginal_logprob_h(d, events, w, horizon)
     return w === nothing ? lp : w * lp
 end
 
-# --- Select (data-selected disjunction) ------------------------------------
+# --- Choose (data-selected disjunction) ------------------------------------
 #
-# A `Select` routes a record to ONE of its independent alternatives, chosen by
+# A `Choose` routes a record to ONE of its independent alternatives, chosen by
 # the row's selector field (`row[d.selector]`, default `:kind`). The selector
 # VALUE is the alternative's name (a `Symbol`). `composed_distribution_model`
 # reads that value, picks the alternative through the type-stable
 # `CensoredDistributions._pick`, and delegates to the SELECTED alternative's own
 # `composed_distribution_model` as a submodel. Because the alternative is itself
 # any leaf or composer, the selected branch's full handling (marginal / latent /
-# condition, weight, missingness) is exactly its own; `Select` adds only the
+# condition, weight, missingness) is exactly its own; `Choose` adds only the
 # data-driven routing. The selector field is stripped from the row before
 # delegating so the alternative sees only its events (plus any reserved weight).
 @model function composed_distribution_model(
-        d::Select, row::NamedTuple; weight = nothing)
+        d::Choose, row::NamedTuple; weight = nothing)
     # A column table (a `columntable` NamedTuple) is the whole table, not one
     # record; route it to the vectorised path. A scalar-valued row is not a table.
     if Tables.istable(row)
@@ -605,7 +605,7 @@ end
     end
     kind = row[d.selector]
     kind isa Symbol || throw(ArgumentError(
-        "the Select selector field $(repr(d.selector)) must hold a Symbol " *
+        "the Choose selector field $(repr(d.selector)) must hold a Symbol " *
         "naming the alternative; got $(typeof(kind))"))
     chosen = CensoredDistributions._pick(d, kind)
     inner_row = _drop_field(row, d.selector)
@@ -615,20 +615,20 @@ end
 end
 
 # Drop a single named field from a NamedTuple, preserving the order of the rest.
-# Used to remove the `Select` selector field before delegating to the chosen
+# Used to remove the `Choose` selector field before delegating to the chosen
 # alternative, so the alternative's event dispatch sees only its own fields.
 function _drop_field(row::NamedTuple, field::Symbol)
     ks = filter(!=(field), keys(row))
     return NamedTuple{ks}(map(k -> row[k], ks))
 end
 
-# VECTORISED Select entry: score a WHOLE TABLE of records whose top node is a
-# `Select` in one `~`. Each record selects its alternative (and carries its own
+# VECTORISED Choose entry: score a WHOLE TABLE of records whose top node is a
+# `Choose` in one `~`. Each record selects its alternative (and carries its own
 # obs_time) per row via `record_distributions`, then the table scores AND samples
 # with the standard `obs ~ product_distribution(...)` tilde, dual-purpose like the
 # Sequential/Parallel vectorised entry.
 function composed_distribution_model(
-        d::Select, rows::AbstractVector; weight = nothing)
+        d::Choose, rows::AbstractVector; weight = nothing)
     weight === nothing || throw(ArgumentError(
         "the vectorised composed model takes per-row weights via a reserved " *
         "`weight`/`count` row field, not the `weight` keyword"))
@@ -681,11 +681,11 @@ struct _LeafPlan{C}
     always_bare::Bool
 end
 
-# A nested `Competing` node in the latent sampling plan: the node itself, the event
+# A nested `Resolve` node in the latent sampling plan: the node itself, the event
 # slot `shift_idx` its outcomes hang off (its anchor: the parent origin / preceding
 # terminal), and the event slot `outcome_start` where its first outcome slice
 # begins. The latent form CONDITIONS on the observed outcome (the recorded outcome
-# is DATA, exactly like the marginal `Competing` model and the bdbv tutorial
+# is DATA, exactly like the marginal `Resolve` model and the bdbv tutorial
 # workaround): the observed branch's edge conditions on the anchor (bare when the
 # anchor is a sampled latent, declared when observed, via `_latent_edge`) and the
 # branch-probability term `log p[i]` is added. The unobserved outcomes contribute
@@ -693,24 +693,24 @@ end
 # so the latent integrates to the same marginal `log p[i] + logpdf(delay[i], gap)`.
 # Sampling WHICH outcome occurs (the generative direction) is a distinct
 # construction not built here; the data-conditioned direction is what fits.
-struct _CompetingPlan{C}
+struct _OneOfPlan{C}
     node::C
     shift_idx::Int
     outcome_start::Int
 end
 
 # The full latent sampling plan: the per-leaf edge entries (sampled/conditioned via
-# `~`/`@addlogprob!`) and the nested-Competing entries (conditioned on the observed
+# `~`/`@addlogprob!`) and the nested-Resolve entries (conditioned on the observed
 # outcome). Kept as two separately-typed vectors so each processing loop sees a
 # concrete element type (the per-leaf `~` loop stays the shape the AD backends
-# already differentiate; the Competing loop is data-conditioned `@addlogprob!`).
+# already differentiate; the Resolve loop is data-conditioned `@addlogprob!`).
 struct _LatentPlan
     leaves::Vector{_LeafPlan}
-    competings::Vector{_CompetingPlan}
+    one_ofs::Vector{_OneOfPlan}
 end
-_LatentPlan() = _LatentPlan(_LeafPlan[], _CompetingPlan[])
+_LatentPlan() = _LatentPlan(_LeafPlan[], _OneOfPlan[])
 Base.push!(p::_LatentPlan, x::_LeafPlan) = (push!(p.leaves, x); p)
-Base.push!(p::_LatentPlan, x::_CompetingPlan) = (push!(p.competings, x); p)
+Base.push!(p::_LatentPlan, x::_OneOfPlan) = (push!(p.one_ofs, x); p)
 
 # Build the per-leaf sampling plan for a composer rooted with origin at event slot
 # `origin_idx` and its first leaf event at `event_start`, appending to `plan`.
@@ -729,7 +729,7 @@ function _latent_plan!(plan, d::Sequential, origin_idx::Int, event_start::Int,
         # A Sequential step is never an always-bare root-Parallel branch.
         _latent_plan_step!(plan, step, o_idx, ev_idx, false)
         o_idx = ev_idx + CensoredDistributions._terminal_offset(step)
-        # Advance by EVENT slots (a Competing step would span one slot per
+        # Advance by EVENT slots (a Resolve step would span one slot per
         # outcome), matching the marginal scorer's layout.
         ev_idx += CensoredDistributions._event_child_nleaves(step)
     end
@@ -746,38 +746,38 @@ function _latent_plan!(plan, d::Parallel, origin_idx::Int, event_start::Int,
     return plan
 end
 
-# A nested `Competing` node in a LATENT-wrapped composer emits a `_CompetingPlan`:
+# A nested `Resolve` node in a LATENT-wrapped composer emits a `_OneOfPlan`:
 # its outcomes begin at `ev_idx`, anchored at the parent origin / preceding
 # terminal `o_idx`. The latent form CONDITIONS on the observed outcome (the
 # recorded outcome is data), so the plan only records the node + indices; the model
 # body reads the row's observed outcome, conditions its branch on the (possibly
 # sampled) anchor, and adds the branch-probability term. Each outcome here must be
-# a LEAF delay (the standalone-Competing latent path): a composer-subtree outcome
+# a LEAF delay (the standalone-Resolve latent path): a composer-subtree outcome
 # (#466 F3) would itself carry latents, a distinct construction handled by the
 # marginal model. Mis-indexing is avoided because the cursor advances by the
-# Competing's full event-slot width in `_latent_plan!`.
-function _latent_plan_step!(plan, node::Competing, o_idx::Int, ev_idx::Int,
+# Resolve's full event-slot width in `_latent_plan!`.
+function _latent_plan_step!(plan, node::Resolve, o_idx::Int, ev_idx::Int,
         always_bare::Bool)
-    _reject_nonleaf_competing_outcomes(node)
-    push!(plan, _CompetingPlan(node, o_idx, ev_idx))
+    _reject_nonleaf_one_of_outcomes(node)
+    push!(plan, _OneOfPlan(node, o_idx, ev_idx))
     return plan
 end
 
-# A latent-wrapped Competing supports LEAF outcome delays only: a composer-subtree
+# A latent-wrapped Resolve supports LEAF outcome delays only: a composer-subtree
 # outcome carries its own internal latents (a distinct multivariate construction),
 # so it is rejected clearly rather than mis-scored. The marginal composed model
-# handles a composer-subtree Competing outcome.
-function _reject_nonleaf_competing_outcomes(node::Competing)
+# handles a composer-subtree Resolve outcome.
+function _reject_nonleaf_one_of_outcomes(node::Resolve)
     all(d -> d isa UnivariateDistribution, node.delays) || throw(ArgumentError(
-        "a latent-wrapped composer with a nested Competing whose outcome is " *
+        "a latent-wrapped composer with a nested Resolve whose outcome is " *
         "itself a composed subtree is not supported; score it through the " *
-        "marginal composed model, or keep the Competing outcomes as leaf delays"))
+        "marginal composed model, or keep the Resolve outcomes as leaf delays"))
     return nothing
 end
 
-# Score a nested `Competing` in a LATENT-wrapped composer for one record, CONDITION-
+# Score a nested `Resolve` in a LATENT-wrapped composer for one record, CONDITION-
 # ing on the observed outcome (the recorded outcome is DATA). Mirrors the marginal
-# `_competing_logprob` / `_competing_tree_logpdf` so latent == marginal: the
+# `_one_of_logprob` / `_one_of_tree_logpdf` so latent == marginal: the
 # observed branch contributes `log p[i] + logpdf(edge_i, gap)` and the unobserved
 # outcomes contribute nothing (they are not sampled). The anchor is the filled event
 # slot `e[c.shift_idx]` (an observed reference, or a latent sampled by the leaf
@@ -785,18 +785,18 @@ end
 # scores BARE, exactly as the marginal convolves bare cores across a sampled run, so
 # integrating the sampled anchor reproduces the marginal mixture-conditioned term.
 # Branch probabilities follow the row (`branch_probs` override) else the node's
-# stored probs, shared with the marginal `Competing` path. Weight `w` scales the
+# stored probs, shared with the marginal `Resolve` path. Weight `w` scales the
 # likelihood. A per-record `horizon` (default `nothing`) RIGHT-TRUNCATES the
 # conditioned branch at the remaining window from the anchor exactly as the
-# marginal nested-Competing scorer (`_competing_tree_logpdf`) does, so the
-# truncated nested-Competing term is density-identical in both forms (#517). The
+# marginal nested-Resolve scorer (`_one_of_tree_logpdf`) does, so the
+# truncated nested-Resolve term is density-identical in both forms (#517). The
 # truncation is applied to the branch core BEFORE the latent shift, so the shifted
 # edge is `truncated(delay; upper = window)` anchored at the (observed/sampled)
 # predecessor, matching the marginal `truncate_to_horizon(delay, horizon - o)`.
-function _latent_competing_logprob(c::_CompetingPlan, e, sampled, row, w,
+function _latent_one_of_logprob(c::_OneOfPlan, e, sampled, row, w,
         horizon = nothing)
     node = c.node
-    probs = _competing_outcome_probs(node, row)
+    probs = _one_of_outcome_probs(node, row)
     anchor = e[c.shift_idx]
     pred_sampled = sampled[c.shift_idx]
     pred_is_origin = c.shift_idx == 1
@@ -804,47 +804,47 @@ function _latent_competing_logprob(c::_CompetingPlan, e, sampled, row, w,
     obs_i == 0 && return _scale(zero(eltype(probs)), w)
     delay = node.delays[obs_i]
     # An OBSERVED non-occurrence (a no-event slot present) scores the no-event mass
-    # `log q` alone (no delay term), matching the marginal Competing path.
+    # `log q` alone (no delay term), matching the marginal Resolve path.
     if CensoredDistributions._is_no_event(delay)
         return _scale(log(probs[obs_i]), w)
     end
     anchor === missing && throw(ArgumentError(
-        "a latent nested Competing with an observed outcome needs its anchor " *
+        "a latent nested Resolve with an observed outcome needs its anchor " *
         "(the parent event) observed or sampled; got a missing anchor"))
-    branch = _latent_competing_branch(delay, horizon, anchor)
+    branch = _latent_one_of_branch(delay, horizon, anchor)
     edge = _latent_edge(
         branch, anchor, pred_sampled, pred_is_origin, false, false)
     lp = log(probs[obs_i]) + logpdf(edge, e[obs_slot])
     return _scale(lp, w)
 end
 
-# Right-truncate a latent nested-Competing branch at the remaining window from its
+# Right-truncate a latent nested-Resolve branch at the remaining window from its
 # anchor (`horizon - anchor`), or return it unchanged when no horizon applies.
-# Mirrors the marginal `_competing_truncate` / `_competing_window` so the latent
+# Mirrors the marginal `_one_of_truncate` / `_one_of_window` so the latent
 # conditioned branch matches the marginal one (#517), including a δ-bounded
 # horizon (a `WindowedHorizon`), which δ-bounds the branch to `[window - δ,
 # window]`; a plain horizon is byte-identical to `truncate_to_horizon`.
-_latent_competing_branch(delay, ::Nothing, anchor) = delay
-function _latent_competing_branch(delay, horizon, anchor)
+_latent_one_of_branch(delay, ::Nothing, anchor) = delay
+function _latent_one_of_branch(delay, horizon, anchor)
     t = CensoredDistributions._horizon_time(horizon)
     window = t - convert(typeof(t), anchor)
     return CensoredDistributions._truncate_horizon(delay, window, horizon)
 end
 
-# Resolve WHICH leaf outcome a latent Competing record observes, returning
+# Resolve WHICH leaf outcome a latent Resolve record observes, returning
 # `(outcome_index, slot_index)` with `0` when none is observed (a fully latent
 # resolution contributes nothing). An outcome's slot was OBSERVED iff its original
 # row value was present (`!sampled[slot]`); two distinct observed outcomes are
 # rejected (a record resolves to one outcome), mirroring the marginal resolver.
-# Leaf outcomes only (one slot each), guaranteed by `_reject_nonleaf_competing_outcomes`.
-function _latent_observed_outcome(node::Competing, e, sampled, outcome_start::Int)
+# Leaf outcomes only (one slot each), guaranteed by `_reject_nonleaf_one_of_outcomes`.
+function _latent_observed_outcome(node::Resolve, e, sampled, outcome_start::Int)
     obs_i = 0
     obs_slot = 0
     @inbounds for k in eachindex(node.delays)
         slot = outcome_start + (k - 1)
         sampled[slot] && continue
         obs_i == 0 || throw(ArgumentError(
-            "a latent nested Competing record may observe at most one outcome; " *
+            "a latent nested Resolve record may observe at most one outcome; " *
             "got outcomes $(node.names[obs_i]) and $(node.names[k])"))
         obs_i = k
         obs_slot = slot
@@ -911,10 +911,10 @@ end
     # censoring (see `_latent_edge`). Captured before any `~` fills a slot.
     sampled = [v === missing for v in e]
     plan = _latent_plan!(_LatentPlan(), chain, 1, 2, false)
-    # A per-record `obs_time` horizon right-truncates a nested Competing branch
-    # (#517); the leaf-twin truncation (a chain with no Competing node) stays out of
+    # A per-record `obs_time` horizon right-truncates a nested Resolve branch
+    # (#517); the leaf-twin truncation (a chain with no Resolve node) stays out of
     # scope, so reject a horizon there as before.
-    horizon = _latent_competing_horizon(plan, row)
+    horizon = _latent_one_of_horizon(plan, row)
     # Origin E_0. A MISSING origin must be SAMPLED, so the chain needs a primary
     # prior to sample it from (a bare-edge chain offers none -> reject). An OBSERVED
     # origin is a fixed continuous reference: it conditions through its primary prior
@@ -941,12 +941,12 @@ end
             DynamicPPL.@addlogprob! _scale(logpdf(edge, e[p.event_idx]), w)
         end
     end
-    # Nested Competing nodes: condition on each record's observed outcome (data),
+    # Nested Resolve nodes: condition on each record's observed outcome (data),
     # added after the leaf loop so a sampled anchor (`e[shift_idx]`) is filled. The
     # branch-probability override (covariate CFR) rides the row's `branch_probs`. A
     # per-record `horizon` right-truncates each conditioned branch (#517).
-    for c in plan.competings
-        DynamicPPL.@addlogprob! _latent_competing_logprob(
+    for c in plan.one_ofs
+        DynamicPPL.@addlogprob! _latent_one_of_logprob(
             c, e, sampled, row, w, horizon)
     end
     return e
@@ -986,10 +986,10 @@ end
     # Root flat Parallel branches are always bare (the marginal conditional scores
     # each branch on the continuous core).
     plan = _latent_plan!(_LatentPlan(), tree, 1, 2, true)
-    # A per-record `obs_time` horizon right-truncates a nested Competing branch
-    # (#517); a Parallel with no nested Competing keeps the leaf-twin truncation out
+    # A per-record `obs_time` horizon right-truncates a nested Resolve branch
+    # (#517); a Parallel with no nested Resolve keeps the leaf-twin truncation out
     # of scope and rejects a horizon as before.
-    horizon = _latent_competing_horizon(plan, row)
+    horizon = _latent_one_of_horizon(plan, row)
     # Shared origin. A MISSING origin must be SAMPLED, so the branches need a shared
     # primary prior; bare branches with an observed origin reference need none. NOT
     # weighted (weight scales the observed conditionals, not the prior).
@@ -1012,10 +1012,10 @@ end
             DynamicPPL.@addlogprob! _scale(logpdf(edge, e[p.event_idx]), w)
         end
     end
-    # Nested Competing nodes: condition on each record's observed outcome (data); a
+    # Nested Resolve nodes: condition on each record's observed outcome (data); a
     # per-record `horizon` right-truncates each conditioned branch (#517).
-    for c in plan.competings
-        DynamicPPL.@addlogprob! _latent_competing_logprob(
+    for c in plan.one_ofs
+        DynamicPPL.@addlogprob! _latent_one_of_logprob(
             c, e, sampled, row, w, horizon)
     end
     return e
@@ -1174,7 +1174,7 @@ end
 #
 # `priors` is a nested `NamedTuple` mirroring `params(template)`: a leaf is keyed
 # by its parameter names (`_leaf_param_names`), a `Sequential`/`Parallel` by its
-# edge/event names, a `Competing` by its outcome names plus an optional
+# edge/event names, a `Resolve` by its outcome names plus an optional
 # `branch_probs` entry. The traversal REUSES the composers' `component_names` and
 # the leaf `params`/`_leaf_param_names` introspection for both structure
 # and names, never re-walking the tree by hand, and rebuilds the SAME structure
@@ -1241,8 +1241,8 @@ end
 # `MethodError` from the missing keyword) could not be differentiated by Mooncake
 # reverse on Julia LTS: `_construct_unchecked` is on the AD'd reconstruction path
 # (`composed_parameters_model` rebuilds each leaf from tracked params), and Mooncake
-# LTS cannot trace the `try`/`catch`, failing the nested-Competing (bdbv) and
-# Select-top (andv) models. The reflection helper carries a Mooncake `@zero_adjoint`
+# LTS cannot trace the `try`/`catch`, failing the nested-Resolve (bdbv) and
+# Choose-top (andv) models. The reflection helper carries a Mooncake `@zero_adjoint`
 # (it is constant w.r.t. the params, returning a `Bool`), so Mooncake never traces
 # its `jl_gf_invoke_lookup` foreigncall on LTS; the differentiated path is then a
 # plain `if` over a single ctor call with no exception handling, and the gradient
@@ -1306,7 +1306,7 @@ end
 # heterogeneous `RData` tuple whose per-slot reverse-data layout it then cannot
 # `increment!!` (the cotangent of one whole composer node gets accumulated against a
 # single leaf child's reverse data, a structural type mismatch), so a
-# nested-`Competing` (bdbv / andv) model fell back to `AutoForwardDiff`.
+# nested-`Resolve` (bdbv / andv) model fell back to `AutoForwardDiff`.
 #
 # `_children_params_model` peels ONE child per recursion: it samples the head child
 # through its prefixed submodel into a scalar `head` (no indexed lvalue, so no
@@ -1350,55 +1350,55 @@ end
     return _rebuild(d, parts)
 end
 
-# A `Select`: sample each named alternative through a prefixed child submodel; a
+# A `Choose`: sample each named alternative through a prefixed child submodel; a
 # tag shared across alternatives is sampled once (up front) and reused, so the
 # alternative that only carries the shared parameter samples nothing locally.
-@model function _select_params_model(d::Select, priors::NamedTuple, shared)
-    _check_composer_prior_keys(priors, d.names, "Select", shared)
+@model function _select_params_model(d::Choose, priors::NamedTuple, shared)
+    _check_composer_prior_keys(priors, d.names, "Choose", shared)
     alts ~ to_submodel(
         _children_params_model(d.alternatives, d.names, priors, shared), false)
-    return Select(d.names, alts, d.selector)
+    return Choose(d.names, alts, d.selector)
 end
 
-# A `Competing`: sample each outcome delay through a prefixed child submodel; the
+# A `Resolve`: sample each outcome delay through a prefixed child submodel; the
 # branch probabilities are kept fixed from the template unless a `branch_probs`
 # entry of priors is supplied (then each is sampled, prefixed under
-# `branch_probs`). Rebuild the `Competing` with the SAME outcome names.
-@model function _competing_params_model(c::Competing, priors::NamedTuple, shared)
+# `branch_probs`). Rebuild the `Resolve` with the SAME outcome names.
+@model function _one_of_params_model(c::Resolve, priors::NamedTuple, shared)
     expected = (c.names..., :branch_probs)
     have = keys(priors)
     # `branch_probs` is optional; every other expected key is required.
     required = c.names
-    _check_competing_keys(priors, required, expected, shared)
+    _check_one_of_keys(priors, required, expected, shared)
     delays ~ to_submodel(
         _children_params_model(c.delays, c.names, priors, shared), false)
     if :branch_probs in have
         bp_priors = priors.branch_probs
-        _check_prior_keys(bp_priors, c.names, "Competing branch_probs")
+        _check_prior_keys(bp_priors, c.names, "Resolve branch_probs")
         sub = DynamicPPL.prefix(
             _branch_probs_model(c, bp_priors), Val(:branch_probs))
         probs ~ to_submodel(sub, false)
     else
         probs = c.branch_probs
     end
-    return Competing(c.names, delays, Tuple(probs))
+    return Resolve(c.names, delays, Tuple(probs))
 end
 
-# A racing-hazard `HazardCompeting`: sample each racing outcome delay through a
+# A racing-hazard `Compete`: sample each racing outcome delay through a
 # prefixed child submodel and rebuild with the SAME outcome names. There is NO
 # `branch_probs` block (the winning probability is derived from the hazards).
-@model function _hazard_competing_params_model(
-        c::CensoredDistributions.HazardCompeting, priors::NamedTuple, shared)
-    _check_composer_prior_keys(priors, c.names, :HazardCompeting, shared)
+@model function _hazard_one_of_params_model(
+        c::CensoredDistributions.Compete, priors::NamedTuple, shared)
+    _check_composer_prior_keys(priors, c.names, :Compete, shared)
     delays ~ to_submodel(
         _children_params_model(c.delays, c.names, priors, shared), false)
-    return CensoredDistributions.HazardCompeting(c.names, delays)
+    return CensoredDistributions.Compete(c.names, delays)
 end
 
-# Sample the competing branch probabilities from their named priors. Returns the
+# Sample the one_of branch probabilities from their named priors. Returns the
 # tuple in outcome order; `tilde_assume!!` names each by its outcome name so the
 # chain names are `branch_probs.<outcome>`.
-@model function _branch_probs_model(c::Competing, priors::NamedTuple)
+@model function _branch_probs_model(c::Resolve, priors::NamedTuple)
     ctx = __model__.context
     probs = ntuple(length(c.names)) do i
         name = c.names[i]
@@ -1413,16 +1413,16 @@ end
 # `branch_probs` is optional, the outcome names are required UNLESS an outcome's
 # only params are shared (its prior is top-level, no per-outcome key): validate the
 # required outcome priors are present and no key outside `expected`/shared appears.
-function _check_competing_keys(priors::NamedTuple, required::Tuple,
+function _check_one_of_keys(priors::NamedTuple, required::Tuple,
         expected::Tuple, shared)
     have = keys(priors)
     missing_keys = filter(k -> !(k in have), required)
     extra_keys = filter(k -> !(k in expected) && !(k in keys(shared)), have)
     isempty(missing_keys) || throw(ArgumentError(
-        "Competing is missing priors for $(collect(missing_keys)); " *
+        "Resolve is missing priors for $(collect(missing_keys)); " *
         "expected outcomes $(collect(required))"))
     isempty(extra_keys) || throw(ArgumentError(
-        "Competing has unexpected prior keys $(collect(extra_keys)); " *
+        "Resolve has unexpected prior keys $(collect(extra_keys)); " *
         "expected $(collect(expected))"))
     return nothing
 end
@@ -1445,18 +1445,18 @@ function _check_composer_prior_keys(priors::NamedTuple, names::Tuple, what, shar
 end
 
 # Dispatch a node to its parameter submodel: a composer to its composer model, a
-# `Competing` to its competing model, any other (leaf) distribution to the leaf
+# `Resolve` to its one_of model, any other (leaf) distribution to the leaf
 # model. Mirrors the `params`/`params_table` traversal dispatch. The
 # `shared` NamedTuple (tag -> sampled value tuple) is threaded so a shared-tagged
 # leaf reuses the one sampled group rather than sampling again.
 function _params_submodel(d::Union{Sequential, Parallel}, priors, shared)
     _composer_params_model(d, priors, shared)
 end
-_params_submodel(d::Select, priors, shared) = _select_params_model(d, priors, shared)
-_params_submodel(c::Competing, priors, shared) = _competing_params_model(c, priors, shared)
+_params_submodel(d::Choose, priors, shared) = _select_params_model(d, priors, shared)
+_params_submodel(c::Resolve, priors, shared) = _one_of_params_model(c, priors, shared)
 function _params_submodel(
-        c::CensoredDistributions.HazardCompeting, priors, shared)
-    return _hazard_competing_params_model(c, priors, shared)
+        c::CensoredDistributions.Compete, priors, shared)
+    return _hazard_one_of_params_model(c, priors, shared)
 end
 _params_submodel(leaf, priors, shared) = _leaf_params_model(leaf, priors, shared)
 
@@ -1529,7 +1529,7 @@ end
 #   - FULL pooling: one stratum (`length(strata_priors) == 1`), recovering the
 #     shared-`d` path.
 # Each stratum is reconstructed through the same `composed_parameters_model`
-# machinery (so shared-tagged leaves, Competing branch_probs, censored leaves all
+# machinery (so shared-tagged leaves, Resolve branch_probs, censored leaves all
 # round-trip per stratum); the prefixing keeps the strata's parameters distinct
 # in the VarInfo. AD flows through every stratum's sampled params.
 @model function composed_parameters_model(

@@ -17,7 +17,7 @@
 - **Primary event censoring**: Model delay distributions where the initial event occurs within a time window (e.g., exposure periods in epidemiology).
 - **Interval censoring**: Bin continuous distributions into discrete intervals (e.g., daily reporting) when exact values are not observed.
 - **Double interval censoring**: Combines both primary event and interval censoring for complex observation processes.
-- **Composed distributions**: Compose per-event delays into one object describing a whole record, with named branches, chains, competing outcomes and data-selected alternatives, that both scores observed records and simulates new ones.
+- **Composed distributions**: Compose per-event delays into one object describing a whole record, with named branches, chains, rival (racing-risk) outcomes and data-selected alternatives, that both scores observed records and simulates new ones.
 - **Marginal and latent forms**: Score a record by integrating out intermediate events (the cheap default) or by sampling them, two directions on the same parameters.
 - **Renewal and thinning**: Push an infection series through a composed delay stack to expected case/death streams, each thinned by ascertainment or fatality, in one convolution.
 - **Distribution fitting**: Integrates with [Turing.jl](https://github.com/TuringLang/Turing.jl) for both Bayesian inference and MLE of censored distributions.

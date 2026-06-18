@@ -35,7 +35,7 @@
 # term.
 #
 # This disjunction (a case is index or sourced, never both) is exactly what
-# [`Select`](@ref) expresses: two independent named alternatives. Here the split
+# [`Choose`](@ref) expresses: two independent named alternatives. Here the split
 # is known before fitting, so the records are sorted into an index batch and a
 # sourced batch in Julia and each batch is scored against its named alternative,
 # rather than routed per record by the node's selector. We build the two
@@ -164,7 +164,7 @@ end
 
 # ## The delay model
 #
-# The whole delay structure is one [`Select`](@ref) node over two named
+# The whole delay structure is one [`Choose`](@ref) node over two named
 # alternatives, built with the composer front-ends.
 # `inc` is the incubation period (a LogNormal), shared by both alternatives;
 # `delta` is the transmission timing (a Normal, since a case can be infected
@@ -198,7 +198,7 @@ function delay_select(; inc = LogNormal(3.0, 0.3), delta = Normal(0.0, 1.0))
     sourced = sequential(
         :srconset_infection => double_day(delta),
         :infection_onset => shared(:inc, double_day(inc)))
-    return selecting(:index => index, :sourced => sourced)
+    return choose(:index => index, :sourced => sourced)
 end
 
 template = delay_select()
@@ -669,7 +669,7 @@ first(realtime_thinning, 6)
 # ## Summary
 #
 # - The two ways a case enters the model (zoonotic index or human-sourced) are
-#   one [`Select`](@ref) disjunction over named alternatives; the records are
+#   one [`Choose`](@ref) disjunction over named alternatives; the records are
 #   pre-sorted into an index batch and a sourced batch and each batch is scored
 #   against its named alternative.
 # - Each alternative is built with the composer front-ends and

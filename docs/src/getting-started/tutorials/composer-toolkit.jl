@@ -16,7 +16,7 @@
 #    from plain [Distributions.jl](https://juliastats.org/Distributions.jl)
 #    leaves.
 # 2. Build the four composers directly ([`Sequential`](@ref),
-#    [`Parallel`](@ref), [`Competing`](@ref), [`Select`](@ref)) and see how they
+#    [`Parallel`](@ref), [`Resolve`](@ref), [`Choose`](@ref)) and see how they
 #    nest.
 # 3. Swap the plain leaves for censored ones
 #    ([`double_interval_censored`](@ref), and the rarer
@@ -80,7 +80,7 @@ event_names(chain)
 # NamedTuple.
 # A table has `name` and `dist` columns, one row per branch.
 # A `chain` column folds rows sharing a non-zero id into a [`Sequential`](@ref),
-# and a `compete`/`prob` column pair folds rows into a [`Competing`](@ref) node
+# and a `compete`/`prob` column pair folds rows into a [`Resolve`](@ref) node
 # whose `prob` entries are the branch probabilities.
 # Here the death and discharge rows share a `compete` group, while the
 # notification row stays a plain branch.
@@ -123,40 +123,40 @@ seq = sequential(:onset_admit => onset_admit, :admit_death => admit_death);
 
 par = parallel(:onset_admit => onset_admit, :onset_notif => admit_death);
 
-# [`Competing`](@ref) is a set of competing outcomes: exactly one occurs,
+# [`Resolve`](@ref) is a set of one_of outcomes: exactly one occurs,
 # governed by branch probabilities that sum to one.
 # A death-versus-discharge competition makes the death probability the
 # case-fatality ratio.
 
 cfr = 0.3;
 
-resolution = competing(:death => (Gamma(1.5, 1.0), cfr),
+resolution = resolve(:death => (Gamma(1.5, 1.0), cfr),
     :discharge => (Gamma(2.0, 1.5), 1 - cfr));
 
 # The LAST outcome's probability may be omitted (a bare `name => delay`): it
 # then takes the residual `1 - sum(of the others)`, so the discharge
 # probability `1 - cfr` need not be written out.
 
-resolution_residual = competing(:death => (Gamma(1.5, 1.0), cfr),
+resolution_residual = resolve(:death => (Gamma(1.5, 1.0), cfr),
     :discharge => Gamma(2.0, 1.5));
 
 # Its marginal is the time to resolution regardless of which outcome occurs.
 
 mean(resolution)
 
-# A `Competing` node carries its own time-to-resolution event slot alongside the
+# A `Resolve` node carries its own time-to-resolution event slot alongside the
 # named per-outcome slots, so its flat event layout pairs that resolution slot
 # (defaulting to `:event_1`) with the `:death` and `:discharge` outcome names.
 
 event_names(resolution)
 
-# [`Select`](@ref) is a data-selected disjunction: the alternatives are
+# [`Choose`](@ref) is a data-selected disjunction: the alternatives are
 # independent sub-models with different origins, and a data field picks which
 # one applies to a record.
-# Neither `Parallel` (shared origin) nor `Competing` (shared origin) expresses
+# Neither `Parallel` (shared origin) nor `Resolve` (shared origin) expresses
 # this.
 
-selector = selecting(:index => onset_admit, :sourced => admit_death);
+selector = choose(:index => onset_admit, :sourced => admit_death);
 
 # Scoring names the active alternative through the `kind` keyword.
 
@@ -174,12 +174,12 @@ nested = compose((early = early, late = chain));
 
 event_names(nested)
 
-# A `Select` can hold a `Select`, or a composed tree, as an alternative.
+# A `Choose` can hold a `Choose`, or a composed tree, as an alternative.
 
-select_on_select = selecting(:a => selector, :b => onset_admit);
+select_on_select = choose(:a => selector, :b => onset_admit);
 
 # A pre-built composer is a valid `Sequential` step, so a chain can carry a
-# `Competing` resolution as its terminal step.
+# `Resolve` resolution as its terminal step.
 # Naming the chain steps gives the simulated record readable event names.
 
 tree = compose((
@@ -382,19 +382,19 @@ per_record = [CensoredDistributions.batched_event_logpdf(obs_chain, [row])
 
 # The same object simulates.
 # A `rand` of a nested tree returns a full named event record: a shared origin
-# draw, every event hung off it, and each `Competing` resolution sampled.
-# Sampling a `Competing` node draws which outcome occurs from the branch
+# draw, every event hung off it, and each `Resolve` resolution sampled.
+# Sampling a `Resolve` node draws which outcome occurs from the branch
 # probabilities and then draws that outcome's time, so exactly one outcome slot
-# is filled and the competing outcomes that did not occur are left `missing`.
-# The competing node is itself sampled; the `missing` slots are the outcomes
+# is filled and the one_of outcomes that did not occur are left `missing`.
+# The one_of node is itself sampled; the `missing` slots are the outcomes
 # that lost, not an un-sampled node.
 #
 # We build a simulation tree with the default `double_interval_censored` leaves:
 # a death-versus-discharge resolution off the admission, alongside a
-# notification branch. The named per-outcome event slots come from the competing
+# notification branch. The named per-outcome event slots come from the one_of
 # outcome names.
 
-sim_resolution = competing(
+sim_resolution = resolve(
     :death => (double_interval_censored(Gamma(1.5, 1.0); interval = 1), cfr),
     :discharge => (double_interval_censored(Gamma(2.0, 1.5); interval = 1),
         1 - cfr));
@@ -408,7 +408,7 @@ sim_tree = compose((
 
 event_names(sim_tree)
 
-# A draw fills the origin, the admission, exactly one of the competing
+# A draw fills the origin, the admission, exactly one of the one_of
 # resolution outcomes, and the notification. The other outcome is `missing`.
 
 draw = rand(Xoshiro(7), sim_tree)
@@ -422,14 +422,14 @@ resolved = only(o for o in (:death, :discharge) if !ismissing(draw[o]));
 
 (outcome = resolved, time = draw[resolved])
 
-# Exactly one resolution outcome is sampled; the other competing slot is
+# Exactly one resolution outcome is sampled; the other one_of slot is
 # `missing`.
 
 count(!ismissing, (draw.death, draw.discharge))
 
-# Sampling the `Competing` node on its own makes the draw explicit:
+# Sampling the `Resolve` node on its own makes the draw explicit:
 # [`rand_outcome`](@ref) returns the drawn `(outcome, time)` pair directly,
-# whereas the plain `rand` of a `Competing` returns only the marginal
+# whereas the plain `rand` of a `Resolve` returns only the marginal
 # time-to-resolution and discards which outcome won.
 
 CensoredDistributions.rand_outcome(Xoshiro(7), sim_resolution)
@@ -572,12 +572,12 @@ replaced = update(template, :admit_death => Gamma(3.0, 1.5));
 event(replaced, :admit_death)
 
 # Two edits that change the tree shape are kept separate.
-# [`prune`](@ref) drops a branch (renormalising a [`Competing`](@ref) arm), and
+# [`prune`](@ref) drops a branch (renormalising a [`Resolve`](@ref) arm), and
 # [`splice`](@ref) inserts a before/after step around a node.
 # These are the two topology edits; `update` keeps the shape and replaces
 # contents.
 
-three_way = competing(:death => (Gamma(1.5, 1.0), 0.3),
+three_way = resolve(:death => (Gamma(1.5, 1.0), 0.3),
     :discharge => (Gamma(2.0, 1.5), 0.4),
     :transfer => (Gamma(1.0, 1.0), 0.3));
 
@@ -611,12 +611,12 @@ event_names(event(spliced, :admit_death))
 # | Syntax | What it does | Shape-preserving? |
 # |---|---|---|
 # | `compose((a = d1, b = d2))` | NamedTuple front-end; a `Vector` value is a chain | builds |
-# | `compose(table)` | table front-end (a `name`/`dist` column source); an optional `chain` column folds rows into a `Sequential`, a `compete`/`prob` column pair into a `Competing` | builds |
+# | `compose(table)` | table front-end (a `name`/`dist` column source); an optional `chain` column folds rows into a `Sequential`, a `compete`/`prob` column pair into a `Resolve` | builds |
 # | `compose(matrix; names, step_names)` | matrix front-end (rows are `Parallel` branches, columns within a row `Sequential` steps) | builds |
 # | `sequential(:a => d1, :b => d2)` | a [`Sequential`](@ref) chain (steps add up) | builds |
 # | `parallel(:a => d1, :b => d2)` | a [`Parallel`](@ref) branch set (shared origin) | builds |
-# | `competing(:a => (d1, p1), :b => (d2, p2))` | a [`Competing`](@ref) node (one outcome occurs); the last prob may be omitted as the residual `1 - sum(others)` | builds |
-# | `selecting(:a => d1, :b => d2)` | a [`Select`](@ref) disjunction (data picks the branch) | builds |
+# | `resolve(:a => (d1, p1), :b => (d2, p2))` | a [`Resolve`](@ref) node (one outcome occurs); the last prob may be omitted as the residual `1 - sum(others)` | builds |
+# | `choose(:a => d1, :b => d2)` | a [`Choose`](@ref) disjunction (data picks the branch) | builds |
 # | `convolve_distributions(d1, d2)` | a [`Convolved`](@ref) sum `X + Y` (delays add) | builds |
 # | `difference(d1, d2)` | a [`Difference`](@ref) `X - Y`, the dual of the sum; two-sided support, so an observation not a delay leaf | builds |
 # | `primary_censored(d, pe)` | primary-event censoring leaf | leaf wrap |
@@ -628,7 +628,7 @@ event_names(event(spliced, :admit_death))
 # | `tie(d, paths...; name)` | tie leaves at `paths` into one group (tree-level tie) | yes |
 # | `update(d, (a = (shape = 3,),))` | replace free parameter values | yes |
 # | `update(d, path => new_node)` | replace whole nodes | yes |
-# | `prune(d, path)` | drop a branch (renormalise a `Competing` arm) | no (topology) |
+# | `prune(d, path)` | drop a branch (renormalise a `Resolve` arm) | no (topology) |
 # | `splice(d, path; before, after)` | insert a before/after step at a node | no (topology) |
 # | `event(d, path)` | fetch a child or descend a name path | read |
 # | `event_tree(d)` | the nested tree of event names | read |
@@ -650,18 +650,18 @@ event_names(event(spliced, :admit_death))
 #
 # - [`compose`](@ref) lowers a NamedTuple, table, or matrix to the same composer
 #   stack.
-# - [`Sequential`](@ref), [`Parallel`](@ref), [`Competing`](@ref), and
-#   [`Select`](@ref) are conjunctive chains, shared-origin branches, competing
+# - [`Sequential`](@ref), [`Parallel`](@ref), [`Resolve`](@ref), and
+#   [`Choose`](@ref) are conjunctive chains, shared-origin branches, one_of
 #   outcomes, and data-selected disjunctions.
 # - The composers nest, including a composer as a chain step and a
-#   `selecting` of a `selecting`.
+#   `choose` of a `choose`.
 # - Censoring is a drop-in leaf swap: plain Distributions leaves teach the
 #   machinery, then [`double_interval_censored`](@ref) (the default for
 #   day-resolution line lists) and the rarer [`primary_censored`](@ref) replace
 #   them with no change to the stack, scored by leaf type.
 # - One object scores records and simulates them; scoring marginalises by row
 #   missingness (mixed across records), prediction is the generative `rand`,
-#   which samples each `Competing` resolution (one outcome drawn, losers
+#   which samples each `Resolve` resolution (one outcome drawn, losers
 #   `missing`).
 # - `event_logpdf(stack, events; horizon)` right-truncates the *whole* composed
 #   chain at an observation horizon in one call, distinct from per-leaf

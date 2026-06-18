@@ -13,21 +13,21 @@
 SUITE["SharedReuse"] = BenchmarkGroup()
 
 let
-    # A nested (Select-bearing) tree whose origin edge AND routed alternative are
+    # A nested (Choose-bearing) tree whose origin edge AND routed alternative are
     # the SAME shared `:inc` censored leaf, so the leaf is scored in two positions
     # per record. Many records share the one tree (fixed params).
     inc_params = (2.0, 1.0)
     b = primary_censored(Gamma(5.0, 1.0), Uniform(0, 1))
 
-    selecting = CensoredDistributions.selecting
+    choose = CensoredDistributions.choose
     inc = CensoredDistributions.shared(
         :inc, primary_censored(Gamma(inc_params...), Uniform(0, 1)))
-    tagged = Sequential((inc, selecting(:a => inc, :b => b)),
+    tagged = Sequential((inc, choose(:a => inc, :b => b)),
         (:onset_admit, :admit_death))
 
     inc1 = primary_censored(Gamma(inc_params...), Uniform(0, 1))
     inc2 = primary_censored(Gamma(inc_params...), Uniform(0, 1))
-    untagged = Sequential((inc1, selecting(:a => inc2, :b => b)),
+    untagged = Sequential((inc1, choose(:a => inc2, :b => b)),
         (:onset_admit, :admit_death))
 
     # Latent-origin records (the marginalisation path the shared leaf feeds).

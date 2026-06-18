@@ -32,31 +32,31 @@
 # Header label for a composer node (its TYPE plus a count).
 _node_header(d::Sequential) = "Sequential ($(length(d.components)) steps)"
 _node_header(d::Parallel) = "Parallel ($(length(d.components)) branches)"
-_node_header(c::Competing) = "Competing ($(_n_branches(c)) outcomes)"
-function _node_header(c::HazardCompeting)
-    return "HazardCompeting ($(_n_branches(c)) racing outcomes)"
+_node_header(c::Resolve) = "Resolve ($(_n_branches(c)) outcomes)"
+function _node_header(c::Compete)
+    return "Compete ($(_n_branches(c)) racing outcomes)"
 end
 
 # Is a child a composer (has named children) or a leaf?
-_is_composer_dist(::Union{Sequential, Parallel, AbstractCompeting}) = true
+_is_composer_dist(::Union{Sequential, Parallel, AbstractOneOf}) = true
 _is_composer_dist(::Any) = false
 
 # Named children of a composer as `(name, child[, note])` triples. The note is
-# an extra print annotation (a `Competing` outcome's branch probability), empty
+# an extra print annotation (a `Resolve` outcome's branch probability), empty
 # otherwise. Hand-rolled and type-stable (a tuple comprehension over the
 # constant-length component tuple).
 function _named_children(d::Union{Sequential, Parallel})
     names = component_names(d)
     return ntuple(i -> (names[i], d.components[i], ""), length(d.components))
 end
-function _named_children(c::Competing)
+function _named_children(c::Resolve)
     return ntuple(length(c.names)) do i
         (c.names[i], c.delays[i], "p = $(c.branch_probs[i])")
     end
 end
 # A racing-hazard node has no per-outcome branch probability (it is derived), so
 # its children carry the `racing` annotation instead.
-function _named_children(c::HazardCompeting)
+function _named_children(c::Compete)
     return ntuple(length(c.names)) do i
         (c.names[i], c.delays[i], "racing")
     end
@@ -106,7 +106,7 @@ Nested, name-keyed parameters of a composed distribution.
 
 Returns a `NamedTuple` keyed by the node names, each value the `params` of that
 child (recursing into nested composers; a leaf delegates to its standard/
-extended `Distributions.params`). A `Competing` node contributes a name-keyed
+extended `Distributions.params`). A `Resolve` node contributes a name-keyed
 NamedTuple of its outcomes plus a `branch_probs` entry. This nested form is for
 prior introspection via [`params_table`](@ref); a composed distribution
 reconstructs through [`compose`](@ref), not through `Distribution(params...)`.
@@ -120,36 +120,36 @@ function _composed_params(d::Union{Sequential, Parallel})
 end
 
 _child_params(c::Union{Sequential, Parallel}) = _composed_params(c)
-_child_params(c::Competing) = _competing_params(c)
-_child_params(c::HazardCompeting) = _hazard_competing_params(c)
-_child_params(c::Select) = _select_params(c)
+_child_params(c::Resolve) = _one_of_params(c)
+_child_params(c::Compete) = _hazard_one_of_params(c)
+_child_params(c::Choose) = _select_params(c)
 _child_params(c) = params(c)
 
 # A racing-hazard node's nested params: each outcome name -> its delay's params.
 # There is NO `branch_probs` entry (the winning probability is derived).
-function _hazard_competing_params(c::HazardCompeting)
+function _hazard_one_of_params(c::Compete)
     return NamedTuple{c.names}(map(params, c.delays))
 end
 
-# A `Competing` node's nested params: each outcome name -> its delay's params,
+# A `Resolve` node's nested params: each outcome name -> its delay's params,
 # plus a `branch_probs` entry carrying the (free) outcome probabilities.
-function _competing_params(c::Competing)
+function _one_of_params(c::Resolve)
     outcome_vals = map(params, c.delays)
     outcomes = NamedTuple{c.names}(outcome_vals)
     return merge(outcomes, (; branch_probs = c.branch_probs))
 end
 
-# A `Select` node's nested params: a NamedTuple keyed by the alternative NAMES,
+# A `Choose` node's nested params: a NamedTuple keyed by the alternative NAMES,
 # each value the alternative's own `_child_params` (recursing into a nested
-# composer, delegating to `params` at a leaf). The public `params(::Select)`
-# stays positional (mirroring `params(::Competing)`), but this name-keyed form is
-# what the nested params tree threads when a `Select` is a child, so a `Select`
+# composer, delegating to `params` at a leaf). The public `params(::Choose)`
+# stays positional (mirroring `params(::Resolve)`), but this name-keyed form is
+# what the nested params tree threads when a `Choose` is a child, so a `Choose`
 # under a `Sequential`/`Parallel` yields a name-keyed subtree rather than a
 # positional tuple. Per-branch params are namespaced per alternative
 # (`index.…`/`sourced.…`); a tag shared across alternatives via `shared(:tag,...)`
 # still appears once per occurrence here and is inventoried/sampled once by
 # `params_table`/the prior model.
-function _select_params(d::Select)
+function _select_params(d::Choose)
     vals = map(_child_params, d.alternatives)
     return NamedTuple{d.names}(vals)
 end
@@ -322,7 +322,7 @@ wrap it in `DataFrame` for a DataFrame. It has one row per scalar free parameter
 of the composed distribution `d`, with columns:
 
 - `edge`: the dotted path of names to the parameter's edge/leaf (e.g.
-  `:onset_admit`, or `:resolution.branch_probs` inside a `Competing`).
+  `:onset_admit`, or `:resolution.branch_probs` inside a `Resolve`).
 - `param`: the parameter name (e.g. `:mu`, `:sigma`; positional `:param_i` where
   the family is unmapped).
 - `value`: the current parameter value.
@@ -334,7 +334,7 @@ Define priors against the rows of this table instead of hand-matching parameter
 names. Built from [`params`](@ref) (nested, name-keyed values) plus the edge
 distributions' support.
 
-For a [`Select`](@ref) node the alternatives' independent per-branch params are
+For a [`Choose`](@ref) node the alternatives' independent per-branch params are
 namespaced per alternative (`index.…` / `sourced.…`), one row-group per
 alternative. A parameter tied across alternatives via [`shared`](@ref)`(:tag,
 ...)` is inventoried ONCE under its `tag` edge and sampled once, so a value tied
@@ -355,7 +355,7 @@ tbl.edge  # a column; wrap the table in `DataFrame(tbl)` for a DataFrame
 - [`event_names`](@ref), [`event`](@ref): name introspection
 "
 function params_table(
-        d::Union{Sequential, Parallel, AbstractCompeting, Select})
+        d::Union{Sequential, Parallel, AbstractOneOf, Choose})
     edges = Symbol[]
     params_col = Symbol[]
     values = Any[]
@@ -368,7 +368,7 @@ end
 
 # Pre-order walk over the composer tree. `path` is the tuple of names from the
 # root to the current node. A composer recurses into its named children; a
-# `Competing` additionally emits its branch-probability rows; a leaf emits one
+# `Resolve` additionally emits its branch-probability rows; a leaf emits one
 # row per scalar parameter. Hand-rolled recursion to stay type-stable.
 function _walk_rows!(edges, params_col, values, supports, seen,
         d::Union{Sequential, Parallel}, path)
@@ -380,11 +380,11 @@ function _walk_rows!(edges, params_col, values, supports, seen,
     return nothing
 end
 
-# A `Select`'s alternatives each contribute their own rows; a tag shared across
+# A `Choose`'s alternatives each contribute their own rows; a tag shared across
 # alternatives is deduped via `seen`, so a parameter tied across the index and
 # sourced branches is inventoried once.
 function _walk_rows!(edges, params_col, values, supports, seen,
-        d::Select, path)
+        d::Choose, path)
     for (name, alt) in zip(d.names, d.alternatives)
         _walk_rows!(edges, params_col, values, supports, seen, alt,
             (path..., name))
@@ -393,7 +393,7 @@ function _walk_rows!(edges, params_col, values, supports, seen,
 end
 
 function _walk_rows!(edges, params_col, values, supports, seen,
-        c::Competing, path)
+        c::Resolve, path)
     for (name, delay) in zip(c.names, c.delays)
         _is_no_event(delay) && continue
         _walk_rows!(edges, params_col, values, supports, seen, delay,
@@ -413,7 +413,7 @@ end
 # A racing-hazard node emits only its outcome delays' parameter rows; there is
 # NO branch-probability block (the winning probability is derived, not free).
 function _walk_rows!(edges, params_col, values, supports, seen,
-        c::HazardCompeting, path)
+        c::Compete, path)
     for (name, delay) in zip(c.names, c.delays)
         _walk_rows!(edges, params_col, values, supports, seen, delay,
             (path..., name))
@@ -472,7 +472,7 @@ Update a composed distribution's free parameters from a nested `NamedTuple`.
 its free parameters replaced by the values in `params`. The `params` NamedTuple
 mirrors the tree: a [`Sequential`](@ref)/[`Parallel`](@ref) is keyed by its edge
 names, a leaf by its parameter names (as in [`params_table`](@ref)'s `param`
-column), and a [`Competing`](@ref) by its outcome names plus an optional
+column), and a [`Resolve`](@ref) by its outcome names plus an optional
 `branch_probs` entry. A censored leaf is transparent: supply only the inner
 delay's parameters and the censoring is carried through.
 
@@ -501,7 +501,7 @@ event(tree2, :onset_admit)
 - [`update`](@ref)`(d, path => new_node)`: replace whole nodes (same shape)
 - [`prune`](@ref), [`splice`](@ref): topology edits that change the shape
 "
-function update(d::Union{Sequential, Parallel, AbstractCompeting, Select},
+function update(d::Union{Sequential, Parallel, AbstractOneOf, Choose},
         params::NamedTuple)
     return _update(d, params, params)
 end
@@ -525,39 +525,39 @@ function _update(d::Union{Sequential, Parallel}, params::NamedTuple, shared)
     return _rebuild(d, parts)
 end
 
-# A `Select` updates each alternative; a tag shared across alternatives reads one
+# A `Choose` updates each alternative; a tag shared across alternatives reads one
 # entry from `shared` and is placed in every occurrence.
-function _update(d::Select, params::NamedTuple, shared)
-    _check_child_keys(params, d.names, :Select, shared)
+function _update(d::Choose, params::NamedTuple, shared)
+    _check_child_keys(params, d.names, :Choose, shared)
     alts = ntuple(length(d.names)) do i
         _update(d.alternatives[i], _child_params(params, d.names[i]), shared)
     end
-    return Select(d.names, alts, d.selector)
+    return Choose(d.names, alts, d.selector)
 end
 
-function _update(c::Competing, params::NamedTuple, shared)
-    _check_child_keys(params, c.names, :Competing, shared; optional = (:branch_probs,))
+function _update(c::Resolve, params::NamedTuple, shared)
+    _check_child_keys(params, c.names, :Resolve, shared; optional = (:branch_probs,))
     delays = ntuple(length(c.names)) do i
         _update(c.delays[i], _child_params(params, c.names[i]), shared)
     end
     probs = if haskey(params, :branch_probs)
         bp = params.branch_probs
-        _check_update_keys(bp, c.names, Symbol("Competing branch_probs"))
+        _check_update_keys(bp, c.names, Symbol("Resolve branch_probs"))
         ntuple(i -> bp[c.names[i]], length(c.names))
     else
         c.branch_probs
     end
-    return Competing(c.names, delays, probs)
+    return Resolve(c.names, delays, probs)
 end
 
 # A racing-hazard node updates each outcome delay; there is no `branch_probs`
 # block to update (the winning probability is derived).
-function _update(c::HazardCompeting, params::NamedTuple, shared)
-    _check_child_keys(params, c.names, :HazardCompeting, shared)
+function _update(c::Compete, params::NamedTuple, shared)
+    _check_child_keys(params, c.names, :Compete, shared)
     delays = ntuple(length(c.names)) do i
         _update(c.delays[i], _child_params(params, c.names[i]), shared)
     end
-    return HazardCompeting(c.names, delays)
+    return Compete(c.names, delays)
 end
 
 # A no-event marker carries no parameters, so `update` leaves it unchanged.
@@ -875,12 +875,12 @@ event_names(tree)
 - [`event`](@ref): fetch a child or subtree by name path
 - [`params_table`](@ref): the parameter table
 "
-function event_names(d::Union{Sequential, Parallel, AbstractCompeting})
+function event_names(d::Union{Sequential, Parallel, AbstractOneOf})
     return _flat_event_names(d)
 end
-# A `Select` has no single flat layout (the active alternative is data-selected),
+# A `Choose` has no single flat layout (the active alternative is data-selected),
 # so its flat event names are its alternative names.
-event_names(d::Select) = d.names
+event_names(d::Choose) = d.names
 
 @doc "
 
@@ -889,8 +889,8 @@ The NESTED tree of event names of a composed distribution.
 `event_tree(d)` returns the event-name structure as data: a nested `NamedTuple`
 keyed by child name down to the leaves, mirroring the tree. Its FIRST level is
 the top-level child names (the old top-level `event_names` result); a
-[`Sequential`](@ref)/[`Parallel`](@ref)/[`Select`](@ref) child recurses to its
-own nested NamedTuple, a [`Competing`](@ref) child to its outcome names, and a
+[`Sequential`](@ref)/[`Parallel`](@ref)/[`Choose`](@ref) child recurses to its
+own nested NamedTuple, a [`Resolve`](@ref) child to its outcome names, and a
 leaf to its own name. Pair with [`event_names`](@ref) for the FLAT per-event
 layout that matches `rand`/`mean`/`var`.
 
@@ -915,13 +915,13 @@ function event_tree(d::Union{Sequential, Parallel})
     return NamedTuple{names}(vals)
 end
 
-function event_tree(c::AbstractCompeting)
+function event_tree(c::AbstractOneOf)
     vals = ntuple(i -> _event_tree_child(c.names[i], c.delays[i]),
         length(c.names))
     return NamedTuple{c.names}(vals)
 end
 
-function event_tree(d::Select)
+function event_tree(d::Choose)
     vals = ntuple(i -> _event_tree_child(d.names[i], d.alternatives[i]),
         length(d.names))
     return NamedTuple{d.names}(vals)
@@ -930,7 +930,7 @@ end
 # A composer child recurses to its own nested NamedTuple; a leaf is keyed by its
 # parent under its own name, so its value is just that name (the leaf event).
 function _event_tree_child(
-        ::Symbol, c::Union{Sequential, Parallel, AbstractCompeting, Select})
+        ::Symbol, c::Union{Sequential, Parallel, AbstractOneOf, Choose})
     event_tree(c)
 end
 _event_tree_child(name::Symbol, ::Any) = name
@@ -944,13 +944,13 @@ function _event_child(d::Union{Sequential, Parallel}, name::Symbol)
     return d.components[idx]
 end
 
-function _event_child(c::AbstractCompeting, name::Symbol)
+function _event_child(c::AbstractOneOf, name::Symbol)
     idx = findfirst(==(name), c.names)
     idx === nothing && throw(KeyError(name))
     return c.delays[idx]
 end
 
-function _event_child(d::Select, name::Symbol)
+function _event_child(d::Choose, name::Symbol)
     idx = findfirst(==(name), d.names)
     idx === nothing && throw(KeyError(name))
     return d.alternatives[idx]
@@ -962,8 +962,8 @@ Fetch a composed distribution's child (event/edge), or descend a name path.
 
 `event(d, path...)` returns the sub-distribution of `d` at the named location: a
 single `Symbol` fetches a direct child (a branch of a [`Parallel`](@ref), a step
-of a [`Sequential`](@ref), an outcome delay of a [`Competing`](@ref), or an
-alternative of a [`Select`](@ref)); multiple `Symbol`s, or a single dotted-path
+of a [`Sequential`](@ref), an outcome delay of a [`Resolve`](@ref), or an
+alternative of a [`Choose`](@ref)); multiple `Symbol`s, or a single dotted-path
 `Symbol` (`:admit_path.admit_death`, as in [`params_table`](@ref)'s `edge`
 column), descend the tree one name per step. Throws a `KeyError` if a name along
 the path is not a child at that level.

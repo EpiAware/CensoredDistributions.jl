@@ -5,7 +5,7 @@
 #   primaries ~ product_distribution(latent_primary_priors(d, rows))
 #   @addlogprob! latent_observed_logpdf(d, rows, primaries)
 #
-# A mixed Select table (some marginal rows, some latent rows) works: marginal
+# A mixed Choose table (some marginal rows, some latent rows) works: marginal
 # rows score through their marginal record logpdf, latent rows through the
 # vectorised primary/observed pair.
 
@@ -81,7 +81,7 @@ end
     @test isapprox(mc, exp(logpdf(pc, 4.0)); rtol = 0.05)
 end
 
-@testitem "vectorised mixed Select table: marginal + latent rows" begin
+@testitem "vectorised mixed Choose table: marginal + latent rows" begin
     using CensoredDistributions, Distributions
     using DynamicPPL: @model, to_submodel, prefix, logjoint, @addlogprob!,
                       condition, @varname
@@ -89,7 +89,7 @@ end
                                  latent_observed_logpdf
 
     # An index case scored marginally, a sourced case scored latent.
-    d = selecting(
+    d = choose(
         :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         :sourced => latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))))
 
@@ -254,11 +254,11 @@ end
     using CensoredDistributions: latent, latent_primary_priors,
                                  latent_observed_logpdf
 
-    # A Select over an index leaf (marginal), a sourced latent leaf, and a
+    # A Choose over an index leaf (marginal), a sourced latent leaf, and a
     # two-edge latent chain. Each row routes by `:kind` to its alternative.
     e1 = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
     e2 = primary_censored(Gamma(3.0, 1.5), Uniform(0, 1))
-    d = selecting(
+    d = choose(
         :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         :sourced => latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))),
         :chain => latent(Sequential((e1, e2), (:onset_admit, :admit_death))))
@@ -298,7 +298,7 @@ end
 
 @testitem "latent_primary_priors returns a concretely-typed vector (#595)" begin
     using CensoredDistributions, Distributions, Test
-    using CensoredDistributions: latent, latent_primary_priors, selecting,
+    using CensoredDistributions: latent, latent_primary_priors, choose,
                                  Sequential
 
     # The homogeneous latent leaf is the common case: every prior is the same
@@ -314,9 +314,9 @@ end
     rt = only(Base.return_types(latent_primary_priors, (typeof(d), typeof(rows))))
     @test isconcretetype(rt)
 
-    # A mixed Select table with one (homogeneous) latent alternative stays
+    # A mixed Choose table with one (homogeneous) latent alternative stays
     # concretely typed too: the marginal alternative contributes no priors.
-    ds = selecting(
+    ds = choose(
         :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
         :sourced => latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1))))
     srows = [(kind = :index, delay = 3.0), (kind = :sourced, delay = 5.0)]

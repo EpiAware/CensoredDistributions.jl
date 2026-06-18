@@ -13,7 +13,7 @@ F_Y(y) = F_X\\!\\left(\\frac{y - \\text{shift}}{\\text{scale}}\\right).
 ```
 
 Because it is a `UnivariateDistribution`, an `Affine` nests as a leaf in
-[`compose`](@ref), [`selecting`](@ref), and [`Competing`](@ref)
+[`compose`](@ref), [`choose`](@ref), and [`Resolve`](@ref)
 automatically.
 
 # See also

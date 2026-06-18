@@ -5,12 +5,12 @@
 
     # A top-level NamedTuple is always a Parallel over its named branches, so a
     # one-entry NamedTuple is a Parallel-of-one. When that single branch is
-    # itself a NESTED censored composer (a Parallel carrying a Competing), the
+    # itself a NESTED censored composer (a Parallel carrying a Resolve), the
     # whole tree shares one latent origin; `rand` must walk the tree, not fall
     # through to the plain per-leaf-value path (issue #436).
     dic(x) = double_interval_censored(x; primary_event = Uniform(0.0, 1.0),
         interval = 1.0)
-    nested_comp = Competing(:death => (dic(Gamma(2.0, 3.5)), 0.4),
+    nested_comp = Resolve(:death => (dic(Gamma(2.0, 3.5)), 0.4),
         :discharge => (dic(Gamma(1.0, 8.0)), 0.6))
     inner = compose((onset_admit = dic(Gamma(1.2, 3.0)),
         admit_resolution = nested_comp))

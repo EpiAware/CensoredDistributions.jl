@@ -18,7 +18,7 @@
 
     # Build with `tie`, rebuilding leaves from θ each call.
     function f_tie(θ)
-        base = selecting(
+        base = choose(
             :index => compose((inc = Gamma(θ[1], θ[2]),)),
             :sourced => compose((src = LogNormal(θ[3], θ[4]),
                 inc = Gamma(θ[1], θ[2]))))
@@ -28,7 +28,7 @@
 
     # The hand-written `shared(:inc, …)` build at the same leaves.
     function f_hand(θ)
-        d = selecting(
+        d = choose(
             :index => compose((inc = shared(:inc, Gamma(θ[1], θ[2])),)),
             :sourced => compose((src = LogNormal(θ[3], θ[4]),
                 inc = shared(:inc, Gamma(θ[1], θ[2])))))
@@ -59,7 +59,7 @@ end
     ev = [1.5, 2.5]
 
     function f_tie(θ)
-        base = selecting(
+        base = choose(
             :index => compose((inc = Gamma(θ[1], θ[2]),)),
             :sourced => compose((src = LogNormal(θ[3], θ[4]),
                 inc = Gamma(θ[1], θ[2]))))
@@ -67,7 +67,7 @@ end
         return logpdf(tied, ev; kind = :sourced)
     end
     function f_hand(θ)
-        d = selecting(
+        d = choose(
             :index => compose((inc = shared(:inc, Gamma(θ[1], θ[2])),)),
             :sourced => compose((src = LogNormal(θ[3], θ[4]),
                 inc = shared(:inc, Gamma(θ[1], θ[2])))))

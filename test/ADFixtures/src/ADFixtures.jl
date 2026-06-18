@@ -52,8 +52,8 @@ function _vectorised_records_logpdf(d, rows)
     return total
 end
 
-# Vectorised log density of a nested-Competing (bdbv) tree where each record's
-# Competing branch probability is a COVARIATE CFR carried in the row's reserved
+# Vectorised log density of a nested-Resolve (bdbv) tree where each record's
+# Resolve branch probability is a COVARIATE CFR carried in the row's reserved
 # `branch_probs`. `ps` (one per record, derived from the differentiated params)
 # is injected into the rows so the gradient flows through the per-record CFR.
 function _vectorised_branch_probs_logpdf(d, rows, ps)
@@ -68,7 +68,7 @@ function _vectorised_branch_probs_logpdf(d, rows, ps)
     return total
 end
 
-# Vectorised log density of a Select (hanta) top: each record selects its
+# Vectorised log density of a Choose (hanta) top: each record selects its
 # alternative by `:kind` and scores its single observed value.
 function _vectorised_select_logpdf(d, rows)
     recs = CensoredDistributions.record_distributions(d, rows)
@@ -185,23 +185,23 @@ function backend_broken_scenarios()
     # `EnzymeRules.inactive` in `CensoredDistributionsEnzymeExt`. With that shield
     # the plain nested tree differentiates on BOTH Enzyme modes;
     # `double_interval_censored(Sequential)` (#444, the explicit-keyword `wrap.jl`
-    # signature replacing a kwargs-splat dynamic `Core.kwcall`) and the Competing /
+    # signature replacing a kwargs-splat dynamic `Core.kwcall`) and the Resolve /
     # hazard trees differentiate on Enzyme FORWARD. The residual reverse-only and
     # non-terminal gaps below are SEPARATE, deeper Enzyme limitations (documented
     # per scenario). ForwardDiff / ReverseDiff / Mooncake differentiate every one
     # of these correctly.
 
-    # The nested-Competing tree (#333) and the nested racing-hazard tree (#466)
-    # recurse through the heterogeneous censored-edge walk plus a competing /
+    # The nested-Resolve tree (#333) and the nested racing-hazard tree (#466)
+    # recurse through the heterogeneous censored-edge walk plus a one_of /
     # racing branch. With the `_subevent_slice` shield they now differentiate on
     # Enzyme FORWARD (verified against the ForwardDiff reference). Enzyme REVERSE
     # still fails with `EnzymeNoShadowError`: building the reverse shadow for the
-    # `MixtureModel` / `HazardCompeting` branch struct nested inside the
+    # `MixtureModel` / `Compete` branch struct nested inside the
     # `Parallel{Tuple{Sequential{...}, PrimaryCensored{...}}}` tree hits Enzyme's
     # mixed-activity shadow construction (the #278/#319-family struct-shadow gap),
     # which is upstream and not reachable from a value-level rule. Registered
     # broken for Enzyme REVERSE only.
-    nested_comp = "Nested Competing tree conditioned logpdf"
+    nested_comp = "Nested Resolve tree conditioned logpdf"
     nested_hazard = "Nested racing-hazard tree conditioned logpdf"
     # The external censoring wrapper over a `Sequential` (#363). #319/#444 fixed
     # this on Enzyme FORWARD (the explicit-keyword `wrap.jl` signature avoids the
@@ -221,15 +221,15 @@ function backend_broken_scenarios()
     # ReverseDiff and Mooncake reverse/forward; registered broken for Enzyme
     # REVERSE only.
     whole_compose_trunc = "Whole-compose conv-to-last-observed truncation logpdf"
-    # The non-terminal whole-tree Competing (#466 Feature 3) scores a
-    # composer-VALUED competing outcome's subtree through the nested `_tree_score`,
+    # The non-terminal whole-tree Resolve (#466 Feature 3) scores a
+    # composer-VALUED one_of outcome's subtree through the nested `_tree_score`,
     # AND carries a differentiated branch probability `θ[7]` whose complement
-    # `1 - θ[7]` feeds the racing/competing weighting. It still fails on BOTH
+    # `1 - θ[7]` feeds the racing/one_of weighting. It still fails on BOTH
     # Enzyme modes with `IllegalTypeAnalysisException` -- a deeper upstream Enzyme
     # type-analysis gap on this combined composer-subtree-plus-active-branch-prob
     # path, distinct from the `_subevent_slice` allocation that #319 fixed.
     # Registered broken for both Enzyme modes.
-    nonterminal_comp = "Non-terminal Competing whole-tree conditioned logpdf"
+    nonterminal_comp = "Non-terminal Resolve whole-tree conditioned logpdf"
     # The vectorised path runs an AD-FREE pre-pass that collects the table rows
     # (`Tables.rows` iteration, vector building, validation `throw`s) before the
     # AD-traced build/evaluate. ForwardDiff and ReverseDiff trace straight through
@@ -243,14 +243,14 @@ function backend_broken_scenarios()
     # is registered broken for them. Its gradient correctness is covered by
     # ForwardDiff and ReverseDiff.
     vectorised_seq = "Vectorised Sequential censored observed logpdf"
-    # The vectorised bdbv (nested Competing + per-record covariate CFR) and hanta
-    # (Select top) paths share the SAME AD-free data-collection pre-pass (row
+    # The vectorised bdbv (nested Resolve + per-record covariate CFR) and hanta
+    # (Choose top) paths share the SAME AD-free data-collection pre-pass (row
     # iteration, vector building, validation) that the compiled backends crash on
     # for `vectorised_seq`; the bdbv path additionally walks the nested tree. Their
     # MATH matches the per-record loop and is verified on ForwardDiff / ReverseDiff;
     # the compiled backends are registered broken on the same pre-pass grounds.
-    vectorised_bdbv = "Vectorised nested Competing per-record branch_probs logpdf"
-    vectorised_select = "Vectorised Select per-record kind logpdf"
+    vectorised_bdbv = "Vectorised nested Resolve per-record branch_probs logpdf"
+    vectorised_select = "Vectorised Choose per-record kind logpdf"
     compiled_broken = Set{String}(
         [vectorised_seq, vectorised_bdbv, vectorised_select])
     return Dict{String, Set{String}}(
@@ -258,8 +258,8 @@ function backend_broken_scenarios()
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => copy(compiled_broken),
         "Mooncake forward" => copy(compiled_broken),
-        # Enzyme REVERSE: the Competing/hazard trees (reverse shadow construction),
-        # the non-terminal Competing, and `double_interval_censored(Sequential)`
+        # Enzyme REVERSE: the Resolve/hazard trees (reverse shadow construction),
+        # the non-terminal Resolve, and `double_interval_censored(Sequential)`
         # (#363, reverse-only `EnzymeNoShadowError` on the freshly-built `Convolved`
         # observed total via a re-introduced `Core.kwcall`) remain broken; the
         # plain nested tree is fixed (#319/#444).
@@ -268,8 +268,8 @@ function backend_broken_scenarios()
                 [nested_comp, nested_hazard, nonterminal_comp, dic_seq_total,
                 whole_compose_trunc]),
             compiled_broken),
-        # Enzyme FORWARD: only the non-terminal Competing remains broken; the
-        # plain nested tree, the Competing/hazard trees, and
+        # Enzyme FORWARD: only the non-terminal Resolve remains broken; the
+        # plain nested tree, the Resolve/hazard trees, and
         # `double_interval_censored(Sequential)` are now fixed (#319/#444 fixed
         # forward; reverse stays broken, see above).
         "Enzyme forward" => union(
@@ -293,7 +293,7 @@ function backend_skip_scenarios()
     # per-record `branch_probs` override) inside the differentiated function;
     # Enzyme (both modes) aborts uncatchably on that reconstruction. Skip it for
     # Enzyme entirely; ForwardDiff / ReverseDiff / Mooncake verify its gradient.
-    bdbv = "Vectorised nested Competing per-record branch_probs logpdf"
+    bdbv = "Vectorised nested Resolve per-record branch_probs logpdf"
     return Dict{String, Set{String}}(
         "Enzyme reverse" => Set{String}([bdbv]),
         "Enzyme forward" => Set{String}([bdbv])
@@ -937,19 +937,19 @@ function scenarios(; with_reference::Bool = false)
                 Sequential(LogNormal(θ[3], θ[4]), Gamma(θ[5], θ[6]))), x),
         [2.0, 1.0, 0.5, 0.4, 2.0, 1.0], (Constant(nest3),))
 
-    # Select data-selected disjunction (#356). The gradient flows through the
+    # Choose data-selected disjunction (#356). The gradient flows through the
     # SELECTED alternative's own `logpdf` (the type-stable selection barriers
     # into the chosen concrete type), with the selection name fixed and the
-    # value passed as a Constant context. Guarded on `selecting` existing so
-    # the AirspeedVelocity baseline build (which lacks `Select`) skips it. Literal
+    # value passed as a Constant context. Guarded on `choose` existing so
+    # the AirspeedVelocity baseline build (which lacks `Choose`) skips it. Literal
     # constructors keep Enzyme forward happy (#278).
-    if isdefined(CensoredDistributions, :selecting)
+    if isdefined(CensoredDistributions, :choose)
         sel_obs = [0.5, 1.2, 2.5, 3.8]
-        _push!("Select Gamma|LogNormal sourced logpdf",
+        _push!("Choose Gamma|LogNormal sourced logpdf",
             (θ,
                 obs) -> sum(
                 x -> logpdf(
-                    CensoredDistributions.selecting(
+                    CensoredDistributions.choose(
                         :index => Gamma(θ[1], θ[2]),
                         :sourced => LogNormal(θ[3], θ[4])),
                     x; kind = :sourced),
@@ -1079,8 +1079,8 @@ function scenarios(; with_reference::Bool = false)
                 ev),
             [1.4, 0.4, 2.0, 1.0, 2.0, 1.2, 1.9, 0.5], (Constant(tree_ev),))
 
-        # Nested-Competing tree (#333): onset -> {admit -> Competing(death,
-        # discharge), notif}, the death outcome observed. The Competing exposes
+        # Nested-Resolve tree (#333): onset -> {admit -> Resolve(death,
+        # discharge), notif}, the death outcome observed. The Resolve exposes
         # one event slot per outcome, so the event vector is
         # [onset, admit, death, discharge, notif] with discharge `Missing`
         # (inactive). The observed death conditions on its branch
@@ -1090,14 +1090,14 @@ function scenarios(; with_reference::Bool = false)
         # the #319 heterogeneous-edge gap, registered broken above).
         comp_ev = Vector{Union{Missing, Float64}}(
             [0.0, 4.0, 12.0, missing, 9.0])
-        _push!("Nested Competing tree conditioned logpdf",
+        _push!("Nested Resolve tree conditioned logpdf",
             (θ,
                 ev) -> logpdf(
                 Parallel(
                     Sequential(
                         primary_censored(
                             LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
-                        Competing(
+                        Resolve(
                             :death => (Gamma(θ[3], θ[4]), 0.3),
                             :discharge => (Gamma(θ[5], θ[6]), 0.7))),
                     primary_censored(
@@ -1105,8 +1105,8 @@ function scenarios(; with_reference::Bool = false)
                 ev),
             [1.4, 0.4, 2.0, 3.0, 2.0, 1.0, 1.9, 0.5], (Constant(comp_ev),))
 
-        # Non-terminal whole-tree Competing (#466 Feature 3): onset ->
-        # Competing(death => admit_burial CHAIN, recover => leaf), the death
+        # Non-terminal whole-tree Resolve (#466 Feature 3): onset ->
+        # Resolve(death => admit_burial CHAIN, recover => leaf), the death
         # SUBTREE observed. A composer-valued outcome spans its subtree's event
         # slots, so the event vector is [onset, admit, burial, recover] with
         # recover `Missing` (inactive). The death branch scores
@@ -1116,11 +1116,11 @@ function scenarios(; with_reference::Bool = false)
         # heterogeneous-edge gap, registered broken below).
         nt_comp_ev = Vector{Union{Missing, Float64}}(
             [0.0, 4.0, 12.0, missing])
-        _push!("Non-terminal Competing whole-tree conditioned logpdf",
+        _push!("Non-terminal Resolve whole-tree conditioned logpdf",
             (θ,
                 ev) -> logpdf(
                 Parallel(
-                    (Competing(
+                    (Resolve(
                         :death => (
                             Sequential(
                                 (
@@ -1134,8 +1134,8 @@ function scenarios(; with_reference::Bool = false)
                 ev),
             [2.0, 1.0, 1.5, 1.2, 3.0, 2.0, 0.4], (Constant(nt_comp_ev),))
 
-        # Vectorised nested-Competing (bdbv) with a PER-RECORD covariate CFR
-        # (#333): each record's Competing branch probability comes from a
+        # Vectorised nested-Resolve (bdbv) with a PER-RECORD covariate CFR
+        # (#333): each record's Resolve branch probability comes from a
         # differentiated covariate, injected as the reserved `branch_probs`. The
         # death outcome is observed (conditioned branch), so the gradient over the
         # branch shape/scale AND the per-record CFR is all-continuous arithmetic.
@@ -1145,7 +1145,7 @@ function scenarios(; with_reference::Bool = false)
                 discharge = missing, notif = 9.0),
             (onset = 0.5, admit = 5.0, death = 13.0,
                 discharge = missing, notif = 10.0)]
-        _push!("Vectorised nested Competing per-record branch_probs logpdf",
+        _push!("Vectorised nested Resolve per-record branch_probs logpdf",
             (θ,
                 rows) -> _vectorised_branch_probs_logpdf(
                 Parallel(
@@ -1153,7 +1153,7 @@ function scenarios(; with_reference::Bool = false)
                         Sequential(
                             (primary_censored(
                                     LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
-                                Competing(
+                                Resolve(
                                     :death => (Gamma(θ[3], θ[4]), 0.3),
                                     :discharge => (Gamma(θ[5], θ[6]), 0.7))),
                             (:onset_admit, :admit_resolution)),
@@ -1171,7 +1171,7 @@ function scenarios(; with_reference::Bool = false)
 
         # Nested racing-hazard tree (#466): onset -> {Hazard(death, recover),
         # notif}, the death outcome observed. The Sequential's first step targets
-        # `onset`, then the HazardCompeting exposes one event slot per outcome, so
+        # `onset`, then the Compete exposes one event slot per outcome, so
         # the event vector is [origin, onset, death, recover, notif] with recover
         # `Missing` (inactive). The observed death conditions on the cause-resolved
         # sub-density f_death(gap) ∏_{k≠death} S_k(gap), so the gradient over the
@@ -1186,7 +1186,7 @@ function scenarios(; with_reference::Bool = false)
                     Sequential(
                         primary_censored(
                             LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
-                        HazardCompeting(
+                        Compete(
                             :death => Gamma(θ[3], θ[4]),
                             :recover => Gamma(θ[5], θ[6]))),
                     primary_censored(
@@ -1194,17 +1194,17 @@ function scenarios(; with_reference::Bool = false)
                 ev),
             [1.4, 0.4, 2.0, 3.0, 2.0, 1.0, 1.9, 0.5], (Constant(haz_ev),))
 
-        # Vectorised Select (hanta) top: each record selects its alternative by
+        # Vectorised Choose (hanta) top: each record selects its alternative by
         # `:kind` and scores its single observed value, right-truncated at its
         # `obs_time`. The gradient over the selected alternative's params is the
         # leaf primary-censored path, differentiating on the analytic backends and
         # matching the per-record loop. Rows are inactive DATA Constants.
         hanta_rows = [(kind = :index, delay = 3.0, obs_time = 8.0),
             (kind = :sourced, delay = 5.0, obs_time = 12.0)]
-        _push!("Vectorised Select per-record kind logpdf",
+        _push!("Vectorised Choose per-record kind logpdf",
             (θ,
                 rows) -> _vectorised_select_logpdf(
-                selecting(
+                choose(
                     :index => primary_censored(
                         Gamma(θ[1], θ[2]), Uniform(0.0, 1.0)),
                     :sourced => primary_censored(

@@ -13,7 +13,7 @@
 @testitem "shared censored leaf scores identically to an untagged leaf" begin
     using CensoredDistributions, Distributions
 
-    # A nested (Select-bearing) tree with a shared `:inc` as BOTH the origin edge
+    # A nested (Choose-bearing) tree with a shared `:inc` as BOTH the origin edge
     # and the routed alternative. Each position must recover `inc`'s primary event
     # through the shared wrapper, matching the untagged build.
     inc_params = (2.0, 1.0)
@@ -21,13 +21,13 @@
     ev = Vector{Union{Missing, Float64}}([missing, 2.0, 5.0])
 
     inc = shared(:inc, primary_censored(Gamma(inc_params...), Uniform(0, 1)))
-    tagged = Sequential((inc, selecting(:a => inc, :b => b)),
+    tagged = Sequential((inc, choose(:a => inc, :b => b)),
         (:onset_admit, :admit_death))
 
     # Independent, identical, UNtagged leaves in the same positions.
     inc1 = primary_censored(Gamma(inc_params...), Uniform(0, 1))
     inc2 = primary_censored(Gamma(inc_params...), Uniform(0, 1))
-    untagged = Sequential((inc1, selecting(:a => inc2, :b => b)),
+    untagged = Sequential((inc1, choose(:a => inc2, :b => b)),
         (:onset_admit, :admit_death))
 
     @test logpdf(tagged, ev) ≈ logpdf(untagged, ev) atol=1e-12
@@ -59,7 +59,7 @@ end
 @testitem "shared censored leaf round-trips through record scoring" begin
     using CensoredDistributions, Distributions
 
-    # A shared `:inc` origin edge plus a Select, scored per record. The shared and
+    # A shared `:inc` origin edge plus a Choose, scored per record. The shared and
     # untagged builds must produce the same per-record log densities.
     inc_params = (3.0, 1.0)
     b = primary_censored(Gamma(5.0, 1.0), Uniform(0, 1))
@@ -68,12 +68,12 @@ end
     obs = [[0.0, 2.0, 5.0], [0.0, 1.0, 7.0]]
 
     inc = shared(:inc, primary_censored(Gamma(inc_params...), Uniform(0, 1)))
-    tagged = Sequential((inc, selecting(:a => inc, :b => b)),
+    tagged = Sequential((inc, choose(:a => inc, :b => b)),
         (:onset_admit, :admit_death))
 
     inc1 = primary_censored(Gamma(inc_params...), Uniform(0, 1))
     inc2 = primary_censored(Gamma(inc_params...), Uniform(0, 1))
-    untagged = Sequential((inc1, selecting(:a => inc2, :b => b)),
+    untagged = Sequential((inc1, choose(:a => inc2, :b => b)),
         (:onset_admit, :admit_death))
 
     rt = CensoredDistributions.record_distributions(tagged, rows)

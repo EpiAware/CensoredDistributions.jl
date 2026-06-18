@@ -5,7 +5,7 @@
 #
 # This must differentiate w.r.t. the delay parameters AND the sampled primaries
 # under ForwardDiff and Mooncake reverse (the project's target latent AD). The
-# latent-leaf / latent-Select-leaf path reads each row's single observed value
+# latent-leaf / latent-Choose-leaf path reads each row's single observed value
 # positionally (`_row_event_vector(row)`), so it does NOT touch the
 # string-based event-name derivation (`_split_edge_name`) that Mooncake reverse
 # cannot trace; the gradient flows on both backends.
@@ -73,7 +73,7 @@ end
     @test isapprox(gp, refp; rtol = 1e-6, atol = 1e-8)
 end
 
-@testitem "vectorised mixed Select latent gradient: ForwardDiff" tags=[
+@testitem "vectorised mixed Choose latent gradient: ForwardDiff" tags=[
     :ad, :forwarddiff] begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, latent_observed_logpdf
@@ -81,7 +81,7 @@ end
     using DifferentiationInterface: gradient
     using ForwardDiff: ForwardDiff
 
-    # A mixed Select table: index rows (marginal) and sourced rows (latent). Two
+    # A mixed Choose table: index rows (marginal) and sourced rows (latent). Two
     # sourced rows carry latent primaries.
     rows = [(kind = :index, delay = 3.0),
         (kind = :sourced, delay = 5.0),
@@ -91,7 +91,7 @@ end
 
     # θ = [index shape, index scale, sourced shape, sourced scale].
     function f(θ)
-        d = selecting(
+        d = choose(
             :index => primary_censored(Gamma(θ[1], θ[2]), Uniform(0, 1)),
             :sourced => latent(
                 primary_censored(Gamma(θ[3], θ[4]), Uniform(0, 1))))

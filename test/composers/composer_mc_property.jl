@@ -1,6 +1,6 @@
 # Monte Carlo property tests for the PLAIN (uncensored) composers. The existing
 # MC property tests live on the censored / hazard shapes (`wrap.jl`'s
-# `interval_censored(Sequential)` total, `competing_features.jl`'s racing-hazard
+# `interval_censored(Sequential)` total, `one_of_features.jl`'s racing-hazard
 # winning probabilities). These pin the bare composer semantics directly:
 #
 #   - a plain `Sequential` scores each step's OWN gap, so the chain TOTAL (sum of

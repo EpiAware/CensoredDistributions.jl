@@ -46,7 +46,7 @@ export latent, marginal, PrimaryConditional, primary_conditional_logpdf
 # Export underlying methods for user extension
 export primarycensored_cdf, primarycensored_logcdf
 
-# Exported solver methods for selecting the primary-censoring CDF backend
+# Exported solver methods for choosing the primary-censoring CDF backend
 export AnalyticalSolver, NumericSolver
 
 # Exported distributions
@@ -68,13 +68,14 @@ export Affine, affine
 # stack to selected event series), so it needs no separate export.
 export convolve_distributions
 
-# Exported generic composers and front-end constructor. The shared `competing(
-# ...)` builds the fixed-probability mixture `Competing` (branch probs given) or
-# the racing-hazard `HazardCompeting` (bare delays). `NoEvent` marks an absorbing
-# no-event branch; `winning_probabilities` / `occurrence_probability` read the
-# per-cause winning / any-event probabilities of either competing node.
-export Sequential, Parallel, Competing, HazardCompeting, NoEvent,
-       sequential, parallel, competing,
+# Exported generic composers and front-end constructors. `resolve(...)` builds
+# the fixed-probability mixture `Resolve` (a branch probability per outcome);
+# `compete(...)` builds the racing-hazard `Compete` (bare delays). `NoEvent`
+# marks an absorbing no-event branch; `winning_probabilities` /
+# `occurrence_probability` read the per-cause winning / any-event probabilities
+# of either node.
+export Sequential, Parallel, Resolve, Compete, NoEvent,
+       sequential, parallel, compete, resolve,
        compose, as_mixture, winning_probabilities, occurrence_probability
 
 # Exported composed-distribution introspection: the flat prior table and
@@ -88,7 +89,7 @@ export params_table, event_names, event_tree, event, update, build_priors,
 # Exported structural edits on a composed tree. `update` (the `path => new_node`
 # method, sharing the verb with the value-update NamedTuple method) replaces a
 # named node, KEEPING the tree shape. `prune` drops a branch (renormalising a
-# Competing arm) and `splice` inserts a before/after step; these two are the
+# Resolve arm) and `splice` inserts a before/after step; these two are the
 # TOPOLOGY edits (they change the shape). `intervene` / `swap_child` /
 # `cut_branch` are deprecated aliases kept during the deprecation window.
 export prune, splice, intervene, swap_child, cut_branch
@@ -111,8 +112,8 @@ export chain_to_params
 export strip_prefix
 
 # Exported data-selected disjunction node (the case selector over independent
-# alternatives). `Select` is the type; `selecting` the friendly constructor.
-export Select, selecting
+# alternatives). `Choose` is the type; `choose` the friendly constructor.
+export Choose, choose
 
 # Exported shared-parameter tag: tie a leaf across branches by name so the
 # prior/params interface treats its occurrences as one free parameter. `Shared`
@@ -190,12 +191,12 @@ include("censoring/truncation.jl")
 
 include("composers/Sequential.jl")
 include("composers/Parallel.jl")
-include("composers/Competing.jl")
-# Racing-hazard competing node (the `min`-of-delays dual of convolve). Split out
-# of Competing.jl; after it since it builds on `AbstractCompeting`/`Competing`
+include("composers/Resolve.jl")
+# Racing-hazard one_of node (the `min`-of-delays dual of convolve). Split out
+# of Resolve.jl; after it since it builds on `AbstractOneOf`/`Resolve`
 # helpers (`_n_branches`, `_is_no_event`, `_is_nonterminal`).
-include("composers/hazard_competing.jl")
-include("composers/Select.jl")
+include("composers/hazard_one_of.jl")
+include("composers/Choose.jl")
 include("composers/nesting.jl")
 include("composers/equality.jl")
 include("composers/compose.jl")
@@ -223,7 +224,7 @@ include("composers/wrap.jl")
 include("utils/Weighted.jl")
 
 # Per-edge delay moments: after Weighted (adds a `free_leaf(::Weighted)` method)
-# and the composers (Sequential/Parallel/Competing/Select/Latent it walks).
+# and the composers (Sequential/Parallel/Resolve/Choose/Latent it walks).
 include("composers/composed_moments.jl")
 
 include("utils/get_dist.jl")
@@ -255,7 +256,7 @@ include("utils/reporting_hazard.jl")
 # they only define methods over the already-defined helpers).
 include("composers/censored_specialisations.jl")
 include("composers/censored_scoring_tree.jl")
-include("composers/censored_competing.jl")
+include("composers/censored_one_of.jl")
 include("composers/censored_scoring_flat.jl")
 include("composers/censored_rand.jl")
 
@@ -272,7 +273,7 @@ include("composers/record_dists.jl")
 # Vectorised LATENT scoring pair (stacked primary priors + vectorised observed
 # conditional). Split out of record_dists.jl; after it since it reuses the row
 # helpers (`_row_namedtuple`, `_row_event_vector`, `_weight_lp`) and the
-# `_alternative_record` Select build, and defines the shared `_narrow` helper.
+# `_alternative_record` Choose build, and defines the shared `_narrow` helper.
 include("composers/record_latent.jl")
 # Grouped per-stratum assembly (`record_distributions(ds, rows; group)` and
 # `batched_event_logpdf`). Split out of record_dists.jl; after record_latent.jl

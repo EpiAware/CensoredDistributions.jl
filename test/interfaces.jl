@@ -3,7 +3,7 @@
     using CensoredDistributions.TestUtils: test_interface, example_fixtures
 
     # Run the one interface checklist over the fixture set covering a bare
-    # censored leaf, Sequential, Parallel, Competing, selecting, a nested mix, and
+    # censored leaf, Sequential, Parallel, Resolve, choose, a nested mix, and
     # a latent-wrapped case. Each fixture's `@testset` records its own asserts.
     for fix in example_fixtures()
         test_interface(fix)

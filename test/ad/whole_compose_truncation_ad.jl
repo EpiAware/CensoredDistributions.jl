@@ -122,7 +122,7 @@ end
     using ForwardDiff: ForwardDiff
 
     # The wrap-over-composer paths added in #363 must differentiate: a
-    # Sequential collapsed then truncated/censored, a Parallel and a Select with
+    # Sequential collapsed then truncated/censored, a Parallel and a Choose with
     # the wrapper distributed into branches/alternatives. θ = leaf
     # LogNormal log-means; LogNormal keeps truncation `logcdf` off the Gamma
     # shape-derivative path.
@@ -142,8 +142,8 @@ end
         s3 = logpdf(truncate_to_horizon(par, 10.0), [2.0, 3.0])
         s4 = logpdf(interval_censored(par, 1.0), [2.0, 3.0])
 
-        # Select: distributed primary censoring, scored per-alternative.
-        sel = selecting(:index => a, :sourced => b)
+        # Choose: distributed primary censoring, scored per-alternative.
+        sel = choose(:index => a, :sourced => b)
         s5 = logpdf(primary_censored(sel, Uniform(0, 1)), 2.0; kind = :index)
         s6 = logpdf(truncate_to_horizon(sel, 10.0), 3.0; kind = :sourced)
 

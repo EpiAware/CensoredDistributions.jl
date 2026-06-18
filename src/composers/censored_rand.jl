@@ -3,7 +3,7 @@
 # ============================================================================
 #
 # Split out of `censored_specialisations.jl`. The censored composer `rand`
-# returns the COMPLETE event-time path (flat vector and the nested/Competing-
+# returns the COMPLETE event-time path (flat vector and the nested/Resolve-
 # aware NAMED record), plus the post-walk interval discretisation.
 
 # ---------------------------------------------------------------------------
@@ -18,10 +18,10 @@
 # event-time path including the latent origin draw.
 
 # A composer is simulated through three regimes, selected by structure:
-#   - NESTED tree (a child is itself a composer) or a `Competing` child: walk the
-#     tree sharing one latent origin draw, sampling each `Competing` outcome, and
+#   - NESTED tree (a child is itself a composer) or a `Resolve` child: walk the
+#     tree sharing one latent origin draw, sampling each `Resolve` outcome, and
 #     return a NAMED event record keyed by `_flat_event_names` (the missing
-#     unsampled Competing outcomes round-trip back through `logpdf`);
+#     unsampled Resolve outcomes round-trip back through `logpdf`);
 #   - FLAT censored chain/set: the full event-time path `[E_0, ...]` vector
 #     (back-compat, the original censored-composer shape);
 #   - plain composer: the generic per-leaf-value realisation.
@@ -39,7 +39,7 @@ end
 
 # A CENSORED nested tree draws the full named path (a shared latent origin to
 # sample). A PLAIN nested tree has no origin distribution, so it keeps the generic
-# per-leaf realisation (a Competing child stays its marginal time-to-resolution).
+# per-leaf realisation (a Resolve child stays its marginal time-to-resolution).
 function _composer_rand(::_Nested, rng::AbstractRNG,
         d::Union{Sequential, Parallel})
     _tree_primary_event(d) === nothing && return _composite_rand(
@@ -119,17 +119,17 @@ function _discretise_flat_par(out, components::Tuple)
 end
 
 # ---------------------------------------------------------------------------
-# Nested/Competing-aware full-path simulation: a NAMED event record
+# Nested/Resolve-aware full-path simulation: a NAMED event record
 # ---------------------------------------------------------------------------
 #
-# For an irregular tree (e.g. bdbv `onset -> {admit -> Competing(death,
+# For an irregular tree (e.g. bdbv `onset -> {admit -> Resolve(death,
 # discharge), notif}`) the flat vector shapes above cannot express the
-# structure: branches share one origin, a `Competing` resolves to ONE outcome,
+# structure: branches share one origin, a `Resolve` resolves to ONE outcome,
 # and the slots are named. `_tree_event_record` walks the tree sharing a single
-# latent origin draw, samples each `Competing` outcome via its branch
+# latent origin draw, samples each `Resolve` outcome via its branch
 # probabilities, and returns a `NamedTuple` keyed by `_flat_event_names` — the
 # root origin then one slot per leaf event in depth-first order. An UNSAMPLED
-# Competing outcome is `missing`, so the record feeds straight back into the
+# Resolve outcome is `missing`, so the record feeds straight back into the
 # censored composer `logpdf` (one observed outcome slot, the rest missing).
 
 # Draw the full named event record of a nested tree: one shared origin draw at
@@ -137,7 +137,7 @@ end
 # Fill the typed event vector of a nested tree: one shared origin draw at the
 # root, then the depth-first leaf-event slots from the tree walk. The vector is
 # `Vector{Union{Missing, T}}` with a concrete sampled-time type `T` (an unsampled
-# Competing outcome stays `missing`), so the walk is type-stable.
+# Resolve outcome stays `missing`), so the walk is type-stable.
 function _tree_event_vector(rng::AbstractRNG, d::Union{Sequential, Parallel})
     primary = _tree_primary_event(d)
     T = _tree_rand_type(d, primary)
@@ -180,12 +180,12 @@ end
 _tree_primary_event(d::Sequential) = _tree_primary_event(d.components[1])
 _tree_primary_event(d::Parallel) = _shared_tree_primary_event(d.components)
 _tree_primary_event(d::UnivariateDistribution) = _origin_primary_event(d)
-# A `Competing` branch shares the parent origin and resolves to one outcome; its
+# A `Resolve` branch shares the parent origin and resolves to one outcome; its
 # own origin primary (if censored) is any outcome's primary (they share it). A
-# `Select` shares the origin of its alternatives. Both recurse so a nested
+# `Choose` shares the origin of its alternatives. Both recurse so a nested
 # censored child still surfaces the tree's shared latent origin.
-_tree_primary_event(d::AbstractCompeting) = _shared_tree_primary_event(d.delays)
-_tree_primary_event(d::Select) = _shared_tree_primary_event(d.alternatives)
+_tree_primary_event(d::AbstractOneOf) = _shared_tree_primary_event(d.delays)
+_tree_primary_event(d::Choose) = _shared_tree_primary_event(d.alternatives)
 _tree_primary_event(d::Latent) = _tree_primary_event(d.dist)
 
 # The single shared primary event across a tuple of (possibly nested) branches,
@@ -230,15 +230,15 @@ end
 # over the fixed-length component tuple (the same shape the flat `_composer_rand`
 # uses) keeps the type computation inferable, where a `mapreduce` with an `init`
 # does not constant-fold here.
-_tree_core_eltype(d::AbstractCompeting) = promote_type(map(_param_eltype, d.delays)...)
+_tree_core_eltype(d::AbstractOneOf) = promote_type(map(_param_eltype, d.delays)...)
 _tree_core_eltype(d::UnivariateDistribution) = _param_eltype(_marginal_core(d))
 function _tree_core_eltype(d::Union{Sequential, Parallel})
     return promote_type(map(_tree_core_eltype, d.components)...)
 end
-# A nested `Select` promotes over EVERY alternative's core param type, so the
+# A nested `Choose` promotes over EVERY alternative's core param type, so the
 # sampled-time element type covers whichever alternative routes for a record (the
 # default-alternative `rand` still falls within this promoted type).
-_tree_core_eltype(d::Select) = promote_type(map(_tree_core_eltype,
+_tree_core_eltype(d::Choose) = promote_type(map(_tree_core_eltype,
     d.alternatives)...)
 
 # Fill the event slots of composer `d` hanging off the absolute `origin` time,
@@ -269,7 +269,7 @@ end
 # Sample one step/branch hanging off the absolute `origin` time, filling slots
 # from `idx`. Returns `(next_idx, terminal_time)`: the terminal is what a
 # following chain step hangs off (its own event for a leaf, the last step for a
-# Sequential, the shared origin for a Parallel/Competing, mirroring
+# Sequential, the shared origin for a Parallel/Resolve, mirroring
 # `_terminal_offset`).
 function _tree_rand_step!(out, rng::AbstractRNG,
         step::Union{Sequential, Parallel}, origin, idx, ::Type{T}) where {T}
@@ -277,54 +277,54 @@ function _tree_rand_step!(out, rng::AbstractRNG,
     return next, _tree_subtree_terminal(out, step, origin, idx)
 end
 
-function _tree_rand_step!(out, rng::AbstractRNG, step::Competing, origin, idx,
+function _tree_rand_step!(out, rng::AbstractRNG, step::Resolve, origin, idx,
         ::Type{T}) where {T}
     # Draw the resolved outcome from the branch probabilities, fill only its
     # outcome's slice; the other outcomes' slices stay missing so the record
-    # scores as the conditioned (one-outcome) Competing. A no-event win leaves
+    # scores as the conditioned (one-outcome) Resolve. A no-event win leaves
     # EVERY slot missing (no time recorded), so the record scores as a latent
     # non-occurrence. A NON-TERMINAL (composer) outcome recurses into its subtree,
     # which shares the parent `origin` as its anchor (#466 Feature 3).
     i = _sample_branch(rng, step.branch_probs)
-    start = idx + _competing_outcome_start(step.delays, i)
+    start = idx + _one_of_outcome_start(step.delays, i)
     if !_is_no_event(step.delays[i])
-        _competing_outcome_rand!(out, rng, step.delays[i], origin, start, T)
+        _one_of_outcome_rand!(out, rng, step.delays[i], origin, start, T)
     end
     return idx + _event_child_nleaves(step), origin
 end
 
-# Sample the chosen competing outcome's payload into `out` from index `start`,
+# Sample the chosen one_of outcome's payload into `out` from index `start`,
 # hanging off the parent `origin`. A LEAF outcome fills one slot with
 # `origin + delay`; a COMPOSER outcome walks its subtree (sharing `origin` as the
 # subtree origin) so the subtree's leaf-event slots are filled.
-function _competing_outcome_rand!(out, rng::AbstractRNG,
+function _one_of_outcome_rand!(out, rng::AbstractRNG,
         delay::UnivariateDistribution, origin, start::Int, ::Type{T}) where {T}
     out[start] = origin + convert(T, rand(rng, _marginal_core(delay)))
     return nothing
 end
 
-function _competing_outcome_rand!(out, rng::AbstractRNG,
+function _one_of_outcome_rand!(out, rng::AbstractRNG,
         delay::Union{Sequential, Parallel}, origin, start::Int,
         ::Type{T}) where {T}
     _tree_rand!(out, rng, delay, origin, start, T)
     return nothing
 end
 
-function _competing_outcome_rand!(out, rng::AbstractRNG, delay::Select, origin,
+function _one_of_outcome_rand!(out, rng::AbstractRNG, delay::Choose, origin,
         start::Int, ::Type{T}) where {T}
-    return _competing_outcome_rand!(out, rng, _flat_select_alternative(delay),
+    return _one_of_outcome_rand!(out, rng, _flat_select_alternative(delay),
         origin, start, T)
 end
 
-# A nested `Competing` / `HazardCompeting` outcome recurses through its own
+# A nested `Resolve` / `Compete` outcome recurses through its own
 # `_tree_rand_step!`, anchored at the parent origin.
-function _competing_outcome_rand!(out, rng::AbstractRNG,
-        delay::AbstractCompeting, origin, start::Int, ::Type{T}) where {T}
+function _one_of_outcome_rand!(out, rng::AbstractRNG,
+        delay::AbstractOneOf, origin, start::Int, ::Type{T}) where {T}
     _tree_rand_step!(out, rng, delay, origin, start, T)
     return nothing
 end
 
-# Racing-hazard `HazardCompeting`: draw a latent racing realisation per cause, fill
+# Racing-hazard `Compete`: draw a latent racing realisation per cause, fill
 # the argmin-cause's slice; the others stay missing so the record scores as the
 # cause-resolved sub-density. A LEAF cause's racing time is a draw from its delay
 # (filling its one slot at the min time); a NON-TERMINAL (composer) cause's racing
@@ -334,7 +334,7 @@ end
 # recorded subtree IS the race-winning draw rather than a second independent walk
 # (#466 Feature 3; fixes the rand/likelihood mismatch where the scorer reads the
 # recorded resolution time). The terminal for a following step is the shared origin.
-function _tree_rand_step!(out, rng::AbstractRNG, step::HazardCompeting, origin,
+function _tree_rand_step!(out, rng::AbstractRNG, step::Compete, origin,
         idx, ::Type{T}) where {T}
     n = _n_branches(step)
     best_i = 1
@@ -347,7 +347,7 @@ function _tree_rand_step!(out, rng::AbstractRNG, step::HazardCompeting, origin,
             best_real = real
         end
     end
-    start = idx + _competing_outcome_start(step.delays, best_i)
+    start = idx + _one_of_outcome_start(step.delays, best_i)
     _hazard_outcome_rand!(out, rng, step.delays[best_i], origin, best_t,
         best_real, start, T)
     return idx + _event_child_nleaves(step), origin
@@ -456,11 +456,11 @@ function _tree_rand_step!(out, rng::AbstractRNG, step::UnivariateDistribution,
     return idx + 1, y
 end
 
-# A nested `Select` samples its DEFAULT (first) alternative on the data-free
-# simulation path, matching the deterministic default `_tree_step(::Select)`
+# A nested `Choose` samples its DEFAULT (first) alternative on the data-free
+# simulation path, matching the deterministic default `_tree_step(::Choose)`
 # scores, so a sampled record round-trips through `logpdf`. The data path resolves
-# the Select before sampling, so a routed record samples its chosen alternative.
-function _tree_rand_step!(out, rng::AbstractRNG, step::Select, origin, idx,
+# the Choose before sampling, so a routed record samples its chosen alternative.
+function _tree_rand_step!(out, rng::AbstractRNG, step::Choose, origin, idx,
         ::Type{T}) where {T}
     return _tree_rand_step!(out, rng, _flat_select_alternative(step), origin,
         idx, T)
@@ -500,42 +500,42 @@ function _discretise_event_record!(out, d::Parallel, event_start::Int)
 end
 
 # Discretise one step/branch's slots, advancing the cursor by its event-slot
-# count (a Competing spans one slot per outcome, #333).
+# count (a Resolve spans one slot per outcome, #333).
 function _discretise_step!(out, step::Union{Sequential, Parallel}, idx::Int)
     return _discretise_event_record!(out, step, idx)
 end
 
-function _discretise_step!(out, step::AbstractCompeting, idx::Int)
+function _discretise_step!(out, step::AbstractOneOf, idx::Int)
     n = _n_branches(step)
     off = 0
     @inbounds for k in 1:n
         delay = step.delays[k]
-        w = _competing_outcome_slots(delay)
-        _discretise_competing_outcome!(out, delay, idx + off, w)
+        w = _one_of_outcome_slots(delay)
+        _discretise_one_of_outcome!(out, delay, idx + off, w)
         off += w
     end
     return idx + off
 end
 
-# Discretise ONE competing outcome's slice. A LEAF outcome floors its single slot
+# Discretise ONE one_of outcome's slice. A LEAF outcome floors its single slot
 # to the leaf's interval; a COMPOSER outcome discretises its subtree's slots
 # through the subtree's own depth-first pass (#466 Feature 3).
-function _discretise_competing_outcome!(out, delay::UnivariateDistribution,
+function _discretise_one_of_outcome!(out, delay::UnivariateDistribution,
         start::Int, ::Int)
     out[start] === missing ||
         (out[start] = _apply_leaf_interval(out[start], _leaf_interval(delay)))
     return nothing
 end
-function _discretise_competing_outcome!(out, delay::Union{Sequential, Parallel},
+function _discretise_one_of_outcome!(out, delay::Union{Sequential, Parallel},
         start::Int, ::Int)
     _discretise_event_record!(out, delay, start)
     return nothing
 end
-function _discretise_competing_outcome!(out, delay::Select, start::Int, w::Int)
-    return _discretise_competing_outcome!(out, _flat_select_alternative(delay),
+function _discretise_one_of_outcome!(out, delay::Choose, start::Int, w::Int)
+    return _discretise_one_of_outcome!(out, _flat_select_alternative(delay),
         start, w)
 end
-function _discretise_competing_outcome!(out, delay::AbstractCompeting,
+function _discretise_one_of_outcome!(out, delay::AbstractOneOf,
         start::Int, ::Int)
     _discretise_step!(out, delay, start)
     return nothing
@@ -547,8 +547,8 @@ function _discretise_step!(out, step::UnivariateDistribution, idx::Int)
     return idx + 1
 end
 
-# A nested `Select` discretises its DEFAULT alternative's slot(s), matching the
+# A nested `Choose` discretises its DEFAULT alternative's slot(s), matching the
 # default the simulation walk filled.
-function _discretise_step!(out, step::Select, idx::Int)
+function _discretise_step!(out, step::Choose, idx::Int)
     return _discretise_step!(out, _flat_select_alternative(step), idx)
 end
