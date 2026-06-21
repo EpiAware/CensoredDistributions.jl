@@ -119,7 +119,7 @@ the earliest onset so the real-time horizon can be expressed as a day offset.
 datadir = joinpath(@__DIR__, "data", "ebola")
 
 ll = CSV.read(joinpath(datadir, "linelist.csv"), DataFrame;
-    missingstring = ["NA", ""])
+    missingstring = ["NA", ""]);
 
 md"""
 The epidist vignette restricts to the cases tested up to a fixed analysis date so
@@ -155,7 +155,7 @@ clean = @chain ll begin
                                      :date_of_symptom_onset))
         :male = :sex == "Male"
     end
-end
+end;
 
 md"""
 A handful of districts carry very few cases; we keep districts with at least
@@ -171,7 +171,7 @@ end
 
 districts = sort(district_counts.district)
 
-clean = @subset clean @byrow :district in districts
+clean = @subset clean @byrow :district in districts;
 
 district_index = Dict(d => i for (i, d) in enumerate(districts))
 
@@ -196,7 +196,7 @@ clean = let cap = 90, rng = MersenneTwister(20260614)
         append!(keep, idx[sel])
     end
     clean[sort(keep), :]
-end
+end;
 
 md"""
 The truncation horizon is the cutoff day expressed as an offset from the earliest
@@ -243,11 +243,11 @@ scorer uses to pick that record's per-stratum delay.
 
 group = map(eachrow(clean)) do r
     stratum_index[(r.male, district_index[r.district])]
-end
+end;
 
 records = map(eachrow(clean)) do r
     (delay = r.delay, obs_time = horizon - r.onset_day)
-end
+end;
 
 md"""
 ## The stratified delay model
@@ -332,7 +332,7 @@ sim_setup = let rng = MersenneTwister(20260614), n_per = 60, nd = n_district,
         push!(keys, (male, d))
     end
     (rows = out, keys = keys, deffect = deffect)
-end
+end;
 
 md"""
 The synthetic strata are the observed `(male, district)` combinations of the
@@ -344,21 +344,18 @@ sim_strata = sort(unique(sim_setup.keys))
 
 sim_stratum_index = Dict(s => i for (i, s) in enumerate(sim_strata))
 
-sim_group = [sim_stratum_index[k] for k in sim_setup.keys]
+sim_group = [sim_stratum_index[k] for k in sim_setup.keys];
 
 sim_records = map(sim_setup.rows) do r
-    (delay = r.delay, obs_time = r.D)
-end
+    merge(r, (obs_time = r.D,))
+end;
 
 (n = length(sim_records), districts = n_district, strata = length(sim_strata))
 
 md"""
 We fit the synthetic line list at a modest sampler budget (two chains, 300 warmup
-and 300 draws each) and check the known parameters come back.
-The likelihood is differentiated with Mooncake reverse mode
-(`AutoMooncake`), which scales better than forward mode across the many
-per-record terms here; the per-record censored density runs the primary-event
-integral analytically, so the gradient stays cheap.
+and 300 draws each) with Mooncake reverse-mode AD, and check the known
+parameters come back.
 """
 
 adbackend = AutoMooncake(; config = nothing)
@@ -366,13 +363,15 @@ adbackend = AutoMooncake(; config = nothing)
 sim_chain = sample(Xoshiro(1),
     ebola_stratified(sim_records, sim_group, sim_strata),
     NUTS(300, 0.8; adtype = adbackend), MCMCThreads(), 300, 2;
-    chain_type = VNChain, progress = false)
+    chain_type = VNChain, progress = false);
 
 md"""
-The fixed parameters are read straight off the chain and tabulated against the
+The fixed parameters are read straight off the chain and shown against the
 simulating truth.
-The intercept, the male effect, the shared `sigma`, and the district scale `tau`
-are each recovered with the truth inside the credible interval.
+The plot draws each parameter's posterior as a spread of draws with its credible
+interval, and marks the simulating truth; the intercept, the male effect, the
+shared `sigma`, and the district scale `tau` each sit with the truth inside the
+interval.
 """
 
 ci(v) = (mean = mean(v), lower = quantile(v, 0.025),
@@ -380,39 +379,57 @@ ci(v) = (mean = mean(v), lower = quantile(v, 0.025),
 
 draws(chain, sym) = vec(chain[sym])
 
-sim_recovery = let
+sim_recovery_fig = let
     pars = (:intercept, :male_effect, :sigma, :tau)
+    labels = ["intercept", "male effect", "sigma", "tau"]
     truths = (sim_truth.intercept, sim_truth.male_effect, sim_truth.sigma,
         sim_truth.tau)
-    qs = [ci(draws(sim_chain, p)) for p in pars]
-    DataFrame(
-        parameter = ["intercept", "male effect", "sigma", "tau"],
-        truth = collect(truths),
-        post_mean = round.([q.mean for q in qs], digits = 3),
-        post_lower = round.([q.lower for q in qs], digits = 3),
-        post_upper = round.([q.upper for q in qs], digits = 3))
+    rng = MersenneTwister(1)
+    f = Figure(size = (760, 360))
+    for (k, p) in enumerate(pars)
+        v = draws(sim_chain, p)
+        q = ci(v)
+        ax = Axis(f[fldmod1(k, 2)...]; title = labels[k])
+        jitter = 0.04 .* randn(rng, length(v))
+        scatter!(ax, v, jitter; color = (:steelblue, 0.25), markersize = 4)
+        lines!(ax, [q.lower, q.upper], [0, 0]; color = :navy, linewidth = 4)
+        scatter!(ax, [q.mean], [0]; color = :navy, markersize = 12)
+        vlines!(ax, [truths[k]]; color = :firebrick, linewidth = 2)
+        hideydecorations!(ax)
+    end
+    f
 end
 
 md"""
 The district effects are returned by the model, so `generated_quantities` reads
 the per-district random effect off every draw.
-Each simulated district effect lands inside its posterior interval, so the
+The plot shows each district's posterior interval against the simulating truth;
+every simulated district effect lands inside its interval, so the
 partial-pooling layer recovers the between-district spread it was given.
 """
 
-function district_effect_draws(model, chain)
+function district_effect_mat(model, chain)
     gq = generated_quantities(model, chain)
-    mat = reduce(hcat, [g.district_effect for g in vec(gq)])
-    return [ci(mat[d, :]) for d in 1:size(mat, 1)]
+    return reduce(hcat, [g.district_effect for g in vec(gq)])
 end
 
-sim_district = let
-    qs = district_effect_draws(
-        ebola_stratified(sim_records, sim_group, sim_strata),
-        sim_chain)
-    covered = count(d -> qs[d].lower <= sim_setup.deffect[d] <= qs[d].upper,
-        1:n_district)
-    (covered = covered, of = n_district)
+sim_district_fig = let
+    mat = district_effect_mat(
+        ebola_stratified(sim_records, sim_group, sim_strata), sim_chain)
+    qs = [ci(mat[d, :]) for d in 1:n_district]
+    f = Figure(size = (760, 460))
+    ax = Axis(f[1, 1]; xlabel = "district effect (log scale)",
+        ylabel = "district index",
+        title = "Recovered district effects vs simulating truth")
+    for d in 1:n_district
+        lines!(ax, [qs[d].lower, qs[d].upper], [d, d]; color = :steelblue,
+            linewidth = 5)
+        scatter!(ax, [qs[d].mean], [d]; color = :steelblue, markersize = 9)
+    end
+    scatter!(ax, sim_setup.deffect, 1:n_district; color = :firebrick,
+        markersize = 11, marker = :diamond, label = "truth")
+    axislegend(ax; position = :rt)
+    f
 end
 
 md"""
@@ -424,7 +441,7 @@ The same model and priors fit the real Sierra Leone records.
 real_chain = sample(Xoshiro(20260614),
     ebola_stratified(records, group, strata),
     NUTS(300, 0.8; adtype = adbackend), MCMCThreads(), 300, 2;
-    chain_type = VNChain, progress = false)
+    chain_type = VNChain, progress = false);
 
 md"""
 ## The fitted delays
@@ -497,9 +514,7 @@ district_means = let means = district_mean_draws(real_chain)
             upper = q.upper)
     end
     sort(DataFrame(rows), :mean)
-end
-
-district_means
+end;
 
 md"""
 The fastest and slowest districts differ by a few days in mean onset-to-test
@@ -530,9 +545,12 @@ md"""
 
 A posterior predictive check confirms the censored, truncated model reproduces
 the observed delay distribution.
-We overlay the empirical delay histogram with the posterior predictive density
-averaged over the strata and the posterior draws, each density evaluated through
-the same censored leaf the model fitted.
+We overlay the empirical delay histogram with an ensemble of posterior
+predictive densities, one per thinned posterior draw, each evaluated through the
+same censored leaf the model fitted and averaged over the observed strata.
+The ensemble shows a ribbon (its 5th-95th percentile across draws) and a sample
+of individual draw curves, so the spread of the predictive is visible rather
+than a single mean line.
 """
 
 ppc_fig = let
@@ -545,30 +563,33 @@ ppc_fig = let
     gq = generated_quantities(
         ebola_stratified(records, group, strata), real_chain)
     deff = reduce(hcat, [g.district_effect for g in vec(gq)])
-    ## The predictive averages the per-record censored pmf over the posterior and
-    ## over the observed strata. Records sharing a (male, district) stratum give
-    ## the same delay for a given draw, so we count the strata once and weight the
-    ## predictive by those counts rather than walking every record. The per-record
-    ## truncation horizon enters through the maximal `obs_time` across records.
+    ## Each thinned draw gives one predictive density: the per-record censored
+    ## pmf averaged over the observed strata. Records sharing a (male, district)
+    ## stratum give the same delay for a given draw, so we count the strata once
+    ## and weight by those counts rather than walking every record. The
+    ## per-record truncation horizon enters through the maximal `obs_time`.
     Dmax = maximum(r.obs_time for r in records)
     stratum_counts = Dict{Int, Int}()
     for sid in group
         stratum_counts[sid] = get(stratum_counts, sid, 0) + 1
     end
     thin = 1:5:length(ic)
-    dens = zeros(length(grid))
-    for i in thin
+    ## One predictive density curve per posterior draw (columns = draws).
+    curves = zeros(length(grid), length(thin))
+    for (col, i) in enumerate(thin)
         for (sid, w) in stratum_counts
             (male, d) = strata[sid]
             mu = ic[i] + me[i] * male + deff[d, i]
             leaf = double_interval_censored(LogNormal(mu, sig[i]);
                 primary_event = Uniform(0, 1), upper = Dmax, interval = 1.0)
             for (j, x) in enumerate(grid)
-                dens[j] += w * pdf(leaf, x)
+                curves[j, col] += w * pdf(leaf, x)
             end
         end
     end
-    dens ./= (length(thin) * length(records))
+    curves ./= length(records)
+    lo = [quantile(curves[j, :], 0.05) for j in eachindex(grid)]
+    hi = [quantile(curves[j, :], 0.95) for j in eachindex(grid)]
 
     f = Figure(size = (760, 400))
     ax = Axis(f[1, 1]; xlabel = "onset-to-test delay (days)",
@@ -576,14 +597,19 @@ ppc_fig = let
         title = "Observed vs posterior predictive onset-to-test delay")
     hist!(ax, obs; bins = edges, normalization = :pdf,
         color = (:grey, 0.5), label = "observed")
-    lines!(ax, grid, dens; color = :firebrick, linewidth = 3,
-        label = "posterior predictive")
+    band!(ax, grid, lo, hi; color = (:firebrick, 0.25))
+    for col in 1:min(20, size(curves, 2))
+        lines!(ax, grid, curves[:, col]; color = (:firebrick, 0.2),
+            linewidth = 1)
+    end
+    lines!(ax, Float64[], Float64[]; color = :firebrick, linewidth = 3,
+        label = "posterior predictive draws")
     axislegend(ax; position = :rt)
     f
 end
 
 md"""
-The posterior predictive density tracks the observed histogram, so the
+The posterior predictive ensemble brackets the observed histogram, so the
 double-censored, right-truncated LogNormal is an adequate fit for the
 onset-to-test delay across the strata.
 
