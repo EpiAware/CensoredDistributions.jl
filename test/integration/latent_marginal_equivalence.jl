@@ -627,6 +627,68 @@ end
     end
 end
 
+@testitem "bdbv: interval-observed intermediate factorises == latent" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: Sequential, latent_segments, latent_records,
+                                 latent_observed_logpdf, event_names
+    using QuadGK: quadgk
+
+    # #647 (CONTRACT HOLDS): the bdbv/andv onset -> admit -> resolution chain with
+    # the intermediate `admit` OBSERVED as an interval difference (day-resolution
+    # double-interval-censored edges). The contract (memory: an OBSERVED -> OBSERVED
+    # edge keeps its declared censoring; the chain FACTORISES at the observed
+    # intermediate) must be density-identical to the project's latent form, which
+    # decomposes the chain into per-segment latent edges each anchored at the
+    # OBSERVED admit. The earlier "marginalise the continuous admit JOINTLY across
+    # both edges" reference is a DIFFERENT model (admit latent/unobserved), not the
+    # observed-intermediate model scored here.
+    oa = double_interval_censored(LogNormal(1.2, 0.4);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    ar = double_interval_censored(Gamma(2.0, 1.5);
+        primary_event = Uniform(0, 1), interval = 1.0)
+    seq = Sequential((oa, ar), (:onset_admit, :admit_resolution))
+    @test event_names(seq) == (:onset, :admit, :resolution)
+
+    segs = latent_segments(seq)
+
+    for row in ((onset = 0.0, admit = 3.0, resolution = 7.0),
+        (onset = 0.0, admit = 5.0, resolution = 9.0))
+        ev = Vector{Union{Missing, Float64}}(
+            [row.onset, row.admit, row.resolution])
+        marg = logpdf(seq, ev)
+
+        # (a) the marginal factorises at the OBSERVED admit: each edge keeps its
+        # declared double-interval censoring, scored at its own observed gap.
+        ref = logpdf(oa, row.admit - row.onset) +
+              logpdf(ar, row.resolution - row.admit)
+        @test isapprox(marg, ref; atol = 1e-12)
+
+        # (b) the project's latent form, integrating each per-segment sampled
+        # primary out exactly (quadgk), reproduces the marginal to machine
+        # precision -- the marginal == latent invariant for an interval-observed
+        # intermediate. The segments are independent, so the joint integral is the
+        # product of the per-segment integrals (anchored at the observed admit).
+        lrows = latent_records(seq, [row])
+        @test length(lrows) == 2
+        acc = 1.0
+        for k in eachindex(lrows)
+            val,
+            _ = quadgk(
+                p -> exp(latent_observed_logpdf(segs, [lrows[k]], [p])),
+                0.0, 1.0; rtol = 1e-10)
+            acc *= val
+        end
+        @test isapprox(marg, log(acc); atol = 1e-8)
+
+        # (c) the latent decomposition anchors the second segment at the OBSERVED
+        # admit (gap = resolution - admit), confirming it does NOT jointly
+        # marginalise the continuous admit across edges.
+        ar_seg = lrows[2]
+        @test ar_seg.kind == :admit_resolution
+        @test ar_seg.resolution == row.resolution - row.admit
+    end
+end
+
 @testitem "andv index: declared double-interval-censored leaf (unchanged)" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: composed_distribution_model
