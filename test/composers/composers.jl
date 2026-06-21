@@ -32,6 +32,121 @@ end
     @test_throws ArgumentError Parallel(())
 end
 
+@testitem "Composers reject wrong-shape logpdf/pdf with a clear message" begin
+    using Distributions
+
+    s = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    p = Parallel(Gamma(2.0, 1.0), LogNormal(1.0, 0.5))
+
+    # A scalar where the per-step/branch value vector is expected used to hit a
+    # confusing MethodError; it now names the expected length and keys.
+    err = try
+        logpdf(s, 3.0)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("Sequential", err.msg)
+    @test occursin("length-2", err.msg)
+    @test occursin("NamedTuple", err.msg)
+    @test occursin("multivariate", err.msg)
+
+    @test_throws ArgumentError logpdf(s, 3.0)
+    @test_throws ArgumentError pdf(s, 3.0)
+    @test_throws ArgumentError logpdf(p, 3.0)
+    @test_throws ArgumentError pdf(p, 3.0)
+
+    # A censored composer names the flat EVENT vector form.
+    oa = primary_censored(LogNormal(1.5, 0.4), Uniform(0, 1))
+    ad = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    tree = compose((onset_admit = [oa, ad],))
+    cerr = try
+        logpdf(tree, 3.0)
+        nothing
+    catch e
+        e
+    end
+    @test cerr isa ArgumentError
+    @test occursin("event vector", cerr.msg)
+
+    # A wrong-length vector names the expected length.
+    derr = try
+        logpdf(s, [1.0])
+        nothing
+    catch e
+        e
+    end
+    @test derr isa DimensionMismatch
+    @test occursin("length-2", derr.msg)
+    @test occursin("length 1", derr.msg)
+
+    # Correct calls are unchanged.
+    @test logpdf(s, [1.5, 2.0]) ≈
+          logpdf(Gamma(2.0, 1.0), 1.5) + logpdf(LogNormal(0.5, 0.4), 2.0)
+    @test logpdf(s, rand(s)) isa Real
+end
+
+@testitem "Records reject wrong-length event vectors clearly" begin
+    using Distributions
+
+    seq = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    recs = CensoredDistributions.record_distributions(
+        seq, [(onset = 0.0, admit = 2.0, death = 5.0)])
+    r = recs[1]
+    @test length(r) == 3
+    @test logpdf(r, [0.0, 2.0, 5.0]) isa Real
+
+    # A wrong-length event vector used to hit a deep BoundsError; it now names
+    # the expected slot count.
+    err = try
+        logpdf(r, [0.0, 2.0])
+        nothing
+    catch e
+        e
+    end
+    @test err isa DimensionMismatch
+    @test occursin("length-3", err.msg)
+    @test occursin("event vector", err.msg)
+    @test_throws DimensionMismatch logpdf(r, [3.0])
+end
+
+@testitem "Records error on a missing or unknown event field" begin
+    using Distributions
+
+    oa = primary_censored(LogNormal(1.5, 0.4), Uniform(0, 1))
+    ad = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    seq = sequential(:onset_admit => oa, :admit_death => ad)
+    @test CensoredDistributions.event_names(seq) == (:onset, :admit, :death)
+
+    # A row missing a required event field names it.
+    merr = try
+        CensoredDistributions.record_distributions(
+            seq, [(onset = 0.0, admit = 2.0)])
+        nothing
+    catch e
+        e
+    end
+    @test merr isa ArgumentError
+    @test occursin(":death", merr.msg)
+
+    # A row carrying an unknown field names it.
+    uerr = try
+        CensoredDistributions.record_distributions(
+            seq, [(onset = 0.0, admit = 2.0, death = 5.0, bogus = 1.0)])
+        nothing
+    catch e
+        e
+    end
+    @test uerr isa ArgumentError
+    @test occursin(":bogus", uerr.msg)
+
+    # The same missing-field error fires on the NamedTuple logpdf path.
+    @test_throws ArgumentError logpdf(seq, (onset = 0.0, admit = 2.0))
+end
+
 @testitem "Resolve lowers to a MixtureModel" begin
     using Distributions
 

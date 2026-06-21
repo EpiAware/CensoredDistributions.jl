@@ -166,7 +166,8 @@ See also: [`Parallel`](@ref)
 "
 function logpdf(d::Parallel, x::AbstractVector)
     length(x) == length(d) || throw(DimensionMismatch(
-        "expected $(length(d)) branch values, got $(length(x))"))
+        "logpdf(::Parallel) expects a length-$(length(d)) branch-value " *
+        "vector (one value per branch); got length $(length(x))"))
     return _composite_logpdf(d.components, x)
 end
 
