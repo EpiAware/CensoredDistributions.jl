@@ -187,8 +187,12 @@ window and the observed time exceeds it (a positive delay).
 @assert one_path.observed > one_path.primary
 
 md"""
-We can draw many paths with a comprehension, or push a set of posterior draws
-through the latent form by rebuilding the distribution per draw.
+We draw many paths from a single latent leaf with a comprehension, or push a set
+of posterior draws through the latent form by rebuilding the distribution per
+draw.
+The composer record path `rand(d, rows)` is the batched dual for a composed
+object; a bare `latent` leaf has no batched `rand(leaf, n)` yet, so a single
+leaf stays a comprehension here.
 """
 
 rng2 = MersenneTwister(2);
@@ -200,14 +204,14 @@ many_paths = [rand(rng2, latent_leaf) for _ in 1:500];
 build(p) = latent(primary_censored(
     LogNormal(p.mu, p.sigma), Uniform(0, 1)))
 
-param_draws = [(mu = m, sigma = s)
-               for (m, s) in zip(mu_post[1:50], sigma_post[1:50])];
+posterior_pairs = [(mu = m, sigma = s)
+                   for (m, s) in zip(mu_post[1:50], sigma_post[1:50])];
 
 rng3 = MersenneTwister(3);
 
-per_draw_paths = [rand(rng3, build(p)) for p in param_draws];
+per_draw_paths = [rand(rng3, build(p)) for p in posterior_pairs];
 
-@assert length(per_draw_paths) == length(param_draws)
+@assert length(per_draw_paths) == length(posterior_pairs)
 
 md"""
 ## Flavour 2: recover the observed records' latent event times (Turing)
