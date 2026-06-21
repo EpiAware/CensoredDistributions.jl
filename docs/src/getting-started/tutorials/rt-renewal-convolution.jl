@@ -104,8 +104,11 @@ infection series.
 
 The generation interval is a short discrete PMF over positive lags.
 We discretise a Gamma with [`double_interval_censored`](@ref), which applies
-primary-event censoring and truncation before interval censoring, and drop the
-zero lag so an infection can only generate new infections from the next day on.
+primary-event censoring and truncation before interval censoring, then read the
+day-bin masses with [`discretise_pmf`](@ref) so each entry is a proper bin
+integral rather than a point-mass evaluation.
+We drop the zero lag so an infection can only generate new infections from the
+next day on, and renormalise the remaining positive lags to a PMF.
 """
 
 gen_dist = double_interval_censored(Gamma(2.5, 1.3); upper = 14.0,
@@ -113,8 +116,10 @@ gen_dist = double_interval_censored(Gamma(2.5, 1.3); upper = 14.0,
 
 gi_max = 12
 
-g = let raw = [pdf(gen_dist, Float64(s)) for s in 1:gi_max]
-    raw ./ sum(raw)
+gen_pmf = CensoredDistributions.discretise_pmf(gen_dist, gi_max)
+
+g = let masses = pdf(gen_pmf, 1:gi_max)
+    masses ./ sum(masses)
 end
 
 md"""
@@ -301,12 +306,6 @@ block_len = ceil(Int, n_days / n_blocks)
 
 block_of(t) = min(n_blocks, fld(t - 1, block_len) + 1)
 
-md"""
-Mooncake reverse-mode AD differentiates the convolved stack, and the package
-ships the rules needed for the branched event names so the gradient flows
-through the delay parameters with no per-model intervention.
-"""
-
 @model function rt_renewal(cases, deaths, g, incubation, onset_report,
         onset_death, I0)
     n = length(cases)
@@ -326,13 +325,10 @@ through the delay parameters with no per-model intervention.
 end
 
 md"""
-We fit with NUTS on Mooncake, sampling two chains in parallel with
-[`MCMCThreads`](https://turinglang.org/Turing.jl/stable/).
-We take a small number of post-warmup draws per chain, which is enough to show
-that the well-identified parameters recover.
-Most of the runtime is the one-off Mooncake compilation of the renewal and
-convolution gradient rather than the draws themselves, so the page sits with the
-other heavy fitting tutorials rather than the quick ones.
+We fit with NUTS on Mooncake, taking a small number of post-warmup draws across
+two parallel chains, enough to show the well-identified parameters recover.
+Most of the runtime is the one-off gradient compilation rather than the draws,
+so the page sits with the heavy fitting tutorials.
 """
 
 model = rt_renewal(cases_obs, deaths_obs, g, incubation, onset_report,
@@ -340,7 +336,7 @@ model = rt_renewal(cases_obs, deaths_obs, g, incubation, onset_report,
 
 chain = sample(Xoshiro(1), model,
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 100, 2; chain_type = VNChain, progress = false)
+    MCMCThreads(), 100, 2; chain_type = VNChain, progress = false);
 
 md"""
 ## Recovery
@@ -348,29 +344,20 @@ md"""
 We pull the posterior parameters from the chain with FlexiChains.
 Indexing the chain by a parameter name returns every draw across all chains in
 one access; we collect the three model parameters into a single NamedTuple of
-draw vectors and summarise each by its mean, so there is no per-element chain
-indexing.
-The block-level Rt is a vector parameter, so its draws are vectors that we stack
-into a matrix and average over draws per block.
+draw vectors.
+The block-level Rt is a vector parameter, so its draws are vectors.
+The well-identified ascertainment and the weakly-identified IFR have no figure
+of their own, so we report each against the truth.
 """
 
 param_names = (:R_block, :alpha, :rho)
 
-draws = (; (p => vec(chain[p]) for p in param_names)...)
-
-post_R = vec(mean(reduce(hcat, draws.R_block); dims = 2))
-
-post_alpha = mean(draws.alpha)
-
-post_rho = mean(draws.rho)
-
-true_R_block = [true_Rt[(b - 1) * block_len + 1] for b in 1:n_blocks]
+draws = (; (p => vec(chain[p]) for p in param_names)...);
 
 recovery = (
-    R_block = (truth = true_R_block, posterior = round.(post_R; digits = 3)),
     ascertainment = (truth = true_alpha,
-        posterior = round(post_alpha; digits = 3)),
-    ifr = (truth = true_rho, posterior = round(post_rho; digits = 4)))
+        posterior = round(mean(draws.alpha); digits = 3)),
+    ifr = (truth = true_rho, posterior = round(mean(draws.rho); digits = 4)))
 
 md"""
 The block-level Rt and the ascertainment recover well: the block levels track
@@ -383,22 +370,27 @@ data and the `Beta(1, 50)` prior and recovers the right order of magnitude
 rather than a sharp point estimate.
 Fitting both streams together still identifies the case-side scale that a
 single stream could not, while the death-side scale stays uncertain.
-We plot the true Rt path against the posterior-mean block levels with
-AlgebraOfGraphics.
+We plot the true Rt path against a sample of posterior Rt trajectories, one per
+draw, so the spread across draws is visible rather than a single mean line.
 """
 
-rt_df = vcat(
-    DataFrame(day = 1:n_days, Rt = true_Rt, kind = "truth"),
-    DataFrame(day = 1:n_days, Rt = [post_R[block_of(t)] for t in 1:n_days],
-        kind = "posterior mean"))
+rt_draws = [vcat(DataFrame(day = 1:n_days,
+                Rt = [draws.R_block[i][block_of(t)] for t in 1:n_days],
+                draw = i)) for i in eachindex(draws.alpha)]
 
-rt_plot = data(rt_df) *
-          mapping(:day, :Rt, color = :kind => "") *
-          visual(Lines)
+rt_traj_df = vcat(rt_draws...)
+
+rt_plot = (
+    data(rt_traj_df) *
+    mapping(:day, :Rt, group = :draw => nonnumeric) *
+    visual(Lines, color = (:steelblue, 0.15)) +
+    data(DataFrame(day = 1:n_days, Rt = true_Rt)) *
+    mapping(:day, :Rt) * visual(Lines, color = :black, linewidth = 2))
 
 draw(rt_plot;
     figure = (; size = (800, 350)),
-    axis = (; xlabel = "day", ylabel = "Rt", title = "Rt recovery"))
+    axis = (; xlabel = "day", ylabel = "Rt",
+        title = "Rt recovery: posterior trajectories vs truth"))
 
 md"""
 ## Posterior-predictive fit to data
@@ -414,7 +406,7 @@ This reuses [`convolve_distributions`](@ref) through the `observation_stack` /
 """
 
 post_draws = [(R_block = draws.R_block[i], alpha = draws.alpha[i],
-                  rho = draws.rho[i]) for i in eachindex(draws.alpha)]
+                  rho = draws.rho[i]) for i in eachindex(draws.alpha)];
 
 function predict_streams(draw)
     Rt = [draw.R_block[block_of(t)] for t in 1:n_days]
@@ -424,7 +416,7 @@ function predict_streams(draw)
     return expected_streams(stack, infections)
 end
 
-pred = [predict_streams(d) for d in post_draws]
+pred = [predict_streams(d) for d in post_draws];
 
 md"""
 For each draw we resample the Poisson observation layer, `rand(Poisson(mean))`,
