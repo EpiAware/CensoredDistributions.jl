@@ -66,8 +66,7 @@ using CSV, DataFramesMeta, Dates
 using CensoredDistributions, Distributions
 using CensoredDistributions: latent, shared
 using Turing, Random, Statistics
-using DynamicPPL: to_submodel, prefix, InitFromPrior, @varname
-using FlexiChains: Parameter
+using DynamicPPL: to_submodel, prefix, InitFromPrior
 using ADTypes: AutoMooncake
 import Mooncake
 using CairoMakie, PairPlots
@@ -265,7 +264,12 @@ end
 # Before touching the data we check the model can recover known parameters.
 # A full delay path is drawn for each record from the latent form with
 # `rand(latent(d))`, one draw per record, then the simulated delays are fitted
-# and compared with the truth. See
+# and compared with the truth. The two alternatives have different event-slot
+# counts and the simulation needs each record's latent primary event (the
+# within-window infection time, the source's transmission timing) to build its
+# real-time horizon, which the batched record sampler does not expose, so the
+# two alternatives are simulated by hand here rather than through one
+# `rand(template, rows)` call. See
 # [Marginal versus latent](@ref marginal-versus-latent) for the two forms and
 # [Fit marginal, sample event based](@ref) for fitting marginally then drawing
 # event paths.
@@ -337,22 +341,20 @@ sim_edge_means = mean(latent(event(sim_fit, :sourced)))
 # log-mean and log-SD are correlated and shift together; the transmission timing
 # is recovered in the right region but with a broad cloud, the first sign of its
 # weak identifiability.
-function delta_params(chain)
-    mu = vec(chain[Parameter(@varname(delays.sourced.srconset_infection.mu))])
-    sigma = vec(chain[Parameter(
-        @varname(delays.sourced.srconset_infection.sigma))])
-    return (mu = mu, sigma = sigma)
-end
-function inc_params(chain)
-    mu = vec(chain[Parameter(@varname(delays.inc.mu))])
-    sigma = vec(chain[Parameter(@varname(delays.inc.sigma))])
-    return (mu = mu, sigma = sigma)
+# [`param_draws`](@ref)`(template, chain)` reads every draw off the chain as a
+# vector of nested NamedTuples keyed like [`params`](@ref)`(template)`, so the
+# four parameters come off by name (the shared incubation under `inc`, the
+# transmission timing under the sourced branch) with no hand-written `@varname`
+# index.
+function flat_params(template, chain)
+    edges = param_draws(template, chain; prefix = :delays)
+    return (mu_inc = [e.inc.mu for e in edges],
+        sigma_inc = [e.inc.sigma for e in edges],
+        mu_delta = [e.sourced.srconset_infection.mu for e in edges],
+        sigma_delta = [e.sourced.srconset_infection.sigma for e in edges])
 end
 
-sim_inc = inc_params(sim_chain)
-sim_delta = delta_params(sim_chain)
-sim_draws = (mu_inc = sim_inc.mu, sigma_inc = sim_inc.sigma,
-    mu_delta = sim_delta.mu, sigma_delta = sim_delta.sigma)
+sim_draws = flat_params(template, sim_chain)
 sim_pars = (:mu_inc, :sigma_inc, :mu_delta, :sigma_delta)
 sim_truth_vals = (mu_inc = 3.06, sigma_inc = 0.32,
     mu_delta = 0.17, sigma_delta = 0.62)
@@ -397,20 +399,13 @@ Random.seed!(20260608)
 prior_chain = sample(andv(template, index_rows, sourced_rows),
     Prior(), MCMCThreads(), 300, 2; progress = false)
 
-prior_inc = inc_params(prior_chain)
-prior_delta = delta_params(prior_chain)
-prior_draws = (mu_inc = prior_inc.mu, sigma_inc = prior_inc.sigma,
-    mu_delta = prior_delta.mu, sigma_delta = prior_delta.sigma)
-
-post_inc = inc_params(chain)
-post_delta = delta_params(chain)
-post_table = (mu_inc = post_inc.mu, sigma_inc = post_inc.sigma,
-    mu_delta = post_delta.mu, sigma_delta = post_delta.sigma)
+prior_draws = flat_params(template, prior_chain)
+post_draws = flat_params(template, chain)
 
 fig = pairplot(
     PairPlots.Series(prior_draws, label = "prior", color = (:grey, 0.5)) =>
         (PairPlots.Scatter(markersize = 3), PairPlots.MarginHist()),
-    PairPlots.Series(post_table, label = "posterior",
+    PairPlots.Series(post_draws, label = "posterior",
         color = (:steelblue, 0.6)) =>
         (PairPlots.Scatter(markersize = 3), PairPlots.MarginHist()))
 fig
@@ -419,17 +414,15 @@ fig
 #
 # The incubation mean delay in days is read straight off the updated composed
 # object rather than from a hand-built distribution.
-# [`update`](@ref) with `draw = i` rebuilds the composed delays at draw `i`, and
+# [`update`](@ref)`.(Ref(template), `[`param_draws`](@ref)`(template, chain))`
+# rebuilds the composed delays once per draw, and
 # [`mean`](@ref CensoredDistributions.mean)`(latent(event(...)))` returns the
 # per-event means keyed by [`event_names`](@ref); the index alternative's
 # `onset` entry is the incubation mean delay carried from the within-window
 # infection to onset. Reading it per draw gives the posterior mean delay with
-# its interval.
-n_draws = length(post_inc.mu)
-inc_means = [mean(latent(event(
-                 update(template, chain; prefix = :delays, draw = i),
-                 :index))).onset
-             for i in 1:n_draws]
+# its interval, with no manual per-draw `update` loop.
+fits = update.(Ref(template), param_draws(template, chain; prefix = :delays))
+inc_means = [mean(latent(event(f, :index))).onset for f in fits]
 inc_summary = (mean = mean(inc_means),
     lower = quantile(inc_means, 0.025), upper = quantile(inc_means, 0.975))
 
@@ -454,8 +447,10 @@ targets = (
     sigma_delta = (mean = 0.62, lower = 0.45, upper = 0.84),
     inc_mean = (mean = 22.6, lower = 20.3, upper = 25.5))
 
-here = (mu_inc = summ(post_inc.mu), sigma_inc = summ(post_inc.sigma),
-    mu_delta = summ(post_delta.mu), sigma_delta = summ(post_delta.sigma),
+here = (mu_inc = summ(post_draws.mu_inc),
+    sigma_inc = summ(post_draws.sigma_inc),
+    mu_delta = summ(post_draws.mu_delta),
+    sigma_delta = summ(post_draws.sigma_delta),
     inc_mean = inc_summary)
 
 labels = ["incubation log-mean", "incubation log-SD",
@@ -526,8 +521,9 @@ cfig
 # A `delta` straddling zero implies a sizeable pre-symptomatic fraction: the
 # posterior probability that infection happens before the source's own onset,
 # `P(delta < 0)`, read per draw from the fitted transmission-timing Normal.
-presymptomatic = [cdf(Normal(post_delta.mu[i], post_delta.sigma[i]), 0.0)
-                  for i in eachindex(post_delta.mu)]
+presymptomatic = [cdf(Normal(post_draws.mu_delta[i],
+                          post_draws.sigma_delta[i]), 0.0)
+                  for i in eachindex(post_draws.mu_delta)]
 presymptomatic_summary = (mean = round(mean(presymptomatic); digits = 2),
     lower = round(quantile(presymptomatic, 0.025); digits = 2),
     upper = round(quantile(presymptomatic, 0.975); digits = 2))

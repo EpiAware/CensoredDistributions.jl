@@ -197,20 +197,21 @@ md"""
 ## Simulate from the double censored distribution
 
 We simulate from the full composed object with the true parameters, so the
-parameters we recover can be checked. `rand(d)` walks the object to draw a full
-labelled event record per record (a comprehension batches `n` of them); the
-onset is the primary event origin (here zero) and the report is the censored
-delay. We draw an observation window per record and keep only reports that fall
-strictly before it, which is the right-truncation that the `obs_time` field then
-adjusts for. Keeping `report < obs_time` matches the conditioning the `obs_time`
-likelihood applies: a report interval-censored to the day `obs_time` straddles
-the horizon, so the truncation retains only the days that close before it, and
-the simulation and the fit then condition on the same point.
+parameters we recover can be checked. `rand(d, rows)` walks the object once per
+record and returns a labelled event record for each, the generative dual to the
+batched scoring; the onset is the primary event origin (here zero) and the
+report is the censored delay. We draw an observation window per record and keep
+only reports that fall strictly before it, the right-truncation that the
+`obs_time` field then adjusts for. Keeping `report < obs_time` matches the
+conditioning the `obs_time` likelihood applies: a report interval-censored to
+the day `obs_time` straddles the horizon, so the truncation retains only the
+days that close before it, and the simulation and the fit then condition on the
+same point.
 """
 
 rng = MersenneTwister(123)
 
-paths = [rand(rng, full_template) for _ in 1:n]
+paths = rand(rng, full_template, fill((onset = missing, report = missing), n))
 
 reports = [p.report for p in paths]
 

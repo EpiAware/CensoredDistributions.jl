@@ -295,9 +295,11 @@ The per-event [`mean`](@ref CensoredDistributions.mean)`(latent(fit))`
 NamedTuple reads every delay mean off any fitted composed object at once, keyed
 by [`event_names`](@ref) and seeing through each censored leaf to its inner free
 delay. `flat_means` picks the four delays we report, and `delay_mean_draws`
-applies it to every posterior draw, giving the posterior distribution of each
-delay mean through repeated [`update`](@ref) on the chain (one draw at a time)
-rather than any manual chain indexing.
+applies it to every posterior draw:
+[`param_draws`](@ref)`(template, chain)` reads every draw off the chain and
+[`update`](@ref)`.(Ref(template), …)` rebuilds the object per draw, giving the
+posterior distribution of each delay mean with no per-draw `update` loop and no
+manual chain indexing.
 """
 
 function flat_means(fit)
@@ -307,9 +309,8 @@ function flat_means(fit)
 end
 
 function delay_mean_draws(chain)
-    rows = map(1:prod(size(chain))) do i
-        flat_means(update(template, chain; prefix = :delays, draw = i))
-    end
+    draws = param_draws(template, chain; prefix = :delays)
+    rows = flat_means.(update.(Ref(template), draws))
     return (onset_admit = [r.onset_admit for r in rows],
         admit_death = [r.admit_death for r in rows],
         admit_discharge = [r.admit_discharge for r in rows],
