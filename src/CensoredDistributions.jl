@@ -9,7 +9,7 @@ using Random: AbstractRNG, default_rng
 # Import functions that we extend (for method extension)
 import Distributions: params, insupport, pdf, logpdf, cdf, logcdf,
                       ccdf, logccdf, quantile, mean, var, std, median, sampler,
-                      loglikelihood
+                      loglikelihood, probs
 # Import from Base for functions we extend that are re-exported by Distributions
 import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
@@ -82,12 +82,12 @@ export convolve_distributions
 # Exported generic composers and front-end constructors. `resolve(...)` builds
 # the fixed-probability mixture `Resolve` (a branch probability per outcome);
 # `compete(...)` builds the racing-hazard `Compete` (bare delays). `NoEvent`
-# marks an absorbing no-event branch; `winning_probabilities` /
-# `occurrence_probability` read the per-cause winning / any-event probabilities
-# of either node.
+# marks an absorbing no-event branch; `Distributions.probs` (extended, not
+# re-exported) reads the per-outcome split of either node and
+# `occurrence_probability` its sum (the any-event probability).
 export Sequential, Parallel, Resolve, Compete, NoEvent,
        sequential, parallel, compete, resolve,
-       compose, as_mixture, winning_probabilities, occurrence_probability
+       compose, as_mixture, occurrence_probability
 
 # Exported composed-distribution introspection: the flat prior table and
 # name introspection. `event_names` is the FLAT per-event name tuple (the data-

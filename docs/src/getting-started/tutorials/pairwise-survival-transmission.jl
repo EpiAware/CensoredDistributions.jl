@@ -191,7 +191,7 @@ racing-hazard [`Compete`](@ref) type — the winning source is *derived*
 from the hazards, not a free parameter.
 The node's `logpdf` is the cause-resolved marginal density
 ``\sum_i f(\tau) \prod_{k \ne i} S(\tau)``, its `logccdf` is the joint
-survival ``\prod_k S_k``, and [`winning_probabilities`](@ref) is the per-source
+survival ``\prod_k S_k``, and `Distributions.probs` is the per-source
 ``\arg\min`` (who-infected-whom) split.
 """
 
@@ -199,7 +199,7 @@ let node = compete(:near => contact_interval(0.4, 1.6),
         :far => contact_interval(0.1, 1.6))
     (; marginal_logpdf = logpdf(node, 2.0),
         joint_logsurvival = logccdf(node, 2.0),
-        winning = winning_probabilities(node))
+        winning = probs(node))
 end
 
 md"""
@@ -618,14 +618,14 @@ We never used it in the fit — the racing-hazard marginal marginalises over the
 unknown source — but we can check that the fitted contact intervals assign high
 ``\arg\min`` probability to the recorded infector.
 
-The racing-hazard node's [`winning_probabilities`](@ref) integrates the
+The racing-hazard node's `Distributions.probs` integrates the
 cause-resolved split over a *shared* support floor, which assumes every cause
 can fire from the same earliest time; with anchored sources that floor differs
 per cause, so we read the ``\arg\min`` split by Monte Carlo instead — drawing a
 latent contact time from each anchored source and counting how often each
 source's contact is the earliest.
 This is the generative dual of the racing marginal (and the basis of
-[`winning_probabilities`](@ref) for a shared-floor node).
+`Distributions.probs` for a shared-floor node).
 For each case with a recorded infector we estimate the probability the model
 places on the *recorded* source winning the race.
 """

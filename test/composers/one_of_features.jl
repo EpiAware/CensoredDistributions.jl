@@ -49,13 +49,40 @@
     @test occursin("compete", err_r.msg)
 end
 
+@testitem "one_of: probs reads the per-outcome split for both nodes" begin
+    using Distributions
+
+    # `probs(::Resolve)` is the declared branch probabilities keyed by name (the
+    # node lowers to a MixtureModel whose weights ARE those probabilities).
+    r = resolve(:death => (Gamma(1.5, 1.0), 0.3),
+        :disch => (Gamma(2.0, 1.5), 0.7))
+    @test probs(r) == NamedTuple{r.names}(r.branch_probs)
+    @test probs(r) == (death = 0.3, disch = 0.7)
+    @test occurrence_probability(r) == sum(probs(r))
+
+    # `probs(::Compete)` is the DERIVED arg-min winning split (the hazard
+    # quadrature). Two proper causes sum to one.
+    haz = compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
+    wp = probs(haz)
+    @test keys(wp) == (:death, :recover)
+    @test sum(values(wp)) ≈ 1.0 atol = 1e-3
+    @test occurrence_probability(haz) == sum(values(probs(haz)))
+
+    # A defective (sub-stochastic) node: the no-event branch leaves the
+    # occurrence probability below one, the deficit being its mass.
+    ne = resolve(:report => (Gamma(2.0, 1.0), 0.7), :none => (NoEvent(), 0.3))
+    @test probs(ne) == (report = 0.7, none = 0.3)
+    @test occurrence_probability(ne) ≈ 0.7
+    @test occurrence_probability(ne) < sum(values(probs(ne)))
+end
+
 @testitem "one_of: residual last-outcome probability" begin
     using Distributions
     import ForwardDiff
 
     # Omitting the LAST outcome's probability makes it the residual `1 - sum(of
     # the others)`. The residual node is density-IDENTICAL to the all-explicit
-    # form: same branch_probs, same logpdf, same winning_probabilities.
+    # form: same branch_probs, same logpdf, same probs.
     cfr = 0.3
     explicit = resolve(:death => (Gamma(1.5, 1.0), cfr),
         :disch => (Gamma(2.0, 1.5), 1 - cfr))
@@ -64,7 +91,7 @@ end
     @test resid isa CensoredDistributions.Resolve
     @test resid.branch_probs == explicit.branch_probs
     @test logpdf(resid, 1.7) == logpdf(explicit, 1.7)
-    @test winning_probabilities(resid) == winning_probabilities(explicit)
+    @test probs(resid) == probs(explicit)
     @test mean(resid) == mean(explicit)
 
     # Three outcomes: the residual is `1 - (p_a + p_b)`.
@@ -126,7 +153,7 @@ end
 
     # The occurrence probability is one minus the no-event mass.
     @test occurrence_probability(ne) ≈ 0.7
-    @test winning_probabilities(ne) == (report = 0.7, none = 0.3)
+    @test probs(ne) == (report = 0.7, none = 0.3)
 end
 
 @testitem "one_of no-event: observed occurrence vs non-occurrence" begin
@@ -179,7 +206,7 @@ end
     haz = compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
 
     # Dual 1: derived winning probabilities (logpdf-consistent integral).
-    wp = winning_probabilities(haz)
+    wp = probs(haz)
     @test sum(values(wp)) ≈ 1.0 atol = 1e-3
 
     # Dual 2: the marginal logpdf is the log-sum of cause-resolved sub-densities,
@@ -497,7 +524,7 @@ end
     @test_throws ArgumentError logpdf(haz, 1.0)
     @test_throws ArgumentError mean(haz)
     @test_throws ArgumentError var(haz)
-    @test_throws ArgumentError winning_probabilities(haz)
+    @test_throws ArgumentError probs(haz)
 end
 
 @testitem "racing-hazard: var of a near-degenerate node is non-negative" begin

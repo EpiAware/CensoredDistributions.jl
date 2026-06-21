@@ -162,12 +162,12 @@ md"""
 ## The racing-hazard derived split
 
 For the racing-hazard severity node the winning probability of each cause is
-derived from the hazards, not a free parameter. `winning_probabilities` returns
+derived from the hazards, not a free parameter. `probs` returns
 the cause split, and the simulated death fraction matches it within Monte Carlo
 error.
 """
 
-wp = winning_probabilities(severity)
+wp = probs(severity)
 
 (; derived_death = wp.death,
     simulated_death = n_death / (n_death + n_recover))
