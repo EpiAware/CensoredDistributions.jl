@@ -356,6 +356,15 @@ end
 # The effect evaluated at `u`: a callable is applied, a scalar is constant.
 _effect_at(effect, u) = effect isa Function ? effect(u) : effect
 
+# The pre-clamp modified rate g⁻¹(g(h(u)) + effect(u)): the modified hazard
+# before the non-negativity clamp. Its zero-crossings are the knots where the
+# clamp engages, so `max(rate, 0)` has a kink. Used both to clamp (below) and to
+# locate the knots that split the cumulative-hazard quadrature.
+function _premodified_rate(d::Modified, u::Real)
+    h = _base_hazard(d.dist, u)
+    return d.link.invlink(d.link.g(h) + _effect_at(d.effect, u))
+end
+
 # The modified instantaneous hazard h*(u) = max(g⁻¹(g(h(u)) + effect(u)), 0).
 # The clamp at zero keeps the modified hazard a valid (non-negative) hazard for
 # links whose inverse can return a negative rate. The additive (identity) link
@@ -365,18 +374,67 @@ _effect_at(effect, u) = effect isa Function ? effect(u) : effect
 # survival, cdf and pdf all use the same clamped hazard. For links with a
 # non-negative inverse (log → exp, logit → logistic) the clamp is a no-op.
 function _modified_hazard(d::Modified, u::Real)
-    h = _base_hazard(d.dist, u)
-    hstar = d.link.invlink(d.link.g(h) + _effect_at(d.effect, u))
+    hstar = _premodified_rate(d, u)
     return max(hstar, zero(hstar))
+end
+
+# Locate the clamp knots in `(lo, t)`: the points where the pre-clamp modified
+# rate crosses zero, so the clamped integrand `max(rate, 0)` has a kink there.
+# A coarse scan brackets each sign change, then bisection refines it. The scan
+# runs on AD-stripped primals (`_primal`), so the knots are plain `Float64` even
+# under AD; the quadrature integrand still carries the `Dual`s, which is what
+# differentiates correctly. The knots are where `max(rate, 0)` is continuous, so
+# they introduce no boundary terms under differentiation. Integrating each
+# smooth panel between knots (rather than one fixed rule over a kinked
+# integrand) keeps the cumulative hazard, and so the cdf, monotone to machine
+# precision (#670).
+const _MODIFIED_KNOT_SCAN = 64
+
+function _modified_knots(d::Modified, lo::Real, t::Real)
+    rate(u) = _primal(_premodified_rate(d, u))
+    knots = Float64[]
+    a = _primal(float(lo))
+    b = _primal(float(t))
+    step = (b - a) / _MODIFIED_KNOT_SCAN
+    step > zero(step) || return knots
+    prev_u = a
+    prev_r = rate(a)
+    for i in 1:_MODIFIED_KNOT_SCAN
+        cur_u = i == _MODIFIED_KNOT_SCAN ? b : a + i * step
+        cur_r = rate(cur_u)
+        if (prev_r < 0) != (cur_r < 0)
+            lo2, hi2 = prev_u, cur_u
+            for _ in 1:60
+                mid = (lo2 + hi2) / 2
+                (rate(lo2) < 0) == (rate(mid) < 0) ? (lo2 = mid) : (hi2 = mid)
+            end
+            push!(knots, (lo2 + hi2) / 2)
+        end
+        prev_u = cur_u
+        prev_r = cur_r
+    end
+    return knots
 end
 
 # The modified cumulative hazard H*(t) = ∫₀ᵗ h*(u) du via the solver. The lower
 # bound is the base support minimum (≥ 0 for a delay); a non-positive `t`
-# carries no hazard.
+# carries no hazard. The clamped integrand `max(rate, 0)` is kinked wherever the
+# clamp engages, so a single fixed-node rule over the whole span loses
+# monotonicity in the tail (#670); split the integral at the clamp knots and
+# integrate each smooth panel, summing the pieces.
 function _modified_cumhazard(d::Modified, t::Real)
     lo = max(minimum(d.dist), zero(t))
     t <= lo && return zero(float(promote_type(typeof(t), eltype(d.dist))))
-    return integrate(d.method, u -> _modified_hazard(d, u), lo, t)
+    integrand = u -> _modified_hazard(d, u)
+    knots = _modified_knots(d, lo, t)
+    isempty(knots) && return integrate(d.method, integrand, lo, t)
+    acc = integrate(d.method, integrand, lo, oftype(t, knots[1]))
+    for k in 2:length(knots)
+        acc += integrate(d.method, integrand,
+            oftype(t, knots[k - 1]), oftype(t, knots[k]))
+    end
+    acc += integrate(d.method, integrand, oftype(t, knots[end]), t)
+    return acc
 end
 
 # `logpdf* = log h*(t) - H*(t)` from the clamped modified hazard and its
