@@ -105,15 +105,19 @@ to name the branches; a branch may itself be a [`Sequential`](@ref),
 constructor.
 
 # Arguments
-- `branches`: the branch distributions, either as positional distributions or as
-  `name => dist` pairs naming each branch.
+- `branches`: the branch distributions, either as positional distributions, as
+  `name => dist` pairs naming each branch, or as a single named tuple
+  `(name = dist, …)` naming the branches positionally.
 
 # Examples
 ```@example
 using CensoredDistributions, Distributions
 
-d = parallel(:admit => Gamma(2.0, 1.0), :notif => LogNormal(1.0, 0.5))
-event_names(d)
+# Named tuple form: hand-written and reads as a tree.
+d = parallel((admit = Gamma(2.0, 1.0), notif = LogNormal(1.0, 0.5)))
+
+# The equivalent Pairs form, for data-driven or computed names.
+d == parallel(:admit => Gamma(2.0, 1.0), :notif => LogNormal(1.0, 0.5))
 ```
 
 # See also
@@ -130,6 +134,9 @@ function parallel(branches::Pair...)
     dists = Tuple(b.second for b in branches)
     return Parallel(dists, names)
 end
+
+# Positional NamedTuple spelling: `(a = d1, …)` lowers to `:a => d1, …` Pairs.
+parallel(branches::NamedTuple) = parallel(_nt_pairs(branches)...)
 
 parallel(b1, bs...) = Parallel((b1, bs...))
 parallel(branches::AbstractVector) = Parallel(Tuple(branches))

@@ -34,7 +34,9 @@ composers, not a new tree type.
 - `NamedTuple` (named, recursive): a [`Parallel`](@ref) over the named children.
   A child that is itself a `NamedTuple` nests as a `Parallel`, a child that is a
   `Vector` or `Tuple` of distributions nests as a [`Sequential`](@ref), and a
-  bare `UnivariateDistribution` is a leaf branch.
+  bare `UnivariateDistribution` is a leaf branch. The same flat structure may be
+  given as `:name => child` Pairs (`compose(:a => d1, :b => d2)`) for data-
+  driven or computed branch names; the two spellings build the same stack.
 - Tables.jl table with `name` and `dist` columns: a [`Parallel`](@ref) over the
   rows, the column-table equivalent of a flat `NamedTuple`. An optional `chain`
   column folds rows sharing a non-zero group id into a [`Sequential`](@ref)
@@ -92,6 +94,20 @@ function compose(nt::NamedTuple)
     _is_column_table(nt) && return _compose_table(nt)
     children = map(_compose_child, Tuple(nt))
     return Parallel(children, keys(nt))
+end
+
+# --- Pairs front-end -------------------------------------------------------
+# `compose(:a => d1, :b => d2)` is the Pairs spelling of the NamedTuple
+# front-end, for data-driven or computed branch names (a NamedTuple needs
+# literal field names). It lowers to a NamedTuple and the same `Parallel` build,
+# so the two spellings are `==`. Each pair's name must be a Symbol.
+function compose(branch1::Pair, branches::Pair...)
+    all_pairs = (branch1, branches...)
+    names = Tuple(b.first for b in all_pairs)
+    all(n -> n isa Symbol, names) ||
+        throw(ArgumentError("each compose branch name must be a Symbol"))
+    dists = Tuple(b.second for b in all_pairs)
+    return compose(NamedTuple{names}(dists))
 end
 
 # --- shared-origin front-end ----------------------------------------------

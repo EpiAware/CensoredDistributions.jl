@@ -104,7 +104,10 @@ alternatives are required and their names must be unique.
 
 # Arguments
 - `alternatives`: the `name => dist` pairs, each an independent sub-distribution
-  (a `UnivariateDistribution` or a nested composer).
+  (a `UnivariateDistribution` or a nested composer). A single named tuple
+  `(name = dist, …)` is the equivalent positional spelling for hand-written
+  alternatives, kept separate from the `selector` keyword; use Pairs for
+  data-driven or computed names.
 
 # Keyword Arguments
 - `selector`: the row field name (`Symbol`) whose value picks an alternative
@@ -115,8 +118,14 @@ alternatives are required and their names must be unique.
 using CensoredDistributions, Distributions
 
 # An index case (its own origin) vs a sourced case (a longer coupled delay),
-# selected by the row's `:kind` field.
-d = choose(:index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+# selected by the row's `:kind` field. The named tuple alternatives stay
+# positional, so the `selector` keyword reads separately.
+d = choose((index = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+        sourced = primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)));
+    selector = :kind)
+
+# The equivalent Pairs form, for data-driven or computed names.
+d == choose(:index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
     :sourced => primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
 
 # Score the alternative the data names.
@@ -138,6 +147,13 @@ function choose(alternatives::Pair...; selector::Symbol = :kind)
         throw(ArgumentError("each choose alternative name must be a Symbol"))
     dists = Tuple(a.second for a in alternatives)
     return Choose(names, dists, selector)
+end
+
+# Positional NamedTuple spelling: `(a = d1, …)` lowers to `:a => d1, …` Pairs,
+# kept separate from the `selector` keyword (the alternatives are positional, so
+# `selector` is not consumed as an alternative).
+function choose(alternatives::NamedTuple; selector::Symbol = :kind)
+    return choose(_nt_pairs(alternatives)...; selector = selector)
 end
 
 _n_alternatives(::Choose{N}) where {N} = N
