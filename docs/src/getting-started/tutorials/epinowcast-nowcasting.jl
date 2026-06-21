@@ -303,16 +303,16 @@ reference dates.
 """
 
 case_full = expected_matrix(true_lambda_case, composed_case, true_ref_effect,
-    true_dow, nothing)
+    true_dow, nothing);
 
 death_full = expected_matrix(true_lambda_death, composed_death, true_ref_effect,
-    true_dow, nothing)
+    true_dow, nothing);
 
 case_trunc = expected_matrix(true_lambda_case, composed_case, true_ref_effect,
-    true_dow, now)
+    true_dow, now);
 
 death_trunc = expected_matrix(true_lambda_death, composed_death,
-    true_ref_effect, true_dow, now)
+    true_ref_effect, true_dow, now);
 
 md"""
 Ascertainment thins the case rate by `ascertainment_factor`, the factor read out
@@ -331,9 +331,9 @@ expected matrix: this is the reporting triangle, one count per (reference date,
 delay) that has actually been reported by `now`.
 """
 
-case_obs = rand.(rng, Poisson.(case_trunc_obs .+ 1e-6))
+case_obs = rand.(rng, Poisson.(case_trunc_obs .+ 1e-6));
 
-death_obs = rand.(rng, Poisson.(death_trunc .+ 1e-6))
+death_obs = rand.(rng, Poisson.(death_trunc .+ 1e-6));
 
 md"""
 The count seen so far for each reference date is the row sum of the observed
@@ -379,10 +379,10 @@ difference).
 """
 
 base_full = expected_matrix(true_lambda_case, composed_case,
-    zeros(n_days), zeros(7), nothing)
+    zeros(n_days), zeros(7), nothing);
 
 base_trunc = expected_matrix(true_lambda_case, composed_case,
-    zeros(n_days), zeros(7), now)
+    zeros(n_days), zeros(7), now);
 
 matrix_completeness = vec(sum(base_trunc; dims = 2)) ./
                       vec(sum(base_full; dims = 2))
@@ -406,11 +406,10 @@ streams (they report through the same system), and give the death stream its own
 expectation through a sampled death fraction.
 
 One numerical guard: a right-truncated cell has expected mass exactly zero, and
-an extreme `log`-scale random-walk proposal can push the expectation to a very
-large value, so the product can momentarily evaluate to `Inf * 0 = NaN` before
-NUTS rejects the step. A small `safe_rate` floor keeps every Poisson rate finite
-and positive so the gradient stays defined; it does not change the model at any
-sensible parameter value.
+an extreme random-walk proposal can drive the expectation to `Inf`, so the
+product can momentarily hit `Inf * 0 = NaN`.
+A small `safe_rate` floor keeps every Poisson rate finite and positive so the
+gradient stays defined, without changing the model at sensible parameters.
 """
 
 safe_rate(x) = isfinite(x) ? max(x, 1e-6) : 1e-6
@@ -478,7 +477,7 @@ model = epinowcast_model(
 
 chain = sample(Xoshiro(1), model,
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 300, 4; chain_type = VNChain, progress = false)
+    MCMCThreads(), 300, 4; chain_type = VNChain, progress = false);
 
 md"""
 ## Recovery
@@ -493,13 +492,13 @@ The full matrix is thinned by the posterior ascertainment fraction `rho`, so the
 nowcast is on the same reported-case scale as the observations.
 The row sums of the thinned full matrix are the nowcast: the model's estimate of
 the final reported counts including the reports still to come.
-We summarise by the posterior mean and a 90% credible band.
+We keep one nowcast trajectory per draw so the posterior spread plots directly.
 """
 
 draw_keys = (:log_lambda0, :sigma_rw, :z, :death_frac, :rho,
     :sigma_ref, :zref, :dow)
 
-draws = (; (k => chain[k] for k in draw_keys)...)
+draws = (; (k => chain[k] for k in draw_keys)...);
 
 n_draws = length(draws.log_lambda0)
 
@@ -510,38 +509,41 @@ function nowcast_draw(i)
     return draws.rho[i] .* vec(sum(M; dims = 2))
 end
 
-nowcast_mat = reduce(hcat, (nowcast_draw(i) for i in 1:n_draws))
-
-nowcast_mean = vec(mean(nowcast_mat; dims = 2))
-
-nowcast_lo = [quantile(nowcast_mat[t, :], 0.05) for t in 1:n_days]
-
-nowcast_hi = [quantile(nowcast_mat[t, :], 0.95) for t in 1:n_days]
+nowcast_mat = reduce(hcat, (nowcast_draw(i) for i in 1:n_draws));
 
 md"""
 The nowcast tracks the true final counts across the whole window, and in
 particular lifts the most recent reference dates back up from their truncated
-"seen" values to their true level, with the credible band widening where more of
+"seen" values to their true level.
+We show a sample of posterior nowcast trajectories, one per draw, so the spread
+is visible directly; it widens for the most recent reference dates where more of
 the count is still unreported.
 """
+
+n_show = min(60, n_draws)
+
+show_idx = round.(Int, range(1, n_draws; length = n_show))
+
+nowcast_traj_df = vcat(
+    [DataFrame(day = 1:n_days, count = nowcast_mat[:, i], draw = i)
+     for i in show_idx]...)
 
 nowcast_df = vcat(
     DataFrame(day = 1:n_days, count = case_truth, kind = "true final"),
     DataFrame(day = 1:n_days, count = Float64.(case_seen),
-        kind = "seen by now"),
-    DataFrame(day = 1:n_days, count = nowcast_mean, kind = "nowcast mean"))
-
-band_df = DataFrame(day = 1:n_days, lo = nowcast_lo, hi = nowcast_hi)
+        kind = "seen by now"))
 
 nowcast_plot = (
-    data(band_df) * mapping(:day, :lo, :hi) * visual(Band; alpha = 0.2) +
+    data(nowcast_traj_df) *
+    mapping(:day, :count, group = :draw => nonnumeric) *
+    visual(Lines, color = (:steelblue, 0.12)) +
     data(nowcast_df) * mapping(:day, :count, color = :kind => "") *
     visual(Lines))
 
 draw(nowcast_plot;
     figure = (; size = (800, 380)),
     axis = (; xlabel = "reference date", ylabel = "case count",
-        title = "Nowcast vs truncated observations"))
+        title = "Nowcast trajectories vs truncated observations"))
 
 md"""
 ### The hazard effects
@@ -591,7 +593,7 @@ post_case_exp = let M = zeros(n_days, max_delay + 1)
               expected_matrix(lambda, composed_case, ref, draws.dow[i], now)
     end
     M ./ n_draws
-end
+end;
 
 obs_by_delay = vec(sum(case_obs; dims = 1))
 
