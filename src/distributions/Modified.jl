@@ -126,7 +126,8 @@ struct Modified{D <: UnivariateDistribution, E, L <: HazardLink, M} <:
     "The quadrature solver used on the continuous numeric path."
     method::M
 
-    function Modified(dist::D, effect::E, link::L, method::M) where {
+    function Modified(dist::D, effect::E, link::L,
+            method::M) where {
             D <: UnivariateDistribution, E, L <: HazardLink, M}
         new{D, E, L, M}(dist, effect, link, method)
     end

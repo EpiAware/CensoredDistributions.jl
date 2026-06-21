@@ -601,14 +601,16 @@ function scenarios(; with_reference::Bool = false)
     if isdefined(CensoredDistributions, :modify)
         # Analytic proportional hazards: logpdf wrt the log-hazard effect β.
         _push!("Modified log link logpdf wrt effect",
-            (θ, obs) -> sum(
+            (θ,
+                obs) -> sum(
                 x -> logpdf(modify(LogNormal(1.5, 0.5), θ[1]; link = log), x),
                 obs),
             [-0.4], (Constant(obs),))
 
         # Analytic additive hazards: logpdf wrt the additive effect β.
         _push!("Modified identity link logpdf wrt effect",
-            (θ, obs) -> sum(
+            (θ,
+                obs) -> sum(
                 x -> logpdf(
                     modify(LogNormal(1.5, 0.5), θ[1]; link = identity), x),
                 obs),
@@ -617,7 +619,8 @@ function scenarios(; with_reference::Bool = false)
         # Numeric quadrature path: a logit link on a continuous base routes
         # through the Gauss-Legendre solver; logpdf wrt the effect.
         _push!("Modified numeric logit logpdf wrt effect",
-            (θ, obs) -> sum(
+            (θ,
+                obs) -> sum(
                 x -> logpdf(modify(Gamma(2.0, 1.5), θ[1]; link = :logit), x),
                 obs),
             [0.3], (Constant(obs),))
@@ -627,7 +630,8 @@ function scenarios(; with_reference::Bool = false)
         # gradient (its hazard is pinned to one).
         obs_disc = [0.0, 1.0, 2.0, 3.0, 4.0]
         _push!("Modified discrete logit logpdf wrt effects",
-            (θ, obs) -> sum(
+            (θ,
+                obs) -> sum(
                 x -> logpdf(
                     modify(interval_censored(LogNormal(1.5, 0.5), 1.0), θ;
                         link = :logit), x),
