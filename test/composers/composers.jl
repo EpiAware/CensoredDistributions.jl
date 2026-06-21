@@ -728,6 +728,53 @@ end
     @test nested.admit_death.mu isa Normal
 end
 
+@testitem "build_priors front-door matches the table form" begin
+    using Distributions
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+
+    # The front-door builds the params_table internally; same nested priors.
+    @test build_priors(tree) == build_priors(params_table(tree))
+    # param_priors is a thin alias over the same machinery.
+    @test param_priors(tree) == build_priors(params_table(tree))
+
+    # The keyword surface is forwarded unchanged.
+    @test build_priors(tree;
+        default = row -> truncated(Normal(row.value, 1); lower = -10)) ==
+          build_priors(params_table(tree);
+        default = row -> truncated(Normal(row.value, 1); lower = -10))
+    @test build_priors(tree;
+        priors = Dict((:onset_admit, :shape) => Normal(2, 0.5))) ==
+          build_priors(params_table(tree);
+        priors = Dict((:onset_admit, :shape) => Normal(2, 0.5)))
+
+    # Overrides via update still work off the front-door result.
+    shape_prior = truncated(Normal(2, 0.5); lower = 0)
+    updated = update(build_priors(tree),
+        (:onset_admit,) => (shape = shape_prior,))
+    @test updated.onset_admit.shape === shape_prior
+    @test updated.admit_death.mu === build_priors(tree).admit_death.mu
+
+    # An unknown override path still errors clearly.
+    @test_throws ArgumentError update(build_priors(tree),
+        :nope => (shape = shape_prior,))
+end
+
+@testitem "build_priors front-door works on a bare leaf" begin
+    using Distributions
+
+    leaf = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
+
+    # A bare leaf keys the priors flat by parameter name (no edge wrapper).
+    priors = build_priors(leaf)
+    @test Set(keys(priors)) == Set((:mu, :sigma))
+    @test priors == build_priors(params_table(leaf))
+    @test param_priors(leaf) == priors
+    @test priors.mu isa Normal
+    @test priors.sigma isa Truncated
+end
+
 @testitem "event pulls a named subtree from a composed dist" begin
     using Distributions
 

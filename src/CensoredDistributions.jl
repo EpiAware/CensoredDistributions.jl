@@ -93,7 +93,7 @@ export Sequential, Parallel, Resolve, Compete, NoEvent,
 # a child or descends a path. Nested name-keyed values come from the extended
 # `Distributions.params`.
 export params_table, event_names, event_tree, event, update, build_priors,
-       default_prior, inspect
+       param_priors, default_prior, inspect
 
 # Exported structural edits on a composed tree. `update` (the `path => new_node`
 # method, sharing the verb with the value-update NamedTuple method) replaces a
