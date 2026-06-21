@@ -28,22 +28,82 @@
     @test logpdf(g, 2.0) == logpdf(Gamma(2.0, 1.0), 2.0)
 end
 
-@testitem "forward transforms are transparent to logpdf/cdf" begin
+@testitem "cumulative is transparent to logpdf/cdf" begin
     using CensoredDistributions, Distributions
 
+    # `cumulative` (and the generic `transform`) stay logpdf-transparent: an
+    # individual delay use ignores the forward op. `thin` is the exception
+    # (tested separately as the resolve + NoEvent one-of).
     inner = LogNormal(1.5, 0.5)
-    for d in (thin(inner, 0.3), cumulative(inner))
-        for x in [0.5, 1.0, 2.0, 4.0]
-            @test logpdf(d, x) == logpdf(inner, x)
-            @test pdf(d, x) == pdf(inner, x)
-            @test cdf(d, x) == cdf(inner, x)
-            @test logcdf(d, x) == logcdf(inner, x)
-            @test quantile(d, 0.4) == quantile(inner, 0.4)
-        end
-        @test minimum(d) == minimum(inner)
-        @test maximum(d) == maximum(inner)
-        @test mean(d) == mean(inner)
+    d = cumulative(inner)
+    for x in [0.5, 1.0, 2.0, 4.0]
+        @test logpdf(d, x) == logpdf(inner, x)
+        @test pdf(d, x) == pdf(inner, x)
+        @test cdf(d, x) == cdf(inner, x)
+        @test logcdf(d, x) == logcdf(inner, x)
+        @test quantile(d, 0.4) == quantile(inner, 0.4)
     end
+    @test minimum(d) == minimum(inner)
+    @test maximum(d) == maximum(inner)
+    @test mean(d) == mean(inner)
+end
+
+@testitem "thin is the resolve + NoEvent one-of under logpdf / rand" begin
+    using CensoredDistributions, Distributions, Random
+
+    inner = LogNormal(1.5, 0.5)
+    p = 0.3
+    d = thin(inner, p)
+
+    # thin is NOT logpdf-transparent: an event is reported w.p. p, so the
+    # density is defective (mass p), matching the `:event` branch of the
+    # resolve + NoEvent one-of (`log p + logpdf(inner, x)`).
+    for x in [0.5, 1.0, 2.0, 4.0]
+        @test logpdf(d, x) ≈ log(p) + logpdf(inner, x)
+        @test pdf(d, x) ≈ p * pdf(inner, x)
+        @test cdf(d, x) ≈ p * cdf(inner, x)
+        @test logcdf(d, x) ≈ log(p) + logcdf(inner, x)
+        @test ccdf(d, x) ≈ 1 - p * cdf(inner, x)
+    end
+
+    # Conditional-on-report time moments / quantile are the inner delay's.
+    @test mean(d) == mean(inner)
+    @test var(d) == var(inner)
+    @test quantile(d, 0.4) == quantile(inner, 0.4)
+
+    # rand reports w.p. p (a time from inner), else `missing` (no event).
+    rng = MersenneTwister(42)
+    draws = [rand(rng, d) for _ in 1:20000]
+    @test count(ismissing, draws) / 20000≈1 - p atol=0.02
+    @test all(x -> ismissing(x) || x >= 0, draws)
+
+    # The standalone scalar logpdf equals the resolve + NoEvent `:event`-branch
+    # conditioned log-density (the convolution-marginal equivalence's per-record
+    # honest model).
+    r = resolve(:event => (inner, p), :none => (NoEvent(), 1 - p))
+    @test CensoredDistributions._has_no_event(r)
+    @test logpdf(d, 2.0) ≈
+          CensoredDistributions._one_of_condition_logpdf(
+        (p, 1 - p), inner, 2.0, 1)
+end
+
+@testitem "thin convolution equals the resolve + NoEvent count scaling" begin
+    using CensoredDistributions, Distributions
+
+    # The convolution-marginal equivalence: under `convolve_distributions` the
+    # new thin STILL scales the branch's count series by p (epinowcast's
+    # aggregate-count ascertainment is unchanged), and equals the resolve +
+    # NoEvent node's `:event`-branch series.
+    inner = Gamma(2.0, 1.0)
+    p = 0.3
+    series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
+
+    plain = convolve_distributions(inner, series)
+    thinned = convolve_distributions(thin(inner, p), series)
+    @test thinned ≈ p .* plain
+
+    r = resolve(:event => (inner, p), :none => (NoEvent(), 1 - p))
+    @test thinned ≈ convolve_distributions(r, series; events = :event)
 end
 
 @testitem "forward transforms peel via free_leaf and rewrap" begin
