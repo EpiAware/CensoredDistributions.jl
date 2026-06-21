@@ -210,6 +210,7 @@ function latent_observed_logpdf(d, rows, primaries)
             k += width
             lp = _latent_row_observed_logpdf(alt, _latent_row_events(d, nt),
                 block)
+            lp += _branch_prob_logterm(nt)
             total += _weight_lp(lp, w)
         end
     end
@@ -252,6 +253,15 @@ function _latent_row_observed_logpdf(chain::Sequential, events, block)
     shift = iv === nothing ? prev : _apply_leaf_interval(prev, iv)
     return logpdf(edges[k], terminal - shift)
 end
+
+# The per-record branch (case-fatality) log-probability of a latent Resolve-
+# outcome segment row: `log(branch_prob)` when the row carries the reserved
+# scalar `branch_prob` field (the resolved outcome's own probability), else zero.
+# This is the latent counterpart of the marginal Resolve's branch weight, so a
+# resolved record contributes the outcome's split probability through the same
+# vectorised observed sum.
+_branch_prob_logterm(nt::NamedTuple) = haskey(nt, :branch_prob) ?
+                                       log(nt.branch_prob) : 0.0
 
 # The terminal (last) observed value of a chain's flat event vector. The
 # endpoint-observed chain row observes only its terminal event; an intermediate

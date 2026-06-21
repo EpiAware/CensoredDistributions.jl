@@ -262,9 +262,12 @@ end
 # width (`obs_window`, which adds a LOWER edge a width δ below the horizon, giving
 # the finite window `[obs_time - δ, obs_time]`), and a per-record Resolve
 # branch-probability override (`branch_probs`) that rides a nested-Resolve tree
-# row and is excluded from by-name event matching.
+# row, and a scalar `branch_prob` carried by a latent Resolve-outcome segment row
+# (the resolved outcome's own probability, added as `log(branch_prob)` by the
+# vectorised latent observed scorer); both are excluded from by-name event
+# matching.
 const _RESERVED_ROW_FIELDS = (
-    :weight, :count, :obs_time, :obs_window, :branch_probs)
+    :weight, :count, :obs_time, :obs_window, :branch_probs, :branch_prob)
 
 # The event values of a row in field order, dropping the reserved weight/count
 # fields, as a `Vector{Union{Missing, Float64}}` (one entry per event, `missing`

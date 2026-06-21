@@ -43,6 +43,9 @@ export primary_censored, interval_censored, double_interval_censored,
 # Exported latent representation and its inverse
 export latent, marginal, PrimaryConditional, primary_conditional_logpdf
 
+# Exported marginal -> latent wrapper over a composed tree and its row deriver.
+export latent_segments, latent_records
+
 # Export underlying methods for user extension
 export primarycensored_cdf, primarycensored_logcdf
 
@@ -282,6 +285,12 @@ include("composers/record_dists.jl")
 # helpers (`_row_namedtuple`, `_row_event_vector`, `_weight_lp`) and the
 # `_alternative_record` Choose build, and defines the shared `_narrow` helper.
 include("composers/record_latent.jl")
+# The marginal -> latent WRAPPER over a composed tree: `latent(tree)` lowers a
+# composer to the per-segment latent `Choose`, and `latent_records` derives the
+# per-segment rows the vectorised path scores. After record_latent.jl (it builds
+# the `Choose` the vectorised path consumes) and the composer files (it reads the
+# tree structure and event names).
+include("composers/latent_tree.jl")
 # Grouped per-stratum assembly (`record_distributions(ds, rows; group)` and
 # `batched_event_logpdf`). Split out of record_dists.jl; after record_latent.jl
 # since it reuses `_narrow`, and after record_dists.jl's single-`d`
