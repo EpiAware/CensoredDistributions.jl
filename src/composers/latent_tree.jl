@@ -158,6 +158,14 @@ function _collect_segments!(segs, c::AbstractOneOf, origin::Symbol)
     return nothing
 end
 
+# A standalone Choose node routes to one alternative of a shared event-slot
+# width; its default (first) alternative defines the segment layout (the
+# alternatives share it), mirroring the nested-Choose edge walk.
+function _collect_segments!(segs, d::Choose, origin::Symbol)
+    _collect_segments!(segs, _flat_choose_alternative(d), origin)
+    return nothing
+end
+
 # One edge of a composer. A leaf edge is one segment named by its split edge
 # name; a nested composer recurses and returns its terminal event for a
 # following chain step.

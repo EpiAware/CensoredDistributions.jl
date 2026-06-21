@@ -23,6 +23,24 @@
           (:onset_admit, :admit_death, :admit_discharge, :onset_notif)
 end
 
+@testitem "latent_segments lowers a top-level Choose tree" begin
+    using CensoredDistributions, Distributions
+
+    dic(d) = double_interval_censored(d;
+        primary_event = Uniform(0, 1), interval = 1.0)
+    # A standalone Choose tree: its default alternative defines the segment
+    # layout (the alternatives share the event-slot width).
+    tree = choose(
+        :fast => sequential(:onset_admit => dic(Gamma(1.2, 3.0))),
+        :slow => sequential(:onset_admit => dic(Gamma(0.7, 20.0))))
+
+    # One leaf segment, so the wrapper is a single latent chain (not a Choose).
+    seg = latent_segments(tree)
+    @test event_names(seg) == (:onset, :admit)
+    tab = latent_records(tree, [(onset = 0.0, admit = 4.0)])
+    @test isequal(tab, [(kind = :onset_admit, onset = missing, admit = 4.0)])
+end
+
 @testitem "latent_records derives the observed segment rows" begin
     using CensoredDistributions, Distributions
 
@@ -48,8 +66,9 @@ end
     # onset->admit segment: origin sampled (missing), observed gap = admit.
     @test isequal(tab[1], (kind = :onset_admit, onset = missing, admit = 4.0))
     # admit->death segment: gap = death - admit, carrying the death branch prob.
-    @test isequal(tab[2], (kind = :admit_death, admit = missing, death = 8.0,
-        branch_prob = 0.3))
+    @test isequal(
+        tab[2], (kind = :admit_death, admit = missing, death = 8.0,
+            branch_prob = 0.3))
     # onset->notif segment of the FIRST record.
     @test isequal(tab[3], (kind = :onset_notif, onset = missing, notif = 18.0))
     # The second record has only its notif segment (no admit -> no resolution).
@@ -95,8 +114,9 @@ end
             push!(rows, (kind = :admit_death, admit = missing,
                 death = r.death - r.admit))
         elseif r.discharge !== missing
-            push!(rows, (kind = :admit_discharge, admit = missing,
-                discharge = r.discharge - r.admit))
+            push!(rows,
+                (kind = :admit_discharge, admit = missing,
+                    discharge = r.discharge - r.admit))
         end
         r.notif !== missing &&
             push!(rows, (kind = :onset_notif, onset = missing, notif = r.notif))
