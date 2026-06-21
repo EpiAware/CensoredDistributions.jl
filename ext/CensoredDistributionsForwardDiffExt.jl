@@ -33,11 +33,19 @@ _primal(x::Dual) = _primal(value(x))
 # there's a use case.
 
 _val(x) = x isa Dual ? value(x) : x
+# The tag `T` and partial-width `N` of the first `Dual` among the args; every
+# `_gamma_cdf` Dual entry has at least one, so this never falls through.
+_dual_tag(x::Dual{T}, rest...) where {T} = T
+_dual_tag(::Real, rest...) = _dual_tag(rest...)
+_dual_width(x::Dual{T, V, N}, rest...) where {T, V, N} = N
+_dual_width(::Real, rest...) = _dual_width(rest...)
 function _par(x, ::Val{N}) where {N}
     x isa Dual ? partials(x) : ForwardDiff.Partials(ntuple(_ -> zero(_val(x)), N))
 end
 
-function _dual_impl(::Type{T}, k, θ, x, ::Val{N}) where {T, N}
+function _dual_impl(k, θ, x)
+    T = _dual_tag(k, θ, x)
+    N = _dual_width(k, θ, x)
     kv = _val(k)
     θv = _val(θ)
     xv = _val(x)
@@ -46,30 +54,51 @@ function _dual_impl(::Type{T}, k, θ, x, ::Val{N}) where {T, N}
     return Dual{T}(Ω, new_partials)
 end
 
-# All non-trivial Dual subsets of (k, θ, x). Triplet → single Dual paths
-# cover every combination ForwardDiff dispatches on at use sites — both
-# stand-alone (`gradient(f, AutoForwardDiff(), [k, θ, x])`) and through
-# `primarycensored_cdf` (which propagates Duals into selected args only).
-function _gamma_cdf(k::Dual{T, V, N}, θ::Dual{T, V, N}, x::Dual{T, V, N}) where {T, V, N}
-    return _dual_impl(T, k, θ, x, Val(N))
+# Cover every combination of (k, θ, x) where AT LEAST ONE argument is a
+# `Dual`, routing all of them to `_dual_impl`. `Dual <: Real`, so the
+# slots typed `::Real` already accept a `Dual`; the seven methods below
+# therefore overlap, and (as with any ForwardDiff multi-argument overload
+# set) the overlaps need explicit resolvers — the three double-`Dual`
+# methods resolve the pairwise intersections of the single-`Dual` methods,
+# and the all-`Dual` method resolves the triple intersection.
+#
+# The earlier version (issue #672) had exactly these seven methods but
+# carried a SHARED `{T, V, N}` parametrisation across the `Dual` slots, so
+# the resolvers only covered the SAME-tag intersection: the intersection
+# of `(Dual{T₁}, Real, Real)` and `(Real, Dual{T₂}, Real)` is the
+# MIXED-tag `(Dual{T₁}, Dual{T₂}, Real)`, which the shared-tag resolver
+# `(Dual{T}, Dual{T}, Real)` does NOT dominate (it pins `T₁ == T₂`). That
+# left the mixed-tag corner uncovered, so `detect_ambiguities` flagged all
+# six partial pairs even though concrete same-tag calls resolved fine.
+#
+# Dropping the shared tag (each `Dual` slot is now an UNPARAMETRISED
+# `Dual`) makes every resolver cover the mixed-tag intersection too, so
+# the method table is unambiguous. `_dual_impl` reads the tag/width from
+# the first `Dual` at run time. The same two edge cases remain unsupported
+# (they error inside the helper, not via ambiguous dispatch): nested
+# `Dual`s, and mixed tags across arguments (their partials would be
+# combined under a single tag, which ForwardDiff never asks for in a
+# single differentiation pass).
+function _gamma_cdf(k::Dual, θ::Dual, x::Dual)
+    return _dual_impl(k, θ, x)
 end
-function _gamma_cdf(k::Dual{T, V, N}, θ::Dual{T, V, N}, x::Real) where {T, V, N}
-    return _dual_impl(T, k, θ, x, Val(N))
+function _gamma_cdf(k::Dual, θ::Dual, x::Real)
+    return _dual_impl(k, θ, x)
 end
-function _gamma_cdf(k::Dual{T, V, N}, θ::Real, x::Dual{T, V, N}) where {T, V, N}
-    return _dual_impl(T, k, θ, x, Val(N))
+function _gamma_cdf(k::Dual, θ::Real, x::Dual)
+    return _dual_impl(k, θ, x)
 end
-function _gamma_cdf(k::Real, θ::Dual{T, V, N}, x::Dual{T, V, N}) where {T, V, N}
-    return _dual_impl(T, k, θ, x, Val(N))
+function _gamma_cdf(k::Real, θ::Dual, x::Dual)
+    return _dual_impl(k, θ, x)
 end
-function _gamma_cdf(k::Dual{T, V, N}, θ::Real, x::Real) where {T, V, N}
-    return _dual_impl(T, k, θ, x, Val(N))
+function _gamma_cdf(k::Dual, θ::Real, x::Real)
+    return _dual_impl(k, θ, x)
 end
-function _gamma_cdf(k::Real, θ::Dual{T, V, N}, x::Real) where {T, V, N}
-    return _dual_impl(T, k, θ, x, Val(N))
+function _gamma_cdf(k::Real, θ::Dual, x::Real)
+    return _dual_impl(k, θ, x)
 end
-function _gamma_cdf(k::Real, θ::Real, x::Dual{T, V, N}) where {T, V, N}
-    return _dual_impl(T, k, θ, x, Val(N))
+function _gamma_cdf(k::Real, θ::Real, x::Dual)
+    return _dual_impl(k, θ, x)
 end
 
 end
