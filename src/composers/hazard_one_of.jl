@@ -53,7 +53,7 @@ Build it with the [`compete`](@ref) constructor by giving BARE delays
 # See also
 - [`compete`](@ref): the constructor (bare delays; no branch probabilities).
 - [`Resolve`](@ref): the fixed-probability mixture sibling.
-- [`winning_probabilities`](@ref): the derived per-cause winning probabilities.
+- `Distributions.probs`: the derived per-cause winning probabilities.
 - [`convolve_distributions`](@ref): the sum dual (events in series).
 "
 struct Compete{C <: Tuple, D <: Tuple} <: AbstractOneOf
@@ -93,7 +93,7 @@ outcomes are required.
 using CensoredDistributions, Distributions
 
 node = Compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
-winning_probabilities(node)
+probs(node)
 ```
 
 # See also
@@ -153,7 +153,7 @@ The marginal density is `∑_j f_j(t) ∏_{k≠j} S_k(t)`; this is its log via t
 log-sum-exp of the cause-resolved sub-densities, AD-safe (the leaf params
 propagate, no `float` stripping).
 
-See also: [`Compete`](@ref), [`winning_probabilities`](@ref)
+See also: [`Compete`](@ref), `Distributions.probs`
 "
 function logpdf(c::Compete, t::Real)
     _is_nonterminal(c) && _nonterminal_marginal_error("logpdf")
@@ -240,7 +240,7 @@ latent time per cause and return the `argmin` cause with its `min` time.
 
 This is the generative dual of the [`logpdf`](@ref) (`f_j ∏_{k≠j} S_k`) and of
 the forward `convolve_distributions` stream: the Monte Carlo winning-cause
-frequencies match the derived [`winning_probabilities`](@ref) and the forward
+frequencies match the derived `Distributions.probs` split and the forward
 per-outcome stream masses.
 
 # Arguments
@@ -255,7 +255,7 @@ node = compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
 name, time = rand_outcome(MersenneTwister(1), node)
 ```
 
-See also: [`Compete`](@ref), [`winning_probabilities`](@ref)
+See also: [`Compete`](@ref), `Distributions.probs`
 "
 function rand_outcome(rng::AbstractRNG, c::Compete)
     n = _n_branches(c)
@@ -278,24 +278,32 @@ The DERIVED per-cause winning probabilities of a racing-hazard
 [`Compete`](@ref) node: `P(cause = j) = ∫ f_j(t) ∏_{k≠j} S_k(t) dt`,
 returned as a `NamedTuple` keyed by the outcome names.
 
+This is the [`Compete`](@ref) method of `Distributions.probs`, the standard
+mixture-weight reader: it gives the same per-outcome split [`Resolve`](@ref)
+returns from its declared branch probabilities, but DERIVED here from the
+hazards rather than declared.
+
 Computed by AD-safe fixed-node Gauss-Legendre quadrature of the cause-resolved
 sub-density over the marginal support. The probabilities are sub-stochastic-free
 (they sum to one for proper, eventually-certain causes); a node whose causes can
 leave residual survival at `+∞` (a defective cause) sums to less than one, the
 deficit being the never-resolved mass.
 
+# Arguments
+- `c`: the [`Compete`](@ref) node whose derived per-cause winning split to read.
+
 # Examples
 ```@example
 using CensoredDistributions, Distributions
 
 node = compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
-winning_probabilities(node)
+probs(node)
 ```
 
 See also: [`Compete`](@ref), [`occurrence_probability`](@ref)
 "
-function winning_probabilities(c::Compete)
-    _is_nonterminal(c) && _nonterminal_marginal_error("winning_probabilities")
+function probs(c::Compete)
+    _is_nonterminal(c) && _nonterminal_marginal_error("probs")
     lo = float(minimum(c))
     hi_raw = float(maximum(c))
     # Bind `hi` UNCONDITIONALLY (a ternary, not `isfinite(hi) || (hi = ...)`): the
@@ -305,12 +313,12 @@ function winning_probabilities(c::Compete)
     # unbounded cause support falls back to a finite high-quantile quad window.
     hi = isfinite(hi_raw) ? hi_raw : lo + _hazard_quad_window(c)
     n = _n_branches(c)
-    probs = ntuple(n) do j
+    winning = ntuple(n) do j
         gl_integrate(lo, hi, _PRIMARY_GL) do t
             exp(_hazard_cause_logpdf(c, j, t))
         end
     end
-    return NamedTuple{c.names}(probs)
+    return NamedTuple{c.names}(winning)
 end
 
 # A finite quadrature window for a cause with unbounded support: a high quantile
@@ -325,10 +333,13 @@ end
 The probability that ANY (non-no-event) outcome occurs for a one_of node.
 
 For a racing-hazard [`Compete`](@ref) node `occurrence_probability` is the
-sum of the derived [`winning_probabilities`](@ref) (one for proper,
-eventually-certain causes; the resolved mass for a defective node). For a
-fixed-probability [`Resolve`](@ref) node it is one minus the no-event branch
-mass.
+sum of the derived per-cause split `Distributions.probs` returns (one for
+proper, eventually-certain causes; the resolved mass for a defective node).
+For a fixed-probability [`Resolve`](@ref) node it is one minus the no-event
+branch mass.
+
+# Arguments
+- `c`: the [`Compete`](@ref) node whose any-event probability to read.
 
 # Examples
 ```@example
@@ -339,10 +350,10 @@ occurrence_probability(node)
 ```
 
 # See also
-- [`winning_probabilities`](@ref): the per-outcome winning split.
+- `Distributions.probs`: the per-outcome winning split this sums.
 "
 function occurrence_probability(c::Compete)
-    return sum(values(winning_probabilities(c)))
+    return sum(values(probs(c)))
 end
 
 # ----------------------------------------------------------------------------

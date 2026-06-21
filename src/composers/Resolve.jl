@@ -289,14 +289,14 @@ mixture where cause is independent of timing) use [`resolve`](@ref) instead.
 using CensoredDistributions, Distributions
 
 node = compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
-winning_probabilities(node)
+probs(node)
 ```
 
 # See also
 - [`Compete`](@ref): the composer type
 - [`resolve`](@ref): the fixed-probability sibling constructor (`(delay, prob)`)
 - [`choose`](@ref): the data-selected disjunction sibling constructor
-- [`winning_probabilities`](@ref): the derived per-cause winning probabilities
+- `Distributions.probs`: the derived per-cause winning probabilities
 - [`compose`](@ref): the front-end that nests the node as a branch
 "
 function compete(outcomes::Pair...)
@@ -690,13 +690,32 @@ end
 
 @doc "
 
-The probability that the named outcome occurs for a fixed-probability
-[`Resolve`](@ref) node: its branch probability (the no-event branch's mass is
-the non-occurrence probability), returned as a `NamedTuple`.
+The per-outcome probabilities of a fixed-probability [`Resolve`](@ref) node:
+its declared branch probabilities (the no-event branch's mass is the
+non-occurrence probability), returned as a `NamedTuple` keyed by the outcome
+names.
+
+This is the [`Resolve`](@ref) method of `Distributions.probs`, the standard
+mixture-weight reader: a `Resolve` lowers to a `MixtureModel` (see
+[`as_mixture`](@ref)), so its weights ARE the declared branch probabilities.
+The racing-hazard [`Compete`](@ref) sibling derives the same split from the
+hazards instead.
+
+# Arguments
+- `c`: the [`Resolve`](@ref) node whose declared branch probabilities to read.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+node = resolve(:death => (Gamma(1.5, 1.0), 0.3),
+    :disch => (Gamma(2.0, 1.5), 0.7))
+probs(node)
+```
 
 See also: [`occurrence_probability`](@ref)
 "
-function winning_probabilities(c::Resolve)
+function probs(c::Resolve)
     return NamedTuple{c.names}(c.branch_probs)
 end
 
@@ -705,7 +724,7 @@ end
 The probability that ANY (non-no-event) outcome occurs for a fixed-probability
 [`Resolve`](@ref) node: one minus the no-event branch mass.
 
-See also: [`winning_probabilities`](@ref)
+See also: `Distributions.probs`
 "
 function occurrence_probability(c::Resolve)
     total = zero(float(eltype(c.branch_probs)))

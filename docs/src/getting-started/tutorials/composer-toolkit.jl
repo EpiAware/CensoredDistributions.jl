@@ -164,12 +164,12 @@ event_names(resolution)
 
 racing = compete(:death => Gamma(1.5, 1.0), :discharge => Gamma(2.0, 1.5));
 
-# [`winning_probabilities`](@ref) reads the derived per-cause split, and
+# `Distributions.probs` reads the derived per-cause split, and
 # [`occurrence_probability`](@ref) sums it (one when every cause eventually
 # fires; below one when a [`NoEvent`](@ref) branch carries leftover mass for a
 # case that need not resolve at all).
 
-winning_probabilities(racing)
+probs(racing)
 
 # Reach for `compete` when the outcome split is driven by competing risks on a
 # shared clock, so the probabilities follow from the delays rather than being
@@ -648,11 +648,11 @@ pruned = prune(resolution_tree, :resolution, :transfer);
 # the death and discharge probabilities scale up to sum to one again.
 # Before pruning the three arms carry their original probabilities.
 
-winning_probabilities(three_way)
+probs(three_way)
 
 # After pruning, the death and discharge arms scale up to sum to one.
 
-winning_probabilities(event(pruned, :resolution))
+probs(event(pruned, :resolution))
 
 # `splice` wraps a node in a chain, here adding a reporting delay after the
 # notification branch.
