@@ -31,6 +31,99 @@
 # This page is the composer reference the case studies point to. It builds on
 # [Getting Started with CensoredDistributions.jl](@ref getting-started).
 
+# ## The operator map
+#
+# Every operator on this page falls into one of seven families.
+# The map below groups them so a reader can find the right verb by intent before
+# reading the worked examples.
+# Structural composers wire branches into a tree, combinators add or difference
+# whole delays, censoring and truncation reshape what a delay records, modifiers
+# adjust one coordinate of a leaf, the forward family acts on an output series,
+# and the introspection verbs read or edit an assembled object.
+#
+# ```text
+# Structural composition (wire branches into a tree)
+# ├─ compose      lower a NamedTuple / table / matrix to the stack
+# ├─ sequential   conjunctive chain (steps add up)
+# ├─ parallel     independent branches off one shared origin
+# ├─ compete      racing hazards, first to fire wins
+# ├─ resolve      one outcome occurs by fixed probability
+# ├─ choose       a data field picks the branch
+# ├─ tie          tie leaves at paths into one parameter group
+# └─ shared       tag a leaf as a tied parameter group at build time
+#
+# Combination (add or difference whole delays)
+# ├─ convolve_distributions   the sum X + Y (Convolved)
+# └─ difference               the dual X - Y (Difference)
+#
+# Censoring (reshape what a delay records)
+# ├─ primary_censored          primary-event window only
+# ├─ interval_censored         observation interval only
+# └─ double_interval_censored  primary + truncation + interval
+#
+# Truncation (drop mass outside an observation horizon)
+# ├─ truncate_to_horizon   upper-only right-truncation at a horizon
+# └─ truncate_to_window    δ-bounded truncation to [h - δ, h]
+#
+# Distribution modifiers (adjust one coordinate of a leaf)
+# ├─ affine   value / time axis    (accelerated failure time)
+# ├─ modify   hazard axis          (proportional or additive hazards)
+# ├─ weight   log-density mass     (count-weighted likelihood)
+# └─ thin     event probability    (resolve + NoEvent semantics)
+#
+# Forward / observation (act on the convolved output series)
+# ├─ transform              a deterministic op on the output series
+# ├─ cumulative             accumulate the series
+# └─ convolve_with_vector   apply a discrete delay kernel to the series
+#
+# Introspection (read or edit an assembled object)
+# ├─ probs                   the one-of mixture weights
+# ├─ occurrence_probability  the any-event probability (their sum)
+# ├─ params_table            the flat free-parameter inventory
+# ├─ event / event_names     fetch a child / the flat per-event names
+# ├─ update                  replace values or whole nodes
+# └─ inspect                 print the assembled tree
+# ```
+#
+# The structural composers are the subject of [The five composers](@ref) and
+# [Nesting](@ref) below; [`tie`](@ref) and [`shared`](@ref) appear in the
+# [Syntax reference](@ref) at the foot of the page.
+# The censoring leaves are the [drop-in swap](@ref censoring-drop-in), and
+# truncation is covered under [Truncating the whole chain](@ref).
+# The combinators ([`convolve_distributions`](@ref), [`difference`](@ref)) and
+# the forward family ([`transform`](@ref), [`cumulative`](@ref)) build the
+# output series an [Rt renewal model](@ref rt-renewal-convolution) consumes, and
+# the same forward idea generalises to a renewal or ODE output series.
+#
+# ### What coordinate each modifier touches
+#
+# The four distribution modifiers each act on a different coordinate of a leaf,
+# so they stack rather than compete.
+# [`affine`](@ref) is available as `affine(d; scale, shift)`: it rescales and
+# offsets the time axis (accelerated failure time).
+# [`modify`](@ref) reshapes the hazard through a link (`log` for proportional
+# hazards, `identity` for additive, `:logit` for a discrete reporting hazard).
+# [`weight`](@ref) scales the log-density mass for a count-weighted record, and
+# [`thin`](@ref) attaches an event probability with [`resolve`](@ref) +
+# [`NoEvent`](@ref) semantics.
+# The table reads which axis each verb moves and which parts of the distribution
+# interface it changes.
+#
+# | Modifier | Axis | logpdf | cdf | rand | convolve |
+# |---|---|---|---|---|---|
+# | [`affine`](@ref) | value / time (AFT) | reshaped by the map | reshaped by the map | maps the draw | maps the series support |
+# | [`modify`](@ref) | hazard (PH / additive) | reshaped via the link | reshaped via the link | reshaped density | reshaped kernel |
+# | [`weight`](@ref) | log-density mass | scaled by the weight | unchanged | unchanged | unchanged |
+# | [`thin`](@ref) | event probability | adds `log p`, mass `< 1` | defective, to `p` | reports with prob `p`, else `missing` | scales the series by `p` |
+#
+# [`affine`](@ref) and [`modify`](@ref) move the support or shape, so every part
+# of the interface follows.
+# [`weight`](@ref) touches only the log-density mass, leaving the shape and the
+# draws alone.
+# [`thin`](@ref) makes the leaf defective: its mass integrates to `p` rather
+# than one, so the missing `1 - p` is an unreported event under `rand` and a
+# removed fraction of the output series under convolution.
+
 # ## Packages used
 #
 # We use Distributions for the delay distributions, DynamicPPL for the Turing
