@@ -468,6 +468,10 @@ alternative. A parameter tied across alternatives via [`shared`](@ref)`(:tag,
 ...)` is inventoried ONCE under its `tag` edge and sampled once, so a value tied
 across the index and sourced branches appears as a single row-group.
 
+A bare leaf distribution (no composer wrapping it) is also accepted; its rows
+carry an empty `edge`, so [`build_priors`](@ref) keys the priors flat by
+parameter name.
+
 # Examples
 ```@example
 using CensoredDistributions, Distributions
@@ -484,6 +488,20 @@ tbl.edge  # a column; wrap the table in `DataFrame(tbl)` for a DataFrame
 "
 function params_table(
         d::Union{Sequential, Parallel, AbstractOneOf, Choose})
+    edges = Symbol[]
+    params_col = Symbol[]
+    values = Any[]
+    supports = Any[]
+    seen = Set{Symbol}()
+    _walk_rows!(edges, params_col, values, supports, seen, d, ())
+    return ParamsTable((edge = edges, param = params_col,
+        value = values, support = supports))
+end
+
+# A bare leaf (an uncomposed distribution) inventories its own free parameters
+# under an empty edge, so the front-door `build_priors(leaf)` keys the priors
+# flat by parameter name.
+function params_table(d::Distributions.Distribution)
     edges = Symbol[]
     params_col = Symbol[]
     values = Any[]
@@ -769,6 +787,11 @@ function _split_edge(edge::Symbol)
     return Tuple(Symbol.(parts))
 end
 
+# The nesting path for an edge in `build_priors`. A bare-leaf row carries an
+# empty edge, which nests at the top level (a flat, param-keyed NamedTuple)
+# rather than under an empty name segment.
+_edge_path(edge::Symbol) = edge === Symbol("") ? () : _split_edge(edge)
+
 # Insert `value` at the `(path..., leaf)` location of a nested `Dict` tree,
 # creating intermediate `Dict`s as needed. Used to assemble the nested prior
 # structure from flat table rows before freezing to NamedTuples.
@@ -875,12 +898,17 @@ end
 
 @doc "
 
-Assemble the nested prior `NamedTuple` from a [`params_table`](@ref) inventory.
+Assemble the nested prior `NamedTuple` for a composed distribution.
 
-`build_priors(table; priors, default)` turns the flat parameter table into the
-nested `NamedTuple` that [`composed_parameters_model`](@ref) (and [`update`](@ref))
-expect, so users define priors against the flat table rows rather than by hand-
-matching the tree.
+`build_priors(tree; priors, default)` is the front-door: it takes a composed
+distribution (or a bare leaf) directly, calls [`params_table`](@ref) internally,
+and assembles the nested `NamedTuple` that [`composed_parameters_model`](@ref)
+(and [`update`](@ref)) expect, so the common path is one call rather than
+`build_priors(params_table(tree))`.
+
+`build_priors(table; priors, default)` takes the flat parameter table itself,
+for the override workflow where the user inspects or edits the table first. Both
+forms share the same keyword surface and assembly rule.
 
 For each row the prior is chosen in order:
 1. a user `priors` override for that `(edge, param)`, if present, else
@@ -898,8 +926,10 @@ for that row), so a custom `default` can pick a prior from the parameter's
 `support`.
 
 # Arguments
-- `table`: a [`params_table`](@ref) inventory (any Tables.jl column table with
-  `edge`, `param`, `value`, `support` columns).
+- `tree`: a composed distribution from [`compose`](@ref) (or a bare leaf); the
+  front-door form builds its [`params_table`](@ref) internally. Equivalently a
+  [`params_table`](@ref) inventory itself (any Tables.jl column table with
+  `edge`, `param`, `value`, `support` columns) for the table form.
 
 # Keyword Arguments
 - `priors`: per-parameter overrides, either a `(edge, param) => prior` mapping
@@ -917,9 +947,9 @@ using CensoredDistributions, Distributions
 
 tree = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
-tbl = params_table(tree)
-# Support-derived defaults everywhere, then recentre one parameter by path.
-nested = update(build_priors(tbl),
+# Front-door: one call straight from the tree, support-derived defaults
+# everywhere, then recentre one parameter by path.
+nested = update(build_priors(tree),
     :onset_admit => (shape = truncated(Normal(2, 0.5); lower = 0),))
 nested.onset_admit.shape
 ```
@@ -951,9 +981,58 @@ function build_priors(table; priors = Dict{Tuple{Symbol, Symbol}, Any}(),
             throw(ArgumentError(
                 "no prior for ($edge, $param) and no default supplied"))
         end
-        _nest_insert!(tree, _split_edge(edge), param, prior)
+        _nest_insert!(tree, _edge_path(edge), param, prior)
     end
     return _freeze_tree(tree)
+end
+
+# Front-door: take a composed distribution (or a bare leaf) directly, build its
+# `params_table` internally, then forward to the table method. The whole keyword
+# surface (`priors`, `default`) is forwarded unchanged, so the two entry points
+# behave identically.
+function build_priors(
+        tree::Union{Sequential, Parallel, AbstractOneOf, Choose,
+            Distributions.Distribution}; kwargs...)
+    return build_priors(params_table(tree); kwargs...)
+end
+
+@doc "
+
+Build the nested prior `NamedTuple` straight from a composed distribution.
+
+`param_priors(tree; priors, default)` is a thin convenience over
+[`build_priors`](@ref)`(`[`params_table`](@ref)`(tree))`: it reads the parameter
+inventory of the composed distribution (or bare leaf) `tree` and assembles the
+nested prior `NamedTuple` in one call, forwarding the same keyword surface. It
+adds no prior logic of its own.
+
+# Arguments
+- `tree`: a composed distribution from [`compose`](@ref) (or a bare leaf).
+
+# Keyword Arguments
+- `priors`: per-parameter overrides, either a `(edge, param) => prior` mapping
+  or a nested `NamedTuple` keyed like the tree; only the listed parameters are
+  overridden (default: empty). Prefer editing the result with [`update`](@ref).
+- `default`: a function `row -> prior` for rows not overridden (default:
+  [`default_prior`](@ref)).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+tree = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+priors = param_priors(tree)
+priors.onset_admit.shape
+```
+
+# See also
+- [`build_priors`](@ref): the underlying assembly (table or front-door form).
+- [`params_table`](@ref): the parameter inventory read internally.
+- [`update`](@ref): recentre individual priors by path.
+"
+function param_priors(tree; kwargs...)
+    return build_priors(tree; kwargs...)
 end
 
 # A user override for `(edge, param)`, or `nothing` if none. Accepts a mapping
@@ -962,7 +1041,7 @@ end
 # `nothing` so the row falls through to the default.
 function _prior_override(priors::NamedTuple, edge::Symbol, param::Symbol)
     node = priors
-    for name in _split_edge(edge)
+    for name in _edge_path(edge)
         node isa NamedTuple && haskey(node, name) || return nothing
         node = node[name]
     end
