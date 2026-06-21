@@ -55,11 +55,13 @@ export AnalyticalSolver, NumericSolver
 # Exported distributions
 export ExponentiallyTilted
 
-# Exported nonparametric hazard leaf: a delay distribution on [0, ∞) defined by
-# a piecewise-constant hazard on a grid. `PiecewiseHazard` is the type;
-# `piecewise_hazard` the friendly constructor. The hazard values are the
-# differentiable parameters.
-export PiecewiseHazard, piecewise_hazard
+# Exported hazard-modified distribution: modify the hazard of a base delay
+# through a link, `h*(t) = g⁻¹(g(h(t)) + effect)`. `modify` is the verb;
+# `Modified` the type. The named links `LogLink` (proportional hazards, the
+# default), `IdentityLink` (additive hazards) and `LogitLink` (discrete-time
+# reporting hazard) are exported markers; `hazard_link` wraps an arbitrary
+# invertible callable.
+export modify, Modified, LogLink, IdentityLink, LogitLink, hazard_link
 
 # Exported difference constructor: the distribution of Z = X - Y for two
 # independent components, the dual of the sum `convolve_distributions` builds.
@@ -190,7 +192,6 @@ include("censoring/IntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")
-include("distributions/PiecewiseHazard.jl")
 include("distributions/Convolved.jl")
 # Difference (Z = X - Y), the dual of Convolved. After Convolved.jl since it
 # reuses `_window_quantile` / `_CONVOLVED_TAIL` for the quadrature window clamp.
@@ -256,6 +257,13 @@ include("utils/convolve_with_vector.jl")
 # expected-count matrix. After convolve_with_vector, whose `_delay_pmf` it
 # reuses as the baseline PMF.
 include("utils/reporting_hazard.jl")
+
+# Hazard-modified distribution leaf (`modify`/`Modified`): after
+# reporting_hazard (reuses `_logit`/`_logistic`, `delay_hazard`,
+# `hazard_to_pmf`, `_apply_hazard_link`), introspection (extends
+# `free_leaf`/`rewrap_leaf`), get_dist (extends it), the integration solver and
+# `_quantile_optimization`. The discrete path dispatches on `IntervalCensored`.
+include("distributions/Modified.jl")
 
 # Censored specialisations of the generic composers: included last
 # as they depend on the composers, the censored types, `get_dist_recursive`

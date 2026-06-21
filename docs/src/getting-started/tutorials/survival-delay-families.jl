@@ -120,6 +120,6 @@ total = convolve_distributions(
 # The SurvivalDistributions.jl piecewise-constant hazard works as a bare leaf
 # but its `logcdf` throws upstream, so it cannot yet route the numeric censoring
 # quadrature.
-# For a nonparametric piecewise-constant hazard leaf with an AD-safe survival,
-# the package ships its own [`piecewise_hazard`](@ref), shown in the
+# For a flexible hazard with an AD-safe survival, the package ships [`modify`](@ref),
+# which modifies the hazard of a base delay through a link, shown in the
 # [composer toolkit](@ref composer-toolkit).

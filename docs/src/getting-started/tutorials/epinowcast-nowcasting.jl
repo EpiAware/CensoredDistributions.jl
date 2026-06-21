@@ -21,10 +21,10 @@ The model has five parts, each mapped onto a CensoredDistributions tool:
    shared-origin [`compose`](@ref) stack of
    [`double_interval_censored`](@ref) delays.
 3. A **discrete-time reporting hazard** with **reference-date** and
-   **report-date** effects: each branch delay is discretised to a PMF, turned
-   into a hazard, and reshaped by a reference-date random walk (slow drift in
-   reporting speed) and a report-date day-of-week term, using
-   [`reference_report_matrix`](@ref).
+   **report-date** effects: each branch's composed delay has its hazard modified
+   by a reference-date random walk (slow drift in reporting speed) and a
+   report-date day-of-week term through [`modify`](@ref)`(...; link = :logit)`,
+   using [`reference_report_matrix`](@ref).
 4. An **ascertainment layer**: the case stream is under-reported, thinned by a
    reported fraction ``\rho`` with [`thin`](@ref).
 5. **Real-time right-truncation**: only cells whose report date ``t + d`` is at
@@ -101,6 +101,8 @@ We build the whole delay as one shared-origin [`compose`](@ref) stack of
 [`double_interval_censored`](@ref) delays, exactly as in the renewal tutorial.
 [`double_interval_censored`](@ref) applies primary-event censoring, truncation and daily
 interval censoring in one call, so each branch is a daily-resolution delay.
+The hazard layer below modifies each branch's composed delay directly, so this
+stack is the model's actual input rather than a PMF read off it once.
 """
 
 incubation = double_interval_censored(
@@ -117,38 +119,17 @@ delay_stack = compose(incubation; case = onset_case, death = onset_death)
 md"""
 The maximum reporting delay caps the number of delay bins we track per reference
 date.
-We read each branch's total delay PMF (incubation convolved with the branch tail)
-straight out of the stack by pushing a unit impulse through
-[`convolve_distributions`](@ref): a one-at-time-zero series convolved with a delay
-PMF returns that PMF, and `events = (:case, :death)` returns both branch PMFs at
-once.
-This reuses the same shared-origin convolution the renewal tutorial uses, so the
-baseline delay is exactly the stack's delay.
+We keep each branch's total delay as a single [`Convolved`](@ref) chain, the
+incubation chained with the branch tail, with [`convolve_distributions`](@ref).
+This composed two-delay distribution is the hazard layer's input directly: the
+reporting hazard modifies the composed delay's hazard per reference date (see
+[The hazard effects](@ref)), so the composition is load-bearing rather than a
+PMF vector extracted once.
+We also truncate and thin this composed delay below, showing right-truncation and
+ascertainment acting on the composed stack itself.
 """
 
 max_delay = 14
-
-impulse = let s = zeros(max_delay + 1)
-    s[1] = 1.0
-    s
-end
-
-branch_pmfs = convolve_distributions(delay_stack, impulse;
-    events = (:case, :death))
-
-base_case_pmf = branch_pmfs.case ./ sum(branch_pmfs.case)
-
-base_death_pmf = branch_pmfs.death ./ sum(branch_pmfs.death)
-
-md"""
-We also keep the composed two-delay delay for each stream as a single
-[`Convolved`](@ref) chain, the incubation chained with the branch tail.
-[`convolve_distributions`](@ref) chains the two daily-censored delays into one
-total delay.
-We truncate and thin this composed delay below, showing right-truncation and
-ascertainment acting on the composed stack itself rather than only on the count
-matrix.
-"""
 
 composed_case = convolve_distributions(incubation, onset_case)
 
@@ -188,26 +169,28 @@ drifts over reference date.
 The report-date effect ``\epsilon_s`` is a day-of-week term indexed by the
 calendar report date ``s = t + d``, a length-seven vector of logit-hazard
 shifts.
-[`reference_report_matrix`](@ref) takes the reference effect as a per-reference
-vector and the report effect as a callable `report_date -> shift`, applies them
-through the hazard and forms the expected-count matrix, zeroing any cell whose
-report date is after `now`.
+[`reference_report_matrix`](@ref) takes the composed delay distribution, the
+reference effect as a per-reference vector and the report effect as a callable
+`report_date -> shift`.
+For each reference date it modifies the discretised composed delay's hazard with
+[`modify`](@ref)`(...; link = :logit)`, the per-reference-date [`Modified`](@ref)
+leaf, then forms the expected-count matrix, zeroing any cell whose report date is
+after `now`.
 
+The hazard therefore acts on the composed delay distribution itself, not on a
+hand-extracted PMF vector: the composition is load-bearing.
 Unlike the renewal layer's [`convolve_distributions`](@ref), which applies one
-shared delay PMF across all reference dates, the nowcasting hazard gives each
-reference date its own delay PMF (that is the whole point of a reference-date
-effect), so the output is a reference-by-report matrix rather than a convolved
-series.
-The baseline PMF still comes from the same delay-discretisation machinery
-(`_delay_pmf`, read above through a unit-impulse convolution); the hazard layer
-only reshapes that PMF per reference date.
+shared delay across all reference dates, the nowcasting hazard gives each
+reference date its own modified delay (that is the whole point of a
+reference-date effect), so the output is a reference-by-report matrix rather than
+a convolved series.
 """
 
-function expected_matrix(expected, base_pmf, ref_effect, dow, now)
+function expected_matrix(expected, delay, ref_effect, dow, now)
     report_effect = s -> dow[mod1(s, 7)]
-    return reference_report_matrix(expected, base_pmf;
-        reference_effects = ref_effect, report_effect = report_effect,
-        now = now)
+    return reference_report_matrix(expected, delay;
+        maxlag = max_delay, reference_effects = ref_effect,
+        report_effect = report_effect, now = now)
 end
 
 md"""
@@ -316,16 +299,16 @@ the data the nowcast will see, missing the late reports of the most recent
 reference dates.
 """
 
-case_full = expected_matrix(true_lambda_case, base_case_pmf, true_ref_effect,
+case_full = expected_matrix(true_lambda_case, composed_case, true_ref_effect,
     true_dow, nothing)
 
-death_full = expected_matrix(true_lambda_death, base_death_pmf, true_ref_effect,
+death_full = expected_matrix(true_lambda_death, composed_death, true_ref_effect,
     true_dow, nothing)
 
-case_trunc = expected_matrix(true_lambda_case, base_case_pmf, true_ref_effect,
+case_trunc = expected_matrix(true_lambda_case, composed_case, true_ref_effect,
     true_dow, now)
 
-death_trunc = expected_matrix(true_lambda_death, base_death_pmf,
+death_trunc = expected_matrix(true_lambda_death, composed_death,
     true_ref_effect, true_dow, now)
 
 md"""
@@ -392,10 +375,10 @@ matrix fraction for recent dates (`max_completeness_gap` measures the largest
 difference).
 """
 
-base_full = expected_matrix(true_lambda_case, base_case_pmf,
+base_full = expected_matrix(true_lambda_case, composed_case,
     zeros(n_days), zeros(7), nothing)
 
-base_trunc = expected_matrix(true_lambda_case, base_case_pmf,
+base_trunc = expected_matrix(true_lambda_case, composed_case,
     zeros(n_days), zeros(7), now)
 
 matrix_completeness = vec(sum(base_trunc; dims = 2)) ./
@@ -429,8 +412,8 @@ sensible parameter value.
 
 safe_rate(x) = isfinite(x) ? max(x, 1e-6) : 1e-6
 
-@model function epinowcast_model(case_obs, death_obs, base_case_pmf,
-        base_death_pmf, now)
+@model function epinowcast_model(case_obs, death_obs, composed_case,
+        composed_death, max_delay, now)
     n = size(case_obs, 1)
 
     ## Expectation random walk for cases.
@@ -461,14 +444,16 @@ safe_rate(x) = isfinite(x) ? max(x, 1e-6) : 1e-6
     dow ~ filldist(Normal(0.0, 0.5), 7)
     report_effect = s -> dow[mod1(s, 7)]
 
-    ## Right-truncated expected matrices, one per stream. Cases are thinned by
-    ## the ascertainment fraction `rho`; deaths are fully ascertained.
-    case_exp = rho .* reference_report_matrix(lambda_case, base_case_pmf;
-        reference_effects = ref_effect, report_effect = report_effect,
-        now = now)
-    death_exp = reference_report_matrix(lambda_death, base_death_pmf;
-        reference_effects = ref_effect, report_effect = report_effect,
-        now = now)
+    ## Right-truncated expected matrices, one per stream. The hazard modifies
+    ## the composed delay distribution itself (the discretised composed delay's
+    ## hazard, per reference date). Cases are thinned by the ascertainment
+    ## fraction `rho`; deaths are fully ascertained.
+    case_exp = rho .* reference_report_matrix(lambda_case, composed_case;
+        maxlag = max_delay, reference_effects = ref_effect,
+        report_effect = report_effect, now = now)
+    death_exp = reference_report_matrix(lambda_death, composed_death;
+        maxlag = max_delay, reference_effects = ref_effect,
+        report_effect = report_effect, now = now)
 
     ## Likelihood over the observed (report date ≤ now) cells only.
     for t in 1:n, d in 1:size(case_obs, 2)
@@ -486,7 +471,7 @@ expectation path and the hazard effects at this size.
 """
 
 model = epinowcast_model(
-    case_obs, death_obs, base_case_pmf, base_death_pmf, now)
+    case_obs, death_obs, composed_case, composed_death, max_delay, now)
 
 chain = sample(Xoshiro(1), model,
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
@@ -518,7 +503,7 @@ n_draws = length(draws.log_lambda0)
 function nowcast_draw(i)
     lambda = lognormal_rw(draws.log_lambda0[i], draws.z[i], draws.sigma_rw[i])
     ref = cumsum(vcat(0.0, draws.sigma_ref[i] .* draws.zref[i]))
-    M = expected_matrix(lambda, base_case_pmf, ref, draws.dow[i], nothing)
+    M = expected_matrix(lambda, composed_case, ref, draws.dow[i], nothing)
     return draws.rho[i] .* vec(sum(M; dims = 2))
 end
 
@@ -600,7 +585,7 @@ post_case_exp = let M = zeros(n_days, max_delay + 1)
             draws.log_lambda0[i], draws.z[i], draws.sigma_rw[i])
         ref = cumsum(vcat(0.0, draws.sigma_ref[i] .* draws.zref[i]))
         M .+= draws.rho[i] .*
-              expected_matrix(lambda, base_case_pmf, ref, draws.dow[i], now)
+              expected_matrix(lambda, composed_case, ref, draws.dow[i], now)
     end
     M ./ n_draws
 end
