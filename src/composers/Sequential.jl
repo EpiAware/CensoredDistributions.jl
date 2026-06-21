@@ -10,6 +10,14 @@
 # that nesting is the tree. This layer adds NO censored-internal behaviour:
 # it is the generic composition only.
 
+# Lower a positional NamedTuple `(a = v1, b = v2, …)` to the `:a => v1, …` Pairs
+# the verb constructors take, so every verb accepts BOTH spellings from one
+# Pairs path. The NamedTuple is ordered, so the lowered Pairs keep field order;
+# it is positional (NOT kwargs), so it never clashes with a config keyword such
+# as `choose`'s `selector`. Shared by `sequential`/`parallel`/`resolve`/
+# `compete`/`choose`.
+_nt_pairs(nt::NamedTuple) = map(=>, keys(nt), values(nt))
+
 @doc raw"
 
 A chain of independent steps composed from any univariate distributions.
@@ -107,16 +115,21 @@ name the steps; a step may itself be a [`Parallel`](@ref), [`Resolve`](@ref) or
 nested chain. Prefer this verb over the bare struct constructor.
 
 # Arguments
-- `steps`: the step distributions, either as positional distributions or as
-  `name => dist` pairs naming each step.
+- `steps`: the step distributions, either as positional distributions, as
+  `name => dist` pairs naming each step, or as a single named tuple
+  `(name = dist, …)` naming the steps positionally.
 
 # Examples
 ```@example
 using CensoredDistributions, Distributions
 
-d = sequential(:onset_admit => Gamma(2.0, 1.0),
+# Named tuple form: hand-written and reads as a tree.
+d = sequential((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+
+# The equivalent Pairs form, for data-driven or computed names.
+d == sequential(:onset_admit => Gamma(2.0, 1.0),
     :admit_death => LogNormal(0.5, 0.4))
-event_names(d)
 ```
 
 # See also
@@ -133,6 +146,9 @@ function sequential(steps::Pair...)
     dists = Tuple(s.second for s in steps)
     return Sequential(dists, names)
 end
+
+# Positional NamedTuple spelling: `(a = d1, …)` lowers to `:a => d1, …` Pairs.
+sequential(steps::NamedTuple) = sequential(_nt_pairs(steps)...)
 
 sequential(s1, ss...) = Sequential((s1, ss...))
 sequential(steps::AbstractVector) = Sequential(Tuple(steps))

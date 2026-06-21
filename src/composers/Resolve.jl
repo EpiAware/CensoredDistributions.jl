@@ -211,7 +211,9 @@ node where the winning probability is derived from the hazards) use
 - `outcomes`: two or more `name => (delay, branch_prob)` pairs, each giving the
   outcome name (a `Symbol`), its delay distribution, and the probability that
   the outcome occurs. The last pair's probability may be omitted (a bare
-  `name => delay`), taking the residual `1 - sum(of the others)`.
+  `name => delay`), taking the residual `1 - sum(of the others)`. A single named
+  tuple `(name = (delay, branch_prob), …)` is the equivalent positional spelling
+  for hand-written outcomes; use Pairs for data-driven or computed names.
 
 # Examples
 ```@example
@@ -220,6 +222,16 @@ using CensoredDistributions, Distributions
 cfr = 0.3
 node = resolve(:death => (Gamma(1.5, 1.0), cfr),
     :disch => (Gamma(2.0, 1.5), 1 - cfr))
+mean(node)
+```
+
+```@example
+using CensoredDistributions, Distributions
+
+# The equivalent named tuple spelling for hand-written outcomes.
+cfr = 0.3
+node = resolve((death = (Gamma(1.5, 1.0), cfr),
+    disch = (Gamma(2.0, 1.5), 1 - cfr)))
 mean(node)
 ```
 
@@ -269,6 +281,10 @@ function resolve(outcomes::Pair...)
         "racing-hazard node use `compete`"))
 end
 
+# Positional NamedTuple spelling: `(a = v1, …)` lowers to `:a => v1, …` Pairs,
+# each value a `(delay, prob)` pair or a bare residual delay as for the Pairs.
+resolve(outcomes::NamedTuple) = resolve(_nt_pairs(outcomes)...)
+
 @doc "
 
 Build a racing-hazard [`Compete`](@ref) node from bare `name => delay`
@@ -282,14 +298,19 @@ mixture where cause is independent of timing) use [`resolve`](@ref) instead.
 # Arguments
 - `outcomes`: two or more bare `name => delay` pairs, each giving the outcome
   name (a `Symbol`) and its cause-specific delay distribution (no branch
-  probability).
+  probability). A single named tuple `(name = delay, …)` is the equivalent
+  positional spelling for hand-written outcomes; use Pairs for data-driven or
+  computed names.
 
 # Examples
 ```@example
 using CensoredDistributions, Distributions
 
-node = compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
-probs(node)
+# Named tuple form: hand-written and reads as a tree.
+node = compete((death = Gamma(2.0, 3.0), recover = Gamma(3.0, 2.0)))
+
+# The equivalent Pairs form, for data-driven or computed names.
+node == compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
 ```
 
 # See also
@@ -316,6 +337,9 @@ function compete(outcomes::Pair...)
         "pair was given. For the fixed-probability split (an explicit per-" *
         "outcome probability) use `resolve` instead"))
 end
+
+# Positional NamedTuple spelling: `(a = d1, …)` lowers to `:a => d1, …` Pairs.
+compete(outcomes::NamedTuple) = compete(_nt_pairs(outcomes)...)
 
 # The RESIDUAL mixture shape: every outcome but the LAST carries a `(delay,
 # prob)` pair and the last is a BARE delay, so the last outcome's probability is
