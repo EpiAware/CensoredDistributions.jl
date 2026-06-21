@@ -252,7 +252,7 @@ from the first prodrome in the outbreak.
 datadir = joinpath(@__DIR__, "data", "hagelloch")
 
 raw = CSV.read(joinpath(datadir, "linelist.csv"), DataFrame;
-    missingstring = ["NA", ""])
+    missingstring = ["NA", ""]);
 
 md"""
 We parse the dates to a common day origin, keep the columns the pairwise model
@@ -272,7 +272,7 @@ cases = @chain raw begin
     @subset .!ismissing.(:onset)
     @select(:case_ID, :infector, :onset, :household, :age, :class)
     @orderby(:onset)
-end
+end;
 
 n = nrow(cases)
 (; n_cases = n, n_households = length(unique(cases.household)),
@@ -287,9 +287,9 @@ children.
 The study horizon `T_end` closes the at-risk window for the last infections.
 """
 
-onset = collect(cases.onset)
-household = collect(cases.household)
-class = collect(cases.class)
+onset = collect(cases.onset);
+household = collect(cases.household);
+class = collect(cases.class);
 T_end = maximum(onset)
 (; T_end, mean_household_size = n / length(unique(household)),
     n_classes = length(unique(class)))
@@ -383,7 +383,7 @@ function atrisk_pairs(onset, household, class)
     return pairs
 end
 
-pairs = atrisk_pairs(onset, household, class)
+pairs = atrisk_pairs(onset, household, class);
 (; n_susceptibles_scored = length(pairs),
     n_ordered_pairs = sum(length(first(p)) for p in pairs),
     n_covariates = length(first(first(pairs)[2])))
@@ -397,27 +397,19 @@ racing-hazard [`compete`](@ref) node over the anchored sources and its marginal
 `logpdf` is the per-susceptible likelihood. We verify that equality below, then
 fit through the direct reduction `susceptible_loglik`.
 
-The package's higher-level Turing tooling
-([`composed_distribution_model`](@ref), which scores a record — or a whole table
-of records in one `~` — against a composed distribution) covers a *fixed* record
-graph scored against observed events, where the node structure and its event
-names are the same for every record. The pairwise likelihood here is not that shape: the
-racing node is *rebuilt per susceptible* over a different at-risk source set
-``R(j)`` (a different arity, different onsets, different pair covariates),
-and the susceptible's infection time is scored as the node's marginal rather than
-as a named-event record. So the right composed primitive is the racing-hazard
-[`compete`](@ref) node — which the package *does* supply and which the
-agreement check below confirms is the same likelihood — and the manual part that
-remains is only the per-susceptible loop and the log-sum-exp reduction.
-`Compete`'s own `logpdf` is itself an AD-safe log-sum-exp, so fitting
-through `logpdf(source_node(...), t_j)` differentiates cleanly under the
-Mooncake backend used here; `susceptible_loglik` is a *per-susceptible inlining*
-of that node `logpdf`, equivalent to it (checked below), that skips rebuilding a
-fresh `compete` node of a new arity for each susceptible on every gradient
-step.
-Each source's rate is the regression ``\lambda_0\, e^{\beta' x_{ij}}`` evaluated
-at the pair's covariates; the shared shape ``\gamma`` carries the hazard's time
-shape.
+The package's [`composed_distribution_model`](@ref) covers a *fixed* record
+graph scored against named events, the same node structure for every record.
+The pairwise likelihood is not that shape: the racing node is *rebuilt per
+susceptible* over a different at-risk source set ``R(j)`` (a different arity,
+onsets and covariates), and the susceptible's infection time is scored as the
+node's marginal.
+So the right primitive is the racing-hazard [`compete`](@ref) node, and the
+manual part is only the per-susceptible loop and log-sum-exp reduction.
+`susceptible_loglik` is a per-susceptible inlining of that node's `logpdf`,
+equivalent to it (checked below), that avoids rebuilding a fresh `compete` node
+for each susceptible on every gradient step.
+Each source's rate is the regression ``\lambda_0\, e^{\beta' x_{ij}}`` at the
+pair's covariates; the shared shape ``\gamma`` carries the hazard's time shape.
 """
 
 function susceptible_loglik(log_lambda0, beta, gamma, gaps, covs)
@@ -492,10 +484,7 @@ drive each log-hazard-ratio away from no effect), and a positive prior on the
 shape, and score the whole line list with `Turing.@addlogprob!`.
 The shape prior is centred at one (a constant baseline hazard, the exponential
 special case) so the data drive any departure.
-The likelihood is differentiated with Mooncake reverse mode (`AutoMooncake`),
-the package's preferred reverse-mode backend: the pairwise loglik is a pure-Julia
-log-sum-exp over the Weibull `logpdf`/`logccdf`, with no string or control-flow
-operations that Mooncake cannot trace, so it compiles a rule cleanly here.
+The likelihood is differentiated with Mooncake reverse-mode AD.
 """
 
 @model function hagelloch_pairwise(pairs, n_cov)
@@ -509,7 +498,7 @@ n_cov = length(first(first(pairs)[2]))
 rng = MersenneTwister(2024)
 chain = sample(rng, hagelloch_pairwise(pairs, n_cov),
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 1000, 4; progress = false)
+    MCMCThreads(), 1000, 4; progress = false);
 
 md"""
 We check the sampler before reading the estimands: across the four chains we
@@ -664,9 +653,9 @@ function recorded_infector_mass(
     return masses
 end
 
-masses = recorded_infector_mass(rng, post, cases, onset, household, class)
+masses = recorded_infector_mass(rng, post, cases, onset, household, class);
 chance = [1 / n_sources_at_risk(onset, j)
-          for j in eachindex(onset) if n_sources_at_risk(onset, j) > 0]
+          for j in eachindex(onset) if n_sources_at_risk(onset, j) > 0];
 (; n_pairs_checked = length(masses),
     mean_recorded_infector_prob = mean(masses),
     chance_baseline = mean(chance))
@@ -685,8 +674,8 @@ recovered transmission tree.
 
 ## Mapping back to `transtat`
 
-This page is a faithful but deliberately compact rendering of Kenah's pairwise
-survival method [kenah2011contact](@cite) on the composer stack:
+This page is a compact rendering of Kenah's pairwise survival method
+[kenah2011contact](@cite) on the composer stack:
 
 - the **contact interval** is a stock `Weibull` baseline whose rate carries
   Kenah's log-rate regression ``\lambda_0\, e^{\beta' x_{ij}}``, so the

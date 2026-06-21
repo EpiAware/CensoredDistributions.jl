@@ -87,11 +87,10 @@ are no per-record latent dimensions to sample.
 end
 
 chain = sample(rng, fit_marginal(observed),
-    NUTS(; adtype = AutoForwardDiff()), 200; progress = false)
+    NUTS(; adtype = AutoForwardDiff()), 200; progress = false);
 
 md"""
 The posterior concentrates near the true parameters.
-We sample with ForwardDiff here; Mooncake also works as an AD backend.
 """
 
 mu_post = vec(chain[Parameter(@varname(mu))]);
@@ -103,19 +102,22 @@ sigma_post = vec(chain[Parameter(@varname(sigma))]);
 @assert abs(mean(sigma_post) - true_sdlog) < 0.2
 
 md"""
-## Demonstrate the marginal-equals-latent equivalence
+## Demonstrate the target-marginal-latent equivalence
 
-The whole workflow rests on a single identity.
-Scoring the marginal `primary_censored` distribution integrates the latent joint
-over the primary event, so the marginal and latent forms are density-identical.
-We can show this directly at the level of the cumulative distribution function.
+The whole workflow rests on a single identity, which we show once as a three-way
+comparison of the cumulative distribution function at the posterior mean.
 
-The latent form draws a primary `p` from `Uniform(0, 1)`, then scores the
-observed time through the conditional `cdf(LogNormal(mu, sigma), x - p)`.
-Integrating that conditional over the primary reproduces the marginal `cdf`.
-With a uniform primary the integral is `∫₀¹ cdf(LogNormal(mu, sigma), x - p) dp`,
-which we evaluate with adaptive quadrature.
-We build the distributions from the posterior mean.
+- The **target** is the distribution the data were simulated from: a primary `p`
+  drawn from `Uniform(0, 1)` plus a `LogNormal(mu, sigma)` delay.
+  Its `cdf` is the integral `∫₀¹ cdf(LogNormal(mu, sigma), x - p) dp`, which we
+  evaluate with adaptive quadrature.
+- The **marginal** form scores the `primary_censored` leaf, integrating the
+  primary out inside `cdf`.
+- The **latent** form carries the primary as an explicit dimension; its `cdf`
+  comes from a Monte Carlo average of `cdf(LogNormal(mu, sigma), x - p)` over
+  primaries drawn from the latent representation.
+
+All three are the same distribution, so their `cdf` curves coincide.
 """
 
 post_draw = (mu = mean(mu_post), sigma = mean(sigma_post));
@@ -123,30 +125,39 @@ post_draw = (mu = mean(mu_post), sigma = mean(sigma_post));
 marginal_leaf = primary_censored(
     LogNormal(post_draw.mu, post_draw.sigma), Uniform(0, 1))
 
-function latent_integrated_cdf(x)
+latent_leaf = latent(marginal_leaf)
+
+function target_cdf(x)
     delay = LogNormal(post_draw.mu, post_draw.sigma)
     problem = IntegralProblem((p, _) -> cdf(delay, x - p), (0.0, 1.0))
     return solve(problem, QuadGKJL(); reltol = 1e-12, abstol = 1e-12).u
 end
 
+function latent_cdf(x; rng = MersenneTwister(7), draws = 200_000)
+    delay = LogNormal(post_draw.mu, post_draw.sigma)
+    paths = (rand(rng, latent_leaf) for _ in 1:draws)
+    return mean(cdf(delay, x - p.primary) for p in paths)
+end
+
 eval_points = [1.0, 3.0, 6.0, 10.0];
 
-cdf_diffs = [abs(cdf(marginal_leaf, x) - latent_integrated_cdf(x))
+three_way = [(x = x, target = target_cdf(x),
+                 marginal = cdf(marginal_leaf, x), latent = latent_cdf(x))
              for x in eval_points];
 
 md"""
-The marginal `cdf` and the latent-integrated `cdf` agree to numerical precision.
+The target, marginal and latent `cdf` agree across the evaluation points.
+The target-versus-marginal gap is at numerical precision (both integrate the
+primary out exactly); the latent column carries only Monte Carlo noise from its
+finite draws.
 """
 
-@assert maximum(cdf_diffs) < 1e-10
+@assert maximum(abs(r.target - r.marginal) for r in three_way) < 1e-10
+@assert maximum(abs(r.target - r.latent) for r in three_way) < 5e-3
 
-maximum(cdf_diffs)
+three_way
 
 md"""
-The `logpdf` carries a small tail residual of order `1e-4`, which is the
-central-difference noise in the `primary_censored` density rather than a real
-gap; the `cdf` comparison above is exact and is the clean check of the identity.
-
 ### When to prefer the marginal or the latent form
 
 Prefer the marginal form by default: it carries no per-record latents, so it is
@@ -165,10 +176,7 @@ Build the latent distribution from a posterior draw and simulate, with no model
 or conditioning. This is the new-record posterior-predictive path.
 """
 
-ld = latent(primary_censored(
-    LogNormal(post_draw.mu, post_draw.sigma), Uniform(0, 1)));
-
-one_path = rand(MersenneTwister(1), ld)
+one_path = rand(MersenneTwister(1), latent_leaf)
 
 md"""
 A single path is the record `(primary, observed)`: the primary lies in the
@@ -185,7 +193,7 @@ through the latent form by rebuilding the distribution per draw.
 
 rng2 = MersenneTwister(2);
 
-many_paths = [rand(rng2, ld) for _ in 1:500];
+many_paths = [rand(rng2, latent_leaf) for _ in 1:500];
 
 @assert all(p -> p.observed > p.primary, many_paths)
 
@@ -221,7 +229,7 @@ parameter names as the marginal fit, so the posterior drops straight in.
     end
 end
 
-events = predict(latent_recovery(observed), chain)
+events = predict(latent_recovery(observed), chain);
 
 md"""
 The recovered variables are the per-record latent primaries `rec_i.p` (only the
