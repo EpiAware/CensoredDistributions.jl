@@ -72,6 +72,68 @@ end
     end
 end
 
+@testitem "modify identity link stays a valid CDF under negative effects" begin
+    using Distributions
+    using ForwardDiff
+
+    # An additive-hazard model is only valid where h(t) + β >= 0. For a
+    # negative β on a base with h(0) = 0 (LogNormal, Gamma shape > 1, ...) the
+    # raw hazard goes negative near the origin, so the modified hazard is
+    # clamped to max(h + β, 0): logpdf, logccdf and cdf must all use that same
+    # clamped hazard and stay mutually consistent (issue #670).
+    bases = (LogNormal(1.5, 0.5), Gamma(2.0, 1.5), Weibull(2.0, 3.0))
+    βs = (-0.1, -0.4, 0.0, 0.2, 0.5)
+    grid = collect(0.0:0.25:12.0)
+
+    for base in bases, β in βs
+
+        d = modify(base, β; link = identity)
+
+        cdfs = cdf.(Ref(d), grid)
+        # CDF is in [0, 1] and monotone non-decreasing on [0, ∞).
+        @test all(c -> -1e-10 <= c <= 1 + 1e-10, cdfs)
+        @test all(diff(cdfs) .>= -1e-10)
+
+        # cdf / ccdf are complementary and pdf is non-negative.
+        for x in grid
+            @test cdf(d, x) + ccdf(d, x) ≈ 1
+            @test pdf(d, x) >= -1e-12
+        end
+
+        # logpdf is consistent with the cdf: where the density is positive the
+        # log-derivative of the cdf matches, and where the hazard is clamped to
+        # zero the density is exactly zero.
+        for x in [0.5, 1.5, 3.0, 6.0]
+            lp = logpdf(d, x)
+            if isfinite(lp)
+                fd = ForwardDiff.derivative(t -> cdf(d, t), x)
+                # The negative-effect path integrates a kinked (clamped)
+                # hazard, so the Gauss-Legendre cdf derivative matches the
+                # density only to quadrature tolerance, not machine precision.
+                @test exp(lp) ≈ max(fd, 0.0) atol = 1e-2
+            else
+                @test pdf(d, x) ≈ 0 atol = 1e-12
+            end
+        end
+
+        # AD through the effect is finite (ForwardDiff over logpdf and cdf).
+        g_lp = ForwardDiff.derivative(b -> logpdf(modify(base, b;
+                    link = identity), 3.0), β)
+        g_cdf = ForwardDiff.derivative(b -> cdf(modify(base, b;
+                    link = identity), 3.0), β)
+        @test isfinite(g_lp)
+        @test isfinite(g_cdf)
+    end
+
+    # Pin the previously-broken case from issue #670: a non-monotone, negative
+    # CDF. It must now be monotone and non-negative.
+    md = modify(LogNormal(1.5, 0.5), -0.1; link = identity)
+    @test cdf(md, 0.0) >= -1e-12
+    @test cdf(md, 2.7) >= cdf(md, 0.0) - 1e-12
+    @test cdf(md, 2.7) >= -1e-12
+    @test cdf(md, 5.5) >= cdf(md, 2.7) - 1e-12
+end
+
 @testitem "modify analytic == numeric agreement" begin
     using Distributions
 

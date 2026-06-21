@@ -277,6 +277,18 @@ end
 #   H*(t) = H(t) + β t,  S*(t) = S(t) exp(-β t),  logS* = logS - β t,
 #   logpdf* = log h*(t) + logS*(t) = log(h(t) + β) - H(t) - β t,
 # where log h(t) = logpdf - logccdf, so h(t) = exp(logpdf - logccdf).
+#
+# The closed form is only the survival of a valid distribution while the
+# additive hazard h(t) + β stays non-negative for all t in support. For β >= 0
+# this holds (h >= 0), so the closed form is used directly. For β < 0 the
+# hazard goes negative wherever h(t) < |β| — near the origin for any base with
+# h(0) = 0 (LogNormal, Gamma/Weibull shape > 1, ...) — and the closed-form
+# S* = S exp(-β t) would exceed 1, giving a negative, non-monotone cdf
+# (issue #670). The model is then the clamped additive hazard
+# h*(t) = max(h(t) + β, 0): we route logccdf/logpdf through the numeric
+# clamped cumulative-hazard integration so survival, cdf and pdf stay mutually
+# consistent and the cdf stays monotone in [0, 1]. (A large negative effect
+# therefore truncates the early hazard rather than producing an invalid law.)
 
 @doc "
 
@@ -288,6 +300,12 @@ function logccdf(
         d::Modified{<:UnivariateDistribution{Continuous}, <:Real, typeof(IdentityLink)},
         x::Real)
     β = d.effect
+    # Negative effect: the hazard can dip below zero, so integrate the clamped
+    # hazard numerically (see the section comment above).
+    if β < zero(β)
+        x <= minimum(d.dist) && return zero(float(typeof(x)))
+        return -_modified_cumhazard(d, x)
+    end
     return _logccdf_ad_safe(d.dist, x) - β * x
 end
 
@@ -302,8 +320,11 @@ function logpdf(
         x::Real)
     insupport(d, x) || return oftype(float(x), -Inf)
     β = d.effect
+    # Negative effect: use the clamped hazard and its numeric cumulative hazard
+    # so the density matches the (clamped) survival above.
+    β < zero(β) && return _numeric_logpdf(d, x)
     logS = _logccdf_ad_safe(d.dist, x)
-    # h(t) = exp(logpdf - logS); modified hazard h(t) + β must stay positive.
+    # h(t) = exp(logpdf - logS); modified hazard h(t) + β stays positive here.
     h = exp(logpdf(d.dist, x) - logS)
     hstar = h + β
     hstar <= zero(hstar) && return oftype(float(x), -Inf)
@@ -335,19 +356,98 @@ end
 # The effect evaluated at `u`: a callable is applied, a scalar is constant.
 _effect_at(effect, u) = effect isa Function ? effect(u) : effect
 
-# The modified instantaneous hazard h*(u) = g⁻¹(g(h(u)) + effect(u)).
-function _modified_hazard(d::Modified, u::Real)
+# The pre-clamp modified rate g⁻¹(g(h(u)) + effect(u)): the modified hazard
+# before the non-negativity clamp. Its zero-crossings are the knots where the
+# clamp engages, so `max(rate, 0)` has a kink. Used both to clamp (below) and to
+# locate the knots that split the cumulative-hazard quadrature.
+function _premodified_rate(d::Modified, u::Real)
     h = _base_hazard(d.dist, u)
     return d.link.invlink(d.link.g(h) + _effect_at(d.effect, u))
 end
 
+# The modified instantaneous hazard h*(u) = max(g⁻¹(g(h(u)) + effect(u)), 0).
+# The clamp at zero keeps the modified hazard a valid (non-negative) hazard for
+# links whose inverse can return a negative rate. The additive (identity) link
+# does this when the effect is negative and the base hazard is smaller than the
+# effect magnitude (h(u) + β < 0); clamping there makes the cumulative-hazard
+# integral H* = ∫ max(h + β, 0) consistent with the logpdf clamp below, so
+# survival, cdf and pdf all use the same clamped hazard. For links with a
+# non-negative inverse (log → exp, logit → logistic) the clamp is a no-op.
+function _modified_hazard(d::Modified, u::Real)
+    hstar = _premodified_rate(d, u)
+    return max(hstar, zero(hstar))
+end
+
+# Locate the clamp knots in `(lo, t)`: the points where the pre-clamp modified
+# rate crosses zero, so the clamped integrand `max(rate, 0)` has a kink there.
+# A coarse scan brackets each sign change, then bisection refines it. The scan
+# runs on AD-stripped primals (`_primal`), so the knots are plain `Float64` even
+# under AD; the quadrature integrand still carries the `Dual`s, which is what
+# differentiates correctly. The knots are where `max(rate, 0)` is continuous, so
+# they introduce no boundary terms under differentiation. Integrating each
+# smooth panel between knots (rather than one fixed rule over a kinked
+# integrand) keeps the cumulative hazard, and so the cdf, monotone to machine
+# precision (#670).
+const _MODIFIED_KNOT_SCAN = 64
+
+function _modified_knots(d::Modified, lo::Real, t::Real)
+    rate(u) = _primal(_premodified_rate(d, u))
+    knots = Float64[]
+    a = _primal(float(lo))
+    b = _primal(float(t))
+    step = (b - a) / _MODIFIED_KNOT_SCAN
+    step > zero(step) || return knots
+    prev_u = a
+    prev_r = rate(a)
+    for i in 1:_MODIFIED_KNOT_SCAN
+        cur_u = i == _MODIFIED_KNOT_SCAN ? b : a + i * step
+        cur_r = rate(cur_u)
+        if (prev_r < 0) != (cur_r < 0)
+            lo2, hi2 = prev_u, cur_u
+            for _ in 1:60
+                mid = (lo2 + hi2) / 2
+                (rate(lo2) < 0) == (rate(mid) < 0) ? (lo2 = mid) : (hi2 = mid)
+            end
+            push!(knots, (lo2 + hi2) / 2)
+        end
+        prev_u = cur_u
+        prev_r = cur_r
+    end
+    return knots
+end
+
 # The modified cumulative hazard H*(t) = ∫₀ᵗ h*(u) du via the solver. The lower
 # bound is the base support minimum (≥ 0 for a delay); a non-positive `t`
-# carries no hazard.
+# carries no hazard. The clamped integrand `max(rate, 0)` is kinked wherever the
+# clamp engages, so a single fixed-node rule over the whole span loses
+# monotonicity in the tail (#670); split the integral at the clamp knots and
+# integrate each smooth panel, summing the pieces.
 function _modified_cumhazard(d::Modified, t::Real)
     lo = max(minimum(d.dist), zero(t))
     t <= lo && return zero(float(promote_type(typeof(t), eltype(d.dist))))
-    return integrate(d.method, u -> _modified_hazard(d, u), lo, t)
+    integrand = u -> _modified_hazard(d, u)
+    knots = _modified_knots(d, lo, t)
+    isempty(knots) && return integrate(d.method, integrand, lo, t)
+    acc = integrate(d.method, integrand, lo, oftype(t, knots[1]))
+    for k in 2:length(knots)
+        acc += integrate(d.method, integrand,
+            oftype(t, knots[k - 1]), oftype(t, knots[k]))
+    end
+    acc += integrate(d.method, integrand, oftype(t, knots[end]), t)
+    return acc
+end
+
+# `logpdf* = log h*(t) - H*(t)` from the clamped modified hazard and its
+# numeric cumulative hazard. The density is zero where the hazard is clamped to
+# zero (h* <= 0) and in the deep tail where the survival has numerically
+# exhausted (H* or h* non-finite), keeping log h* - H* from evaluating to NaN
+# (Inf - Inf) where S* ≈ 0.
+function _numeric_logpdf(d::Modified, x::Real)
+    H = _modified_cumhazard(d, x)
+    hstar = _modified_hazard(d, x)
+    (isfinite(H) && isfinite(hstar)) || return oftype(float(x), -Inf)
+    hstar <= zero(hstar) && return oftype(float(x), -Inf)
+    return log(hstar) - H
 end
 
 # A general-link Modified on a continuous base: the union of all links that are
@@ -377,10 +477,7 @@ See also: [`pdf`](@ref), [`ccdf`](@ref)
 "
 function logpdf(d::_NumericModified, x::Real)
     insupport(d, x) || return oftype(float(x), -Inf)
-    H = _modified_cumhazard(d, x)
-    hstar = _modified_hazard(d, x)
-    hstar <= zero(hstar) && return oftype(float(x), -Inf)
-    return log(hstar) - H
+    return _numeric_logpdf(d, x)
 end
 
 function Base.rand(rng::AbstractRNG, d::_NumericModified)
