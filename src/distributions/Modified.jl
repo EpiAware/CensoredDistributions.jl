@@ -430,8 +430,13 @@ sampler(d::_ContinuousModified) = d
 # interval masses come straight from the reconstructed PMF. The `effect` is a
 # per-bin vector. Works for ANY link, including a user callable, since each bin
 # is the cheap scalar map g⁻¹(g(h_d) + effect_d).
+#
+# A per-bin vector effect (not a scalar or callable) is what selects this path,
+# so the discrete and continuous (`_ContinuousModified`, a `Real`/`Function`
+# effect) method sets are disjoint even though an `IntervalCensored` base is
+# itself a `UnivariateDistribution`: no `pdf`/`cdf`/... ambiguity between them.
 
-const _DiscreteModified = Modified{<:IntervalCensored}
+const _DiscreteModified = Modified{<:IntervalCensored, <:AbstractVector}
 
 # The interval grid `[0, w), [w, 2w), ...` of a regular interval-censored base,
 # one grid point per effect entry. The number of bins is the effect length.
