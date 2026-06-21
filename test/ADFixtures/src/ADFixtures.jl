@@ -589,20 +589,54 @@ function scenarios(; with_reference::Bool = false)
             x -> logpdf(ExponentiallyTilted(0.0, 1.0, θ[1]), x), obs),
         [0.5], (Constant(obs_et),))
 
-    # PiecewiseHazard nonparametric leaf. The differentiated parameters
-    # are the per-interval hazard values; the breakpoints are the fixed grid.
-    # The logpdf is `log h(t) - H(t)`, both piecewise-linear in the hazards, so
-    # the gradient is all-continuous arithmetic and differentiates on every
-    # backend. Guarded on the constructor existing for the AirspeedVelocity
-    # baseline build, as with the other scenarios above.
-    if isdefined(CensoredDistributions, :piecewise_hazard)
-        _push!("PiecewiseHazard logpdf wrt hazards",
+    # Hazard-modified `modify`/`Modified` leaf. Four scenarios cover the
+    # analytic log (proportional hazards) and identity (additive hazards)
+    # paths, the numeric quadrature path (a logit link on a continuous base)
+    # and the discrete per-bin path. The differentiated parameter is the
+    # hazard effect; the gradient flows through the closed-form survival
+    # expressions on the analytic paths, the Gauss-Legendre quadrature on the
+    # numeric path (the same path primary-censoring differentiates) and the
+    # per-bin logit reconstruction on the discrete path. Guarded on the verb
+    # existing for the AirspeedVelocity baseline build, as above.
+    if isdefined(CensoredDistributions, :modify)
+        # Analytic proportional hazards: logpdf wrt the log-hazard effect β.
+        _push!("Modified log link logpdf wrt effect",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(modify(LogNormal(1.5, 0.5), θ[1]; link = log), x),
+                obs),
+            [-0.4], (Constant(obs),))
+
+        # Analytic additive hazards: logpdf wrt the additive effect β.
+        _push!("Modified identity link logpdf wrt effect",
             (θ,
                 obs) -> sum(
                 x -> logpdf(
-                    CensoredDistributions.piecewise_hazard([1.0, 3.0], θ), x),
+                    modify(LogNormal(1.5, 0.5), θ[1]; link = identity), x),
                 obs),
-            [0.2, 0.8, 0.3], (Constant(obs),))
+            [0.15], (Constant(obs),))
+
+        # Numeric quadrature path: a logit link on a continuous base routes
+        # through the Gauss-Legendre solver; logpdf wrt the effect.
+        _push!("Modified numeric logit logpdf wrt effect",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(modify(Gamma(2.0, 1.5), θ[1]; link = :logit), x),
+                obs),
+            [0.3], (Constant(obs),))
+
+        # Discrete per-bin path: logpdf wrt the per-bin effect vector on a
+        # daily interval-censored base. The final-bin effect carries a zero
+        # gradient (its hazard is pinned to one).
+        obs_disc = [0.0, 1.0, 2.0, 3.0, 4.0]
+        _push!("Modified discrete logit logpdf wrt effects",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    modify(interval_censored(LogNormal(1.5, 0.5), 1.0), θ;
+                        link = :logit), x),
+                obs),
+            fill(0.2, 6), (Constant(obs_disc),))
     end
 
     # Affine transform. The change-of-variables logpdf is

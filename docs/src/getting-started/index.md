@@ -9,7 +9,7 @@ The package has four layers, each building on the one before:
 - **Censoring leaves** wrap a delay distribution to account for primary-event censoring, truncation, and interval censoring.
 The quickstart below builds these step by step (`primary_censored`, `interval_censored`, `double_interval_censored`).
 - **Composers** assemble per-event delays into one object per record.
-[Composing censored distributions](@ref composer-toolkit) is the conceptual hub, covering `compose` and the five composers (`Sequential`, `Parallel`, `Resolve`, `Compete`, `Choose`) and the `piecewise_hazard` leaf.
+[Composing censored distributions](@ref composer-toolkit) is the conceptual hub, covering `compose` and the five composers (`Sequential`, `Parallel`, `Resolve`, `Compete`, `Choose`) and the `modify` hazard leaf.
 - **Fitting** attaches parameters and priors and runs a Turing fit ([Fitting with Turing.jl](@ref), [Fit marginal, sample event based](@ref fit-marginal-sample-event-based)).
 - **Bridges and case studies** apply the stack to line lists, renewal models, nowcasting, and ODE compartments.
 

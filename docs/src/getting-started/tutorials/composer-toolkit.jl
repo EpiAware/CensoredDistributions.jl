@@ -261,24 +261,25 @@ mixed_stack = compose((
 
 event_names(mixed_stack)
 
-# ### A nonparametric hazard leaf
+# ### Modifying a leaf's hazard
 #
-# The leaves so far are parametric families.
-# When the sojourn or transition hazard is data-flexible rather than a named
-# family, [`piecewise_hazard`](@ref) builds a [`PiecewiseHazard`](@ref) leaf from
-# breakpoints and per-interval hazard values.
-# It derives the cumulative hazard ``H(t) = \int_0^t h``, the survival
-# ``S(t) = \exp(-H(t))`` and the density ``f(t) = h(t) S(t)``, with the hazard
-# values as the differentiable parameters.
-# A constant single-piece hazard reproduces an `Exponential`.
+# Rather than a from-scratch hazard family, a flexible hazard is the hazard of a
+# base delay *modified* through a link.
+# [`modify`](@ref) builds a [`Modified`](@ref) leaf whose hazard is
+# ``h^{*}(t) = g^{-1}(g(h(t)) + \text{effect})``, where the link `g` is `log`
+# (proportional hazards, the default), `identity` (additive hazards) or `:logit`
+# (a discrete-time reporting hazard).
+# On a continuous base the `log` and `identity` links use closed forms; any other
+# link integrates the modified cumulative hazard through the same Gauss-Legendre
+# solver [`primary_censored`](@ref) uses.
 
-flex_leaf = piecewise_hazard([1.0, 3.0], [0.2, 0.8, 0.3]);
+flex_leaf = modify(LogNormal(1.5, 0.5), -log(2.0); link = log);
 
 logpdf(flex_leaf, 2.0)
 
 # Being a `UnivariateDistribution`, it composes as any leaf: it accepts the
 # censoring wrappers and truncation, and drops straight into the racing-hazard
-# [`compete`](@ref) node, which multiplies branch survivals, so a flexible
+# [`compete`](@ref) node, which multiplies branch survivals, so a modified
 # cause-specific hazard needs no special handling.
 
 isfinite(logpdf(double_interval_censored(flex_leaf; interval = 1), 3.0))
@@ -678,7 +679,7 @@ event_names(event(spliced, :admit_death))
 # | `choose(:a => d1, :b => d2)` | a [`Choose`](@ref) disjunction (data picks the branch) | builds |
 # | `convolve_distributions(d1, d2)` | a [`Convolved`](@ref) sum `X + Y` (delays add) | builds |
 # | `difference(d1, d2)` | a [`Difference`](@ref) `X - Y`, the dual of the sum; two-sided support, so an observation not a delay leaf | builds |
-# | `piecewise_hazard(breaks, hazards)` | a [`PiecewiseHazard`](@ref) nonparametric leaf; a piecewise-constant hazard on a grid | builds |
+# | `modify(d, effect; link)` | a [`Modified`](@ref) leaf; the hazard of `d` modified through a link (`log`/`identity`/`:logit`) | leaf wrap |
 # | `primary_censored(d, pe)` | primary-event censoring leaf | leaf wrap |
 # | `interval_censored(d; interval)` | interval-censoring leaf | leaf wrap |
 # | `double_interval_censored(d; interval)` | primary + truncation + interval leaf | leaf wrap |

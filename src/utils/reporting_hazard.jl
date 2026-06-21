@@ -189,6 +189,17 @@ modified = CensoredDistributions.apply_hazard_effects(pmf, effects)
 - [`reference_report_matrix`](@ref): the per-(reference, report) count matrix
 "
 function apply_hazard_effects(pmf::AbstractVector, effects::AbstractVector)
+    return _apply_hazard_link(pmf, effects, LogitLink)
+end
+
+# Generic link version of `apply_hazard_effects`: reshape a baseline PMF by
+# adding per-bin `effects` to its discrete-time hazard on the `link`'s scale,
+# `h*_d = g⁻¹(g(h_d) + effect_d)`, then reconstruct. `apply_hazard_effects` is
+# the logit-link case; `modify(::IntervalCensored; link)` reuses this for any
+# link, including a user callable. The final-bin hazard is pinned to one (the
+# maximum-delay constraint) so the reconstructed PMF stays normalised.
+function _apply_hazard_link(
+        pmf::AbstractVector, effects::AbstractVector, link)
     length(pmf) == length(effects) || throw(DimensionMismatch(
         "effects must have one entry per delay; got $(length(effects)) for a " *
         "PMF of length $(length(pmf))"))
@@ -197,13 +208,10 @@ function apply_hazard_effects(pmf::AbstractVector, effects::AbstractVector)
     T = promote_type(eltype(h), eltype(effects))
     hstar = Vector{T}(undef, n)
     @inbounds for d in 1:n
-        # logit(h) + effect, back through logistic. The final hazard is held at
-        # one (the maximum-delay constraint) regardless of its effect, so the
-        # reconstructed PMF stays normalised.
         if d == n
             hstar[d] = one(T)
         else
-            hstar[d] = _logistic(_logit(h[d]) + effects[d])
+            hstar[d] = link.invlink(link.g(h[d]) + effects[d])
         end
     end
     return hazard_to_pmf(hstar)
@@ -327,4 +335,78 @@ function _row_effects(::Type{T}, nt, nd, t, reference_effects,
         eta[d] = ref + rep
     end
     return eta
+end
+
+@doc raw"""
+
+Expected counts by reference date and report delay from a delay DISTRIBUTION.
+
+This method takes the baseline delay as a `UnivariateDistribution` (typically a
+composed [`compose`](@ref) / [`convolve_distributions`](@ref) stack) rather than a
+pre-extracted PMF vector, so the reporting hazard modifies the composed
+distribution itself. For each reference date the delay is discretised to a daily
+PMF over `0:maxlag` and reshaped through a [`modify`](@ref)`(...; link = :logit)`
+hazard modification, exactly the per-reference-date [`Modified`](@ref) leaf;
+[`reference_report_matrix(expected, pmf; ...)`](@ref) is the equivalent
+vector-input form.
+
+# Arguments
+- `expected`: expected final counts ``\lambda_t`` per reference date.
+- `delay`: the baseline delay distribution (e.g. a composed stack).
+
+# Keyword Arguments
+- `maxlag`: the maximum delay; the PMF runs over `0:maxlag`.
+- `interval`: the discretisation interval width (default `1`).
+- `reference_effects`: per-reference-date scalar logit-hazard shifts, or
+  `nothing`.
+- `report_effect`: a callable `report_date -> logit-hazard shift`, or `nothing`.
+- `now`: the real-time horizon; cells with `t + d > now` are zeroed.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+expected = fill(100.0, 14)
+delay = convolve_distributions(
+    double_interval_censored(Gamma(1.8, 1.4); upper = 20.0, interval = 1.0),
+    double_interval_censored(Gamma(1.5, 1.2); upper = 20.0, interval = 1.0))
+M = CensoredDistributions.reference_report_matrix(expected, delay;
+    maxlag = 7, now = length(expected))
+```
+
+# See also
+- [`modify`](@ref): the per-reference-date hazard modification this calls.
+- [`reference_report_matrix`](@ref): the PMF-vector form.
+"""
+function reference_report_matrix(expected::AbstractVector,
+        delay::UnivariateDistribution;
+        maxlag::Integer,
+        interval = 1,
+        reference_effects = nothing,
+        report_effect = nothing,
+        now = nothing)
+    nt = length(expected)
+    nd = maxlag + 1
+    # Discretise the composed delay once to the daily grid; the per-reference
+    # hazard modification then acts on this interval-censored distribution.
+    ic = interval_censored(delay, interval)
+    T = promote_type(eltype(expected), eltype(delay))
+    T = reference_effects === nothing ? T :
+        promote_type(T, eltype(reference_effects))
+    M = zeros(T, nt, nd)
+    @inbounds for t in 1:nt
+        eta = _row_effects(T, nt, nd, t, reference_effects, report_effect)
+        # `modify` on the discretised composed delay: the hazard modifies the
+        # composed distribution itself, not a hand-extracted PMF vector. Read
+        # the modified per-reference-date PMF straight off the `Modified` leaf.
+        m = modify(ic, eta; link = :logit)
+        lambda = expected[t]
+        for d in 1:nd
+            report_date = t + (d - 1)
+            if now === nothing || report_date <= now
+                M[t, d] = lambda * pdf(m, T((d - 1) * interval))
+            end
+        end
+    end
+    return M
 end
