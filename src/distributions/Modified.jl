@@ -14,6 +14,10 @@ so `log` gives proportional hazards, `identity` gives additive hazards and
 [`IdentityLink`](@ref), [`LogitLink`](@ref)) are built-in, and any invertible
 callable can be wrapped with [`hazard_link`](@ref).
 
+# Fields
+- `g`: the link `g` mapping a hazard onto the modification scale.
+- `invlink`: the inverse link `g⁻¹` mapping back to a hazard.
+
 # See also
 - [`modify`](@ref): the verb that builds a [`Modified`](@ref) distribution.
 """
@@ -110,6 +114,13 @@ mirroring the [`primary_censored`](@ref) solver architecture:
   [`primary_censored`](@ref) uses;
 - discrete base (an [`interval_censored`](@ref) PMF): exact per-bin
   reconstruction through [`apply_hazard_effects`](@ref).
+
+# Fields
+- `dist`: the base delay distribution whose hazard is modified.
+- `effect`: the hazard modification (a scalar, a callable `effect(t)`, or a
+  per-bin vector for a discrete base).
+- `link`: the hazard link `g` and its inverse.
+- `method`: the quadrature solver used on the continuous numeric path.
 
 # See also
 - [`modify`](@ref): the constructor verb.
