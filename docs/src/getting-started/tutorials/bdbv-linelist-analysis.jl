@@ -173,7 +173,7 @@ priors = update(build_priors(delay_table),
     (:admit_path, :onset_admit) => (shape = shape_prior,),
     (:admit_path, :admit_resolution, :death) => (shape = shape_prior,),
     (:admit_path, :admit_resolution, :discharge) => (shape = shape_prior,),
-    :onset_notif => (shape = shape_prior,))
+    :onset_notif => (shape = shape_prior,));
 
 md"""
 ## The case-fatality ratio
@@ -199,6 +199,14 @@ function death_prob(β, r)
              β.β_age * r.age_z)
 end
 
+# The event columns a record supplies to the scorer, dropping the covariate
+# fields that only feed `death_prob`. A row keeps these five named events; the
+# per-case `:branch_probs` is then `merge`d in.
+function event_columns(r)
+    (onset = r.onset, admit = r.admit, death = r.death,
+        discharge = r.discharge, notif = r.notif)
+end
+
 md"""
 ## Fitting through the vectorised interface
 
@@ -221,9 +229,8 @@ unobserved delays for a case are marginalised internally.
 
     obs_rows = map(rows) do r
         p = death_prob(β, r)
-        (onset = r.onset, admit = r.admit, death = r.death,
-            discharge = r.discharge, notif = r.notif,
-            branch_probs = (death = p, discharge = 1 - p))
+        merge(event_columns(r),
+            (branch_probs = (death = p, discharge = 1 - p),))
     end
     obs ~ to_submodel(composed_distribution_model(delays, obs_rows))
 end
@@ -271,10 +278,8 @@ md"""
 
 We fit the synthetic line list and read the posterior back onto the composed
 object with [`update`](@ref), passing the fitted chain directly.
-
 The likelihood is differentiated with Mooncake reverse mode (`AutoMooncake`),
-the faster backend for a tree this size.
-The same backend is used for both the simulation fit and the real fit.
+used for both the simulation fit and the real fit.
 """
 
 adbackend = AutoMooncake(; config = nothing)
@@ -283,7 +288,7 @@ sim_chain = sample(Xoshiro(1), bdbv(template, priors, sim_rows),
     NUTS(0.8; adtype = adbackend), MCMCThreads(), 500, 2;
     progress = false)
 
-sim_fit = update(template, sim_chain; prefix = :delays)
+sim_fit = update(template, sim_chain; prefix = :delays);
 
 md"""
 The per-event [`mean`](@ref CensoredDistributions.mean)`(latent(fit))`
@@ -315,23 +320,12 @@ md"""
 We tabulate each known simulation value against its posterior mean and 95%
 credible interval.
 The case-fatality coefficients are recovered cleanly, the true value inside the
-interval for each.
-The simulation draws themselves are unbiased: a draw emits a continuous event
-path that the day-level censoring discretises with the same
-`floor(target) - floor(origin)` rule the scorer uses, so the gaps carry no
-systematic offset (the notification draw mean is ~14.0, its true Gamma mean).
-The onset-to-admission delay recovers well, the true mean near the centre of a
-tight interval.
-The heavy-tailed delays are harder to pin down from a finite sample.
-The onset-to-notification delay (Gamma shape 0.7) carries its mean in rare long
-delays, so its posterior is wide, and the admission-to-death and
-admission-to-discharge means are recovered but wide, the latter on the smaller
-resolved-as-discharge subset.
-The fit is calibrated, with every interval covering its truth at the nominal
-rate across simulation seeds.
-A single seed where a heavy-tailed interval lands just shy of its truth is
-therefore Monte-Carlo variation on a small, heavy-tailed sample rather than a
-bias.
+interval for each, and the onset-to-admission delay recovers tightly around its
+truth.
+The heavy-tailed delays are harder to pin down from a finite sample: the
+onset-to-notification delay (Gamma shape 0.7) carries its mean in rare long
+delays, so its posterior is wide, and the admission-to-discharge mean is wide on
+the smaller resolved-as-discharge subset.
 The wide intervals on the tail-sensitive delays preview the same weak
 identification on the real line list.
 """
@@ -472,7 +466,7 @@ real_chain = sample(Xoshiro(20260609), bdbv(template, priors, real_rows),
     NUTS(0.8; adtype = adbackend), MCMCThreads(), 600, 2;
     progress = false)
 
-real_fit = update(template, real_chain; prefix = :delays)
+real_fit = update(template, real_chain; prefix = :delays);
 
 md"""
 ## Step 4: equivalence with the published study
@@ -506,10 +500,10 @@ comparatively wide, reflecting the heavy tail and the small discharge subset.
 
 ### Posterior versus re-estimated targets
 
-We summarise each posterior delay mean and compare it to the re-estimated
-target.
-The targets are the corrected posterior delays from the analysis repo, matched
-posterior to posterior.
+The re-estimated targets are the corrected posterior delays from the analysis
+repo, matched posterior to posterior.
+They feed the single three-way comparison below, once the latent fit is in hand,
+so the overlap of marginal, latent and target is shown once.
 """
 
 targets = (
@@ -517,79 +511,6 @@ targets = (
     admit_death = (mean = 7.71, lower = 5.63, upper = 10.44),
     admit_discharge = (mean = 8.10, lower = 4.81, upper = 13.82),
     onset_notif = (mean = 20.37, lower = 13.64, upper = 29.99))
-
-comparison = let
-    oa = ci(posterior_means.onset_admit)
-    ad = ci(posterior_means.admit_death)
-    ac = ci(posterior_means.admit_discharge)
-    on = ci(posterior_means.onset_notif)
-    DataFrame(
-        delay = ["onset → admission", "admission → death",
-            "admission → discharge", "onset → notification"],
-        n = [n_obs(:admit), n_obs(:death), n_obs(:discharge),
-            n_obs(:notif)],
-        post_mean = round.([oa.mean, ad.mean, ac.mean, on.mean],
-            digits = 2),
-        post_lower = round.([oa.lower, ad.lower, ac.lower, on.lower],
-            digits = 2),
-        post_upper = round.([oa.upper, ad.upper, ac.upper, on.upper],
-            digits = 2),
-        target_mean = [targets.onset_admit.mean, targets.admit_death.mean,
-            targets.admit_discharge.mean, targets.onset_notif.mean],
-        target_lower = [targets.onset_admit.lower,
-            targets.admit_death.lower, targets.admit_discharge.lower,
-            targets.onset_notif.lower],
-        target_upper = [targets.onset_admit.upper,
-            targets.admit_death.upper, targets.admit_discharge.upper,
-            targets.onset_notif.upper])
-end
-
-md"""
-The interval plot overlays the two interval sets so the overlap reads directly.
-"""
-
-fig = let
-    f = Figure(size = (760, 380))
-    ax = Axis(f[1, 1]; xlabel = "mean delay (days)",
-        yticks = (1:4, reverse(comparison.delay)),
-        title = "Posterior delay means vs re-estimated targets")
-    for (k, r) in enumerate(eachrow(comparison))
-        y = 5 - k
-        lines!(ax, [r.post_lower, r.post_upper], [y + 0.12, y + 0.12];
-            color = :steelblue, linewidth = 6)
-        scatter!(ax, [r.post_mean], [y + 0.12]; color = :steelblue,
-            markersize = 12)
-        lines!(ax, [r.target_lower, r.target_upper], [y - 0.12, y - 0.12];
-            color = :firebrick, linewidth = 6)
-        scatter!(ax, [r.target_mean], [y - 0.12]; color = :firebrick,
-            markersize = 12)
-    end
-    scatter!(ax, [NaN], [NaN]; color = :steelblue, label = "this fit")
-    scatter!(ax, [NaN], [NaN]; color = :firebrick,
-        label = "re-estimated target")
-    axislegend(ax; position = :rb)
-    f
-end
-
-md"""
-Every delay's credible interval overlaps the re-estimated target.
-The onset-to-admission and admission-to-death delays recover well: they match
-the target closely in both mean and width.
-The other two delays are weakly identified, which here shows as wide intervals
-rather than a clean recovery.
-The onset-to-notification delay has a heavy tail (Gamma shape 0.7): the long
-right tail that carries most of the mean is poorly constrained by 38 records, so
-the posterior mean is uncertain and the interval is wide; the simulation showed
-the same tail pulling the mean low even with clean data.
-The admission-to-discharge delay is the smallest pathway: discharge is the
-minority outcome and the mutually exclusive assignment by recorded outcome moves
-a few ambiguous cases to death, so it sits on a smaller subset (n = 11) and its
-interval is the widest of the four.
-Read these two as covered-but-uncertain rather than precisely recovered; the
-discharge pathway in particular is the least informed here.
-"""
-
-comparison
 
 md"""
 ## Marginal versus latent
@@ -636,9 +557,8 @@ object.
 
     obs_rows = map(rows) do r
         p = death_prob(β, r)
-        (onset = r.onset, admit = r.admit, death = r.death,
-            discharge = r.discharge, notif = r.notif,
-            branch_probs = (death = p, discharge = 1 - p))
+        merge(event_columns(r),
+            (branch_probs = (death = p, discharge = 1 - p),))
     end
 
     segments = latent_segments(delays)
@@ -665,9 +585,22 @@ latent_means = delay_mean_draws(latent_chain)
 md"""
 ### Marginal versus latent versus target
 
-The two formulations are tabulated side by side against the re-estimated target.
+The marginal fit, the latent fit and the re-estimated target are read into one
+three-way comparison, shown once, with each delay's own record count `n`.
 The delay means agree between the marginal and latent fits and both overlap the
 published intervals.
+The onset-to-admission and admission-to-death delays recover well, matching the
+target closely in both mean and width.
+The other two are weakly identified.
+The onset-to-notification delay has a heavy tail (Gamma shape 0.7): the long
+right tail that carries most of the mean is poorly constrained by 38 records, so
+the posterior mean is uncertain and the interval is wide, the same tail the
+simulation showed pulling the mean low even with clean data.
+The admission-to-discharge delay is the smallest pathway: discharge is the
+minority outcome and the mutually exclusive assignment by recorded outcome moves
+a few ambiguous cases to death, so it sits on a smaller subset (n = 11) and its
+interval is the widest of the four.
+Read these two as covered-but-uncertain rather than precisely recovered.
 """
 
 mvl_comparison = let
@@ -675,12 +608,13 @@ mvl_comparison = let
     keys_ = (:onset_admit, :admit_death, :admit_discharge, :onset_notif)
     labels = ["onset → admission", "admission → death",
         "admission → discharge", "onset → notification"]
-    for (lab, k) in zip(labels, keys_)
+    counts = [n_obs(:admit), n_obs(:death), n_obs(:discharge), n_obs(:notif)]
+    for (lab, k, nk) in zip(labels, keys_, counts)
         m = ci(getfield(posterior_means, k))
         l = ci(getfield(latent_means, k))
         t = getfield(targets, k)
         push!(rows,
-            (delay = lab,
+            (delay = lab, n = nk,
                 marginal_mean = round(m.mean, digits = 2),
                 marginal_ci = "($(round(m.lower, digits = 2)), " *
                               "$(round(m.upper, digits = 2)))",

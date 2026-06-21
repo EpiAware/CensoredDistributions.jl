@@ -231,7 +231,7 @@ priors = update(build_priors(param_inventory),
     :inc => (mu = Normal(3.0, 0.5),
         sigma = truncated(Normal(0.0, 0.5); lower = 0)),
     (:sourced, :srconset_infection) => (mu = Normal(0.0, 5.0),
-        sigma = truncated(Normal(0.0, 1.0); lower = 0)))
+        sigma = truncated(Normal(0.0, 1.0); lower = 0)));
 
 # ## The model
 #
@@ -308,17 +308,12 @@ for _ in 1:30
             onset = transmission + incubation, obs_time = sim_horizon))
 end
 
-# Each sourced record scores two observed delays and each index record one leaf,
-# so each leapfrog step is cheap. The two chains run in parallel with
-# [`MCMCThreads`](https://turinglang.org/Turing.jl/stable/) at a modest sampler
-# budget (150 warmup, 150 draws) large enough to read credible intervals from.
+# Two chains run in parallel at a modest budget (150 warmup, 150 draws).
 # Chains start from the priors (`InitFromPrior`): the real-time truncation
 # creates a second, spurious mode at a near-zero incubation period (where every
 # delay is trivially complete), and a prior-centred start keeps the sampler in
 # the basin that carries the data. The model is differentiated with Mooncake
-# reverse mode (`AutoMooncake`), the preferred backend for a tree this size.
-# Enzyme reverse is registered broken on these heterogeneous nested paths; the
-# maths is AD-safe on the other backends.
+# reverse mode (`AutoMooncake`).
 Random.seed!(20260608)
 sim_chain = sample(andv(template, sim_index, sim_sourced),
     NUTS(150, 0.95; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
@@ -336,12 +331,12 @@ nothing #hide
 sim_fit = update(template, sim_chain; prefix = :delays)
 sim_edge_means = mean(latent(event(sim_fit, :sourced)))
 
-# Posterior means against the simulating truth, read from the per-draw delay
-# parameters. The incubation truth is covered by its interval, often near an
-# edge at this light budget (150 warmup, 150 draws, 2 chains), where the tied
+# The posterior draws are shown against the simulating truth, the whole draw
+# cloud per parameter rather than a single mean. The incubation truth sits
+# inside its cloud, often near an edge at this light budget where the tied
 # log-mean and log-SD are correlated and shift together; the transmission timing
-# is recovered in the right region but with a wide interval, the first sign of
-# its weak identifiability.
+# is recovered in the right region but with a broad cloud, the first sign of its
+# weak identifiability.
 function delta_params(chain)
     mu = vec(chain[Parameter(@varname(delays.sourced.srconset_infection.mu))])
     sigma = vec(chain[Parameter(
@@ -359,14 +354,21 @@ sim_delta = delta_params(sim_chain)
 sim_draws = (mu_inc = sim_inc.mu, sigma_inc = sim_inc.sigma,
     mu_delta = sim_delta.mu, sigma_delta = sim_delta.sigma)
 sim_pars = (:mu_inc, :sigma_inc, :mu_delta, :sigma_delta)
-sim_summary = DataFrame(
-    parameter = ["mu_inc", "sigma_inc", "mu_delta", "sigma_delta"],
-    truth = [3.06, 0.32, 0.17, 0.62],
-    posterior_mean = [round(mean(sim_draws[p]); digits = 3) for p in sim_pars],
-    lower = [round(quantile(sim_draws[p], 0.025); digits = 3)
-             for p in sim_pars],
-    upper = [round(quantile(sim_draws[p], 0.975); digits = 3)
-             for p in sim_pars])
+sim_truth_vals = (mu_inc = 3.06, sigma_inc = 0.32,
+    mu_delta = 0.17, sigma_delta = 0.62)
+
+# Each parameter's posterior draws as a jittered cloud with the truth marked, so
+# the recovery is read from the whole ensemble rather than a point summary.
+sfig = Figure(size = (760, 380))
+for (j, p) in enumerate(sim_pars)
+    sax = Axis(sfig[1, j]; title = string(p),
+        xticksvisible = false, xticklabelsvisible = false)
+    d = sim_draws[p]
+    scatter!(sax, 1.0 .+ 0.25 .* randn(length(d)), d;
+        color = (:steelblue, 0.3), markersize = 4)
+    hlines!(sax, [sim_truth_vals[p]]; color = :firebrick, linewidth = 2)
+end
+sfig
 
 # ## Fitting the line list
 #
@@ -379,7 +381,7 @@ chain = sample(andv(template, index_rows, sourced_rows),
     initial_params = fill(InitFromPrior(), 2), progress = false)
 nothing #hide
 
-fit = update(template, chain; prefix = :delays)
+fit = update(template, chain; prefix = :delays);
 
 # ## Priors and posteriors
 #
@@ -471,31 +473,44 @@ comparison = DataFrame(
 
 # Overlay the two interval sets so the overlap reads directly. The four model
 # parameters share a comparable scale, so they go on one axis; the incubation
-# mean in days is kept in the table above rather than squashing the axis.
+# mean in days is on a separate panel rather than squashing that axis.
+function interval_row!(axis, i, lo, hi, m, tlo, thi, tm)
+    lines!(axis, [lo, hi], [i + 0.12, i + 0.12]; color = :steelblue,
+        linewidth = 6)
+    scatter!(axis, [m], [i + 0.12]; color = :steelblue, markersize = 12)
+    lines!(axis, [tlo, thi], [i - 0.12, i - 0.12]; color = :firebrick,
+        linewidth = 6)
+    scatter!(axis, [tm], [i - 0.12]; color = :firebrick, markersize = 12)
+end
+
 np = 4
 cfig = Figure(size = (760, 380))
 ax = Axis(cfig[1, 1]; xlabel = "value",
     yticks = (1:np, comparison.quantity[1:np]),
     title = "Posterior vs published targets")
 for i in 1:np
-    lines!(ax, [comparison.posterior_lower[i], comparison.posterior_upper[i]],
-        [i + 0.12, i + 0.12]; color = :steelblue, linewidth = 6)
-    scatter!(ax, [comparison.posterior_mean[i]], [i + 0.12];
-        color = :steelblue, markersize = 12)
-    lines!(ax, [comparison.target_lower[i], comparison.target_upper[i]],
-        [i - 0.12, i - 0.12]; color = :firebrick, linewidth = 6)
-    scatter!(ax, [comparison.target_mean[i]], [i - 0.12];
-        color = :firebrick, markersize = 12)
+    interval_row!(ax, i, comparison.posterior_lower[i],
+        comparison.posterior_upper[i], comparison.posterior_mean[i],
+        comparison.target_lower[i], comparison.target_upper[i],
+        comparison.target_mean[i])
 end
 scatter!(ax, [NaN], [NaN]; color = :steelblue, label = "this fit")
 scatter!(ax, [NaN], [NaN]; color = :firebrick, label = "published target")
 axislegend(ax; position = :rb)
+
+iax = Axis(cfig[1, 2]; xlabel = "days",
+    yticks = (1:1, ["incubation mean"]),
+    title = "Incubation mean (days)")
+interval_row!(iax, 1, comparison.posterior_lower[5],
+    comparison.posterior_upper[5], comparison.posterior_mean[5],
+    comparison.target_lower[5], comparison.target_upper[5],
+    comparison.target_mean[5])
+colsize!(cfig.layout, 2, Relative(0.35))
 cfig
 
 # The incubation parameters and the incubation mean delay overlap the published
 # targets closely in both location and width.
 # The transmission-timing parameters overlap too, but their intervals are wide.
-comparison
 
 # ## The transmission timing is weakly identified
 #
