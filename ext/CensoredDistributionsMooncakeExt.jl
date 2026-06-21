@@ -3,7 +3,8 @@ module CensoredDistributionsMooncakeExt
 using CensoredDistributions: _gamma_cdf, _split_edge_name,
                              _is_positional_edge_name, _next_event_name,
                              _all_positional_event_names, _split_edge,
-                             _ctor_has_check_args, _window_quantile
+                             _ctor_has_check_args, _window_quantile,
+                             _premodified_rate_primal, Modified
 using Distributions: UnivariateDistribution
 using Mooncake: Mooncake
 
@@ -98,5 +99,21 @@ Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{
 # hardens the `Convolved` numeric path.
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_window_quantile), UnivariateDistribution, Real}
+
+# `_premodified_rate_primal(d, u)` is the pre-clamp modified rate used ONLY by
+# the `Modified` knot scan (`_modified_knots`), which locates where the additive
+# hazard clamp engages. The knots carry no gradient — they split the
+# cumulative-hazard quadrature at a continuous kink — so the rate that finds them
+# must not be differentiated. Without a Mooncake rule, the reverse trace runs the
+# rate at the support edge, where `logpdf(base, lo) = -Inf` (Gamma shape > 1,
+# LogNormal, ...), and the discarded `0 * (-Inf)` adjoint becomes a `NaN` on the
+# base distribution's first parameter (#680: NaN on the modify negative-effect /
+# numeric-link gradient). `@zero_derivative` (both modes) generates the correct
+# zero tangent/rdata for the `Modified` argument (whose rdata is a `NamedTuple`
+# of its fields), cutting the trace at the scan while the quadrature integrand —
+# which DOES carry the gradient — is untouched. Mirrors the `_window_quantile`
+# rule above (the same primal-strip-not-lifted-by-Mooncake problem).
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
+    typeof(_premodified_rate_primal), Modified, Real}
 
 end

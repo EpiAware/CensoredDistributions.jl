@@ -378,20 +378,45 @@ function _modified_hazard(d::Modified, u::Real)
     return max(hstar, zero(hstar))
 end
 
+# The pre-clamp modified rate for the knot scan ONLY. Same value as
+# `_premodified_rate`, but computed on AD-stripped (primal) parameters so the
+# rate — and the `logpdf`/`logccdf` it calls — never runs under an AD trace. The
+# knots only locate where the additive-hazard clamp engages; they split the
+# cumulative-hazard quadrature at a continuous kink and carry no gradient.
+#
+# Stripping is necessary because a traced rate evaluates `logpdf(base, lo)` at
+# the support edge, which is `-Inf` for a base whose density vanishes there
+# (Gamma shape > 1, LogNormal, ...). Reverse-mode AD then forms the discarded
+# `0 * (-Inf)` adjoint as a `NaN` that poisons the base distribution's first
+# parameter (#680). The element-wise `_primal` strips ForwardDiff `Dual`s and
+# ReverseDiff `TrackedReal`s (each has a `_primal` method) to plain `Float64`
+# before any density is evaluated. Mooncake leaves `_primal` as identity, so it
+# additionally gets the explicit `@zero_derivative` rule in its extension, and
+# ChainRules-based reverse modes get the `@non_differentiable` mark; both cut the
+# trace at the scan while the quadrature integrand (which DOES carry the
+# gradient) stays untouched.
+function _premodified_rate_primal(d::Modified, u::Real)
+    base = _primal_distribution(d.dist)
+    effect = d.effect isa Function ? d.effect : _primal(d.effect)
+    up = _primal(u)
+    h = _base_hazard(base, up)
+    return d.link.invlink(d.link.g(h) + _effect_at(effect, up))
+end
+
 # Locate the clamp knots in `(lo, t)`: the points where the pre-clamp modified
 # rate crosses zero, so the clamped integrand `max(rate, 0)` has a kink there.
 # A coarse scan brackets each sign change, then bisection refines it. The scan
-# runs on AD-stripped primals (`_primal`), so the knots are plain `Float64` even
-# under AD; the quadrature integrand still carries the `Dual`s, which is what
-# differentiates correctly. The knots are where `max(rate, 0)` is continuous, so
-# they introduce no boundary terms under differentiation. Integrating each
-# smooth panel between knots (rather than one fixed rule over a kinked
-# integrand) keeps the cumulative hazard, and so the cdf, monotone to machine
-# precision (#670).
+# runs on AD-stripped primals (`_premodified_rate_primal`), so the knots are
+# plain `Float64` even under AD; the quadrature integrand still carries the
+# `Dual`s, which is what differentiates correctly. The knots are where
+# `max(rate, 0)` is continuous, so they introduce no boundary terms under
+# differentiation. Integrating each smooth panel between knots (rather than one
+# fixed rule over a kinked integrand) keeps the cumulative hazard, and so the
+# cdf, monotone to machine precision (#670).
 const _MODIFIED_KNOT_SCAN = 64
 
 function _modified_knots(d::Modified, lo::Real, t::Real)
-    rate(u) = _primal(_premodified_rate(d, u))
+    rate(u) = _primal(_premodified_rate_primal(d, u))
     knots = Float64[]
     a = _primal(float(lo))
     b = _primal(float(t))
