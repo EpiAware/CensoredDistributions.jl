@@ -327,9 +327,80 @@ event(ready, :onset_admit)
 
 # See also
 - [`update`](@ref): rebuild the distribution from the NamedTuple.
+- [`param_draws`](@ref): every draw as a vector of NamedTuples (no reduction).
 - [`composed_parameters_model`](@ref): the submodel that produced the chain.
 "
 function chain_to_params end
+
+@doc "
+
+Read EVERY draw of a fitted chain into a vector of parameter NamedTuples.
+
+`param_draws(template, chain)` returns one nested `NamedTuple` per draw, each
+keyed like [`params`](@ref)`(template)` and identical to
+[`chain_to_params`](@ref)`(template, chain; draw = i)`. It is the vectorised form
+of the per-draw read: where [`chain_to_params`](@ref) reduces the draws to a
+single summary (a posterior mean, a quantile) and [`update`](@ref) rebuilds the
+distribution at that summary, `param_draws` keeps ALL draws so a tutorial maps
+over them (`update.(Ref(template), param_draws(template, chain))` for per-draw
+distributions, posterior trajectories, or a prior/posterior `PairPlots` table)
+instead of hand-writing a `chain[Prefixed(@varname(...))]` lookup or looping
+[`update`](@ref) per draw.
+
+The same extractor reads a posterior chain, a prior chain, or a
+forward-simulation chain; it is post-fit and AD-irrelevant. Restrict to a subset
+of draws with `draws` (a range / index vector, or a predicate `i -> Bool` over
+the iteration index, for warmup-drop / thinning); `nothing` (the default) keeps
+every draw. The `prefix` keyword names the submodel variable the parameters were
+sampled under (default `:d`); pass `prefix = Symbol(\"\")` for a
+[`strip_prefix`](@ref)ed chain.
+
+This function has no methods until both `DynamicPPL` and `FlexiChains` are
+loaded; the method lives in the package extension so the core stays free of
+both.
+
+# Arguments
+- `template`: the composed distribution (from [`compose`](@ref)) that was the
+  `composed_parameters_model` template.
+- `chain`: the fitted chain to read every draw from.
+
+# Keyword Arguments
+- `prefix`: the submodel variable name the parameters were sampled under
+  (default `:d`).
+- `draws`: a subset of iterations to read: a range / index vector, or a
+  predicate `i -> Bool` over the iteration index; `nothing` reads every draw
+  (default `nothing`).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+
+template = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+priors = build_priors(params_table(template);
+    default = row -> truncated(Normal(row.value, 1); lower = 0))
+
+@model function fit(t, p, ys)
+    d ~ to_submodel(composed_parameters_model(t, p))
+    for y in ys
+        DynamicPPL.@addlogprob! logpdf(d, y)
+    end
+end
+
+Random.seed!(1)
+chain = sample(fit(template, priors, [[0.5, 2.0], [1.0, 3.0]]), NUTS(), 20;
+    progress = false)
+draws = param_draws(template, chain)
+length(draws), first(draws).onset_admit.shape
+```
+
+# See also
+- [`chain_to_params`](@ref): the single-draw / reduced read this vectorises.
+- [`update`](@ref): rebuild a distribution per draw, e.g.
+  `update.(Ref(template), param_draws(template, chain))`.
+- [`composed_parameters_model`](@ref): the submodel that produced the chain.
+"
+function param_draws end
 
 @doc "
 

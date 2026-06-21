@@ -649,6 +649,94 @@ end
     @test event_names(ready) == event_names(template)
 end
 
+@testitem "param_draws: one entry per draw == per-draw chain_to_params" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: Prefixed, VNChain
+
+    template = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    priors = build_priors(params_table(template))
+
+    @model function fit(t, p, ys)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        for y in ys
+            DynamicPPL.@addlogprob! logpdf(d, y)
+        end
+        return d
+    end
+
+    Random.seed!(312)
+    ys = [[0.5, 2.0], [1.0, 3.0], [0.8, 2.5]]
+    n = 60
+    chain = sample(fit(template, priors, ys), NUTS(), n;
+        chain_type = VNChain, progress = false)
+
+    draws = param_draws(template, chain)
+    # One entry per draw, each keyed exactly like params(template).
+    @test length(draws) == n
+    @test all(d -> Set(keys(d)) == Set(keys(params(template))), draws)
+    @test all(d -> Set(keys(d.onset_admit)) == Set((:shape, :scale)), draws)
+
+    # Each entry is identical to the existing single-draw read.
+    @test draws == [chain_to_params(template, chain; draw = i) for i in 1:n]
+
+    # Matches the raw chain columns draw-for-draw (no manual @varname loop).
+    shape_col = vec(chain[Prefixed(@varname(onset_admit.shape))])
+    @test [d.onset_admit.shape for d in draws] == shape_col
+
+    # Maps straight to per-draw distributions, dropping the update-per-draw loop.
+    dists = update.(Ref(template), draws)
+    @test length(dists) == n
+    @test dists[5] == update(template, chain; draw = 5)
+end
+
+@testitem "param_draws: prefix + draws subset" tags=[:turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: VNChain
+
+    template = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    priors = build_priors(params_table(template))
+
+    @model function fit(t, p, ys)
+        delays ~ to_submodel(composed_parameters_model(t, p))
+        for y in ys
+            DynamicPPL.@addlogprob! logpdf(delays, y)
+        end
+    end
+
+    Random.seed!(313)
+    ys = [[0.5, 2.0], [1.0, 3.0], [0.8, 2.5]]
+    n = 60
+    chain = sample(fit(template, priors, ys), NUTS(), n;
+        chain_type = VNChain, progress = false)
+
+    # A non-default `prefix` reads the same per-draw values.
+    pd = param_draws(template, chain; prefix = :delays)
+    @test length(pd) == n
+    @test pd ==
+          [chain_to_params(template, chain; prefix = :delays, draw = i)
+           for i in 1:n]
+
+    # A range subset reads only those iterations, in order.
+    sub = param_draws(template, chain; prefix = :delays, draws = 30:40)
+    @test sub == [chain_to_params(template, chain; prefix = :delays, draw = i)
+           for i in 30:40]
+
+    # A predicate over the iteration index (warmup drop / thinning).
+    keep = param_draws(template, chain; prefix = :delays, draws = i -> i > 50)
+    idx = [i for i in 1:n if i > 50]
+    @test keep == [chain_to_params(template, chain; prefix = :delays, draw = i)
+           for i in idx]
+
+    # A strip_prefix'ed chain reads back at the empty prefix.
+    stripped = strip_prefix(chain; prefix = :delays)
+    sp = param_draws(template, stripped; prefix = Symbol(""))
+    @test length(sp) == n
+    @test sp[1] == chain_to_params(template, stripped; prefix = Symbol(""),
+        draw = 1)
+end
+
 @testitem "composed_distribution_model accepts a Tables.jl table" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL
     import Tables

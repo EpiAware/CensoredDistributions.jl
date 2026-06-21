@@ -166,21 +166,19 @@ prior_chain = sample(params_model(full_template, full_priors), Prior(), 1000;
     chain_type = VNChain, progress = false)
 
 md"""
-To read the sampled `mu` and `sigma` off a chain, we walk each draw through
-[`update`](@ref)`(template, chain; draw = i)`, which rebuilds the composed
-object from that draw, and pull the two delay parameters off the rebuilt
-object's [`params_table`](@ref). This same `draw_params` helper reads the prior
-chain and every posterior chain below, with no manual chain indexing.
+To read the sampled `mu` and `sigma` off a chain, we pull every draw at once
+with [`param_draws`](@ref)`(template, chain)`, which returns one nested
+NamedTuple per draw keyed exactly like [`params`](@ref)`(template)`. We index the
+`onset_report` edge to collect the two delay parameters into the column vectors
+`PairPlots` wants. This same `draw_params` helper reads the prior chain and every
+posterior chain below, with no per-draw `update` loop and no manual chain
+indexing.
 """
 
 function draw_params(template, chain; prefix = :delays)
-    nd = prod(size(chain))
-    rows = map(1:nd) do i
-        tbl = params_table(update(template, chain; prefix = prefix, draw = i))
-        (mu = tbl.value[findfirst(==(:mu), tbl.param)],
-            sigma = tbl.value[findfirst(==(:sigma), tbl.param)])
-    end
-    return (mu = [r.mu for r in rows], sigma = [r.sigma for r in rows])
+    edges = param_draws(template, chain; prefix = prefix)
+    return (mu = [e.onset_report.mu for e in edges],
+        sigma = [e.onset_report.sigma for e in edges])
 end
 
 md"""

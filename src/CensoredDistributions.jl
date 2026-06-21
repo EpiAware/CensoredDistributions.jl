@@ -117,6 +117,12 @@ export endpoint
 # loaded; the method lives in the package extension.
 export chain_to_params
 
+# Exported vectorised chain reader: read EVERY draw of a fitted chain into a
+# vector of parameter NamedTuples (one per draw), replacing per-draw
+# `chain_to_params(...; draw = i)` loops. No method until both DynamicPPL and
+# FlexiChains are loaded; the method lives in the package extension.
+export param_draws
+
 # Exported chain renamer: drop the outer submodel prefix from a fitted chain's
 # parameter names (`d.onset_admit.shape` -> `onset_admit.shape`). No method until
 # both DynamicPPL and FlexiChains are loaded; the method lives in the extension.
