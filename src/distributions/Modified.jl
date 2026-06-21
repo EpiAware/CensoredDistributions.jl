@@ -277,6 +277,18 @@ end
 #   H*(t) = H(t) + β t,  S*(t) = S(t) exp(-β t),  logS* = logS - β t,
 #   logpdf* = log h*(t) + logS*(t) = log(h(t) + β) - H(t) - β t,
 # where log h(t) = logpdf - logccdf, so h(t) = exp(logpdf - logccdf).
+#
+# The closed form is only the survival of a valid distribution while the
+# additive hazard h(t) + β stays non-negative for all t in support. For β >= 0
+# this holds (h >= 0), so the closed form is used directly. For β < 0 the
+# hazard goes negative wherever h(t) < |β| — near the origin for any base with
+# h(0) = 0 (LogNormal, Gamma/Weibull shape > 1, ...) — and the closed-form
+# S* = S exp(-β t) would exceed 1, giving a negative, non-monotone cdf
+# (issue #670). The model is then the clamped additive hazard
+# h*(t) = max(h(t) + β, 0): we route logccdf/logpdf through the numeric
+# clamped cumulative-hazard integration so survival, cdf and pdf stay mutually
+# consistent and the cdf stays monotone in [0, 1]. (A large negative effect
+# therefore truncates the early hazard rather than producing an invalid law.)
 
 @doc "
 
@@ -288,6 +300,12 @@ function logccdf(
         d::Modified{<:UnivariateDistribution{Continuous}, <:Real, typeof(IdentityLink)},
         x::Real)
     β = d.effect
+    # Negative effect: the hazard can dip below zero, so integrate the clamped
+    # hazard numerically (see the section comment above).
+    if β < zero(β)
+        x <= minimum(d.dist) && return zero(float(typeof(x)))
+        return -_modified_cumhazard(d, x)
+    end
     return _logccdf_ad_safe(d.dist, x) - β * x
 end
 
@@ -302,8 +320,11 @@ function logpdf(
         x::Real)
     insupport(d, x) || return oftype(float(x), -Inf)
     β = d.effect
+    # Negative effect: use the clamped hazard and its numeric cumulative hazard
+    # so the density matches the (clamped) survival above.
+    β < zero(β) && return _numeric_logpdf(d, x)
     logS = _logccdf_ad_safe(d.dist, x)
-    # h(t) = exp(logpdf - logS); modified hazard h(t) + β must stay positive.
+    # h(t) = exp(logpdf - logS); modified hazard h(t) + β stays positive here.
     h = exp(logpdf(d.dist, x) - logS)
     hstar = h + β
     hstar <= zero(hstar) && return oftype(float(x), -Inf)
@@ -335,10 +356,18 @@ end
 # The effect evaluated at `u`: a callable is applied, a scalar is constant.
 _effect_at(effect, u) = effect isa Function ? effect(u) : effect
 
-# The modified instantaneous hazard h*(u) = g⁻¹(g(h(u)) + effect(u)).
+# The modified instantaneous hazard h*(u) = max(g⁻¹(g(h(u)) + effect(u)), 0).
+# The clamp at zero keeps the modified hazard a valid (non-negative) hazard for
+# links whose inverse can return a negative rate. The additive (identity) link
+# does this when the effect is negative and the base hazard is smaller than the
+# effect magnitude (h(u) + β < 0); clamping there makes the cumulative-hazard
+# integral H* = ∫ max(h + β, 0) consistent with the logpdf clamp below, so
+# survival, cdf and pdf all use the same clamped hazard. For links with a
+# non-negative inverse (log → exp, logit → logistic) the clamp is a no-op.
 function _modified_hazard(d::Modified, u::Real)
     h = _base_hazard(d.dist, u)
-    return d.link.invlink(d.link.g(h) + _effect_at(d.effect, u))
+    hstar = d.link.invlink(d.link.g(h) + _effect_at(d.effect, u))
+    return max(hstar, zero(hstar))
 end
 
 # The modified cumulative hazard H*(t) = ∫₀ᵗ h*(u) du via the solver. The lower
@@ -348,6 +377,19 @@ function _modified_cumhazard(d::Modified, t::Real)
     lo = max(minimum(d.dist), zero(t))
     t <= lo && return zero(float(promote_type(typeof(t), eltype(d.dist))))
     return integrate(d.method, u -> _modified_hazard(d, u), lo, t)
+end
+
+# `logpdf* = log h*(t) - H*(t)` from the clamped modified hazard and its
+# numeric cumulative hazard. The density is zero where the hazard is clamped to
+# zero (h* <= 0) and in the deep tail where the survival has numerically
+# exhausted (H* or h* non-finite), keeping log h* - H* from evaluating to NaN
+# (Inf - Inf) where S* ≈ 0.
+function _numeric_logpdf(d::Modified, x::Real)
+    H = _modified_cumhazard(d, x)
+    hstar = _modified_hazard(d, x)
+    (isfinite(H) && isfinite(hstar)) || return oftype(float(x), -Inf)
+    hstar <= zero(hstar) && return oftype(float(x), -Inf)
+    return log(hstar) - H
 end
 
 # A general-link Modified on a continuous base: the union of all links that are
@@ -377,10 +419,7 @@ See also: [`pdf`](@ref), [`ccdf`](@ref)
 "
 function logpdf(d::_NumericModified, x::Real)
     insupport(d, x) || return oftype(float(x), -Inf)
-    H = _modified_cumhazard(d, x)
-    hstar = _modified_hazard(d, x)
-    hstar <= zero(hstar) && return oftype(float(x), -Inf)
-    return log(hstar) - H
+    return _numeric_logpdf(d, x)
 end
 
 function Base.rand(rng::AbstractRNG, d::_NumericModified)
