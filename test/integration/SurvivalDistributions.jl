@@ -284,6 +284,54 @@ end
     end
 end
 
+@testitem "SurvivalDistributions ext composes a leaf with NO ambiguity" begin
+    using CensoredDistributions
+    import SurvivalDistributions as SD
+    using Distributions: logcdf, cdf, logpdf, Gamma, Uniform
+    using Test: detect_ambiguities
+    using CensoredDistributions: Sequential
+
+    # #646 (FALSE ALARM): composing a `SurvivalDistributions` GeneralizedGamma /
+    # LogLogistic leaf into a compose/sequential/convolution stack and exercising
+    # `logpdf`/`cdf`/`logcdf`/`rand` must NOT trip a method ambiguity. The weak-dep
+    # extension defines `logcdf(::GeneralizedGamma, ::Real)` (the only `logcdf`
+    # method touching the type), which does NOT collide with any
+    # `Distributions`/`SurvivalDistributions` generic. This testitem reproduces the
+    # reported scenario and asserts both that the calls dispatch (no MethodError /
+    # ambiguity at the call site) AND that `detect_ambiguities` over the package
+    # plus the loaded extension is clean — the existing `Aqua.test_ambiguities`
+    # cannot see the extension's methods because the extension is not loaded in its
+    # subprocess.
+    gg = SD.GeneralizedGamma(1.0, 2.0, 1.5)
+    ll = SD.LogLogistic(2.0, 1.5)
+
+    # Exactly one `logcdf` method touches GeneralizedGamma (the ext's), so the
+    # bare call resolves uniquely.
+    gg_logcdf_methods = filter(
+        m -> occursin("GeneralizedGamma", string(m.sig)), collect(methods(logcdf)))
+    @test length(gg_logcdf_methods) == 1
+
+    # The composition paths from the issue: a chain leaf, a convolution leaf, a
+    # primary-censored leaf. Each scores finitely (no ambiguity throws).
+    seq = Sequential((gg, ll))
+    @test isfinite(logpdf(seq, [2.0, 3.0]))
+    cv = convolve_distributions(gg, Gamma(2.0, 1.0))
+    @test 0.0 <= cdf(cv, 3.0) <= 1.0
+    pc = primary_censored(gg, Uniform(0, 1))
+    @test isfinite(logpdf(pc, 3.0))
+    @test logcdf(gg, 2.0) ≈ log(cdf(gg, 2.0))
+    @test rand(gg) > 0
+
+    # `detect_ambiguities` over the package + the now-loaded extension is empty.
+    # Including `Distributions` and `SurvivalDistributions` widens the check to
+    # any cross-package collision the `logcdf` method could introduce.
+    ext = Base.get_extension(
+        CensoredDistributions, :CensoredDistributionsSurvivalDistributionsExt)
+    @test ext !== nothing
+    amb = detect_ambiguities(CensoredDistributions, ext; recursive = false)
+    @test isempty(amb)
+end
+
 @testitem "SurvivalDistributions GeneralizedGamma bare logcdf is AD-safe" begin
     using CensoredDistributions
     import SurvivalDistributions as SD
