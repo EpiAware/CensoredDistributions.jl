@@ -59,6 +59,9 @@ This function implements the complete workflow for handling censored delay distr
 1. **Primary censoring**: Accounts for uncertainty in the primary event timing
 2. **Truncation**: Handles observation windows and finite study periods
 3. **Secondary censoring**: Models interval censoring effects (e.g., daily reporting)
+
+# See also
+- [`double_censored`](@ref): a shorter alias for this function.
 """
 function double_interval_censored(
         dist::UnivariateDistribution;
@@ -91,3 +94,24 @@ function double_interval_censored(
 
     return result
 end
+
+@doc """
+
+Short, clear alias for [`double_interval_censored`](@ref).
+
+`double_censored(dist; ...)` is identical to `double_interval_censored(dist; ...)`,
+provided as a shorter name for the common primary + truncation + secondary
+interval pipeline. (Deliberately NOT `dic`, which clashes with the Deviance
+Information Criterion.)
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+double_censored(LogNormal(1.5, 0.75); upper = 10, interval = 1)
+```
+
+# See also
+- [`double_interval_censored`](@ref): the full constructor this aliases.
+"""
+const double_censored = double_interval_censored

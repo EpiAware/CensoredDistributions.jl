@@ -19,6 +19,10 @@
 - **Double interval censoring**: Combines both primary event and interval censoring for complex observation processes.
 - **Distribution fitting**: Integrates with [Turing.jl](https://github.com/TuringLang/Turing.jl) for both Bayesian inference and MLE of censored distributions.
 - **Analytical solutions**: Provides analytical solutions where possible with numerical fallbacks for efficiency.
+- **Composed distributions**: Build multi-event delay trees with the core composer verbs (`compose`, `sequential`/`parallel`, `choose`, `resolve`/`compete`, `tie`/`shared`) and score them in both the efficient marginal form and the explicit latent (event-based) form. The two forms are one family sharing parameters, so a marginal-fit posterior drops straight into the latent form; the [Fit marginal, sample event based](https://censoreddistributions.epiaware.org/dev/getting-started/tutorials/fit-marginal-sample-event-based/) tutorial demonstrates the marginal-equals-latent equivalence.
+
+> [!NOTE]
+> This release lands the composed-distribution core, both scoring forms (marginal and latent), and the marginal-versus-latent equivalence tutorial for the core composer types. Latent scoring for the remaining types, the distribution modifiers (hazard `modify`, `affine`, `thin`), the renewal/reporting-hazard layers, the ODE/Catalyst bridges, and the worked case studies follow in later PRs.
 
 ## Getting started
 

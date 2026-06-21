@@ -556,7 +556,7 @@ end
 @testitem "Type stability at non-constant-folded call sites" begin
     using Distributions, Test
 
-    # Regression for #367: the analytic-vs-numeric solver choice must be a
+    # Regression: the analytic-vs-numeric solver choice must be a
     # type-level decision so the return type stays concrete even when the
     # delay parameters arrive as runtime values (as in a Turing model). The
     # default resolves to a concrete `AnalyticalSolver` via dispatch, with no

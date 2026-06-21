@@ -81,7 +81,7 @@ end
     end
 end
 
-@testitem "Convolved force_numeric matches analytic ground truth" begin
+@testitem "Convolved NumericSolver matches analytic ground truth" begin
     using Distributions
 
     # For pairs that HAVE a closed form, force the numeric quadrature path
@@ -96,10 +96,10 @@ end
         (Exponential(1.5), Exponential(1.5), 0.3, 8.0)
     ]
     for (a, b, lo, hi) in cases
-        dn = convolve_distributions(a, b; force_numeric = true)
+        dn = convolve_distributions(a, b; method = NumericSolver())
         ref = convolve(a, b)
 
-        # force_numeric must actually bypass the analytic specialisation.
+        # NumericSolver must actually bypass the analytic specialisation.
         @test CensoredDistributions._maybe_analytic(dn) === nothing
         @test CensoredDistributions._maybe_analytic(
             convolve_distributions(a, b)) !== nothing
@@ -117,6 +117,35 @@ end
         pb = pdf(dn, xs)
         @test maximum(abs.(cb .- [cdf(ref, x) for x in xs])) < 2e-4
         @test maximum(abs.(pb .- [pdf(ref, x) for x in xs])) < 6e-3
+    end
+end
+
+@testitem "Convolved deprecated force_numeric still selects the path" begin
+    using Distributions
+
+    a = Normal(1.0, 2.0)
+    b = Normal(-0.5, 1.5)
+
+    # `force_numeric` is deprecated in favour of `method`, but must keep
+    # working: `force_numeric = true` maps to NumericSolver (bypasses the
+    # analytic specialisation) and `false` to AnalyticalSolver. The depwarn
+    # only surfaces with `--depwarn=yes`, so behaviour is asserted directly.
+    dn = convolve_distributions(a, b; force_numeric = true)
+    @test CensoredDistributions._maybe_analytic(dn) === nothing
+    @test dn.method isa NumericSolver
+
+    da = convolve_distributions(a, b; force_numeric = false)
+    @test CensoredDistributions._maybe_analytic(da) !== nothing
+    @test da.method isa AnalyticalSolver
+
+    # Passing both `method` and `force_numeric` is an error.
+    @test_throws ArgumentError convolve_distributions(
+        a, b; method = NumericSolver(), force_numeric = true)
+
+    # Old and new routes give identical densities.
+    for x in range(-3.0, 8.0; length = 6)
+        @test cdf(dn, x) ≈ cdf(
+            convolve_distributions(a, b; method = NumericSolver()), x)
     end
 end
 
@@ -319,6 +348,68 @@ end
     @test get_dist(td) === d
 end
 
+@testitem "Convolved quantile inverts cdf" begin
+    using Distributions
+
+    # Numeric path: quantile is the cdf inverse.
+    # The optimiser minimises (cdf - p)^2, so cdf accuracy is ~1e-4.
+    d = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    for p in (0.1, 0.25, 0.5, 0.75, 0.9)
+        q = quantile(d, p)
+        @test cdf(d, q) ≈ p atol=1e-3
+    end
+    @test quantile(d, 0.0) == minimum(d)
+    @test quantile(d, 1.0) == maximum(d)
+
+    # Analytic path agrees with the convolved reference quantile.
+    a = Normal(1.0, 2.0)
+    b = Normal(-0.5, 1.5)
+    da = convolve_distributions(a, b)
+    ref = convolve(a, b)
+    for p in (0.2, 0.5, 0.8)
+        @test quantile(da, p) ≈ quantile(ref, p) atol=1e-2
+    end
+end
+
+@testitem "Convolved truncated quantile/rand correct vs MC and analytic" begin
+    using Distributions, Random, Statistics
+    rng = MersenneTwister(8675309)
+
+    # truncated must fully compose over Convolved: cdf/logcdf/pdf/logpdf,
+    # quantile and rand all correct. Analytic-pair check first.
+    a = Normal(1.0, 2.0)
+    b = Normal(0.5, 1.5)
+    da = convolve_distributions(a, b)
+    refd = truncated(convolve(a, b), -1.0, 6.0)
+    td = truncated(da, -1.0, 6.0)
+    for x in -1.0:0.5:6.0
+        @test cdf(td, x) ≈ cdf(refd, x) atol=1e-8
+        @test pdf(td, x) ≈ pdf(refd, x) atol=1e-8
+        @test logpdf(td, x) ≈ logpdf(refd, x) atol=1e-8
+    end
+    for p in (0.2, 0.5, 0.8)
+        @test quantile(td, p) ≈ quantile(refd, p) atol=1e-2
+    end
+
+    # Numeric path: quantile inverts the truncated cdf (optimiser accuracy
+    # ~1e-3), and rand respects the bounds with a Monte-Carlo-consistent
+    # distribution.
+    dn = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    tn = truncated(dn, 1.0, 8.0)
+    for p in (0.25, 0.5, 0.75)
+        q = quantile(tn, p)
+        @test cdf(tn, q) ≈ p atol=1e-3
+    end
+
+    samples = rand(rng, tn, 200_000)
+    @test all(1.0 .<= samples .<= 8.0)
+    # Empirical CDF matches the analytic truncated CDF.
+    for x in (2.0, 4.0, 6.0)
+        @test mean(samples .<= x) ≈ cdf(tn, x) atol=5e-3
+    end
+    @test median(samples) ≈ quantile(tn, 0.5) atol=0.05
+end
+
 @testitem "Convolved composes with interval_censored" begin
     using Distributions
 
@@ -437,8 +528,8 @@ end
     # The interface methods return a concrete `Float64` and infer as such.
     # The numeric path uses the Integrals.jl-free `gl_integrate` dot
     # product, whose accumulator type is seeded from the integrand, so the
-    # quadrature element type no longer leaks as `Any` (the gap closed in
-    # #208; previously `Integrals.solve` hid it behind a free parameter).
+    # quadrature element type no longer leaks as `Any` (previously
+    # `Integrals.solve` hid it behind a free parameter).
     analytic = convolve_distributions(Normal(0.0, 1.0), Normal(1.0, 2.0))
     numeric = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     for d in (analytic, numeric)
@@ -449,3 +540,40 @@ end
         @test (@inferred(pdf(d, 3.0)); true)
     end
 end
+
+@testitem "Convolved mean/var/std equal the component sums" begin
+    using Distributions
+
+    # A Convolved is a sum of independent components, so its mean/var are the
+    # exact sums of the component moments and std the sqrt of the variance.
+    d = convolve_distributions(
+        Gamma(2.0, 1.5), LogNormal(1.0, 0.4), Normal(-0.5, 0.8))
+    @test mean(d) ≈ sum(mean.(d.components))
+    @test var(d) ≈ sum(var.(d.components))
+    @test std(d) ≈ sqrt(sum(var.(d.components)))
+
+    # Bounded components (no sampling/discretisation needed).
+    du = convolve_distributions(Uniform(0.0, 1.0), Uniform(0.0, 2.0))
+    @test mean(du) ≈ 0.5 + 1.0
+    @test var(du) ≈ var(Uniform(0.0, 1.0)) + var(Uniform(0.0, 2.0))
+
+    # Nested Convolved recurses through the component sum.
+    dn = convolve_distributions(d, Exponential(2.0))
+    @test mean(dn) ≈ mean(d) + mean(Exponential(2.0))
+    @test var(dn) ≈ var(d) + var(Exponential(2.0))
+end
+
+@testitem "Convolved moments cross-check against sampling" begin
+    using Distributions, Random, Statistics
+
+    rng = MersenneTwister(2024)
+    d = convolve_distributions(Gamma(2.0, 1.5), LogNormal(1.0, 0.4))
+    xs = rand(rng, d, 2_000_000)
+    @test isapprox(mean(xs), mean(d); rtol = 0.01)
+    @test isapprox(var(xs), var(d); rtol = 0.02)
+end
+
+# The AD-safety of the Convolved moments (gradients flowing through the
+# component parameters) is covered by the 6-backend AD suite in
+# `test/ADFixtures` ("Convolved Gamma+Normal mean+var moments"), which has the
+# AD backends as dependencies; the main test env does not.

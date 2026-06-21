@@ -1,8 +1,14 @@
 module CensoredDistributionsForwardDiffExt
 
-import CensoredDistributions: _gamma_cdf
+import CensoredDistributions: _gamma_cdf, _primal
 using CensoredDistributions: _gamma_cdf_value_and_partials
 using ForwardDiff: ForwardDiff, Dual, value, partials
+
+# Strip a ForwardDiff `Dual` to its primal `Float64` for the
+# non-differentiable quadrature-window quantile (`_finite_window` in
+# `src/distributions/Convolved.jl`). Recurses through nested
+# `Dual`s so a higher-order tag chain still reduces to the scalar value.
+_primal(x::Dual) = _primal(value(x))
 
 # Forward-mode AD via explicit `Dual` methods on `_gamma_cdf`.
 # ForwardDiff dispatches on `Dual` argument types (not via ChainRules),

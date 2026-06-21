@@ -82,6 +82,26 @@ end
 
 @doc "
 
+Return the distribution unweighted when the weight is `nothing`.
+
+This lets callers thread an optional weight through `weight(dist, w)` and pass
+`nothing` to mean \"no weight\": the distribution is returned unchanged so a
+`~ weight(dist, nothing)` statement scores the plain `logpdf`.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+d = Normal(2.0, 1.0)
+weight(d, nothing) === d
+```
+"
+function weight(dist::UnivariateDistribution, ::Nothing)
+    return dist
+end
+
+@doc "
+
 Create a product distribution of weighted distributions, each with a different
 weight.
 
@@ -225,9 +245,14 @@ end
 
 # Helper function for weighted logpdf computation with proper validation
 function _logpdf(dist, value, weight)
-    # Handle missing or zero weights to avoid NaN from 0 * -Inf operations
+    # Handle missing or zero weights to avoid NaN from 0 * -Inf operations.
+    # Seed the sentinel from the promoted weight/distribution type so
+    # ForwardDiff Duals survive the zero-weight branch (without evaluating
+    # the underlying logpdf on the short-circuit path).
     if ismissing(weight) || weight == 0
-        return -Inf
+        wtype = ismissing(weight) ? Bool : typeof(weight)
+        T = float(promote_type(wtype, eltype(dist)))
+        return oftype(zero(T), -Inf)
     end
     return weight * logpdf(dist, value)
 end
@@ -264,8 +289,17 @@ end
 function _logpdf_product(
         d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
         values, obs_weights)
-    # Compute base logpdfs and extract constructor weights
-    logpdfs = [logpdf(wd.dist, v) for (wd, v) in zip(d.v, values)]
+    # Base (unweighted) logpdfs, one per component. When every component shares
+    # the SAME underlying distribution AND that distribution has a cached-CDF
+    # batched `logpdf` (the `weight(dist, weights)` aggregation pattern over an
+    # `IntervalCensored`: many duplicate observation/window combinations against
+    # one distribution), these are scored in a SINGLE vectorised `logpdf(dist, x)`
+    # call rather than a per-observation loop, reusing the batched PDF
+    # methods. The vectorised call returns the same values as the per-element
+    # loop (it just caches shared CDF evaluations), so the weighted sum is
+    # numerically identical; the loop fallback (`_weighted_base_logpdfs`) keeps
+    # every other case correct.
+    logpdfs = _weighted_base_logpdfs(d.v, values)
     constructor_weights = [wd.weight for wd in d.v]
 
     # Combine weights and compute final result
@@ -275,6 +309,47 @@ function _logpdf_product(
         return -Inf
     end
     return sum(final_weights .* logpdfs)
+end
+
+# The unweighted base logpdfs of a vector of `Weighted` components at `values`.
+# The vectorised batched `logpdf(dist, values)` call is taken ONLY when every
+# component wraps the SAME distribution AND that distribution has a specialised
+# batched `logpdf` over a vector of scalar observations (the cached-CDF
+# `IntervalCensored` path, `_has_batched_logpdf`); otherwise the per-component
+# loop is used. Both conditions are on the DATA (the wrapped distribution's type
+# and object identity), never on a sampled parameter value, so the branch is
+# AD-safe; and gating on `_has_batched_logpdf` keeps a PLAIN distribution (no
+# batched method, no CDF-cache win) on the loop, which avoids routing it through
+# the deprecated/AD-hostile generic `logpdf(d, ::AbstractVector)`.
+function _weighted_base_logpdfs(components, values)
+    shared = _shared_weighted_dist(components)
+    (shared === nothing || !_has_batched_logpdf(shared)) &&
+        return [logpdf(wd.dist, v) for (wd, v) in zip(components, values)]
+    return logpdf(shared, collect(values))
+end
+
+# Whether a distribution provides a specialised, value-identical batched
+# `logpdf(d, ::AbstractVector{<:Real})` over a vector of scalar observations that
+# is worth a single vectorised call. Only `IntervalCensored` does (it caches the
+# shared interval CDFs); everything else falls back to the per-observation
+# loop. Composer `logpdf(::AbstractVector)` methods score a single MULTIVARIATE
+# event, not a batch, so they are deliberately excluded.
+_has_batched_logpdf(::UnivariateDistribution) = false
+_has_batched_logpdf(::IntervalCensored) = true
+
+# The single underlying distribution shared by every `Weighted` component, or
+# `nothing` when they are not all the same object. Identity (`===`) keeps the
+# branch DATA-driven: it depends only on which distribution object each
+# component wraps, never on a (possibly `Dual`/sampled) parameter VALUE, so it is
+# AD-safe and matches the `weight(dist, weights)` aggregation pattern (one shared
+# `dist`, many weights). An empty vector has no shared distribution.
+function _shared_weighted_dist(components)
+    isempty(components) && return nothing
+    first_dist = first(components).dist
+    for wd in components
+        wd.dist === first_dist || return nothing
+    end
+    return first_dist
 end
 
 @doc "
@@ -466,9 +541,11 @@ function combine_weights(::Missing, w2)
 end
 
 function combine_weights(w1, w2)
-    # Handle zero weights to avoid NaN from 0 * Inf
-    w1 == 0 && return zero(typeof(w1))
-    w2 == 0 && return zero(typeof(w2))
+    # Handle zero weights to avoid NaN from 0 * Inf. Seed the zero from the
+    # promoted product type so all branches agree (and ForwardDiff Duals
+    # are not stripped on the zero-weight branch).
+    T = promote_type(typeof(w1), typeof(w2))
+    (w1 == 0 || w2 == 0) && return zero(T)
     return w1 * w2
 end
 

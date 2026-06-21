@@ -127,3 +127,27 @@ _cdf_ad_safe(dist::UnivariateDistribution, u::Real) = cdf(dist, u)
 function _cdf_ad_safe(dist::Gamma, u::Real)
     return _gamma_cdf(shape(dist), scale(dist), u)
 end
+
+@doc """
+AD-safe `logccdf(dist, u)` companion to [`_logcdf_ad_safe`](@ref): the log
+survival ``\\log(1 - F(u))``. The `Gamma` method routes through the AD-safe
+``F`` so the racing-hazard survival ``\\sum_k \\log S_k`` differentiates w.r.t.
+the Gamma shape/scale (the stock `logccdf(::Gamma)` calls `_gammalogccdf`, which
+has no `ForwardDiff.Dual` shape method and errors).
+"""
+_logccdf_ad_safe(dist::UnivariateDistribution, u::Real) = logccdf(dist, u)
+
+function _logccdf_ad_safe(dist::Gamma, u::Real)
+    u <= 0 && return zero(float(u))
+    return log1p(-_gamma_cdf(shape(dist), scale(dist), u))
+end
+
+@doc """
+AD-safe `ccdf(dist, u)` companion to [`_cdf_ad_safe`](@ref): the survival
+``1 - F(u)``. Routes `Gamma` through the AD-safe ``F``.
+"""
+_ccdf_ad_safe(dist::UnivariateDistribution, u::Real) = ccdf(dist, u)
+
+function _ccdf_ad_safe(dist::Gamma, u::Real)
+    return 1 - _gamma_cdf(shape(dist), scale(dist), u)
+end

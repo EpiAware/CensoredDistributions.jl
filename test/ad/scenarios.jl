@@ -1,5 +1,5 @@
 # Per-backend AD gradient scenario suite. Each backend is its own test
-# item, tagged so the per-backend CI (#269) can select it with a tag
+# item, tagged so the per-backend CI can select it with a tag
 # filter (e.g. `julia test/ad/runtests.jl enzyme_reverse`). With no tag
 # every item runs, as `task test-ad` does locally.
 

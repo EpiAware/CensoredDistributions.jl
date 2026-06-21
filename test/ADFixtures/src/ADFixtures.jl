@@ -25,15 +25,74 @@ __precompile__(false)
 
 using CensoredDistributions
 using Distributions: Distributions, Gamma, LogNormal, Weibull, Uniform, Normal,
-                     truncated, logpdf, logccdf, cdf
+                     truncated, logpdf, logccdf, cdf, mean, var
 using ADTypes: ADTypes, AutoForwardDiff, AutoReverseDiff, AutoMooncake,
                AutoMooncakeForward, AutoEnzyme
 using DifferentiationInterface: DifferentiationInterface, Constant
 import ForwardDiff, ReverseDiff, Mooncake, Enzyme
 import DifferentiationInterfaceTest as DIT
+import SurvivalDistributions as SD
 
 export scenarios, backends, working_backends, broken_backends,
-       broken_scenario_names, backend_broken_scenarios
+       broken_scenario_names, backend_broken_scenarios,
+       backend_skip_scenarios
+
+# Vectorised-records log density for the AD fixture: assemble the per-record
+# distributions (sharing the segment construction) and sum each record's log
+# density at its observed event vector. Equals the per-record loop and the
+# product log density used by the Turing entry.
+function _vectorised_records_logpdf(d, rows)
+    recs = CensoredDistributions.record_distributions(d, rows)
+    total = logpdf(recs[1],
+        [CensoredDistributions._row_event_vector(d, rows[1])...])
+    for i in 2:length(recs)
+        total += logpdf(recs[i],
+            [CensoredDistributions._row_event_vector(d, rows[i])...])
+    end
+    return total
+end
+
+# Vectorised log density of a nested-Resolve (bdbv) tree where each record's
+# Resolve branch probability is a COVARIATE CFR carried in the row's reserved
+# `branch_probs`. `ps` (one per record, derived from the differentiated params)
+# is injected into the rows so the gradient flows through the per-record CFR.
+function _vectorised_branch_probs_logpdf(d, rows, ps)
+    full = [merge(rows[i], (branch_probs = ps[i],)) for i in eachindex(rows)]
+    recs = CensoredDistributions.record_distributions(d, full)
+    total = logpdf(recs[1],
+        [CensoredDistributions._row_event_vector(d, rows[1])...])
+    for i in 2:length(recs)
+        total += logpdf(recs[i],
+            [CensoredDistributions._row_event_vector(d, rows[i])...])
+    end
+    return total
+end
+
+# Vectorised log density of a Choose (hanta) top: each record selects its
+# alternative by `:kind` and scores its single observed value.
+function _vectorised_choose_logpdf(d, rows)
+    recs = CensoredDistributions.record_distributions(d, rows)
+    total = logpdf(recs[1], [Float64(rows[1].delay)])
+    for i in 2:length(recs)
+        total += logpdf(recs[i], [Float64(rows[i].delay)])
+    end
+    return total
+end
+
+# Horizon-aware whole-compose truncation log density: score each record's
+# event vector at its own per-record horizon and sum. With an OBSERVED-intermediate
+# record and an endpoint-observed record this exercises BOTH the factorised
+# observed-intermediate numerator AND the conv-to-last-observed right-truncation
+# denominator (a single `-logcdf(conv-to-last-observed, window)`), so the gradient
+# flows through the denominator's convolution-CDF on the differentiated param type.
+function _whole_compose_truncation_logpdf(seq, evs, horizons)
+    total = CensoredDistributions.event_logpdf(seq, evs[1]; horizon = horizons[1])
+    for i in 2:length(evs)
+        total += CensoredDistributions.event_logpdf(
+            seq, evs[i]; horizon = horizons[i])
+    end
+    return total
+end
 
 # `contexts` is a tuple of `Constant`-wrapped data (the observations),
 # passed positionally to DI's `gradient` and to the differentiated
@@ -78,7 +137,7 @@ work as passing, so a partially-working backend is not forced to be
 all-or-nothing. Empty today: every backend in [`backends`](@ref) is full
 on all scenarios. Enzyme forward relies on `scenarios` constructing each
 distribution as a literal rather than capturing a `Type` (see the comment
-there and #278).
+there).
 """
 function broken_backends()
     return NamedTuple{(:name, :backend)}[]
@@ -99,10 +158,10 @@ failures). Returns a `Vector{String}`.
 """
 function broken_scenario_names()
     # No scenario fails on every backend. `IntervalCensored Gamma
-    # arbitrary` previously did (#217/#257): it routed through stock
+    # arbitrary` previously did: it routed through stock
     # `Distributions.cdf(Gamma, x)` → `gamma_inc`, which no AD backend
     # covers. It now routes through the `_gamma_cdf` helper, so it works
-    # everywhere except Mooncake forward (the shared #270 gap, listed in
+    # everywhere except Mooncake forward (the shared gap, listed in
     # `backend_broken_scenarios`).
     return String[]
 end
@@ -116,13 +175,128 @@ backend `name` from [`working_backends`](@ref).
 
 """
 function backend_broken_scenarios()
+    # NOTE: the nested-tree heterogeneous-edge family no longer fails
+    # WHOLESALE on Enzyme. The recursion built a fresh `Vector{Union{Missing,
+    # Float64}}` sub-event view per node (`_subevent_slice`); Enzyme's type
+    # analysis could not prove the layout of that non-bits-union `Array`
+    # allocation inside the differentiated walk (`EnzymeNoTypeError`). The slice
+    # is pure constant-data shuffling (it copies observed event TIMES, which carry
+    # no gradient -- only the leaf distribution PARAMS do), so it is now marked
+    # `EnzymeRules.inactive` in `CensoredDistributionsEnzymeExt`. With that shield
+    # the plain nested tree differentiates on BOTH Enzyme modes;
+    # `double_interval_censored(Sequential)` (the explicit-keyword `wrap.jl`
+    # signature replacing a kwargs-splat dynamic `Core.kwcall`) and the Resolve /
+    # hazard trees differentiate on Enzyme FORWARD. The residual reverse-only and
+    # non-terminal gaps below are SEPARATE, deeper Enzyme limitations (documented
+    # per scenario). ForwardDiff / ReverseDiff / Mooncake differentiate every one
+    # of these correctly.
+
+    # The nested-Resolve tree and the nested racing-hazard tree
+    # recurse through the heterogeneous censored-edge walk plus a one_of /
+    # racing branch. With the `_subevent_slice` shield they now differentiate on
+    # Enzyme FORWARD (verified against the ForwardDiff reference). Enzyme REVERSE
+    # still fails with `EnzymeNoShadowError`: building the reverse shadow for the
+    # `MixtureModel` / `Compete` branch struct nested inside the
+    # `Parallel{Tuple{Sequential{...}, PrimaryCensored{...}}}` tree hits Enzyme's
+    # mixed-activity shadow construction (the upstream struct-shadow gap),
+    # which is upstream and not reachable from a value-level rule. Registered
+    # broken for Enzyme REVERSE only.
+    nested_comp = "Nested Resolve tree conditioned logpdf"
+    nested_hazard = "Nested racing-hazard tree conditioned logpdf"
+    # The external censoring wrapper over a `Sequential`. This works
+    # on Enzyme FORWARD (the explicit-keyword `wrap.jl` signature avoids the
+    # dynamic kwargs splat there), and it differentiates on every analytic backend
+    # and on Mooncake (both modes). Enzyme REVERSE still fails: the augmented
+    # primal pass re-introduces a `Core.kwcall` and cannot build a reverse shadow
+    # for the freshly-allocated `Convolved{Gamma,LogNormal}` observed total
+    # (`EnzymeNoShadowError`). This is the same reverse-only upstream struct-shadow
+    # gap as nested_comp/nested_hazard, not reachable from a value-level rule.
+    # Registered broken for Enzyme REVERSE only.
+    dic_seq_total = "double_interval_censored(Sequential) over total"
+    # The whole-compose conv-to-last-observed right-truncation denominator:
+    # its single `-logcdf(conv-to-last-observed, window)` builds a freshly
+    # allocated `Convolved` observed total whose reverse shadow Enzyme cannot
+    # construct (`EnzymeNoShadowError`), the same reverse-only struct-shadow gap as
+    # `dic_seq_total`. Enzyme FORWARD differentiates it (verified), and so do
+    # ReverseDiff and Mooncake reverse/forward; registered broken for Enzyme
+    # REVERSE only.
+    whole_compose_trunc = "Whole-compose conv-to-last-observed truncation logpdf"
+    # The non-terminal whole-tree Resolve scores a
+    # composer-VALUED one_of outcome's subtree through the nested `_tree_score`,
+    # AND carries a differentiated branch probability `θ[7]` whose complement
+    # `1 - θ[7]` feeds the racing/one_of weighting. It still fails on BOTH
+    # Enzyme modes with `IllegalTypeAnalysisException` -- a deeper upstream Enzyme
+    # type-analysis gap on this combined composer-subtree-plus-active-branch-prob
+    # path, distinct from the `_subevent_slice` allocation fixed earlier.
+    # Registered broken for both Enzyme modes.
+    nonterminal_comp = "Non-terminal Resolve whole-tree conditioned logpdf"
+    # The vectorised path runs an AD-FREE pre-pass that collects the table rows
+    # (`Tables.rows` iteration, vector building, validation `throw`s) before the
+    # AD-traced build/evaluate. ForwardDiff and ReverseDiff trace straight through
+    # this data-collection (it touches only the constant rows), but the COMPILED
+    # backends build a rule for every reachable statement -- including the
+    # validation branch and the row-collection loop -- and crash uncatchably on it
+    # (the same reachable-branch class as the Parallel shared-origin / nested-tree
+    # paths). The vectorised MATH itself is the all-continuous per-edge
+    # conditioning the single-record scenario already differentiates on every
+    # backend; only the data-collection wrapper trips the compiled backends, so it
+    # is registered broken for them. Its gradient correctness is covered by
+    # ForwardDiff and ReverseDiff.
+    vectorised_seq = "Vectorised Sequential censored observed logpdf"
+    # The vectorised bdbv (nested Resolve + per-record covariate CFR) and hanta
+    # (Choose top) paths share the SAME AD-free data-collection pre-pass (row
+    # iteration, vector building, validation) that the compiled backends crash on
+    # for `vectorised_seq`; the bdbv path additionally walks the nested tree. Their
+    # MATH matches the per-record loop and is verified on ForwardDiff / ReverseDiff;
+    # the compiled backends are registered broken on the same pre-pass grounds.
+    vectorised_bdbv = "Vectorised nested Resolve per-record branch_probs logpdf"
+    vectorised_select = "Vectorised Choose per-record kind logpdf"
+    compiled_broken = Set{String}(
+        [vectorised_seq, vectorised_bdbv, vectorised_select])
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
-        "Mooncake reverse" => Set{String}(),
-        "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => Set{String}(),
-        "Enzyme forward" => Set{String}()
+        "Mooncake reverse" => copy(compiled_broken),
+        "Mooncake forward" => copy(compiled_broken),
+        # Enzyme REVERSE: the Resolve/hazard trees (reverse shadow construction),
+        # the non-terminal Resolve, and `double_interval_censored(Sequential)`
+        # (reverse-only `EnzymeNoShadowError` on the freshly-built `Convolved`
+        # observed total via a re-introduced `Core.kwcall`) remain broken; the
+        # plain nested tree is fixed.
+        "Enzyme reverse" => union(
+            Set{String}(
+                [nested_comp, nested_hazard, nonterminal_comp, dic_seq_total,
+                whole_compose_trunc]),
+            compiled_broken),
+        # Enzyme FORWARD: only the non-terminal Resolve remains broken; the
+        # plain nested tree, the Resolve/hazard trees, and
+        # `double_interval_censored(Sequential)` are now fixed on forward;
+        # reverse stays broken, see above.
+        "Enzyme forward" => union(
+            Set{String}([nonterminal_comp]),
+            compiled_broken)
+    )
+end
+
+"""
+    backend_skip_scenarios()
+
+Per-backend scenario names that must be SKIPPED ENTIRELY (not even run through
+`check_broken`). Some scenarios crash a compiled backend UNCATCHABLY (an abort /
+`signal 6`) that a `try`/`catch` cannot recover, so they cannot be marked
+`@test_broken` by running them; they are dropped from that backend's run and
+their gradient correctness is covered by the analytic backends instead. Returns
+a `Dict{String, Set{String}}` keyed on the backend `name`.
+"""
+function backend_skip_scenarios()
+    # The vectorised bdbv scenario rebuilds the nested tree per record (the
+    # per-record `branch_probs` override) inside the differentiated function;
+    # Enzyme (both modes) aborts uncatchably on that reconstruction. Skip it for
+    # Enzyme entirely; ForwardDiff / ReverseDiff / Mooncake verify its gradient.
+    bdbv = "Vectorised nested Resolve per-record branch_probs logpdf"
+    return Dict{String, Set{String}}(
+        "Enzyme reverse" => Set{String}([bdbv]),
+        "Enzyme forward" => Set{String}([bdbv])
     )
 end
 
@@ -145,7 +319,7 @@ function scenarios(; with_reference::Bool = false)
 
     function _push!(name, f, θ₀, contexts)
         # Globally-broken scenarios may break the reference backend
-        # itself (e.g. #217). Construct them without res1 so the test
+        # itself. Construct them without res1 so the test
         # runner can still mark them broken without erroring here.
         res1 = (with_reference && !(name in skip_ref)) ?
                _reference(f, θ₀, contexts) : nothing
@@ -172,8 +346,8 @@ function scenarios(; with_reference::Bool = false)
     # Delay distributions are still written as literals rather than a
     # captured `ctor::Type`. Capturing a distribution `Type` in a function
     # that also makes a keyword call (`method = ...`) trips an upstream
-    # Enzyme forward-mode "mixed activity for jl_new_struct" limitation
-    # (#278): the keyword-call lowering builds a struct mixing the active
+    # Enzyme forward-mode "mixed activity for jl_new_struct" limitation,
+    # because the keyword-call lowering builds a struct mixing the active
     # `Type` and `Vector` fields with the inactive solver-method argument.
     # Literal constructors avoid the captured-`Type` field, so Enzyme
     # forward differentiates every scenario; the analytical/numerical split
@@ -233,13 +407,62 @@ function scenarios(; with_reference::Bool = false)
             obs),
         [2.0, 1.5], (Constant(obs),))
 
+    # Latent representation. Its logpdf is the primary prior plus the conditional
+    # `logpdf(delay, observed - primary)`, so gradients flow through the delay
+    # distribution's own logpdf. Event-time pairs are concrete [primary,
+    # observed] vectors passed via a Constant context. Delay parameters varied.
+    latent_obs = [[0.3, 1.2], [0.5, 2.6], [0.2, 3.8], [0.7, 5.1]]
+    _push!("Latent PrimaryCensored LogNormal+Uniform",
+        (θ,
+            pys) -> sum(
+            py -> logpdf(
+                latent(primary_censored(LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0))),
+                py),
+            pys),
+        [1.0, 0.75], (Constant(latent_obs),))
+    _push!("Latent PrimaryCensored Gamma+Uniform",
+        (θ,
+            pys) -> sum(
+            py -> logpdf(
+                latent(primary_censored(Gamma(θ[1], θ[2]), Uniform(0.0, 1.0))),
+                py),
+            pys),
+        [2.0, 1.5], (Constant(latent_obs),))
+
+    # Latent gradient with respect to the sampled primary times themselves: the
+    # varied vector IS the per-observation primary, delay parameters fixed. This
+    # is the gradient a sampler takes over the augmented latent primaries.
+    latent_y = [1.2, 2.6, 3.8, 5.1]
+    _push!("Latent PrimaryCensored LogNormal+Uniform wrt primary",
+        (θ,
+            ys) -> sum(
+            i -> logpdf(
+                latent(primary_censored(LogNormal(1.0, 0.75), Uniform(0.0, 1.0))),
+                [θ[i], ys[i]]),
+            eachindex(ys)),
+        [0.3, 0.5, 0.2, 0.7], (Constant(latent_y),))
+
+    # PrimaryConditional: the conditional scored via `~` in a model
+    # (`y ~ PrimaryConditional(d, p)`). Differentiate with respect to the
+    # realised primary times (the sampled latents), delay parameters fixed.
+    _push!("PrimaryConditional LogNormal+Uniform wrt primary",
+        (θ,
+            ys) -> sum(
+            i -> logpdf(
+                PrimaryConditional(
+                    primary_censored(LogNormal(1.0, 0.75), Uniform(0.0, 1.0)),
+                    θ[i]),
+                ys[i]),
+            eachindex(ys)),
+        [0.3, 0.5, 0.2, 0.7], (Constant(latent_y),))
+
     # ExponentiallyTilted primary event — no analytical
     # `primarycensored_cdf(::Delay, ::ExponentiallyTilted, ...)` exists,
     # so the scalar `r` parameter of the prior is included in θ (as θ[3])
     # and the whole path runs through numeric integration. Exercises
     # gradient flow through both the delay distribution params and the
     # primary event's tilt parameter. Written as literal constructors
-    # rather than a captured `ctor::Type` loop, for the #278 reason above.
+    # rather than a captured `ctor::Type` loop, for the reason above.
     _push!("PrimaryCensored Gamma+ExponentiallyTilted numerical",
         (θ,
             obs) -> sum(
@@ -366,6 +589,74 @@ function scenarios(; with_reference::Bool = false)
             x -> logpdf(ExponentiallyTilted(0.0, 1.0, θ[1]), x), obs),
         [0.5], (Constant(obs_et),))
 
+    # Hazard-modified `modify`/`Modified` leaf. Four scenarios cover the
+    # analytic log (proportional hazards) and identity (additive hazards)
+    # paths, the numeric quadrature path (a logit link on a continuous base)
+    # and the discrete per-bin path. The differentiated parameter is the
+    # hazard effect; the gradient flows through the closed-form survival
+    # expressions on the analytic paths, the Gauss-Legendre quadrature on the
+    # numeric path (the same path primary-censoring differentiates) and the
+    # per-bin logit reconstruction on the discrete path. Guarded on the verb
+    # existing for the AirspeedVelocity baseline build, as above.
+    if isdefined(CensoredDistributions, :modify)
+        # Analytic proportional hazards: logpdf wrt the log-hazard effect β.
+        _push!("Modified log link logpdf wrt effect",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(modify(LogNormal(1.5, 0.5), θ[1]; link = log), x),
+                obs),
+            [-0.4], (Constant(obs),))
+
+        # Analytic additive hazards: logpdf wrt the additive effect β.
+        _push!("Modified identity link logpdf wrt effect",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    modify(LogNormal(1.5, 0.5), θ[1]; link = identity), x),
+                obs),
+            [0.15], (Constant(obs),))
+
+        # Numeric quadrature path: a logit link on a continuous base routes
+        # through the Gauss-Legendre solver; logpdf wrt the effect.
+        _push!("Modified numeric logit logpdf wrt effect",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(modify(Gamma(2.0, 1.5), θ[1]; link = :logit), x),
+                obs),
+            [0.3], (Constant(obs),))
+
+        # Discrete per-bin path: logpdf wrt the per-bin effect vector on a
+        # daily interval-censored base. The final-bin effect carries a zero
+        # gradient (its hazard is pinned to one).
+        obs_disc = [0.0, 1.0, 2.0, 3.0, 4.0]
+        _push!("Modified discrete logit logpdf wrt effects",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    modify(interval_censored(LogNormal(1.5, 0.5), 1.0), θ;
+                        link = :logit), x),
+                obs),
+            fill(0.2, 6), (Constant(obs_disc),))
+    end
+
+    # Affine transform. The change-of-variables logpdf is
+    # `logpdf(inner, (y - shift) / scale) - log(scale)`, so the gradient flows
+    # through the inner delay parameters (θ[1], θ[2]) AND the affine scale (θ[3])
+    # and shift (θ[4]). Guarded on `affine` existing for the AirspeedVelocity
+    # baseline build, as with the other PR-tree scenarios above.
+    if isdefined(CensoredDistributions, :affine)
+        obs_aff = [2.0, 3.5, 5.0, 7.0]
+        _push!("Affine LogNormal scale+shift logpdf",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    CensoredDistributions.affine(
+                        LogNormal(θ[1], θ[2]); scale = θ[3], shift = θ[4]),
+                    x),
+                obs),
+            [1.0, 0.5, 2.0, 1.0], (Constant(obs_aff),))
+    end
+
     # IntervalCensored with regular intervals for Gamma and Weibull (only
     # LogNormal covered).
     _push!("IntervalCensored Gamma regular",
@@ -379,12 +670,56 @@ function scenarios(; with_reference::Bool = false)
             obs),
         [2.0, 1.5], (Constant(obs_int),))
 
+    # SurvivalDistributions.jl leaf. A GeneralizedGamma delay family
+    # scored through its own `logpdf` — the gradient a sampler takes when fitting
+    # one of these families. GeneralizedGamma's `logpdf` differentiates on every
+    # backend (ForwardDiff / ReverseDiff / Mooncake reverse+forward / Enzyme
+    # reverse+forward), so it is a full (non-broken) scenario. Three params
+    # (shape σ, scale, power). Guarded on the AirspeedVelocity baseline: the
+    # fixtures module is loaded when benchmarking the PR against `main`, and `SD`
+    # is a fixtures dep there too, so the literal constructor is safe; the
+    # scenario verifies leaf gradients on every backend.
+    _push!("SurvivalDistributions GeneralizedGamma logpdf",
+        (θ, obs) -> sum(
+            x -> logpdf(SD.GeneralizedGamma(θ[1], θ[2], θ[3]), x), obs),
+        [1.0, 1.5, 2.0], (Constant(obs),))
+
+    # CENSORED GeneralizedGamma paths. The censoring integrands
+    # query the leaf CDF/survival via `_cdf_ad_safe` / `_logccdf_ad_safe`. For a
+    # GeneralizedGamma those route through the inner `Gamma(nu/gamma,
+    # sigma^gamma)` at the transformed point `t^gamma` and into the package's
+    # AD-safe `_gamma_cdf` helper (the `CensoredDistributionsSurvivalDistributions`
+    # extension), instead of the stock `logccdf(::Gamma)` → `StatsFuns._gammalogccdf`
+    # path, which has no Dual/Tracked/Mooncake method. Both interval- and
+    # primary-censored variants differentiate on every backend (ForwardDiff /
+    # ReverseDiff / Mooncake reverse+forward / Enzyme reverse+forward) and match
+    # the ForwardDiff reference. Same three params as the leaf scenario.
+    _push!("IntervalCensored GeneralizedGamma regular",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(
+                interval_censored(
+                    SD.GeneralizedGamma(θ[1], θ[2], θ[3]), 1.0),
+                x),
+            obs),
+        [1.0, 1.5, 2.0], (Constant(obs_int),))
+    _push!("PrimaryCensored GeneralizedGamma+Uniform numerical",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(
+                primary_censored(
+                    SD.GeneralizedGamma(θ[1], θ[2], θ[3]),
+                    Uniform(0.0, 1.0)),
+                x),
+            obs),
+        [1.0, 1.5, 2.0], (Constant(obs),))
+
     # Convolved (sum of independent delays). The analytic Normal+Normal
     # pair differentiates through `Distributions.convolve`; the
     # Gamma+LogNormal pair has no analytic convolution and exercises the
     # AD-safe numeric quadrature path (the same fixed-domain Gauss-Legendre
     # construction as PrimaryCensored). Literal constructors keep Enzyme
-    # forward working (#278).
+    # forward working.
     # Guarded on `convolve_distributions` existing: AirspeedVelocity benchmarks
     # the PR against the `main` baseline, building the baseline package
     # while still loading this (PR-tree) fixtures module. Referencing
@@ -408,9 +743,147 @@ function scenarios(; with_reference::Bool = false)
                         Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), x),
                 obs),
             [2.0, 1.0], (Constant(obs),))
+        # Gamma as the INTEGRATION (last) component. The numeric
+        # quadrature clamps the infinite window with a quantile of the last
+        # component; a trailing `Gamma` would route that quantile through
+        # `gamma_inc_inv`, which Enzyme cannot differentiate. The
+        # `_finite_window` fix computes the window endpoint on AD-stripped
+        # (primal) params, so the bound is a non-differentiated constant and
+        # every backend — Enzyme included — differentiates the logpdf. The
+        # differentiated parameters are on the trailing Gamma so the gradient
+        # actually flows through the integration component, not just `rest`.
+        _push!("Convolved LogNormal+Gamma numerical",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    CensoredDistributions.convolve_distributions(
+                        LogNormal(0.5, 0.4), Gamma(θ[1], θ[2])), x),
+                obs),
+            [2.0, 1.0], (Constant(obs),))
+        # Convolved analytic moments: mean/var are the sums of the
+        # component moments, so the gradient flows through each component's
+        # closed-form `mean`/`var` w.r.t. its parameters. The `obs` context is
+        # unused (the moments take no evaluation point) but keeps the scenario
+        # shape uniform. Both `mean` and `var` are summed so the gradient
+        # covers each moment path.
+        _push!("Convolved Gamma+Normal mean+var moments",
+            (θ,
+                _obs) -> let d = CensoredDistributions.convolve_distributions(
+                    Gamma(θ[1], θ[2]), Normal(θ[3], θ[4]))
+                mean(d) + var(d)
+            end,
+            [2.0, 1.5, -0.5, 0.8], (Constant(obs),))
     end
 
-    # Pluggable integration path (#208). The numeric primary-censored CDF
+    # Difference (Z = X - Y), the dual of Convolved. The analytic Normal-Normal
+    # pair differentiates through the closed-form difference; the Gamma-LogNormal
+    # pairs exercise the AD-safe numeric cross-correlation quadrature (the same
+    # fixed-domain Gauss-Legendre construction as Convolved). Two pairs cover
+    # gradients through the minuend X parameters and through the subtrahend Y
+    # parameters: when Y is the unbounded-above integration factor the upper
+    # quadrature window is a quantile of the differentiated component, so the
+    # window-clamp must stay off the AD path (the `_window_quantile` zero-adjoint
+    # rule) for Mooncake/Enzyme not to trace `gamma_inc_inv`. Literal
+    # constructors keep Enzyme forward working. Guarded on `difference`
+    # existing for the AirspeedVelocity baseline build, as for Convolved above.
+    if isdefined(CensoredDistributions, :difference)
+        _push!("Difference Normal-Normal analytical",
+            (θ,
+                obs) -> sum(
+                z -> logpdf(
+                    CensoredDistributions.difference(
+                        Normal(θ[1], θ[2]), Normal(0.0, 1.0)), z),
+                obs),
+            [1.0, 2.0], (Constant(obs),))
+        # Gradient through the minuend X (the f_X factor inside the integral).
+        _push!("Difference Gamma-LogNormal numerical wrt X",
+            (θ,
+                obs) -> sum(
+                z -> logpdf(
+                    CensoredDistributions.difference(
+                        Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), z),
+                obs),
+            [3.0, 1.0], (Constant(obs),))
+        # Gradient through the subtrahend Y (the f_Y integration factor and the
+        # window-quantile bound). The differentiated Gamma is unbounded above,
+        # so the upper window endpoint routes through `_window_quantile`; the
+        # zero-adjoint rule keeps that bound a non-differentiated constant.
+        _push!("Difference LogNormal-Gamma numerical wrt Y",
+            (θ,
+                obs) -> sum(
+                z -> logpdf(
+                    CensoredDistributions.difference(
+                        LogNormal(0.5, 0.4), Gamma(θ[1], θ[2])), z),
+                obs),
+            [3.0, 1.0], (Constant(obs),))
+        # Difference moments: mean is the difference of the means and var
+        # the SUM of the variances, so the gradient flows through each
+        # component's closed-form `mean`/`var`. The `obs` context is unused but
+        # keeps the scenario shape uniform.
+        _push!("Difference Gamma-Normal mean+var moments",
+            (θ,
+                _obs) -> let d = CensoredDistributions.difference(
+                    Gamma(θ[1], θ[2]), Normal(θ[3], θ[4]))
+                mean(d) + var(d)
+            end,
+            [3.0, 1.5, 2.0, 0.5], (Constant(obs),))
+    end
+
+    # Completeness thinning helpers. `thin_by_completeness(R, delay,
+    # window) = R * cdf(delay, window)`, so the gradient flows through `R` and
+    # the delay-distribution parameters via the CDF. The Convolved-chain form
+    # routes the CDF through the AD-safe numeric convolution quadrature.
+    # Guarded for the AirspeedVelocity baseline build, as above.
+    if isdefined(CensoredDistributions, :thin_by_completeness)
+        _push!("thin_by_completeness LogNormal delay",
+            (θ,
+                _obs) -> CensoredDistributions.thin_by_completeness(
+                θ[1], LogNormal(θ[2], θ[3]), 7.0),
+            [1.5, 1.5, 0.5], (Constant(obs),))
+        if isdefined(CensoredDistributions, :convolve_distributions)
+            _push!("thin_by_completeness Convolved chain",
+                (θ,
+                    _obs) -> CensoredDistributions.thin_by_completeness(
+                    θ[1],
+                    CensoredDistributions.convolve_distributions(
+                        Gamma(θ[2], θ[3]), LogNormal(0.5, 0.4)),
+                    14.0),
+                [1.5, 2.0, 1.0], (Constant(obs),))
+        end
+    end
+
+    # Right-truncation. The index single-delay term right-truncates a
+    # LogNormal to the remaining window. This is the NaN-gradient regression:
+    # an upper-only `truncated(dist; upper = window)` never differentiates
+    # `logcdf(LogNormal, 0) = -Inf`, so the gradient stays finite. The chain
+    # term right-truncates a Convolved (unobserved intermediate event), so the
+    # denominator is the convolution CDF. Both guarded on the helper existing
+    # for the AirspeedVelocity baseline (see the Convolved note above).
+    if isdefined(CensoredDistributions, :truncate_to_horizon)
+        _push!("Truncated LogNormal single-delay right-truncation",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    truncate_to_horizon(LogNormal(θ[1], θ[2]), 6.0), x),
+                obs),
+            [1.0, 0.75], (Constant(obs),))
+        # Component order matches the working "Convolved Gamma+LogNormal
+        # numerical" scenario: the numeric convolution CDF replaces the
+        # infinite upper endpoint with a quantile of the LAST component, so a
+        # trailing LogNormal keeps Enzyme off `gamma_inc_inv_qsmall` (a known
+        # Enzyme illegal-type-analysis failure on Gamma quantile inversion).
+        _push!("Truncated Convolved chain right-truncation",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    truncate_chain(
+                        (Gamma(2.0, 1.0), LogNormal(θ[1], θ[2])),
+                        (false,), 8.0), x),
+                obs),
+            [1.0, 0.75], (Constant(obs),))
+    end
+
+    # Pluggable integration path. The numeric primary-censored CDF
     # routes its quadrature through the package's default `GaussLegendre`
     # solver passed explicitly via the `solver` keyword. This is the cost
     # the integration refactor touches, so benchmarking it per backend
@@ -444,7 +917,7 @@ function scenarios(; with_reference::Bool = false)
     # the numerical path does far more work per call, which is where the
     # compiled forward backends (Enzyme, Mooncake) can close the gap on
     # ForwardDiff's Dual-number propagation. Literal constructors keep
-    # Enzyme forward working (#278).
+    # Enzyme forward working.
     n_hd = 32
     obs_hd = collect(range(0.5, 8.0; length = n_hd))
     _push!("PrimaryCensored LogNormal+Uniform analytical $(n_hd)d",
@@ -481,6 +954,351 @@ function scenarios(; with_reference::Bool = false)
                 obs_hd[i]),
             eachindex(obs_hd)),
         fill(2.0, n_hd), (Constant(obs_hd),))
+
+    # Generic composers. Differentiate the composer `logpdf` wrt the
+    # leaf-distribution parameters, with the value vector passed as a Constant
+    # context. The composers are plain (no censoring), so gradients flow only
+    # through the leaf delay logpdfs the slice recursion sums. Literal
+    # constructors (not a captured `ctor::Type`) keep Enzyme forward happy, as
+    # above. `seq2` / `par2` are the two-leaf step/branch value vectors.
+    seq2 = [1.5, 2.0]
+    par2 = [2.0, 3.0]
+    _push!("Sequential Gamma+LogNormal logpdf",
+        (θ, x) -> logpdf(
+            Sequential(Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])), x),
+        [2.0, 1.0, 0.5, 0.4], (Constant(seq2),))
+    _push!("Parallel Gamma+LogNormal logpdf",
+        (θ, x) -> logpdf(
+            Parallel(Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])), x),
+        [2.0, 1.0, 1.0, 0.5], (Constant(par2),))
+    # Nested stack: a Parallel of a leaf branch and a Sequential chain (the
+    # stack the front-end builds). Constructed directly so the gradient flows
+    # through the composer `logpdf` slice recursion, the AD-relevant path,
+    # rather than through the `compose` NamedTuple builder. The nested Gamma
+    # shape starts at 2.0, not the α = 1 boundary: at exactly α = 1 a Gamma
+    # collapses to an Exponential and Mooncake's reverse rule drops the
+    # `log(x)` term of the shape gradient (an upstream Distributions×Mooncake
+    # edge case, not a composer issue).
+    nest3 = [1.5, 2.0, 3.0]
+    _push!("Composed nested Parallel-of-Sequential logpdf",
+        (θ,
+            x) -> logpdf(
+            Parallel(Gamma(θ[1], θ[2]),
+                Sequential(LogNormal(θ[3], θ[4]), Gamma(θ[5], θ[6]))), x),
+        [2.0, 1.0, 0.5, 0.4, 2.0, 1.0], (Constant(nest3),))
+
+    # Choose data-selected disjunction. The gradient flows through the
+    # SELECTED alternative's own `logpdf` (the type-stable selection barriers
+    # into the chosen concrete type), with the selection name fixed and the
+    # value passed as a Constant context. Guarded on `choose` existing so
+    # the AirspeedVelocity baseline build (which lacks `Choose`) skips it. Literal
+    # constructors keep Enzyme forward happy.
+    if isdefined(CensoredDistributions, :choose)
+        sel_obs = [0.5, 1.2, 2.5, 3.8]
+        _push!("Choose Gamma|LogNormal sourced logpdf",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    CensoredDistributions.choose(
+                        :index => Gamma(θ[1], θ[2]),
+                        :sourced => LogNormal(θ[3], θ[4])),
+                    x; kind = :sourced),
+                obs),
+            [2.0, 1.0, 0.5, 0.4], (Constant(sel_obs),))
+    end
+
+    # Censored composer specialisations. The event vector (carrying
+    # `Missing`) travels as an inactive Constant context; the gradient flows
+    # through the censored leaf delay parameters along the marginalise/condition
+    # path selected by the missingness. Literal constructors keep Enzyme forward
+    # happy. Guarded on `primary_censored` existing for the AirspeedVelocity
+    # baseline build, as with the other PR-tree scenarios above.
+    if isdefined(CensoredDistributions, :primary_censored) &&
+       isdefined(CensoredDistributions, :Sequential)
+        # The unobserved-intermediate (marginalise-by-convolution) path is not an
+        # AD fixture: its gradient correctness is covered by the main-suite
+        # reference tests (ForwardDiff/ReverseDiff) and by the existing
+        # `Convolved` AD scenarios that exercise the same convolution arithmetic.
+        # As an end-to-end composer scenario it routes the marginalising
+        # convolution through the `Convolved` unbounded-tail clamp's
+        # `quantile`/`gamma_inc_inv_qsmall`, the heterogeneous-edge gap that
+        # hard-crashes the compiled backends (Enzyme/Mooncake) uncatchably, so it
+        # is left out of the per-backend AD suite rather than worked around.
+        #
+        # Observed intermediate: every event observed, so each observed-bounded
+        # edge conditions on its OWN declared censoring -- here each edge
+        # is scored through its own `primary_censored` logpdf at the day gap.
+        seq_ev_obs = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
+        _push!("Sequential censored observed-intermediate logpdf",
+            (θ,
+                ev) -> logpdf(
+                Sequential(
+                    primary_censored(
+                        LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                    primary_censored(Gamma(θ[3], θ[4]), Uniform(0.0, 1.0))),
+                ev),
+            [1.2, 0.5, 2.0, 1.0], (Constant(seq_ev_obs),))
+        # Vectorised / shared evaluation over MANY records: the per-record
+        # distributions share the segment construction and the product log
+        # density sums their observed-intermediate contributions. With every
+        # record fully observed the path is the same all-continuous-arithmetic
+        # per-edge conditioning as the single-record scenario above (no
+        # `Convolved`/quadrature gap), so its gradient differentiates on every
+        # backend and must match the per-record loop. The rows table is inactive
+        # DATA carried as a `Constant`.
+        batch_rows = [(onset = 0.0, admit = 2.0, death = 5.0),
+            (onset = 0.0, admit = 3.0, death = 7.0),
+            (onset = 0.0, admit = 1.0, death = 4.0)]
+        _push!("Vectorised Sequential censored observed logpdf",
+            (θ,
+                rows) -> _vectorised_records_logpdf(
+                Sequential(
+                    primary_censored(
+                        LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                    primary_censored(Gamma(θ[3], θ[4]), Uniform(0.0, 1.0))),
+                rows),
+            [1.2, 0.5, 2.0, 1.0], (Constant(batch_rows),))
+
+        # Whole-compose conv-to-last-observed right-truncation denominator.
+        # One observed-intermediate record and one endpoint-observed
+        # record (missing intermediate), each right-truncated at its OWN
+        # per-record horizon. The observed-intermediate record scores a
+        # factorised numerator; both records share a single
+        # `-logcdf(conv-to-last-observed, window)` denominator that convolves
+        # the leaf cores and evaluates a CDF at the (constant) window on the
+        # differentiated param type. The matching `whole_compose_truncation_ad.jl`
+        # was ForwardDiff-only; this DIT scenario gives the reverse backends a
+        # matching scenario (verified to match the ForwardDiff reference on
+        # ReverseDiff and Mooncake reverse/forward). LogNormal delays keep the
+        # truncation `logcdf` off the Gamma shape-derivative path, matching the
+        # established AD-safe right-truncation fixtures. The per-record horizons
+        # are constants baked into the closure; the `Missing`-bearing event
+        # vectors travel as an inactive Constant context.
+        wct_evs = [Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0]),
+            Vector{Union{Missing, Float64}}([0.5, missing, 7.0])]
+        _push!("Whole-compose conv-to-last-observed truncation logpdf",
+            (θ,
+                evs) -> _whole_compose_truncation_logpdf(
+                Sequential(
+                    (primary_censored(
+                            LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                        primary_censored(
+                            LogNormal(θ[3], θ[4]), Uniform(0.0, 1.0))),
+                    (:onset_mid, :mid_obs)),
+                evs, (8.0, 9.0)),
+            [1.0, 0.5, 0.5, 0.4], (Constant(wct_evs),))
+
+        # The Parallel shared-origin censored path is not an AD fixture: its
+        # marginal routes through the 1-D origin quadrature and its conditional
+        # through the parameter-type promotion, both of which the compiled
+        # backends (Enzyme/Mooncake) crash on uncatchably. Its gradient is
+        # verified on ForwardDiff and ReverseDiff by the main-suite reference
+        # tests instead. Only the all-continuous-arithmetic Sequential
+        # observed-intermediate scenario, which differentiates on every backend,
+        # is kept here. The plain-branch (observed-origin) Parallel path shares
+        # the same `logpdf(::Parallel, ::event vector)` entry, so it also reaches
+        # the quadrature branch the compiled backends crash on; its gradient is
+        # likewise verified on ForwardDiff and ReverseDiff in the main suite.
+
+        # Nested-composer (irregular tree) fully-observed scoring: a
+        # two-level tree onset -> {admit -> {death, discharge}, notif}, every
+        # event observed. The recursive walk conditions each edge on its own
+        # declared `primary_censored` censoring at the day gap, so the gradient
+        # is all-continuous-arithmetic over the leaf delay params (the same form
+        # as the single-level observed-intermediate scenario above) and
+        # differentiates on the analytic backends. The marginalising
+        # (missing-event) tree paths route through the `Convolved`/quadrature
+        # gaps the compiled backends crash on, so they stay reference-only as
+        # above. The event vector carries `Missing` as an inactive Constant.
+        tree_ev = Vector{Union{Missing, Float64}}(
+            [0.0, 4.0, 12.0, 11.0, 9.0])
+        _push!("Nested tree censored observed logpdf",
+            (θ,
+                ev) -> logpdf(
+                Parallel(
+                    Sequential(
+                        primary_censored(
+                            LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                        Parallel(
+                            primary_censored(
+                                Gamma(θ[3], θ[4]), Uniform(0.0, 1.0)),
+                            primary_censored(
+                                Gamma(θ[5], θ[6]), Uniform(0.0, 1.0)))),
+                    primary_censored(
+                        LogNormal(θ[7], θ[8]), Uniform(0.0, 1.0))),
+                ev),
+            [1.4, 0.4, 2.0, 1.0, 2.0, 1.2, 1.9, 0.5], (Constant(tree_ev),))
+
+        # Nested-Resolve tree: onset -> {admit -> Resolve(death,
+        # discharge), notif}, the death outcome observed. The Resolve exposes
+        # one event slot per outcome, so the event vector is
+        # [onset, admit, death, discharge, notif] with discharge `Missing`
+        # (inactive). The observed death conditions on its branch
+        # (log p_death + logpdf(Gamma, gap)), so the gradient over the death
+        # branch shape/scale + the surrounding edge params is all-continuous
+        # arithmetic, differentiating on every analytic backend (Enzyme shares
+        # the heterogeneous-edge gap, registered broken above).
+        comp_ev = Vector{Union{Missing, Float64}}(
+            [0.0, 4.0, 12.0, missing, 9.0])
+        _push!("Nested Resolve tree conditioned logpdf",
+            (θ,
+                ev) -> logpdf(
+                Parallel(
+                    Sequential(
+                        primary_censored(
+                            LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                        Resolve(
+                            :death => (Gamma(θ[3], θ[4]), 0.3),
+                            :discharge => (Gamma(θ[5], θ[6]), 0.7))),
+                    primary_censored(
+                        LogNormal(θ[7], θ[8]), Uniform(0.0, 1.0))),
+                ev),
+            [1.4, 0.4, 2.0, 3.0, 2.0, 1.0, 1.9, 0.5], (Constant(comp_ev),))
+
+        # Non-terminal whole-tree Resolve: onset ->
+        # Resolve(death => admit_burial CHAIN, recover => leaf), the death
+        # SUBTREE observed. A composer-valued outcome spans its subtree's event
+        # slots, so the event vector is [onset, admit, burial, recover] with
+        # recover `Missing` (inactive). The death branch scores
+        # log p_death + (subtree chain density), so the gradient over the subtree
+        # leaf params + the branch probability is all-continuous arithmetic,
+        # differentiating on every analytic backend (Enzyme shares the
+        # heterogeneous-edge gap, registered broken below).
+        nt_comp_ev = Vector{Union{Missing, Float64}}(
+            [0.0, 4.0, 12.0, missing])
+        _push!("Non-terminal Resolve whole-tree conditioned logpdf",
+            (θ,
+                ev) -> logpdf(
+                Parallel(
+                    (Resolve(
+                        :death => (
+                            Sequential(
+                                (
+                                    primary_censored(
+                                        Gamma(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                                    Gamma(θ[3], θ[4])),
+                                (:onset_admit, :admit_burial)),
+                            θ[7]),
+                        :recover => (Gamma(θ[5], θ[6]), 1 - θ[7])),),
+                    (:resolution,)),
+                ev),
+            [2.0, 1.0, 1.5, 1.2, 3.0, 2.0, 0.4], (Constant(nt_comp_ev),))
+
+        # Vectorised nested-Resolve (bdbv) with a PER-RECORD covariate CFR:
+        # each record's Resolve branch probability comes from a
+        # differentiated covariate, injected as the reserved `branch_probs`. The
+        # death outcome is observed (conditioned branch), so the gradient over the
+        # branch shape/scale AND the per-record CFR is all-continuous arithmetic.
+        # Matches the per-record loop; rows are inactive DATA carried as Constants.
+        bdbv_rows = [
+            (onset = 0.0, admit = 4.0, death = 12.0,
+                discharge = missing, notif = 9.0),
+            (onset = 0.5, admit = 5.0, death = 13.0,
+                discharge = missing, notif = 10.0)]
+        _push!("Vectorised nested Resolve per-record branch_probs logpdf",
+            (θ,
+                rows) -> _vectorised_branch_probs_logpdf(
+                Parallel(
+                    (
+                        Sequential(
+                            (primary_censored(
+                                    LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                                Resolve(
+                                    :death => (Gamma(θ[3], θ[4]), 0.3),
+                                    :discharge => (Gamma(θ[5], θ[6]), 0.7))),
+                            (:onset_admit, :admit_resolution)),
+                        primary_censored(
+                            LogNormal(θ[7], θ[8]), Uniform(0.0, 1.0))),
+                    (:onset_admit, :onset_notif)),
+                rows,
+                # Per-record CFR from a logistic of the differentiated covariate.
+                [(death = 1 / (1 + exp(-θ[9])),
+                        discharge = 1 - 1 / (1 + exp(-θ[9]))),
+                    (death = 1 / (1 + exp(-θ[9] - θ[10])),
+                        discharge = 1 - 1 / (1 + exp(-θ[9] - θ[10])))]),
+            [1.4, 0.4, 2.0, 3.0, 2.0, 1.0, 1.9, 0.5, 0.2, -0.3],
+            (Constant(bdbv_rows),))
+
+        # Nested racing-hazard tree: onset -> {Hazard(death, recover),
+        # notif}, the death outcome observed. The Sequential's first step targets
+        # `onset`, then the Compete exposes one event slot per outcome, so
+        # the event vector is [origin, onset, death, recover, notif] with recover
+        # `Missing` (inactive). The observed death conditions on the cause-resolved
+        # sub-density f_death(gap) ∏_{k≠death} S_k(gap), so the gradient over the
+        # racing shape/scale + the surrounding edge params flows through the
+        # AD-safe Gamma logpdf/logccdf, differentiating on the analytic backends.
+        haz_ev = Vector{Union{Missing, Float64}}(
+            [0.0, 4.0, 12.0, missing, 9.0])
+        _push!("Nested racing-hazard tree conditioned logpdf",
+            (θ,
+                ev) -> logpdf(
+                Parallel(
+                    Sequential(
+                        primary_censored(
+                            LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                        Compete(
+                            :death => Gamma(θ[3], θ[4]),
+                            :recover => Gamma(θ[5], θ[6]))),
+                    primary_censored(
+                        LogNormal(θ[7], θ[8]), Uniform(0.0, 1.0))),
+                ev),
+            [1.4, 0.4, 2.0, 3.0, 2.0, 1.0, 1.9, 0.5], (Constant(haz_ev),))
+
+        # Vectorised Choose (hanta) top: each record selects its alternative by
+        # `:kind` and scores its single observed value, right-truncated at its
+        # `obs_time`. The gradient over the selected alternative's params is the
+        # leaf primary-censored path, differentiating on the analytic backends and
+        # matching the per-record loop. Rows are inactive DATA Constants.
+        hanta_rows = [(kind = :index, delay = 3.0, obs_time = 8.0),
+            (kind = :sourced, delay = 5.0, obs_time = 12.0)]
+        _push!("Vectorised Choose per-record kind logpdf",
+            (θ,
+                rows) -> _vectorised_choose_logpdf(
+                choose(
+                    :index => primary_censored(
+                        Gamma(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                    :sourced => primary_censored(
+                        Gamma(θ[3], θ[4]), Uniform(0.0, 1.0))),
+                rows),
+            [2.0, 1.0, 4.0, 1.5], (Constant(hanta_rows),))
+    end
+
+    # External censoring wrappers over composers. Combine first, then
+    # censor: a Sequential collapses to the convolution of its steps (its
+    # observed total) before censoring, so the gradient flows through the
+    # numeric convolution and the interval/primary CDF. A Parallel distributes
+    # the wrapper into each branch. Guarded on the censoring wrappers existing
+    # so the AirspeedVelocity baseline (which lacks the composer overloads)
+    # skips them. Literal constructors keep Enzyme forward happy.
+    if isdefined(CensoredDistributions, :Sequential)
+        _push!("interval_censored(Sequential) over total",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    interval_censored(
+                        Sequential(Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])),
+                        1.0),
+                    x),
+                obs),
+            [2.0, 1.0, 0.5, 0.4], (Constant(obs_int),))
+        _push!("double_interval_censored(Sequential) over total",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    double_interval_censored(
+                        Sequential(Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4]));
+                        primary_event = Uniform(0.0, 1.0), interval = 1.0),
+                    x),
+                obs),
+            [2.0, 1.0, 0.5, 0.4], (Constant(obs_int),))
+        _push!("interval_censored(Parallel) distributed branches",
+            (θ,
+                x) -> logpdf(
+                interval_censored(
+                    Parallel(Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])), 1.0),
+                x),
+            [2.0, 1.0, 1.0, 0.5], (Constant([2.0, 3.0]),))
+    end
 
     return out
 end

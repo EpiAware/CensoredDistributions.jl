@@ -96,6 +96,14 @@ end
 # construction, so `integrate` only reads `solver.rule`.
 GaussLegendre(; n::Int = _PRIMARY_NODES) = GaussLegendre(n, _gl_rule(n))
 
+# Show a Gauss-Legendre solver as its type and node COUNT, never its node and
+# weight arrays, so a leaf holding a solver (and any composed tree containing it)
+# prints compactly.
+function Base.show(io::IO, gl::GaussLegendre)
+    print(io, "GaussLegendre(", gl.n, ")")
+    return nothing
+end
+
 # Reduce an integrand `g` over the reference domain `[-1, 1]` against the
 # `rule`. Seeding `acc` with `weights[1] * g(nodes[1])` fixes the
 # accumulator's element type from the integrand itself, so a component

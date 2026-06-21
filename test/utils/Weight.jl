@@ -145,6 +145,65 @@ end
     @test logpdf(wd_array, x) ≈ expected_logpdf
 end
 
+@testitem "Vectorised weighted logpdf equals per-obs weighted sum" begin
+    using Distributions
+
+    # The `weight(dist, weights)` aggregation pattern: one shared
+    # distribution, many duplicate observation/window combinations collapsed to
+    # weighted unique values. The Product{Weighted} logpdf is scored in a single
+    # vectorised `logpdf(dist, x)` call (reusing the cached-CDF batched PDF) and
+    # must equal the per-observation weighted-sum loop EXACTLY.
+    d = interval_censored(LogNormal(1.5, 0.5), 1.0)
+    x = [2.0, 3.0, 2.0, 5.0, 3.0, 2.0]   # duplicates drive CDF cache reuse
+    weights = [3.0, 2.0, 5.0, 1.0, 4.0, 2.0]
+    wd = weight(d, weights)
+
+    loop = sum(w * logpdf(d, xi) for (w, xi) in zip(weights, x))
+    @test logpdf(wd, x) == loop
+
+    # The shared-dist vectorised path is detected: all components wrap `d`.
+    @test all(c -> c.dist === d, wd.v)
+
+    # Joint observation form (constructor weight * observation weight) matches.
+    obs_w = [1.0, 2.0, 1.0, 3.0, 1.0, 2.0]
+    loop_joint = sum((cw * ow) * logpdf(d, xi)
+    for (cw, ow, xi) in zip(weights, obs_w, x))
+    @test logpdf(wd, (values = x, weights = obs_w)) == loop_joint
+
+    # A plain (non-batched) shared distribution still matches the loop.
+    dn = Normal(2.0, 1.0)
+    wdn = weight(dn, weights)
+    @test logpdf(wdn, x) == sum(w * logpdf(dn, xi)
+    for (w, xi) in zip(weights, x))
+end
+
+@testitem "Vectorised weighted logpdf: mixed distributions fall back" begin
+    using Distributions
+
+    # When the components wrap DIFFERENT distributions the shared-dist
+    # vectorised path is not taken; the per-component loop still gives the exact
+    # weighted sum.
+    dists = [interval_censored(LogNormal(1.5, 0.5), 1.0),
+        interval_censored(LogNormal(1.0, 0.7), 1.0),
+        interval_censored(Gamma(2.0, 1.5), 1.0)]
+    weights = [2.0, 3.0, 1.0]
+    x = [2.0, 3.0, 4.0]
+    wd = weight(dists, weights)
+
+    expected = sum(w * logpdf(di, xi)
+    for (w, di, xi) in zip(weights, dists, x))
+    @test logpdf(wd, x) == expected
+end
+
+@testitem "Vectorised weighted logpdf: zero weight gives -Inf" begin
+    using Distributions
+
+    d = interval_censored(LogNormal(1.5, 0.5), 1.0)
+    x = [2.0, 3.0, 2.0]
+    wd = weight(d, [3.0, 0.0, 5.0])  # a zero weight short-circuits to -Inf
+    @test logpdf(wd, x) == -Inf
+end
+
 @testitem "Test Weight with truncated distributions" begin
     using Distributions
 

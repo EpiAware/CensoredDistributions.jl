@@ -29,34 +29,43 @@ components the remaining convolution is folded recursively.
 Where an analytical convolution is available (`Distributions.convolve`
 applies, e.g. `Normal`+`Normal`, equal-scale `Gamma`, equal-rate
 `Exponential`) the two-component result is taken directly from the
-convolved distribution unless `force_numeric` is set. All other cases use
-AD-safe fixed-node Gauss-Legendre quadrature: the integral is mapped from
-the fixed reference domain ``(-1, 1)`` onto the real bounds inside the
-integrand and reduced as a bare weighted dot product (`gl_integrate`),
-which lets every AD backend specialise on the integrand's own type so
-component `Dual`s and tangents propagate.
+convolved distribution unless a [`NumericSolver`](@ref) method is set. All
+other cases use AD-safe fixed-node Gauss-Legendre quadrature: the integral
+is mapped from the fixed reference domain ``(-1, 1)`` onto the real bounds
+inside the integrand and reduced as a bare weighted dot product
+(`gl_integrate`), which lets every AD backend specialise on the integrand's
+own type so component `Dual`s and tangents propagate.
 
-The `force_numeric` field forces the numeric quadrature path even when an
-analytic convolution exists, mirroring `primary_censored`; it is useful
-for validation and debugging.
+The `method` field selects the CDF/PDF backend, mirroring
+`primary_censored`: an [`AnalyticalSolver`](@ref) (the default) uses the
+analytic convolution when one exists and falls back to quadrature
+otherwise, while a [`NumericSolver`](@ref) forces the numeric quadrature
+path even when an analytic convolution exists; the latter is useful for
+validation and debugging.
 
 # See also
 - [`convolve_distributions`](@ref): Constructor function
 """
-struct Convolved{C <: Tuple} <: UnivariateDistribution{Continuous}
+struct Convolved{C <: Tuple, M <: AbstractSolverMethod} <:
+       UnivariateDistribution{Continuous}
     "Tuple of independent component distributions to be summed."
     components::C
-    "Force numeric quadrature even when an analytic convolution exists."
-    force_numeric::Bool
+    "Solver method choose the analytic vs numeric quadrature backend."
+    method::M
 
-    function Convolved(components::C; force_numeric::Bool = false) where {
+    function Convolved(components::C;
+            method::AbstractSolverMethod = AnalyticalSolver()) where {
             C <: Tuple}
+        # The type allows a single-component (degenerate) convolution so the
+        # recursive moment fold and rebuild paths can wrap one component; the
+        # user-facing `convolve_distributions` requires two or more, since
+        # convolving fewer is a no-op.
         length(components) >= 1 ||
             throw(ArgumentError("Convolved needs at least one component"))
         all(c -> c isa UnivariateDistribution, components) ||
             throw(ArgumentError(
                 "All components must be UnivariateDistributions"))
-        new{C}(components, force_numeric)
+        new{C, typeof(method)}(components, method)
     end
 end
 
@@ -73,9 +82,11 @@ distribution.
   of them.
 
 # Keyword Arguments
-- `force_numeric`: Force numeric quadrature even when an analytic
-  convolution is available (default: `false`), mirroring
+- `method`: The solver method, an [`AnalyticalSolver`](@ref) (the default)
+  or [`NumericSolver`](@ref). `NumericSolver` forces numeric quadrature
+  even when an analytic convolution is available, mirroring
   `primary_censored`.
+- `force_numeric`: Deprecated. Pass `method = NumericSolver()` instead.
 
 # Examples
 ```@example
@@ -90,7 +101,8 @@ d3 = convolve_distributions([Gamma(2.0, 1.0), Gamma(1.0, 1.0), Normal(0.0, 1.0)]
 mean_sample = rand(d3)
 
 # Force numeric quadrature even for an analytic pair
-dn = convolve_distributions(Normal(0.0, 1.0), Normal(1.0, 2.0); force_numeric=true)
+dn = convolve_distributions(Normal(0.0, 1.0), Normal(1.0, 2.0);
+    method = NumericSolver())
 cdf_numeric = cdf(dn, 2.0)
 ```
 
@@ -99,22 +111,56 @@ cdf_numeric = cdf(dn, 2.0)
 "
 function convolve_distributions(
         components::AbstractVector{<:UnivariateDistribution};
-        force_numeric::Bool = false)
+        method::Union{AbstractSolverMethod, Nothing} = nothing,
+        force_numeric = nothing)
     length(components) >= 2 ||
         throw(ArgumentError("convolve_distributions needs at least two components"))
-    return Convolved(Tuple(components); force_numeric = force_numeric)
+    return Convolved(Tuple(components);
+        method = _resolve_convolved_method(method, force_numeric))
 end
 
 function convolve_distributions(
         c1::UnivariateDistribution, c2::UnivariateDistribution,
-        rest::UnivariateDistribution...; force_numeric::Bool = false)
-    return Convolved((c1, c2, rest...); force_numeric = force_numeric)
+        rest::UnivariateDistribution...;
+        method::Union{AbstractSolverMethod, Nothing} = nothing,
+        force_numeric = nothing)
+    return Convolved((c1, c2, rest...);
+        method = _resolve_convolved_method(method, force_numeric))
 end
 
-function convolve_distributions(components::Tuple; force_numeric::Bool = false)
+function convolve_distributions(components::Tuple;
+        method::Union{AbstractSolverMethod, Nothing} = nothing,
+        force_numeric = nothing)
     length(components) >= 2 ||
         throw(ArgumentError("convolve_distributions needs at least two components"))
-    return Convolved(components; force_numeric = force_numeric)
+    return Convolved(components;
+        method = _resolve_convolved_method(method, force_numeric))
+end
+
+# Resolve the `Convolved` solver method from the keyword arguments. An
+# explicit `method` takes precedence; the default (no method, no
+# `force_numeric`) is `AnalyticalSolver()`; the deprecated `force_numeric`
+# path maps the `Bool` onto a method and warns. Mirrors
+# `_resolve_solver_method` for `primary_censored`, but a `Convolved` runs
+# its own fixed-node quadrature, so the solver field of the returned method
+# is unused and the default-constructed quadrature is fine.
+_resolve_convolved_method(::Nothing, ::Nothing) = AnalyticalSolver()
+function _resolve_convolved_method(
+        method::AbstractSolverMethod, ::Nothing)
+    return method
+end
+function _resolve_convolved_method(::Nothing, force_numeric::Bool)
+    Base.depwarn(
+        "`force_numeric` is deprecated; pass `method = NumericSolver()` to " *
+        "force numeric quadrature or `method = AnalyticalSolver()` for the " *
+        "analytic convolution path.",
+        :convolve_distributions)
+    return force_numeric ? NumericSolver() : AnalyticalSolver()
+end
+function _resolve_convolved_method(
+        ::AbstractSolverMethod, ::Bool)
+    throw(ArgumentError(
+        "pass either `method` or the deprecated `force_numeric`, not both"))
 end
 
 # ---------------------------------------------------------------------------
@@ -123,7 +169,7 @@ end
 
 params(d::Convolved) = map(params, d.components)
 
-function Base.eltype(::Type{<:Convolved{C}}) where {C}
+function Base.eltype(::Type{<:Convolved{C}}) where {C <: Tuple}
     return mapreduce(eltype, promote_type, fieldtypes(C))
 end
 
@@ -139,6 +185,79 @@ function Base.rand(rng::AbstractRNG, d::Convolved)
 end
 
 sampler(d::Convolved) = d
+
+@doc "
+
+Compute the quantile (inverse CDF) of the convolution.
+
+No closed form exists for a generic convolution, so the quantile is found
+by numerically inverting [`cdf`](@ref). The initial guess is the sum of the
+component quantiles, which is exact when the components are degenerate and a
+good starting point otherwise. Providing this method lets a `Convolved`
+compose under `truncated`, where `Distributions` derives the truncated
+quantile and inverse-CDF sampler from the base `quantile`.
+
+See also: [`cdf`](@ref)
+"
+function quantile(d::Convolved, p::Real)
+    return _quantile_optimization(
+        d, p; initial_guess_fn = _convolved_quantile_guess)
+end
+
+# Sum of component quantiles as the inversion starting point.
+function _convolved_quantile_guess(d::Convolved, p::Real)
+    guess = sum(c -> float(quantile(c, p)), d.components)
+    return [guess]
+end
+
+# ---------------------------------------------------------------------------
+# Moments: exact analytic sum of independent components
+# ---------------------------------------------------------------------------
+#
+# A `Convolved` is a sum of independent components, so the mean and variance
+# are EXACT and additive: `mean = sum(mean.(components))` and
+# `var = sum(var.(components))`. No sampling, no discretisation. Each component
+# must provide an analytic `mean`/`var`; a component without one errors from
+# its own `mean`/`var` (no fallback). The moments flow through the component
+# parameters, so the path is AD-safe.
+
+# Per-component moments via the component's analytic `mean`/`var`. A nested
+# `Convolved` is itself a `UnivariateDistribution`, so it recurses through this
+# same additive sum via its own `mean`/`var`.
+_component_mean(c::UnivariateDistribution) = mean(c)
+_component_var(c::UnivariateDistribution) = var(c)
+
+@doc "
+
+Mean of the convolution: the exact sum of the component means.
+
+A [`Convolved`](@ref) is a sum of independent components, so the mean is
+``\\sum_i \\mathbb{E}[X_i]``. Each component must provide an analytic `mean`;
+a component without one errors (there is no numeric fallback).
+
+See also: [`var`](@ref), [`std`](@ref)
+"
+mean(d::Convolved) = sum(_component_mean, d.components)
+
+@doc "
+
+Variance of the convolution: the exact sum of the component variances.
+
+Independence makes the variance additive, ``\\sum_i \\mathrm{Var}[X_i]``. As
+for [`mean`](@ref), each component must provide an analytic `var` or the call
+errors.
+
+See also: [`mean`](@ref), [`std`](@ref)
+"
+var(d::Convolved) = sum(_component_var, d.components)
+
+@doc "
+
+Standard deviation of the convolution, ``\\sqrt{\\mathrm{Var}[X]}``.
+
+See also: [`var`](@ref), [`mean`](@ref)
+"
+std(d::Convolved) = sqrt(var(d))
 
 # ---------------------------------------------------------------------------
 # Analytical fast path via Distributions.convolve
@@ -182,9 +301,10 @@ function _analytic_convolution(components::Tuple)
 end
 
 # The analytic convolution to use for `d`, or `nothing` when none exists
-# or when `d.force_numeric` requests the numeric quadrature path.
+# or when `d.method` is a `NumericSolver` requesting the numeric quadrature
+# path.
 function _maybe_analytic(d::Convolved)
-    d.force_numeric && return nothing
+    d.method isa NumericSolver && return nothing
     return _analytic_convolution(d.components)
 end
 
@@ -192,15 +312,58 @@ end
 # integration component when clamping an infinite quadrature window.
 const _CONVOLVED_TAIL = 1e-8
 
+# Strip any AD wrapper (ForwardDiff `Dual`, ReverseDiff `TrackedReal`,
+# Enzyme/Mooncake duals) from a scalar, returning its underlying primal
+# value. The generic method is the identity on a plain real (so a
+# non-AD call keeps the component's own float type, e.g. `Float32`); the
+# per-backend extensions (`...ForwardDiffExt`, `...ReverseDiffExt`) add
+# unwrapping methods, and `...ChainRulesCoreExt` / `...EnzymeExt` register
+# it as non-differentiable so reverse and Enzyme modes do not trace it.
+# This is what keeps the quadrature window (a non-differentiable
+# hyperparameter — just *where* to integrate) off `quantile`'s AD path.
+_primal(x::Real) = x
+
+# Quantile used only to pick a finite quadrature endpoint. Reconstructing
+# the component from primal (AD-stripped) params means `quantile` — and so
+# `gamma_inc_inv` for a `Gamma` integration component — only ever sees
+# plain `Float64`s. No AD backend differentiates through it, which is
+# correct: the window choice carries no gradient (it is a fixed
+# hyperparameter of the quadrature, like the node count). Previously the
+# live `Dual`/`TrackedReal` params flowed into `quantile`, and Enzyme
+# cannot push duals through `SpecialFunctions.gamma_inc_inv_qsmall`
+# (`IllegalTypeAnalysisException`).
+# `@noinline` so the call survives as a call site for the per-backend AD
+# rules (the Enzyme `EnzymeRules` rule and the ChainRules
+# `@non_differentiable` mark) to attach to; if it inlined, Enzyme would
+# type-analyse `quantile`/`gamma_inc_inv` directly and abort.
+@noinline function _window_quantile(comp::UnivariateDistribution, p::Real)
+    primal = _primal_distribution(comp)
+    return quantile(primal, p)
+end
+
+# Rebuild a distribution with its parameters stripped to primal `Float64`s
+# via the type's positional constructor (`params` round-trips through the
+# constructor for the Distributions.jl families used here). The
+# `check_args = false` keyword is intentionally NOT passed: the original
+# distribution already validated its parameters, and the primal copy uses
+# the identical (now plain-`Float64`) values.
+function _primal_distribution(d::UnivariateDistribution)
+    D = Base.typename(typeof(d)).wrapper
+    return D(map(_primal, params(d))...)
+end
+
 # Clamp an integration window to a finite range. Both the integrand's
 # `f_C(t)` factor and (for the CDF) the transition of `F_R(x - t)` are
 # negligible outside the integration component's effective support, so an
 # infinite endpoint is replaced by an extreme quantile of `last_comp`.
 # This lets the numeric path handle components unbounded on either side
-# (e.g. Normal+Normal under `force_numeric`).
+# (e.g. Normal+Normal under a `NumericSolver`). The endpoint quantile is
+# computed on AD-stripped params (`_window_quantile`) so the window stays
+# a non-differentiated constant across every AD backend.
 function _finite_window(last_comp, lower::Real, upper::Real)
-    lo = isfinite(lower) ? lower : quantile(last_comp, _CONVOLVED_TAIL)
-    hi = isfinite(upper) ? upper : quantile(last_comp, 1 - _CONVOLVED_TAIL)
+    lo = isfinite(lower) ? lower : _window_quantile(last_comp, _CONVOLVED_TAIL)
+    hi = isfinite(upper) ? upper :
+         _window_quantile(last_comp, 1 - _CONVOLVED_TAIL)
     return lo, hi
 end
 

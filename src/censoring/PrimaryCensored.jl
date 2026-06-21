@@ -7,7 +7,14 @@ followed by a delay. The primary event time is not observed directly but is
 known to fall within the censoring distribution's support. The observed time is
 the sum of the primary event time and the delay.
 
-# Method Selection
+The primary event time is marginalised out inside `logpdf` and `cdf` (the
+convolution of the delay with the primary event distribution), so the result is
+a univariate distribution over the observed delay. Where a tractable marginal
+does not exist (for example coupled records), a latent formulation is reached by
+dispatching on the distribution type, and the primary event is sampled in a
+model via [`get_primary_event`](@ref); that lives in the DynamicPPL extension.
+
+# Method choice
 
 The CDF computation is handled by `primarycensored_cdf`, which dispatches on
 the `method`:
@@ -140,7 +147,51 @@ function params(d::PrimaryCensored)
     return (d0params..., d1params...)
 end
 
-Base.eltype(::Type{<:PrimaryCensored{D}}) where {D} = promote_type(eltype(D), eltype(D))
+# Show a primary-censored distribution as a one-line summary of its delay and
+# primary-event distributions, so the solver's quadrature rule is never dumped.
+# Detailed nested inspection is available via `inspect`.
+function Base.show(io::IO, d::PrimaryCensored)
+    print(io, "PrimaryCensored(", get_dist(d),
+        "; primary_event=", d.primary_event, ")")
+    return nothing
+end
+
+# A `Truncated` wrapping a primary-censored delay (the `double_interval_censored`
+# upper/lower path) otherwise falls to the Distributions multi-line struct dump,
+# which prints the inner solver's quadrature arrays; show it as a one-line
+# summary instead. The Distributions `_use_multline_show` of the inner delay also
+# drives an enclosing `IntervalCensored`'s dump, so this keeps both compact.
+function Base.show(io::IO, d::Truncated{<:PrimaryCensored})
+    print(io, "Truncated(", d.untruncated)
+    if d.lower === nothing
+        print(io, "; upper=", d.upper, ")")
+    elseif d.upper === nothing
+        print(io, "; lower=", d.lower, ")")
+    else
+        print(io, "; lower=", d.lower, ", upper=", d.upper, ")")
+    end
+    return nothing
+end
+
+function Base.eltype(::Type{<:PrimaryCensored{D1, D2}}) where {D1, D2}
+    return promote_type(eltype(D1), eltype(D2))
+end
+# Instance method promotes the PARAMETER element types of both inner
+# distributions: a distribution's `eltype` is its variate type (`Float64`)
+# and would drop an AD `Dual` carried by the parameters, so a Dual-typed
+# delay or primary event lifts the reported eltype here. Falls back to the
+# variate eltype for a distribution without a `params` method, so a bare
+# test distribution stays type-stable.
+function Base.eltype(d::PrimaryCensored)
+    return promote_type(
+        _safe_param_eltype(get_dist(d)), _safe_param_eltype(d.primary_event))
+end
+
+# Parameter element type, defaulting to the distribution's variate `eltype`
+# when no `params` method is defined. Never returns an abstract type.
+function _safe_param_eltype(d)
+    return applicable(params, d) ? _param_eltype(d) : eltype(d)
+end
 minimum(d::PrimaryCensored) = minimum(get_dist(d))
 maximum(d::PrimaryCensored) = maximum(get_dist(d))
 insupport(d::PrimaryCensored, x::Real) = insupport(get_dist(d), x)
@@ -174,11 +225,12 @@ function logccdf(d::PrimaryCensored, x::Real)
     # Use log1mexp for numerical stability: log(1 - exp(logcdf))
     logcdf_val = logcdf(d, x)
 
-    # Handle edge cases
+    # Handle edge cases; keep returns the same type as `logcdf_val` so that
+    # ForwardDiff Duals are not stripped on the boundary branches.
     if logcdf_val == -Inf
-        return 0.0  # log(1) when CDF = 0
+        return zero(logcdf_val)  # log(1) when CDF = 0
     elseif logcdf_val >= 0.0
-        return -Inf  # log(0) when CDF = 1
+        return oftype(logcdf_val, -Inf)  # log(0) when CDF = 1
     end
 
     return log1mexp(logcdf_val)

@@ -1,7 +1,17 @@
 module CensoredDistributionsChainRulesCoreExt
 
-using CensoredDistributions: _gamma_cdf, _gamma_cdf_value_and_partials
+using CensoredDistributions: _gamma_cdf, _gamma_cdf_value_and_partials,
+                             _primal, _window_quantile
 using ChainRulesCore: ChainRulesCore, NoTangent
+
+# The quadrature-window endpoint is a non-differentiable hyperparameter
+# (just *where* to integrate), so its primal-stripping helper
+# and the window-quantile call itself carry no gradient. Marking them
+# `@non_differentiable` keeps reverse-mode AD — and Mooncake, which lifts
+# ChainRules rules — off `quantile`'s `gamma_inc_inv` path for a `Gamma`
+# integration component.
+ChainRulesCore.@non_differentiable _primal(::Any)
+ChainRulesCore.@non_differentiable _window_quantile(::Any, ::Any)
 
 # Reverse- and forward-mode rules for `_gamma_cdf(k, θ, x) = P(k, x/θ)`.
 # The analytical partials live in `_gamma_cdf_value_and_partials` (in
@@ -22,7 +32,7 @@ end
 # `@from_chainrules` lift in `CensoredDistributionsMooncakeExt` (ForwardDiff
 # dispatches on `Dual` types directly, so it never reaches here). Without
 # this, Mooncake's forward lift calls `ChainRulesCore.frule`, which returns
-# `nothing` for an undefined rule and trips `iterate(::Nothing)` (#270).
+# `nothing` for an undefined rule and trips `iterate(::Nothing)`.
 function ChainRulesCore.frule(
         (_, Δk, Δθ, Δx), ::typeof(_gamma_cdf), k::Real, θ::Real, x::Real)
     Ω, dk, dθ, dx = _gamma_cdf_value_and_partials(k, θ, x)

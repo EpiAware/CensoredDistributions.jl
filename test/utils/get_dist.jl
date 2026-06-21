@@ -56,6 +56,27 @@ end
     @test extracted3 isa Exponential
 end
 
+@testitem "Test get_primary_event with PrimaryCensored distributions" begin
+    using Distributions
+
+    delay = LogNormal(1.5, 0.75)
+    primary = Uniform(0, 1)
+    pc = primary_censored(delay, primary)
+
+    # Accessor returns the primary event distribution
+    @test get_primary_event(pc) === primary
+    @test get_primary_event(pc) isa Uniform
+
+    # Conditional delay given a realised primary p is a plain logpdf via the
+    # accessors (the latent model in the extension scores exactly this).
+    p, observed = 0.3, 2.7
+    @test logpdf(get_dist(pc), observed - p) isa Real
+
+    # Works with a non-Uniform primary event too
+    pc2 = primary_censored(Gamma(2.0, 3.0), truncated(Normal(0.5, 0.2), 0, 1))
+    @test get_primary_event(pc2) isa Truncated
+end
+
 @testitem "Test get_dist with IntervalCensored distributions" begin
     using Distributions
 
