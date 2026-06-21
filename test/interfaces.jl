@@ -1,12 +1,65 @@
 @testitem "public interface conformance over every composer shape" begin
     using CensoredDistributions
     using CensoredDistributions.TestUtils: test_interface, example_fixtures
+    import ForwardDiff
 
-    # Run the one interface checklist over the fixture set covering a bare
-    # censored leaf, Sequential, Parallel, Resolve, choose, a nested mix, and
-    # a latent-wrapped case. Each fixture's `@testset` records its own asserts.
+    # Run the one interface checklist over the full fixture registry: a bare
+    # censored leaf, Sequential, Parallel, Resolve, Compete, choose, a nested
+    # mix, a latent-wrapped case, the distribution-modifier / derived leaves
+    # (affine, modify all links, weight, thin, Convolved, Difference,
+    # ExponentiallyTilted), a defective no-event Resolve, and the deep-nesting
+    # matrix (#645/#653). ForwardDiff is injected as the AD backend so the
+    # AD-safety contract (a finite logpdf gradient) runs on every fixture that
+    # carries an `ad` probe. Each fixture's `@testset` records its own asserts.
     for fix in example_fixtures()
-        test_interface(fix)
+        test_interface(fix; ad_gradient = ForwardDiff.gradient)
+    end
+end
+
+@testitem "fixture registry covers every public distribution type" begin
+    using CensoredDistributions
+    using CensoredDistributions.TestUtils: test_registry_coverage
+
+    # A new public distribution / leaf / node type added without a
+    # `test_interface` fixture fails here (the registry-completeness meta-test).
+    test_registry_coverage()
+end
+
+@testitem "interface AD-safety under Mooncake (reverse-mode)" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions.TestUtils: test_ad_safety
+    import Mooncake
+
+    # AD-safety is a contract under reverse-mode too, not just ForwardDiff. A
+    # Mooncake gradient closure over the fixture AD probes (a representative
+    # subset: a censored leaf, a thinned defective leaf, a modified hazard, a
+    # convolution) must be finite. Mooncake is a main-test-env dep; backends not
+    # loaded in a given env simply skip this item.
+    function mooncake_gradient(f, θ)
+        rule = Mooncake.build_rrule(f, θ)
+        _, grads = Mooncake.value_and_gradient!!(rule, f, θ)
+        return grads[2]
+    end
+
+    probes = (
+        ("dic leaf",
+            θ -> logpdf(
+                double_interval_censored(Gamma(θ[1], θ[2]);
+                    primary_event = Uniform(0, 1), interval = 1.0),
+                3.0),
+            [2.0, 1.0]),
+        ("thin (defective)",
+            θ -> logpdf(thin(LogNormal(θ[1], θ[2]), 0.3), 2.0), [1.5, 0.5]),
+        ("modify (log link)",
+            θ -> logpdf(modify(LogNormal(θ[1], θ[2]), -log(2.0); link = log),
+                2.0), [1.5, 0.5]),
+        ("Convolved",
+            θ -> logpdf(
+                convolve_distributions(
+                    Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), 3.0), [2.0, 1.0])
+    )
+    for (nm, f, θ) in probes
+        test_ad_safety(f, θ; ad_gradient = mooncake_gradient, name = nm)
     end
 end
 

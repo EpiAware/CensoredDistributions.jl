@@ -35,15 +35,22 @@ using Distributions: Distributions, mean, var, std, logpdf, cdf, params,
 import Tables
 
 using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
-                               Resolve, AbstractOneOf,
+                               Resolve, Compete, AbstractOneOf, NoEvent,
                                Choose, Latent, compose, latent,
                                double_interval_censored, primary_censored,
+                               interval_censored, resolve, compete,
+                               affine, modify, weight, thin, difference,
+                               convolve_distributions, truncate_to_horizon,
+                               Affine, Modified, Weighted, Transformed,
+                               Convolved, Difference, ExponentiallyTilted,
+                               PrimaryCensored, IntervalCensored,
                                event, event_names, event_tree, params_table,
                                observed_distribution, endpoint,
                                child_nleaves, child_logpdf, child_rand!
 
 export test_interface, example_fixtures, test_rejects_invalid,
-       test_node_interface
+       test_node_interface, test_ad_safety, registry_types,
+       test_registry_coverage
 
 # --- per-fixture descriptor -------------------------------------------------
 #
@@ -78,6 +85,31 @@ Base.@kwdef struct InterfaceFixture{D}
     "Whether the node collapses to a univariate endpoint via
     `observed_distribution` (a chain / univariate)."
     has_endpoint::Bool = true
+    "Whether the distribution is DEFECTIVE / sub-stochastic: its total mass is
+    `< 1` (a `thin` leaf, a `modify`/`Modified` with sub-stochastic mass, a
+    `Resolve`/`Compete` with a no-event branch). A defective univariate leaf's
+    `rand` may return `missing` (the no-event outcome), so the `rand isa Real`
+    assertion is relaxed to `Real`-or-`missing`, and its `cdf` tends to its
+    deficit-adjusted mass `< 1` rather than `1`."
+    defective::Bool = false
+    "For a DEFECTIVE univariate leaf, the expected total density mass (the
+    reporting probability `p` of a `thin`, say), checked by integrating the pdf
+    over `[0, integrate_upper]`; `nothing` skips the sub-density-mass check (a
+    non-defective node, or one whose mass has no simple closed form)."
+    subdensity_mass::Union{Nothing, Float64} = nothing
+    "Upper limit for the sub-density mass quadrature (the defective-mass check)."
+    integrate_upper::Float64 = 200.0
+    "An AD-safety probe `(f, θ)`: a closure `f(θ::Vector) -> Real` reconstructing
+    the node from a parameter vector and returning a scalar log density, plus an
+    in-support point `θ`. When supplied (and an `ad_gradient` backend is passed to
+    `test_interface`), the harness asserts the gradient is finite — `logpdf`
+    differentiability is a contract, not an ad-hoc fixture. `nothing` skips it."
+    ad::Union{Nothing, Tuple{Function, Vector{Float64}}} = nothing
+    "Whether to exercise the missing-sentinel round-trip: a simulated record with
+    `missing` slots fed straight back into scoring (north-star tenet 8). Applies
+    to a multivariate composer whose `rand`/event vector can carry a `missing`
+    slot (a censored `Parallel`/tree, a `Resolve` with an unobserved outcome)."
+    missing_record::Bool = false
 end
 
 # --- the checklist ----------------------------------------------------------
@@ -127,24 +159,40 @@ function test_interface(d; name::AbstractString = string(nameof(typeof(d))),
         draw = nothing, path::Union{Nothing, Tuple} = nothing,
         kind::Union{Nothing, Symbol} = nothing, univariate::Bool = false,
         overall::Symbol = :scalar, latent_moments::Bool = false,
-        has_endpoint::Bool = true)
+        has_endpoint::Bool = true, defective::Bool = false,
+        subdensity_mass::Union{Nothing, Real} = nothing,
+        integrate_upper::Real = 200.0,
+        ad::Union{Nothing, Tuple{Function, Vector{Float64}}} = nothing,
+        missing_record::Bool = false, ad_gradient = nothing)
     fix = InterfaceFixture(; name = name, dist = d, draw = draw, path = path,
         kind = kind, univariate = univariate, overall = overall,
-        latent_moments = latent_moments, has_endpoint = has_endpoint)
-    return test_interface(fix)
+        latent_moments = latent_moments, has_endpoint = has_endpoint,
+        defective = defective,
+        subdensity_mass = subdensity_mass === nothing ? nothing :
+                          Float64(subdensity_mass),
+        integrate_upper = Float64(integrate_upper), ad = ad,
+        missing_record = missing_record)
+    return test_interface(fix; ad_gradient = ad_gradient)
 end
 
-function test_interface(fix::InterfaceFixture)
+# `ad_gradient` is an INJECTED gradient backend (e.g. `ForwardDiff.gradient`):
+# the harness lives in `src` and is dependency-light (no AD dep of its own), so a
+# caller in the test env passes the backend it has loaded. `nothing` skips the
+# AD-safety contract check (still reported as a skip).
+function test_interface(fix::InterfaceFixture; ad_gradient = nothing)
     d = fix.dist
     return @testset "interface: $(fix.name)" begin
         _check_choose(d, fix)
         _check_moments_and_rand(d, fix)
         _check_logpdf(d, fix)
         _check_cdf(d, fix)
+        _check_subdensity(d, fix)
         _check_params(d)
         _check_event_names(d, fix)
         _check_event_path(d, fix)
         _check_endpoint(d, fix)
+        _check_missing_roundtrip(d, fix)
+        _check_ad(d, fix, ad_gradient)
     end
 end
 
@@ -176,9 +224,11 @@ function _check_moments_and_rand(d, fix)
     @testset "moments and rand" begin
         r = rand(d)
         # A multivariate composer realisation is a labelled NamedTuple; a
-        # univariate node is a bare scalar.
+        # univariate node is a bare scalar. A DEFECTIVE univariate leaf's `rand`
+        # may return `missing` (the no-event outcome), so its realisation is
+        # `Real`-or-`missing`.
         if fix.univariate
-            @test r isa Real
+            @test fix.defective ? (r isa Real || r === missing) : r isa Real
         else
             @test r isa NamedTuple
         end
@@ -348,7 +398,8 @@ function _fill_insupport_step!(out, step::Choose, origin, idx)
     return _fill_insupport_step!(out, first(step.alternatives), origin, idx)
 end
 
-# A univariate node's cdf is monotone and lives in [0, 1].
+# A univariate node's cdf is monotone and lives in [0, 1]. A DEFECTIVE leaf's
+# cdf tends to its mass `< 1`, so it stays `<= 1` and monotone all the same.
 function _check_cdf(d, fix)
     fix.univariate || return nothing
     @testset "univariate cdf monotone in [0, 1]" begin
@@ -356,8 +407,44 @@ function _check_cdf(d, fix)
         cs = [cdf(d, x) for x in xs]
         @test all(c -> 0.0 - 1e-8 <= c <= 1.0 + 1e-8, cs)
         @test issorted(cs)
+        # A defective leaf is sub-stochastic: its cdf tends to a deficit-adjusted
+        # mass strictly below 1 (the no-report mass leaves the observed stream).
+        if fix.defective
+            @test cdf(d, 1.0e6) <= 1.0 + 1e-8
+        end
     end
     return nothing
+end
+
+# A DEFECTIVE (sub-stochastic) univariate leaf integrates its pdf to a total mass
+# `<= 1`, the reporting probability the deficit accounts for. When the expected
+# `subdensity_mass` is supplied the harness pins the integrated mass to it; the
+# quadrature is a coarse midpoint rule over `[0, integrate_upper]` (the harness
+# stays dependency-light, so no QuadGK), tolerant enough to catch a gross
+# mass error without a quadrature dep.
+function _check_subdensity(d, fix)
+    (fix.univariate && fix.defective) || return nothing
+    @testset "defective pdf integrates to its sub-stochastic mass" begin
+        mass = _midpoint_mass(d, fix.integrate_upper)
+        @test mass <= 1.0 + 1e-2
+        if fix.subdensity_mass !== nothing
+            @test isapprox(mass, fix.subdensity_mass; atol = 5e-3)
+        end
+    end
+    return nothing
+end
+
+# Coarse composite-midpoint integral of the pdf over `[0, upper]`. Dense enough
+# (4000 panels) to land a smooth delay density's mass within a few 1e-3.
+function _midpoint_mass(d, upper::Real)
+    n = 4000
+    h = upper / n
+    acc = 0.0
+    for i in 1:n
+        x = (i - 0.5) * h
+        acc += Distributions.pdf(d, x)
+    end
+    return acc * h
 end
 
 function _check_params(d)
@@ -437,17 +524,98 @@ function _check_endpoint(d, fix)
     return nothing
 end
 
+# Missing-sentinel round-trip (north-star tenet 8): a simulated record carries
+# `missing` in an unobserved slot (a censored composer's `rand`, a `Resolve`
+# outcome that did not fire), and that SAME record must feed straight back into
+# scoring and yield a finite log density. This pins the simulate -> score loop on
+# a `missing`-bearing record: a `rand(d)` draw is collected into an event vector,
+# one observed slot is blanked to `missing`, and the blanked record is scored.
+function _check_missing_roundtrip(d, fix)
+    fix.missing_record || return nothing
+    @testset "missing-sentinel record round-trips into scoring" begin
+        # The fixture's in-support event draw already carries the censored layout
+        # the scorer consumes (with an unobserved `Resolve` slot left `missing`),
+        # so it IS a missing-bearing record where the node has an unobserved
+        # outcome; otherwise blank the last real slot to a `missing` sentinel.
+        rec = _missing_record(fix.draw)
+        @test any(ismissing, rec)
+        @test isfinite(_score(d, rec))
+    end
+    return nothing
+end
+
+# Build a `missing`-bearing record from a draw: if it already carries a `missing`
+# (a Resolve no-event slot), keep it; else blank the last finite slot.
+function _missing_record(draw::AbstractVector)
+    out = _missing_vec(draw)
+    any(ismissing, out) && return out
+    last_real = findlast(!ismissing, out)
+    last_real === nothing || (out[last_real] = missing)
+    return out
+end
+_missing_record(draw) = draw
+
+# --- AD-safety contract -----------------------------------------------------
+
+# `logpdf` must differentiate: the fixture's `ad = (f, θ)` reconstructs the node
+# from a parameter vector and returns a scalar log density, and the INJECTED
+# `ad_gradient` backend (e.g. `ForwardDiff.gradient`, passed from the test env)
+# evaluates `∇f(θ)`, which must be finite. This makes differentiability a first-
+# class contract rather than an ad-hoc per-fixture test. With no backend injected
+# the check is skipped (still reported), so the harness keeps its `src` AD-dep
+# free; the package's own suite injects ForwardDiff (and Mooncake where loaded).
+function _check_ad(d, fix, ad_gradient)
+    fix.ad === nothing && return nothing
+    ad_gradient === nothing && return nothing
+    f, θ = fix.ad
+    @testset "logpdf is AD-differentiable (finite gradient)" begin
+        g = ad_gradient(f, θ)
+        @test g isa AbstractVector
+        @test all(isfinite, g)
+    end
+    return nothing
+end
+
+@doc """
+
+Assert a parameterised log density differentiates under an injected AD backend.
+
+`test_ad_safety(f, θ; ad_gradient, name)` evaluates `ad_gradient(f, θ)` (e.g.
+`ForwardDiff.gradient`) on a closure `f(θ::Vector) -> Real` reconstructing a
+distribution from its parameter vector and returning a scalar log density, and
+asserts the gradient is finite. AD-safety of `logpdf` is a contract: a leaf or
+node that scores must also differentiate. Pass several backends through
+`test_interface`'s `ad_gradient` or call this directly per backend (ForwardDiff
+always, Mooncake / ReverseDiff where the test env loads them). Returns the
+`@testset` object.
+""" function test_ad_safety(f::Function, θ::Vector{Float64}; ad_gradient,
+        name::AbstractString = "ad")
+    return @testset "AD-safety: $name" begin
+        g = ad_gradient(f, θ)
+        @test g isa AbstractVector
+        @test all(isfinite, g)
+    end
+end
+
 # --- the package's own fixture set ------------------------------------------
 
 @doc """
 
-The example fixture set every composer shape, for [`test_interface`](@ref).
+The example fixture set over every public type, for [`test_interface`](@ref).
 
-Returns a `Vector` of [`test_interface`](@ref)-ready fixtures covering: a bare
-censored leaf, `Sequential`, `Parallel`, `Resolve`, `choose`, nested mixes,
-censored leaves, and a `latent`-wrapped case. The package runs the conformance
-checklist over these in `test/interfaces.jl`; a downstream author can read them
-as worked examples of the metadata `test_interface` expects.
+Returns a `Vector` of [`test_interface`](@ref)-ready fixtures covering the full
+public registry: a bare (plain / censored) leaf, the composer shapes
+(`Sequential`, `Parallel`, `Resolve`, `Compete`, `choose`), nested mixes, a
+`latent`-wrapped case, the distribution-modifier / derived leaves (`affine`,
+`modify` over the log / identity / logit-discrete links, `weight`, `thin`,
+`Convolved`, `Difference`, `ExponentiallyTilted`), a defective no-event
+`Resolve`, and the deep-nesting matrix (a `Sequential` of `Parallel`, a `Choose`
+of `Sequential`s, a `Convolved` of a composed leaf, a truncation over a composed
+chain). [`test_registry_coverage`](@ref) asserts these cover every public type.
+The package runs the conformance checklist over these in `test/interfaces.jl`; a
+downstream author can read them as worked examples of the metadata
+`test_interface` expects (a `draw`, an `event` `path`, the `overall` moment
+shape, an `ad` probe, the `defective` / `missing_record` flags).
 """ function example_fixtures end
 
 function example_fixtures()
@@ -488,6 +656,103 @@ function example_fixtures()
     # no single observed endpoint).
     lat = latent(primary_censored(G(2.0, 1.0), Distributions.Uniform(0, 1)))
 
+    # --- distribution-modifier / derived leaves (issue #666 registry) -------
+    # Each is a UNIVARIATE leaf; the AD probe reconstructs it from a parameter
+    # vector and scores a scalar logpdf, asserting differentiability.
+    Uni = Distributions.Uniform
+    aff = affine(G(2.0, 1.0); scale = 2.0, shift = 1.0)
+    aff_ad = (
+        θ -> Distributions.logpdf(
+            affine(G(θ[1], θ[2]); scale = 2.0, shift = 1.0), 5.0),
+        [2.0, 1.0])
+    # modify, log link (proportional hazards): closed-form, no analytic moment.
+    mod_log = modify(LN(1.5, 0.5), -log(2.0); link = log)
+    mod_log_ad = (
+        θ -> Distributions.logpdf(
+            modify(LN(θ[1], θ[2]), -log(2.0); link = log), 2.0),
+        [1.5, 0.5])
+    # modify, identity link (additive hazards): a POSITIVE effect keeps the
+    # modified hazard `h + β >= 0`, so the sub-survival stays in `[0, 1]` and the
+    # cdf is monotone. A NEGATIVE identity-link effect drives the cdf negative and
+    # non-monotone (the hazard goes sub-zero near the origin) — a real model-
+    # validity bug tracked in issue #670, NOT a harness regression, so the fixture
+    # uses the valid positive-effect regime.
+    mod_id = modify(LN(1.5, 0.5), 0.1; link = identity)
+    mod_id_ad = (
+        θ -> Distributions.logpdf(
+            modify(LN(θ[1], θ[2]), 0.1; link = identity), 2.0),
+        [1.5, 0.5])
+    # modify, logit link (discrete-time reporting hazard): dispatches on the
+    # interval-censored discrete path with a per-bin effect vector.
+    mod_logit = modify(
+        interval_censored(LN(1.5, 0.5), 1.0), fill(0.2, 11); link = :logit)
+    # weight: a per-record count weight on a leaf, no analytic moment.
+    wtd = weight(G(2.0, 1.0), 3.0)
+    wtd_ad = (θ -> Distributions.logpdf(weight(G(θ[1], θ[2]), 3.0), 3.0),
+        [2.0, 1.0])
+    # thin: a DEFECTIVE leaf (reporting probability `p = 0.3`). Its pdf integrates
+    # to `p`, its cdf tends to `p`, and `rand` returns `missing` with probability
+    # `1 - p`. The conditional-on-report moments are closed-form (`:scalar`).
+    thn = thin(LN(1.5, 0.5), 0.3)
+    thn_ad = (θ -> Distributions.logpdf(thin(LN(θ[1], θ[2]), 0.3), 2.0),
+        [1.5, 0.5])
+    # Convolved: the sum of two independent delays, a univariate leaf with a
+    # closed-form (additive) mean.
+    conv = convolve_distributions(G(2.0, 1.0), LN(0.5, 0.4))
+    conv_ad = (
+        θ -> Distributions.logpdf(
+            convolve_distributions(G(θ[1], θ[2]), LN(0.5, 0.4)), 3.0),
+        [2.0, 1.0])
+    # Difference: Z = X - Y, two-sided (possibly negative) support, a derived
+    # observation rather than a delay leaf. Its mean is the difference of means.
+    diff = difference(G(2.0, 1.0), G(1.5, 2.0))
+    diff_ad = (θ -> Distributions.logpdf(
+            difference(G(θ[1], 1.0), G(1.5, 2.0)), 0.5),
+        [2.0])
+    # ExponentiallyTilted: a bounded exponentially-tilted leaf on `[min, max]`.
+    et = ExponentiallyTilted(0.0, 5.0, 0.5)
+    et_ad = (θ -> Distributions.logpdf(
+            ExponentiallyTilted(0.0, 5.0, θ[1]), 2.0), [0.5])
+    # Compete (racing hazards): a UNIVARIATE time-to-first-event marginal, an
+    # AbstractOneOf like Resolve. Plain (non-censored) delays so it has an
+    # analytic-enough scalar mean.
+    cmp = compete(:recovery => G(2.0, 1.0), :death => G(1.5, 2.0))
+    # A DEFECTIVE Resolve with an explicit no-event branch: its observed-time mass
+    # is `< 1` (the `:none` outcome carries the deficit, `occurrence_probability`
+    # `= 0.4 < 1`). A standalone defective Resolve has NO scalar/marginal logpdf
+    # (it is scored through the event-vector path only), so it is exercised
+    # NESTED in a Parallel where the composer scores its event vector and its
+    # unobserved `:none` outcome leaves a `missing` slot — the sub-stochastic
+    # no-event semantics in the simulate -> score loop.
+    res_def_node = resolve(:event => (dic(G(2.0, 1.0)), 0.4),
+        :none => (NoEvent(), 0.6))
+    res_def = Parallel(dic(G(1.5, 2.0)), res_def_node)
+
+    # --- deep-nesting matrix (folds #645/#653 coverage into the harness) ----
+    # A Sequential whose step is a Parallel: a chain whose first step fans out.
+    seq_of_par = Sequential(
+        (Parallel(dic(G(2.0, 1.0)), dic(G(1.5, 2.0))), dic(G(1.0, 3.0))),
+        (:fanout, :tail))
+    # A Choose of Sequentials: each alternative is a two-step chain. The
+    # alternatives are PLAIN (uncensored) chains so the selected alternative
+    # exposes the scalar event-vector `logpdf(d, x; kind)` (the censored
+    # multivariate `Choose` alternative has no such scalar path yet — out of
+    # scope here, mirroring the nested-scalar coverage in
+    # `test/composers/nested_scalar_methods.jl`).
+    choose_of_seq = CensoredDistributions.choose(
+        :fast => Sequential((G(1.0, 1.0), G(1.0, 1.0)), (:a, :b)),
+        :slow => Sequential((G(2.0, 2.0), G(2.0, 2.0)), (:c, :d)))
+    # A Convolved of a composed (univariate) leaf: an Affine (shift+scale)
+    # composed leaf convolved with a plain leaf, the sum of a transformed delay
+    # and a delay. The plain second component keeps the convolution CDF
+    # analytic / monotone (a double-censored second component adds quadrature
+    # noise in the saturated tail — exercised by the dic fixtures already).
+    conv_composed = convolve_distributions(
+        affine(G(1.5, 2.0); shift = 0.5), LN(0.5, 0.4))
+    # Right-truncation over a composed tree: a Sequential chain bounded to a
+    # finite observation horizon (a censored/truncated wrapper over composed).
+    trunc_composed = truncate_to_horizon(seq, 20.0)
+
     return InterfaceFixture[
         # A plain leaf has the full univariate interface (scalar moment + cdf),
         # no latent per-event view.
@@ -512,7 +777,8 @@ function example_fixtures()
         # score `-Inf`, so the "logpdf finite" check would fail intermittently.
         InterfaceFixture(; name = "Parallel", dist = par,
             draw = _insupport_event_draw(par),
-            overall = :vector, latent_moments = true, has_endpoint = false),
+            overall = :vector, latent_moments = true, has_endpoint = false,
+            missing_record = true),
         InterfaceFixture(; name = "Resolve", dist = comp, draw = 4.0,
             path = (:death,), univariate = true, overall = :scalar),
         InterfaceFixture(; name = "choose", dist = sel, draw = 3.0,
@@ -533,12 +799,190 @@ function example_fixtures()
         InterfaceFixture(; name = "nested mix", dist = nested,
             draw = _insupport_event_draw(nested),
             path = (:admit_path, :admit_resolution),
-            overall = :vector, latent_moments = true, has_endpoint = false),
+            overall = :vector, latent_moments = true, has_endpoint = false,
+            missing_record = true),
         # `latent` over a single primary-censored leaf is scored event-by-event
         # with no summary moment.
         InterfaceFixture(; name = "latent-wrapped", dist = lat,
-            draw = rand(lat), overall = :none, has_endpoint = false)
+            draw = rand(lat), overall = :none, has_endpoint = false),
+
+        # --- distribution-modifier / derived leaves (issue #666) ------------
+        # Affine: a deterministic shift+scale leaf with a closed-form moment.
+        InterfaceFixture(; name = "affine", dist = aff, draw = 5.0,
+            univariate = true, overall = :scalar, ad = aff_ad),
+        # modify, log link (proportional hazards): no analytic moment.
+        InterfaceFixture(; name = "modify (log link)", dist = mod_log,
+            draw = 2.0, univariate = true, overall = :none, ad = mod_log_ad),
+        # modify, identity link (additive hazards), POSITIVE effect (the valid
+        # regime; the negative-effect bug is #670).
+        InterfaceFixture(; name = "modify (identity link)", dist = mod_id,
+            draw = 2.0, univariate = true, overall = :none, ad = mod_id_ad),
+        # modify, logit link (discrete-time reporting hazard): the discrete path.
+        InterfaceFixture(; name = "modify (logit link, discrete)",
+            dist = mod_logit, draw = 2.0, univariate = true, overall = :none),
+        # Weighted: a per-record count weight on a leaf.
+        InterfaceFixture(; name = "weight", dist = wtd, draw = 3.0,
+            univariate = true, overall = :none, ad = wtd_ad),
+        # thin: a DEFECTIVE leaf, pdf integrates to p = 0.3, rand may be missing.
+        InterfaceFixture(; name = "thin (defective)", dist = thn, draw = 2.0,
+            univariate = true, overall = :scalar, defective = true,
+            subdensity_mass = 0.3, integrate_upper = 400.0, ad = thn_ad),
+        # Convolved: the sum of two independent delays.
+        InterfaceFixture(; name = "Convolved", dist = conv, draw = 3.0,
+            univariate = true, overall = :scalar, ad = conv_ad),
+        # Difference: Z = X - Y, two-sided support, a derived observation.
+        InterfaceFixture(; name = "Difference", dist = diff, draw = 0.5,
+            univariate = true, overall = :scalar, ad = diff_ad),
+        # ExponentiallyTilted: a bounded exponentially-tilted leaf.
+        InterfaceFixture(; name = "ExponentiallyTilted", dist = et, draw = 2.0,
+            univariate = true, overall = :scalar, ad = et_ad),
+        # Compete (racing hazards): a univariate time-to-first-event marginal.
+        InterfaceFixture(; name = "Compete", dist = cmp, draw = 2.0,
+            path = (:recovery,), univariate = true, overall = :scalar),
+        # A DEFECTIVE Resolve (a no-event branch) nested in a Parallel: the
+        # composer scores its event vector and the unobserved `:none` outcome
+        # leaves a `missing` slot, exercising the sub-stochastic no-event
+        # semantics in the simulate -> score loop.
+        InterfaceFixture(; name = "Resolve (defective, no-event)",
+            dist = res_def, draw = _insupport_event_draw(res_def),
+            overall = :none, has_endpoint = false, missing_record = true),
+
+        # --- deep-nesting matrix (#645/#653 folded into the harness) --------
+        # A Sequential whose step is a Parallel (a chain that fans out).
+        InterfaceFixture(; name = "deep: Sequential of Parallel",
+            dist = seq_of_par, draw = _insupport_event_draw(seq_of_par),
+            path = (:fanout,), overall = :none, has_endpoint = false,
+            missing_record = true),
+        # A Choose of Sequentials (the selected alternative is a chain).
+        InterfaceFixture(; name = "deep: Choose of Sequentials",
+            dist = choose_of_seq, draw = [1.0, 2.0], kind = :fast,
+            path = (:fast,), overall = :none, has_endpoint = false),
+        # A Convolved of a composed (univariate) leaf.
+        InterfaceFixture(; name = "deep: Convolved of composed leaf",
+            dist = conv_composed, draw = 3.0, univariate = true,
+            overall = :none),
+        # Right-truncation over a composed chain: a Truncated wrapper collapsing
+        # the chain to its observed total, scored as a univariate scalar.
+        InterfaceFixture(; name = "deep: truncated over composed",
+            dist = trunc_composed, draw = 5.0, univariate = true,
+            overall = :none, has_endpoint = false)
     ]
+end
+
+# --- registry completeness --------------------------------------------------
+
+# The package's own public distribution / leaf / node types that
+# `test_interface` is expected to exercise. Each must appear (possibly nested) in
+# at least one `example_fixtures()` fixture, asserted by `test_registry_coverage`.
+# A NEW public distribution type added without a fixture fails that meta-test.
+#
+# A handful of public `Distribution` subtypes are deliberately EXCLUDED from the
+# `test_interface` registry, with a documented reason each:
+#   - `NoEvent`        : an absorbing no-event MARKER, not a scorable delay; it
+#                        only appears as a `Resolve`/`thin` branch (covered via
+#                        the defective Resolve / thin fixtures).
+#   - `Shared`         : a name-tag wrapper tying a leaf across branches; it is an
+#                        introspection tag with no standalone scalar interface.
+#   - `EventRecord`    : a per-record baked metadata carrier, exercised by the
+#                        record-distributions tests, not a leaf.
+#   - `PrimaryConditional` : the inverse-latent conditional, exercised by the
+#                        primary-conditional tests; not a composer leaf.
+# The set below is the registry the meta-test enforces.
+@doc """
+
+The public distribution / leaf / node types the fixture registry must cover.
+
+`registry_types()` returns the `Vector` of the package's own public
+`Distribution` types that [`test_interface`](@ref) is expected to exercise (the
+composer shapes, the censoring leaves and the distribution-modifier / derived
+leaves). [`test_registry_coverage`](@ref) asserts every entry appears in at least
+one [`example_fixtures`](@ref) fixture, so a new public type added without a
+fixture fails. A few infrastructure `Distribution` subtypes (`NoEvent`, `Shared`,
+`EventRecord`, `PrimaryConditional`) are deliberately excluded, each with a
+documented reason in the source.
+""" function registry_types()
+    return Type[
+        # composer shapes
+        Sequential, Parallel, Resolve, Compete, Choose,
+        # censoring leaves
+        PrimaryCensored, IntervalCensored, Latent,
+        # distribution-modifier / derived leaves
+        Affine, Modified, Weighted, Transformed, Convolved, Difference,
+        ExponentiallyTilted
+    ]
+end
+
+# Every concrete type appearing in a fixture's distribution, walked recursively
+# through the composer children, censoring wrappers and modifier inners, so a
+# type nested deep in a tree still counts as covered.
+function _covered_types(fixtures)
+    seen = Set{Type}()
+    for fix in fixtures
+        _collect_types!(seen, fix.dist)
+    end
+    return seen
+end
+
+function _collect_types!(seen, d)
+    push!(seen, typeof(d))
+    # Composer children.
+    if d isa Union{Sequential, Parallel}
+        for c in d.components
+            _collect_types!(seen, c)
+        end
+    elseif d isa AbstractOneOf
+        for c in d.delays
+            _collect_types!(seen, c)
+        end
+    elseif d isa Choose
+        for c in d.alternatives
+            _collect_types!(seen, c)
+        end
+    elseif d isa Latent
+        _collect_types!(seen, d.dist)
+    end
+    # Wrapper / modifier inners reached through the public `free_leaf` peel and
+    # the specific inner fields, so a censored / affine / modified / weighted /
+    # convolved / difference inner counts too.
+    _collect_inner_types!(seen, d)
+    return nothing
+end
+
+function _collect_inner_types!(seen, d)
+    for f in (:dist, :d, :x, :y)
+        if hasproperty(d, f)
+            inner = getproperty(d, f)
+            inner isa Distributions.Distribution && _collect_types!(seen, inner)
+        end
+    end
+    # Convolved holds a tuple of components.
+    if d isa Convolved
+        for c in d.components
+            _collect_types!(seen, c)
+        end
+    end
+    return nothing
+end
+
+@doc """
+
+Assert the fixture registry covers every public distribution / leaf type.
+
+`test_registry_coverage(fixtures = example_fixtures())` checks that every type in
+[`registry_types`](@ref) appears (possibly nested) in at least one fixture, so a
+NEW public distribution type added without a `test_interface` fixture fails here.
+The walk descends composer children, censoring wrappers and modifier inners.
+Returns the `@testset` object.
+""" function test_registry_coverage(fixtures = example_fixtures())
+    covered = _covered_types(fixtures)
+    # A covered concrete type matches a registry entry if it is that type or a
+    # parametric instance of it (`PrimaryCensored{...} <: PrimaryCensored`).
+    is_covered(T) = any(c -> c <: T, covered)
+    return @testset "fixture registry covers every public type" begin
+        for T in registry_types()
+            @test is_covered(T)
+        end
+    end
 end
 
 # --- construction rejection -------------------------------------------------

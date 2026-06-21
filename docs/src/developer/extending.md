@@ -3,10 +3,33 @@
 [Composing censored distributions](@ref composer-toolkit) shows how to build
 records from the distributions the package ships.
 This page is the next step: writing your own leaf distribution so it plugs into
-[`compose`](@ref), the composers, [`params_table`](@ref) and the Turing models,
-and checking it conforms with the public test harness.
+[`compose`](@ref), the composers, [`params_table`](@ref) and the Turing models.
 
-The headline is short.
+## The one-line check: `test_interface`
+
+The package ships its whole interface checklist as the public
+[`CensoredDistributions.TestUtils`](@ref) submodule.
+Add a leaf or node, run [`test_interface`](@ref CensoredDistributions.TestUtils.test_interface) on it, and the same harness that guards the package's own types in CI proves your type conforms.
+That is the headline: write a type, run one function, read the result.
+
+```@example extending
+using CensoredDistributions, Distributions, Random
+using CensoredDistributions.TestUtils: test_interface
+
+# Any Distributions.jl univariate distribution is already a valid leaf.
+test_interface(Gamma(2.0, 1.0); name = "gamma leaf", draw = 3.0,
+    univariate = true, overall = :scalar)
+nothing # hide
+```
+
+The checklist asserts the moments, a finite `logpdf` on an in-support draw, a monotone CDF in `[0, 1]`, that [`params_table`](@ref) is a Tables.jl table, the event-name layout, and — when an `ad` probe is supplied with an injected backend — that `logpdf` differentiates with a finite gradient.
+A defective (sub-stochastic) leaf, a missing-sentinel record and the deep-nesting matrix have their own checks too; [`CensoredDistributions.TestUtils.example_fixtures`](@ref) is the package's own fixture set and doubles as worked examples of the metadata each shape needs.
+A new composer node has the companion [`test_node_interface`](@ref CensoredDistributions.TestUtils.test_node_interface) (see [Writing a new composer node](@ref new-composer-node)).
+
+The rest of this page builds a real custom leaf and node and verifies each with these checks.
+
+## The contract
+
 A composer treats every branch as a univariate distribution, so any type
 satisfying the standard `Distributions.jl` interface composes with no extra
 hooks.
@@ -374,5 +397,7 @@ CensoredDistributions.TestUtils
 CensoredDistributions.TestUtils.test_interface
 CensoredDistributions.TestUtils.test_rejects_invalid
 CensoredDistributions.TestUtils.test_node_interface
+CensoredDistributions.TestUtils.test_ad_safety
+CensoredDistributions.TestUtils.test_registry_coverage
 CensoredDistributions.TestUtils.example_fixtures
 ```
