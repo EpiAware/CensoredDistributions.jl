@@ -49,6 +49,83 @@ end
 
 @doc "
 
+Extract the primary event time distribution from a primary censored
+distribution.
+
+Returns the distribution of primary event times within the censoring window.
+The conditional delay given a realised primary `p` is then
+`logpdf(get_dist(d), observed - p)`.
+
+# Arguments
+- `d`: A primary censored distribution.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+d = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
+get_primary_event(d)
+```
+"
+function get_primary_event(d::PrimaryCensored)
+    return d.primary_event
+end
+
+@doc "
+
+Extract the primary event time distribution through a secondary censoring layer.
+
+A [`double_interval_censored`](@ref) leaf wraps its primary-censored node in an
+[`IntervalCensored`](@ref) (and optionally a `Truncated`), so a bare
+`latent(double_interval_censored(...))` leaf must reach the primary event THROUGH
+those wrappers. Mirrors `_origin_primary_event`'s wrapper recursion so the latent
+leaf surfaces the same primary as the composer path.
+"
+get_primary_event(d::IntervalCensored) = get_primary_event(d.dist)
+
+@doc "
+
+Extract the primary event time distribution through a truncation layer.
+
+Recurses into the untruncated node so a truncated primary-censored leaf still
+surfaces its primary event.
+"
+get_primary_event(d::Truncated) = get_primary_event(d.untruncated)
+
+@doc "
+
+Extract the BARE continuous delay from a latent node.
+
+The latent representation SAMPLES the primary event, so its conditional scores
+the bare continuous delay — every censoring layer (primary, truncation, secondary
+interval) stripped, the same `_marginal_core` the marginal scorer conditions a
+sampled-origin edge on. Recurses with [`get_dist_recursive`](@ref) so a
+latent `double_interval_censored` leaf surfaces the same continuous core as a
+latent `primary_censored` leaf, and reapplying the secondary interval (which would
+double-count the within-window uncertainty already represented by the sampled
+primary) is avoided.
+"
+get_dist(d::Latent) = get_dist_recursive(d.dist)
+
+@doc "
+
+Extract the primary event time distribution from a latent primary-censored node.
+
+Delegates to the wrapped node.
+"
+get_primary_event(d::Latent) = get_primary_event(d.dist)
+
+@doc "
+
+Extract the delay distribution from a primary-conditional distribution.
+
+Delegates to the wrapped node, so the conditional reuses the same delay as the
+marginal and latent forms.
+"
+get_dist(d::PrimaryConditional) = get_dist(d.dist)
+
+@doc "
+
 Extract the underlying continuous distribution from an interval censored
 distribution.
 

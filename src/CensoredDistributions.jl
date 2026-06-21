@@ -13,11 +13,11 @@ import Distributions: params, insupport, pdf, logpdf, cdf, logcdf,
 # Import from Base for functions we extend that are re-exported by Distributions
 import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
-using Distributions: Distributions, UnivariateDistribution, Continuous,
-                     ValueSupport, Truncated, Product, Censored, truncated,
-                     product_distribution, Exponential, Gamma, LogNormal, Uniform,
-                     Weibull, Normal, shape, scale, meanlogx, stdlogx,
-                     _in_closed_interval
+using Distributions: Distributions, UnivariateDistribution, Distribution,
+                     Continuous, Multivariate, ValueSupport, Truncated, Product,
+                     Censored, truncated, product_distribution, Exponential,
+                     Gamma, LogNormal, Uniform, Weibull, Normal, shape, scale,
+                     meanlogx, stdlogx, _in_closed_interval
 
 using PrecompileTools: @setup_workload, @compile_workload
 
@@ -34,6 +34,9 @@ using OptimizationOptimJL: NelderMead
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
 
+# Exported latent representation and its inverse
+export latent, marginal, PrimaryConditional, primary_conditional_logpdf
+
 # Export underlying methods for user extension
 export primarycensored_cdf, primarycensored_logcdf
 
@@ -47,7 +50,7 @@ export ExponentiallyTilted
 export convolve_distributions
 
 # Exported utilities
-export weight, get_dist, get_dist_recursive
+export weight, get_dist, get_dist_recursive, get_primary_event
 
 include("docstrings.jl")
 
@@ -57,6 +60,8 @@ include("integration/integration.jl")
 
 include("censoring/primarycensored_cdf.jl")
 include("censoring/PrimaryCensored.jl")
+include("censoring/PrimaryConditional.jl")
+include("censoring/Latent.jl")
 include("censoring/IntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
 

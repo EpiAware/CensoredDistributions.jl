@@ -24,6 +24,19 @@
 
 ### Added
 
+- `latent(d)` wraps a censored leaf (a `primary_censored` or
+  `double_interval_censored` node) in its latent event-time form: a
+  multivariate distribution over `[primary, observed]` whose `logpdf`
+  scores the primary prior plus the conditional of the observed time
+  given the primary, and whose `rand` draws a labelled
+  `(primary, observed)` event record. `marginal` is the inverse,
+  unwrapping a `Latent` back to the censored leaf it carries. The
+  marginal leaf (the censored node's own `logpdf`, primary integrated
+  out) and the latent leaf integrated over the primary window are
+  density-identical. `PrimaryConditional`,
+  `primary_conditional_logpdf` and `get_primary_event` support this leaf
+  path. The composed latent form (over a composer tree) is a follow-up.
+
 - `primary_censored` and `double_interval_censored` accept a `method`
   keyword taking a solver object, `AnalyticalSolver()` (the default) or
   `NumericSolver()`, each optionally given a quadrature solver
