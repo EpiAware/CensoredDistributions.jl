@@ -6,7 +6,7 @@ module CensoredDistributionsFlexiChainsExt
 
 using CensoredDistributions: CensoredDistributions, Sequential, Parallel,
                              Resolve, Choose, component_names
-import CensoredDistributions: chain_to_params, update, strip_prefix
+import CensoredDistributions: chain_to_params, update, strip_prefix, param_draws
 using DynamicPPL: VarName
 using FlexiChains: FlexiChains
 using Statistics: mean
@@ -173,6 +173,30 @@ function chain_to_params(template, chain; prefix::Symbol = :d, draw = nothing,
     # `tag` entry for each shared group; the core `update` reads each
     # occurrence from it (per-occurrence entries in `tree` are tolerated).
     return merge(tree, _shared_params(template, lookup, prefix))
+end
+
+# The total number of draws in the chain (length of any parameter's draw
+# vector). Used to materialise an `nothing` (every-draw) selector into the
+# concrete iteration indices `param_draws` maps over.
+function _n_draws(chain)
+    return length(vec(chain[first(FlexiChains.parameters(chain))]))
+end
+
+# Vectorised per-draw read: one nested NamedTuple per selected iteration, each
+# equal to `chain_to_params(template, chain; draw = i)`. `param_draws` is the
+# all-draws counterpart of the reducing `chain_to_params`: it keeps every draw
+# so a tutorial maps `update` over the result for per-draw distributions /
+# trajectories / a PairPlots table, instead of looping `update` per draw or
+# hand-indexing `@varname`. `draws` (a range / index vector, or a predicate over
+# the iteration index) restricts to a subset; `nothing` keeps every draw. Reuses
+# `chain_to_params(...; draw = i)` per index, so each entry matches the existing
+# single-draw read exactly. Post-fit and AD-irrelevant.
+function param_draws(template, chain::FlexiChains.FlexiChain;
+        prefix::Symbol = :d, draws = nothing)
+    sel = _draw_indices(chain, draws)
+    idx = sel isa Colon ? (1:_n_draws(chain)) : sel
+    return [chain_to_params(template, chain; prefix = prefix, draw = i)
+            for i in idx]
 end
 
 # Update a composed distribution directly from a fitted chain, so docs call
