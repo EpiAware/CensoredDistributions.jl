@@ -128,6 +128,37 @@ function _append_endpoint_names!(out, name::Symbol, ::Any)
     return out
 end
 
+# --- wrong-shape argument: a clear, actionable error ------------------------
+#
+# A composed `Sequential` / `Parallel` is MULTIVARIATE: its `logpdf` / `pdf`
+# scores a length-k vector (or the matching `NamedTuple` keyed by the composer's
+# names), NOT a bare scalar. Passing a scalar where the per-event vector is
+# expected would otherwise hit a confusing low-level `MethodError`; instead name
+# the expected form (the length and the keys) so the right shape is discoverable
+# at the REPL. A CENSORED composer scores the flat EVENT vector `[E_0, ..., E_k]`
+# keyed by `event_names(d)`; a PLAIN composer scores the per-VALUE vector keyed
+# by its value names.
+function _wrong_shape_error(d::Union{Sequential, Parallel}, what, x)
+    censored = _tree_primary_event(d) !== nothing
+    names = censored ? event_names(d) : _value_names(d)
+    kind = d isa Sequential ? "Sequential" : "Parallel"
+    shape = censored ?
+            "a length-$(length(names)) event vector [E_0, ..., E_k]" :
+            "a length-$(length(d)) value vector"
+    throw(ArgumentError(
+        "$(what)(::$(kind)) expects $(shape), or a NamedTuple keyed by " *
+        "$(collect(names)); got a scalar $(typeof(x)). A composed $(kind) is " *
+        "multivariate: pass one value per event/step, e.g. " *
+        "$(what)(d, rand(d))."))
+end
+
+function logpdf(d::Union{Sequential, Parallel}, x::Real)
+    return _wrong_shape_error(d, "logpdf", x)
+end
+function pdf(d::Union{Sequential, Parallel}, x::Real)
+    return _wrong_shape_error(d, "pdf", x)
+end
+
 # --- NamedTuple INPUT to logpdf ---------------------------------------------
 #
 # `logpdf` scores the vector-valued representation; a labelled `NamedTuple` draw

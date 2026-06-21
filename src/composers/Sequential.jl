@@ -191,7 +191,8 @@ See also: [`Sequential`](@ref)
 "
 function logpdf(d::Sequential, x::AbstractVector)
     length(x) == length(d) || throw(DimensionMismatch(
-        "expected $(length(d)) step values, got $(length(x))"))
+        "logpdf(::Sequential) expects a length-$(length(d)) step-value " *
+        "vector (one value per step); got length $(length(x))"))
     return _composite_logpdf(d.components, x)
 end
 

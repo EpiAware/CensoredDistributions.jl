@@ -187,10 +187,25 @@ end
 # Distributions.jl interface for EventRecord
 # ---------------------------------------------------------------------------
 
+# A record scores the full flat event vector `[E_0, ..., E_k]` (one slot per
+# event, observed slots scored and missing slots marginalised). A wrong-length
+# argument would otherwise hit a confusing `BoundsError` deep in the per-segment
+# loop; check the length here and name the expected slot count.
+function _check_record_length(r, x::AbstractVector)
+    length(x) == length(r) || throw(DimensionMismatch(
+        "this record expects a length-$(length(r)) event vector " *
+        "[E_0, ..., E_k] (one slot per event); got length $(length(x))"))
+    return nothing
+end
+
 function Distributions._logpdf(r::EventRecord, x::AbstractVector)
+    _check_record_length(r, x)
     return _record_logpdf(r, x)
 end
-logpdf(r::EventRecord, x::AbstractVector) = _record_logpdf(r, x)
+function logpdf(r::EventRecord, x::AbstractVector)
+    _check_record_length(r, x)
+    return _record_logpdf(r, x)
+end
 
 function Distributions._rand!(rng::AbstractRNG, r::EventRecord, x::AbstractVector)
     path = _record_rand(rng, r)
@@ -516,9 +531,13 @@ end
 _generic_record_rand(rng::AbstractRNG, d::UnivariateDistribution) = [rand(rng, d)]
 
 function Distributions._logpdf(r::_GenericRecord, x::AbstractVector)
+    _check_record_length(r, x)
     return _record_logpdf(r, x)
 end
-logpdf(r::_GenericRecord, x::AbstractVector) = _record_logpdf(r, x)
+function logpdf(r::_GenericRecord, x::AbstractVector)
+    _check_record_length(r, x)
+    return _record_logpdf(r, x)
+end
 
 function Distributions._rand!(
         rng::AbstractRNG, r::_GenericRecord, x::AbstractVector)
