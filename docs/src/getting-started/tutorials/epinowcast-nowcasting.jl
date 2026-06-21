@@ -265,9 +265,12 @@ Not every case is reported.
 We add an ascertainment layer: the observed cases are a thinned fraction of the
 true cases, the same under-reporting EpiNow2 represents with a reporting fraction
 on the observation model.
-[`thin`](@ref) is the package's forward thinning op: `thin(delay, rho)` attaches
-a fixed factor `rho` that [`convolve_distributions`](@ref) multiplies into the
-delay's count series.
+[`thin`](@ref) is the package's reporting-probability op: `thin(delay, rho)`
+reports each event with probability `rho` (the one-of `resolve(:event => (delay,
+rho), :none => (NoEvent(), 1 - rho))` under the hood).
+Under [`convolve_distributions`](@ref) this scales the delay's expected-count
+series by `rho` (the aggregate-count ascertainment here), the same under-reporting
+EpiNow2 represents with a reporting fraction on the observation model.
 We thin the composed case delay and read the ascertainment factor back out of its
 parameters, then apply the same factor to the case expectation, so the thinned
 case rate in every cell is `true_rho` times the true rate.
