@@ -60,16 +60,20 @@ minimum(delay), maximum(delay)
 censored = double_interval_censored(
     delay; primary_event = Uniform(0, 1), interval = 1.0)
 
-# The censored object scores observations and has a monotone CDF.
+# Censoring shifts the CDF relative to the bare survival leaf. At each day the
+# censored CDF differs from the base `LogLogistic` CDF because the primary event
+# is spread over its window and the secondary event is binned to the day.
 
-[cdf(censored, x) for x in 0.0:5.0]
+xs = 0.0:5.0
+[(x = x, base = round(cdf(delay, x); digits = 3),
+     censored = round(cdf(censored, x); digits = 3)) for x in xs]
 
 # ## A GeneralizedGamma leaf inside a composed record
 #
 # [`compose`](@ref) builds a record from per-event delays.
-# A survival family sits alongside a Distributions.jl family with no special
-# handling: here an onset-to-admission delay drawn from a GeneralizedGamma and
-# an onset-to-notification delay from a Gamma, each double-interval-censored.
+# A survival family composes the same way as a Distributions.jl family: here an
+# onset-to-admission delay drawn from a GeneralizedGamma and an
+# onset-to-notification delay from a Gamma, each double-interval-censored.
 
 dic(x) = double_interval_censored(
     x; primary_event = Uniform(0, 1), interval = 1.0)

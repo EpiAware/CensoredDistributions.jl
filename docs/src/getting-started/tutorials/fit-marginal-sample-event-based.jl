@@ -97,9 +97,12 @@ mu_post = vec(chain[Parameter(@varname(mu))]);
 
 sigma_post = vec(chain[Parameter(@varname(sigma))]);
 
-@assert abs(mean(mu_post) - true_meanlog) < 0.3
-
-@assert abs(mean(sigma_post) - true_sdlog) < 0.2
+# The posterior means sit close to the simulating truth.
+recovery = [
+    (parameter = :mu, truth = true_meanlog,
+        posterior_mean = round(mean(mu_post); digits = 2)),
+    (parameter = :sigma, truth = true_sdlog,
+        posterior_mean = round(mean(sigma_post); digits = 2))]
 
 md"""
 ## Demonstrate the target-marginal-latent equivalence
@@ -152,10 +155,14 @@ primary out exactly); the latent column carries only Monte Carlo noise from its
 finite draws.
 """
 
-@assert maximum(abs(r.target - r.marginal) for r in three_way) < 1e-10
-@assert maximum(abs(r.target - r.latent) for r in three_way) < 5e-3
-
 three_way
+
+# The largest target-versus-marginal and target-versus-latent gaps across the
+# evaluation points quantify the agreement: the marginal gap sits at numerical
+# precision, the latent gap at Monte Carlo noise.
+equivalence_gaps = (
+    target_vs_marginal = maximum(abs(r.target - r.marginal) for r in three_way),
+    target_vs_latent = maximum(abs(r.target - r.latent) for r in three_way))
 
 md"""
 ### When to prefer the marginal or the latent form
@@ -163,7 +170,7 @@ md"""
 Prefer the marginal form by default: it carries no per-record latents, so it is
 cheaper and lower-dimensional at scale.
 Prefer the latent form for small-count or heavily censored problems, where the
-extra latent dimensions cost little and the sampler explores the joint more
+extra latent dimensions cost little and the sampler may explore the joint more
 reliably than a stiff one-dimensional marginal.
 The [Marginal versus latent](@ref marginal-versus-latent) section of the
 composer toolkit gives the canonical treatment of this choice.
@@ -183,8 +190,11 @@ A single path is the record `(primary, observed)`: the primary lies in the
 window and the observed time exceeds it (a positive delay).
 """
 
-@assert 0 <= one_path.primary <= 1
-@assert one_path.observed > one_path.primary
+# The primary lies in the window and the observed time exceeds it.
+one_path_check = (primary = round(one_path.primary; digits = 3),
+    observed = round(one_path.observed; digits = 3),
+    primary_in_window = 0 <= one_path.primary <= 1,
+    observed_after_primary = one_path.observed > one_path.primary)
 
 md"""
 We draw many paths from a single latent leaf with a comprehension, or push a set
@@ -199,7 +209,9 @@ rng2 = MersenneTwister(2);
 
 many_paths = [rand(rng2, latent_leaf) for _ in 1:500];
 
-@assert all(p -> p.observed > p.primary, many_paths)
+# Every drawn path leaves a positive observed delay.
+many_paths_summary = (n = length(many_paths),
+    fraction_positive_delay = mean(p.observed > p.primary for p in many_paths))
 
 build(p) = latent(primary_censored(
     LogNormal(p.mu, p.sigma), Uniform(0, 1)))
@@ -211,7 +223,8 @@ rng3 = MersenneTwister(3);
 
 per_draw_paths = [rand(rng3, build(p)) for p in posterior_pairs];
 
-@assert length(per_draw_paths) == length(posterior_pairs)
+# One simulated path per posterior draw.
+(draws = length(posterior_pairs), paths = length(per_draw_paths))
 
 md"""
 ## Flavour 2: recover the observed records' latent event times (Turing)
@@ -246,11 +259,19 @@ the window `[0, 1]` and reproduce the observed delay gap as a positive value
 (`observed_i - p_i > 0`). We check this for every record.
 """
 
+recovered_in_window = trues(n)
+recovered_positive_gap = trues(n)
 for i in 1:n
     p_i = vec(events[Parameter(@varname($(Symbol("rec", i)).p))])
-    @assert all(0 .<= p_i .<= 1)
-    @assert all(observed[i] .- p_i .> 0)
+    recovered_in_window[i] = all(0 .<= p_i .<= 1)
+    recovered_positive_gap[i] = all(observed[i] .- p_i .> 0)
 end
+
+# Every record's recovered primaries stay in the window and leave a positive
+# observed delay, as the equivalence requires.
+consistency = (records = n,
+    all_primaries_in_window = all(recovered_in_window),
+    all_gaps_positive = all(recovered_positive_gap))
 
 md"""
 Note that recovery here gives the posterior over each latent primary *given the

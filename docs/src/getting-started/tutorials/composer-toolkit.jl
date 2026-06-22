@@ -163,6 +163,16 @@ parallel_stack = compose((onset_admit = onset_admit,
 
 event_names(parallel_stack)
 
+# A composed stack is a distribution like any leaf. It simulates a named event
+# record with `rand`,
+
+rand(Xoshiro(1), parallel_stack)
+
+# and scores one with `logpdf`. The whole toolkit below is built on these two
+# operations.
+
+logpdf(parallel_stack, rand(Xoshiro(1), parallel_stack))
+
 # A chain step is a `Vector`: onset to admission, then admission to death.
 chain = compose((path = [onset_admit, admit_death],));
 
@@ -230,7 +240,7 @@ cfr = 0.3;
 resolution = resolve(:death => (Gamma(1.5, 1.0), cfr),
     :discharge => (Gamma(2.0, 1.5), 1 - cfr));
 
-# The LAST outcome's probability may be omitted (a bare `name => delay`): it
+# The last outcome's probability may be omitted (a bare `name => delay`). It
 # then takes the residual `1 - sum(of the others)`, so the discharge
 # probability `1 - cfr` need not be written out.
 
@@ -297,6 +307,13 @@ event_names(nested)
 # A `Choose` can hold a `Choose`, or a composed tree, as an alternative.
 
 select_on_select = choose(:a => selector, :b => onset_admit);
+
+# A `kind` names one level only, so a nested `Choose` is scored a level at a
+# time. Pick the outer alternative with [`event`](@ref), then pass that level's
+# own `kind` to the inner `Choose`. Here the outer pick `:a` selects the inner
+# selector and the inner `kind = :index` scores its index alternative.
+
+logpdf(event(select_on_select, :a), 3.0; kind = :index)
 
 # A pre-built composer is a valid `Sequential` step, so a chain can carry a
 # `Resolve` resolution as its terminal step.
@@ -795,8 +812,8 @@ event_names(event(spliced, :admit_death))
 # names.
 #
 # `shared(:tag, d)` and `tie(d, paths...; name = :tag)` are two spellings of the
-# SAME tie. `shared` tags a leaf where it is built (leaf-local); `tie` walks the
-# tree to the named leaves and wraps each in the EXACT `shared(:tag, leaf)`
+# same tie. `shared` tags a leaf where it is built (leaf-local); `tie` walks the
+# tree to the named leaves and wraps each in the same `shared(:tag, leaf)`
 # artefact (tree-level). Both make the tagged occurrences one free parameter, so
 # `params_table` / `build_priors` / `update` treat them identically.
 
