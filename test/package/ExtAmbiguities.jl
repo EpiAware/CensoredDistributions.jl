@@ -139,30 +139,31 @@ end
         on_surface_ambiguities(:CensoredDistributionsCatalystExt))
 end
 
-@testitem "ext ambiguities: ForwardDiff (quarantined, issue #672)" tags=[:quality] setup=[ExtAmbiguityHelper] begin
+@testitem "ext ambiguities: ForwardDiff (fixed, issue #672)" tags=[:quality] setup=[ExtAmbiguityHelper] begin
     import ForwardDiff
 
-    # REAL finding (issue #672): the `_gamma_cdf` `Dual` overload set in
-    # `ext/CensoredDistributionsForwardDiffExt.jl` has 6 method ambiguities in
-    # its partial-Dual signatures. They are benign on the happy path (the
-    # all-Dual covering methods resolve concrete same-tag calls, and the
-    # `test/ad` ForwardDiff correctness suite passes), but the method table is
-    # pairwise-ambiguous. Quarantined as `@test_broken` rather than hidden;
-    # collapsing the overloads (#672) turns this green.
-    @test_broken isempty(on_surface_ambiguities(
+    # FIXED (issue #672): the `_gamma_cdf` `Dual` overload set in
+    # `ext/CensoredDistributionsForwardDiffExt.jl` previously had 6 method
+    # ambiguities in its partial-Dual signatures. They were collapsed into three
+    # methods that partition the "at least one Dual argument" space disjointly by
+    # the position of the first Dual argument, so the method table is no longer
+    # pairwise-ambiguous while behaviour (and the `test/ad` ForwardDiff
+    # correctness suite) is unchanged.
+    @test isempty(on_surface_ambiguities(
         :CensoredDistributionsForwardDiffExt,
         ["CensoredDistributions", "ForwardDiff"]))
 end
 
-@testitem "ext ambiguities: DynamicPPL (quarantined, issue #673)" tags=[:quality] setup=[ExtAmbiguityHelper] begin
+@testitem "ext ambiguities: DynamicPPL (fixed, issue #673)" tags=[:quality] setup=[ExtAmbiguityHelper] begin
     import DynamicPPL
 
-    # REAL finding (issue #673): `composed_distribution_model` over a
-    # `latent(primary_censored(...))` and a vector of rows matches both the
-    # single-record `Latent{<:PrimaryCensored}` method and the batch
+    # FIXED (issue #673): `composed_distribution_model` over a
+    # `latent(primary_censored(...))` and a vector of rows previously matched
+    # both the single-record `Latent{<:PrimaryCensored}` method and the batch
     # `Latent, ::AbstractVector` method ambiguously — a reachable `MethodError`
-    # at the user API. Quarantined as `@test_broken`; the disambiguating batch
-    # method (#673) turns this green.
-    @test_broken isempty(
+    # at the user API. The disambiguating batch method for a
+    # `Latent{<:PrimaryCensored}` over `::AbstractVector` (#673) pins the batch
+    # interpretation and removes the ambiguity.
+    @test isempty(
         on_surface_ambiguities(:CensoredDistributionsDynamicPPLExt))
 end

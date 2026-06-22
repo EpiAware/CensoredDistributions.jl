@@ -1049,6 +1049,20 @@ function composed_distribution_model(
     return _latent_batch_model(d, _latent_batch_rows(rows); weight = weight)
 end
 
+# Disambiguating batch entry for a `latent(primary_censored(...))` leaf over a
+# VECTOR of rows (issue #673). The single-record latent primary-censored method
+# (more specific in `d`: `Latent{<:PrimaryCensored}`) and the batch method above
+# (more specific in the second argument: `::AbstractVector`) each dominate on a
+# different argument, so a `Latent{<:PrimaryCensored}` + vector-of-rows call
+# matches both ambiguously — a reachable `MethodError` at the documented batch
+# API. Pin the batch interpretation here (a vector of rows is a batch, never a
+# single row), delegating to the same looping submodel as every other latent
+# batch; the per-record loop then routes each row to the single-record method.
+function composed_distribution_model(
+        d::Latent{<:PrimaryCensored}, rows::AbstractVector; weight = nothing)
+    return _latent_batch_model(d, _latent_batch_rows(rows); weight = weight)
+end
+
 # Any Tables.jl table (e.g. a `DataFrame`): a column table is a Tables.jl source,
 # so it passes straight in, mirroring the marginal table entry. A single
 # `NamedTuple` row and a vector of rows keep their own (more specific) methods,

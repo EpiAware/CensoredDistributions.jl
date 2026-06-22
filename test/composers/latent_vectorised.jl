@@ -341,3 +341,42 @@ end
     @test length(cp) == 2
     @test product_distribution(cp) isa Distribution
 end
+
+@testitem "batch over latent(primary_censored(...)) builds (issue #673)" begin
+    using CensoredDistributions, Distributions
+    using DynamicPPL: Model, logjoint, condition, @varname, prefix,
+                      to_submodel, @model
+
+    # Regression for #673: a batch over a `latent(primary_censored(...))` leaf and
+    # a VECTOR of rows previously matched both the single-record
+    # `Latent{<:PrimaryCensored}` method and the batch `Latent, ::AbstractVector`
+    # method ambiguously (a reachable `MethodError`). The disambiguating batch
+    # method must route the vector-of-rows call to the looping batch submodel.
+    d = latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
+    rows = [(delay = 3.0,), (delay = 5.0,), (delay = 2.0,)]
+
+    m = composed_distribution_model(d, rows)
+    @test m isa Model
+
+    # The batch submodel must be density-identical to the per-record latent loop
+    # (the same equivalence the vectorised path checks), confirming the batch
+    # method delegates correctly rather than mis-scoring.
+    @model function per_record(d, rows)
+        n = length(rows)
+        parts = Vector(undef, n)
+        for i in 1:n
+            parts[i] ~ to_submodel(
+                prefix(composed_distribution_model(d, rows[i]),
+                    Symbol("rec", i)), false)
+        end
+    end
+
+    ps = [0.3, 0.6, 0.2]
+    cb = condition(m,
+        (@varname(rec1.p) => ps[1], @varname(rec2.p) => ps[2],
+            @varname(rec3.p) => ps[3]))
+    cp = condition(per_record(d, rows),
+        (@varname(rec1.p) => ps[1], @varname(rec2.p) => ps[2],
+            @varname(rec3.p) => ps[3]))
+    @test logjoint(cb, (;)) ≈ logjoint(cp, (;))
+end
