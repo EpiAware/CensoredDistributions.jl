@@ -29,6 +29,10 @@
         #   public-by-convention tape value type, neither marked `public`.
         # - _primal, _window_quantile: internal Convolved quadrature helpers
         #   marked `@non_differentiable` by the ChainRulesCore extension.
+        # - _premodified_rate_primal: internal `Modified` knot-scan rate the
+        #   ChainRulesCore and Mooncake extensions import to mark
+        #   `@non_differentiable`/`@zero_derivative` (the knots carry no gradient;
+        #   the same internal-import-to-add-a-rule pattern as _window_quantile).
         # - _cdf_ad_safe, _ccdf_ad_safe, _logcdf_ad_safe, _logccdf_ad_safe:
         #   internal AD-safe CDF/CCDF hooks the SurvivalDistributions
         #   extension overloads for its leaf families; the ext
@@ -46,7 +50,7 @@
             :_gamma_cdf_value_and_partials,
             :Dual, :value, :partials,
             Symbol("@grad_from_chainrules"), :TrackedReal,
-            :_primal, :_window_quantile,
+            :_primal, :_window_quantile, :_premodified_rate_primal,
             :_cdf_ad_safe, :_ccdf_ad_safe, :_logcdf_ad_safe, :_logccdf_ad_safe,
             :_split_edge_name, :_is_positional_edge_name, :_next_event_name,
             :_all_positional_event_names, :_split_edge, :_ctor_has_check_args
