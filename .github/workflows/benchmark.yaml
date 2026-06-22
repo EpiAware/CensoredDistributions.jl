@@ -22,7 +22,7 @@ jobs:
       # `Project.toml` (to get the package name) and benchmarks `src/` +
       # `benchmark/`, so the working tree needs the whole package, not a
       # sparse slice.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
@@ -64,7 +64,7 @@ jobs:
             benchmark-comment.md
 
       - name: Post benchmark comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
