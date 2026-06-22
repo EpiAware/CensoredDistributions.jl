@@ -464,7 +464,7 @@ comparison = DataFrame(
     posterior_upper = round.([here[k].upper for k in keys_], digits = 2),
     target_mean = [targets[k].mean for k in keys_],
     target_lower = [targets[k].lower for k in keys_],
-    target_upper = [targets[k].upper for k in keys_])
+    target_upper = [targets[k].upper for k in keys_]);
 
 # Overlay the two interval sets so the overlap reads directly. The four model
 # parameters share a comparable scale, so they go on one axis; the incubation
@@ -627,12 +627,19 @@ rt_summary = DataFrame(
 # (`p = 1`), whereas upstream fits `R(t)` jointly with the delays under
 # real-time completeness. The published values fall inside the wide credible
 # bands below but are not closely matched at the point-estimate level.
+R_draws = exp.(log_R_draws)
+rt_median = [median(R_draws[b, :]) for b in 1:n_knots]
+thin_idx = round.(Int, range(1, size(R_draws, 2); length = 60))
 rfig = Figure(size = (760, 380))
 rax = Axis(rfig[1, 1]; xlabel = "week", ylabel = "R(t)",
     title = "Weekly reproduction number")
 band!(rax, rt_summary.week, rt_summary.R_lower, rt_summary.R_upper;
-    color = (:steelblue, 0.25))
-lines!(rax, rt_summary.week, rt_summary.R_mean; color = :steelblue,
+    color = (:steelblue, 0.2))
+for s in thin_idx
+    lines!(rax, rt_summary.week, R_draws[:, s];
+        color = (:steelblue, 0.15), linewidth = 1)
+end
+lines!(rax, rt_summary.week, rt_median; color = :steelblue,
     linewidth = 3)
 hlines!(rax, [1.0]; color = :grey, linestyle = :dash)
 rfig

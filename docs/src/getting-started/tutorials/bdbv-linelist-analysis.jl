@@ -587,7 +587,7 @@ md"""
 ### Marginal versus latent versus target
 
 The marginal fit, the latent fit and the re-estimated target are read into one
-three-way comparison, shown once, with each delay's own record count `n`.
+three-way comparison, shown once as the figure below.
 The delay means agree between the marginal and latent fits and both overlap the
 published intervals.
 The onset-to-admission and admission-to-death delays recover well, matching the
@@ -604,29 +604,8 @@ interval is the widest of the four.
 Read these two as covered-but-uncertain rather than precisely recovered.
 """
 
-mvl_comparison = let
-    rows = NamedTuple[]
-    keys_ = (:onset_admit, :admit_death, :admit_discharge, :onset_notif)
-    labels = ["onset → admission", "admission → death",
-        "admission → discharge", "onset → notification"]
-    counts = [n_obs(:admit), n_obs(:death), n_obs(:discharge), n_obs(:notif)]
-    for (lab, k, nk) in zip(labels, keys_, counts)
-        m = ci(getfield(posterior_means, k))
-        l = ci(getfield(latent_means, k))
-        t = getfield(targets, k)
-        push!(rows,
-            (delay = lab, n = nk,
-                marginal_mean = round(m.mean, digits = 2),
-                marginal_ci = "($(round(m.lower, digits = 2)), " *
-                              "$(round(m.upper, digits = 2)))",
-                latent_mean = round(l.mean, digits = 2),
-                latent_ci = "($(round(l.lower, digits = 2)), " *
-                            "$(round(l.upper, digits = 2)))",
-                target_mean = t.mean,
-                target_ci = "($(t.lower), $(t.upper))"))
-    end
-    DataFrame(rows)
-end
+delay_labels = ["onset → admission", "admission → death",
+    "admission → discharge", "onset → notification"];
 
 md"""
 The case-fatality coefficients are recovered the same way by both formulations,
@@ -653,9 +632,9 @@ agreement reads directly.
 mvl_fig = let
     f = Figure(size = (760, 380))
     ax = Axis(f[1, 1]; xlabel = "mean delay (days)",
-        yticks = (1:4, reverse(mvl_comparison.delay)),
+        yticks = (1:4, reverse(delay_labels)),
         title = "Marginal vs latent vs re-estimated target")
-    for (k, lab) in enumerate(mvl_comparison.delay)
+    for (k, lab) in enumerate(delay_labels)
         y = 5 - k
         m = ci(getfield(posterior_means,
             (:onset_admit, :admit_death, :admit_discharge, :onset_notif)[k]))
@@ -689,8 +668,6 @@ marginal form.
 See [Marginal versus latent](@ref marginal-versus-latent) for when to reach for
 each.
 """
-
-mvl_comparison
 
 md"""
 ## Compound delays from the fitted distribution
