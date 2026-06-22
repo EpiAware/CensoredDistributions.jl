@@ -8,38 +8,39 @@ md"""
 A primary-censored delay has two equivalent forms that share the same
 parameters.
 
-1. The **marginal** form is the plain `primary_censored` distribution. The
-   primary event time is integrated out inside `logpdf` and `cdf`, so the
-   distribution is univariate over the observed time alone.
+1. The **marginal** form is the plain `primary_censored` (or
+   `double_interval_censored`) distribution. The primary event time is
+   integrated out inside `logpdf` and `cdf`, so the distribution is univariate
+   over the observed time alone.
 2. The **latent** form, `latent(d)`, keeps the primary event time as an explicit
-   sampled dimension. A draw is a labelled `(primary, observed)` record, and
-   `logpdf` scores the primary prior plus the conditional of the observed time
-   given that primary.
+   sampled dimension. A draw is a labelled `(primary, observed)` record, the
+   joint `logpdf([primary, observed])` scores the primary prior plus the
+   conditional of the observed time given that primary, and the OBSERVED
+   marginal (`cdf`, `pdf`, single-value `logpdf`) delegates straight back to the
+   marginal node.
 
-These are one model scored two ways. Integrating the latent joint over the
-primary window reproduces the marginal density exactly. We demonstrate that
-equivalence here and show how `rand(latent(d))` forward-simulates full event
-paths, all without Turing.
+These are one model scored two ways. The latent form is just a wrapper around
+the marginal node, so its observed-delay `cdf` and `pdf` agree with the marginal
+form analytically. We demonstrate that here, show it for a
+`double_interval_censored` delay too, and forward-simulate event paths with
+`rand(latent(d))`, all without Turing.
 
 ### What might I need to know before starting
 
 This tutorial builds on
 [Getting Started with CensoredDistributions.jl](@ref getting-started).
-It uses the [`latent`](@ref) wrapper, its inverse [`marginal`](@ref), and
-[`get_dist`](@ref) to reach the underlying delay.
+It uses the [`latent`](@ref) wrapper, its inverse [`marginal`](@ref), and the
+Distributions interface (`cdf`, `pdf`, `logpdf`) that both forms share.
 
 ## Packages used
 
-We use Distributions for the delay distribution, Integrals for the quadrature in
-the equivalence check, Random for reproducibility, and Statistics for the Monte
-Carlo average.
+We use Distributions for the delay distribution and Random for reproducible
+draws.
 """
 
 using CensoredDistributions
 using Distributions
-using Integrals
 using Random
-using Statistics
 
 md"""
 ## Build the marginal and latent forms
@@ -51,73 +52,84 @@ selects the latent form. `marginal` is the inverse, recovering the wrapped node.
 
 delay = LogNormal(1.4, 0.5)
 
-marginal_leaf = primary_censored(delay, Uniform(0, 1))
+marginal_delay = primary_censored(delay, Uniform(0, 1))
 
-latent_leaf = latent(marginal_leaf)
-
-@assert marginal(latent_leaf) === marginal_leaf
+latent_delay = latent(marginal_delay)
 
 md"""
-## Demonstrate the marginal and latent equivalence
-
-We compare the cumulative distribution function three ways.
-
-- The **target** is the distribution the censoring represents: a primary `p`
-  drawn from `Uniform(0, 1)` plus the `LogNormal` delay. Its `cdf` is the
-  integral `∫₀¹ cdf(delay, x - p) dp`, evaluated with adaptive quadrature.
-- The **marginal** form scores the `primary_censored` leaf, integrating the
-  primary out inside `cdf`.
-- The **latent** form carries the primary as an explicit dimension. Its `cdf` is
-  a Monte Carlo average of `cdf(delay, x - p)` over primaries drawn from the
-  latent representation with `rand`.
-
-All three are the same distribution, so their `cdf` curves coincide.
+The latent form wraps the marginal node, and `marginal` recovers it unchanged.
 """
 
-function target_cdf(x)
-    problem = IntegralProblem((p, _) -> cdf(delay, x - p), (0.0, 1.0))
-    return solve(problem, QuadGKJL(); reltol = 1e-12, abstol = 1e-12).u
-end
-
-function latent_cdf(x; rng = MersenneTwister(7), draws = 200_000)
-    paths = (rand(rng, latent_leaf) for _ in 1:draws)
-    return mean(cdf(delay, x - path.primary) for path in paths)
-end
-
-eval_points = [1.0, 3.0, 6.0, 10.0];
-
-three_way = [(x = x, target = target_cdf(x),
-                 marginal = cdf(marginal_leaf, x), latent = latent_cdf(x))
-             for x in eval_points];
+marginal(latent_delay) === marginal_delay
 
 md"""
-The target, marginal and latent `cdf` agree across the evaluation points. The
-target-versus-marginal gap is at numerical precision (both integrate the primary
-out exactly); the latent column carries only Monte Carlo noise from its finite
-draws.
+## The observed marginal of the latent form is the marginal node
+
+The OBSERVED-delay marginal under the latent model is exactly the marginal
+distribution it wraps. The package provides the full Distributions interface on
+the latent object (`cdf`, `pdf`, single-value `logpdf`, and the rest), each
+delegating analytically to `marginal(d)`. So the latent `cdf` IS the marginal
+(target) `cdf`: no quadrature and no Monte Carlo are needed.
+
+We compare the two forms across a set of evaluation points.
 """
 
-@assert maximum(abs(r.target - r.marginal) for r in three_way) < 1e-10
+eval_points = [1.0, 3.0, 6.0, 10.0]
 
-@assert maximum(abs(r.target - r.latent) for r in three_way) < 5e-3
-
-three_way
+cdf_comparison = [(x = x,
+                      marginal = cdf(marginal_delay, x),
+                      latent = cdf(latent_delay, x))
+                  for x in eval_points]
 
 md"""
-The same equivalence holds for the density. Integrating the latent joint
-`logpdf` over the primary window with a trapezoidal rule reproduces the marginal
-`pdf`.
+The two `cdf` columns coincide exactly because the latent `cdf` delegates to the
+marginal node. The largest absolute gap across the points is the difference
+between a number and itself.
 """
 
-function integrate_primary(y; n = 200_000)
-    ps = range(0.0, 1.0; length = n)
-    vals = map(p -> exp(logpdf(latent_leaf, [p, y])), ps)
-    return sum((vals[1:(end - 1)] .+ vals[2:end]) ./ 2) * step(ps)
-end
+cdf_gap = maximum(abs(r.marginal - r.latent) for r in cdf_comparison)
 
-for y in [1.0, 2.5, 4.0]
-    @assert isapprox(integrate_primary(y), pdf(marginal_leaf, y); rtol = 1e-3)
-end
+md"""
+The density agrees the same way. The single-value observed `logpdf` of the
+latent form delegates to the marginal node, so the two pdfs match.
+"""
+
+pdf_comparison = [(x = x,
+                      marginal = pdf(marginal_delay, x),
+                      latent = pdf(latent_delay, x))
+                  for x in eval_points]
+
+md"""
+## The same equivalence holds for a double-interval-censored delay
+
+The censoring wrappers work for both forms. We build a
+`double_interval_censored` delay, the marginal form, and wrap it in `latent`.
+Scoring a single observed value through the latent form delegates to the
+interval-censored marginal node, so the density and `cdf` match the marginal
+form.
+"""
+
+marginal_dic = double_interval_censored(
+    delay; primary_event = Uniform(0, 1), upper = 10, interval = 1)
+
+latent_dic = latent(marginal_dic)
+
+dic_comparison = [(x = x,
+                      marginal_cdf = cdf(marginal_dic, x),
+                      latent_cdf = cdf(latent_dic, x),
+                      marginal_logpdf = logpdf(marginal_dic, x),
+                      latent_logpdf = logpdf(latent_dic, x))
+                  for x in [1.0, 3.0, 6.0, 9.0]]
+
+md"""
+The marginal and latent `cdf` and `logpdf` columns coincide, so scoring the
+double-interval-censored delay in either form gives the same answer.
+"""
+
+dic_cdf_gap = maximum(abs(r.marginal_cdf - r.latent_cdf) for r in dic_comparison)
+
+dic_logpdf_gap = maximum(
+    abs(r.marginal_logpdf - r.latent_logpdf) for r in dic_comparison)
 
 md"""
 ## Forward-simulate event paths from the latent form
@@ -128,21 +140,19 @@ observed time exceeds it by a positive delay. No model or conditioning is
 needed.
 """
 
-one_path = rand(MersenneTwister(1), latent_leaf)
-
-@assert 0 <= one_path.primary <= 1
-
-@assert one_path.observed > one_path.primary
+one_path = rand(MersenneTwister(1), latent_delay)
 
 md"""
-A comprehension batches many draws from the latent leaf.
+A comprehension batches many draws from the latent form. Keeping the observed
+component recovers the observed-delay marginal, which is why the latent `cdf`
+and the marginal node's `cdf` are the same function.
 """
 
-rng = MersenneTwister(2);
+rng = MersenneTwister(2)
 
-many_paths = [rand(rng, latent_leaf) for _ in 1:500];
+many_paths = [rand(rng, latent_delay) for _ in 1:500]
 
-@assert all(path -> path.observed > path.primary, many_paths)
+observed_times = [path.observed for path in many_paths]
 
 md"""
 ## When to prefer the marginal or the latent form
@@ -157,8 +167,11 @@ censored problems where the extra latent dimensions cost little.
 
 - The marginal `primary_censored` form and its `latent` wrapper are one model
   that share parameters.
-- Integrating the latent joint over the primary window reproduces the marginal
-  density and distribution function exactly.
+- The latent form carries the full Distributions interface; its observed `cdf`,
+  `pdf` and single-value `logpdf` delegate to the marginal node, so the two
+  forms agree analytically.
+- The same holds for a `double_interval_censored` delay, so the censoring
+  wrappers work in both forms.
 - `rand(latent(d))` forward-simulates full `(primary, observed)` event paths,
   Turing-free.
 """

@@ -571,3 +571,68 @@ parameter as a matrix of `(iter, chain)`:
 
 mu_samples = CensoredDistributions_fit[Prefixed(@varname(mu))]
 size(mu_samples)
+
+md"""
+## Fitting the latent form
+
+The marginal `double_interval_censored` model above integrates the primary
+event time out inside `logpdf`. The latent form is the same delay wrapped in
+[`latent`](@ref). It carries the primary as an explicit sampled dimension, and
+exposes the same observed-delay `logpdf` analytically, delegating to the
+marginal node it wraps.
+
+This is tenet four in practice: latent versus marginal is just a wrapper, not a
+new model. We reuse the same priors, windows and observed counts, wrap each
+delay in `latent(...)`, and score the observed delays through the wrapper's
+observed-marginal `logpdf` weighted by the count.
+"""
+
+@model function latent_model(
+        pwindows, swindows, obs_times, observed, counts
+)
+    dist ~ to_submodel(latent_delay_dist())
+
+    ## The only change from the marginal model: wrap each delay in `latent`.
+    latent_dists = map(pwindows, obs_times, swindows) do pw, D, sw
+        latent(
+            double_interval_censored(
+            dist; primary_event = Uniform(0, pw), upper = D, interval = sw
+        )
+        )
+    end
+
+    ## The observed-marginal logpdf of the latent wrapper delegates to the
+    ## marginal node, so this scores exactly as the marginal model does.
+    for i in eachindex(latent_dists)
+        Turing.@addlogprob! counts[i] * logpdf(latent_dists[i], observed[i])
+    end
+end
+
+md"""
+We reuse the same windows and observed counts from the simulated data.
+"""
+
+latent_mdl = @with simulated_counts begin
+    latent_model(
+        :pwindows, :swindows, :obs_times, :obs, :n
+    )
+end;
+
+latent_fit = sample(
+    latent_mdl,
+    NUTS(; adtype = AutoMooncakeForward()), MCMCThreads(), 1000, 4;
+    chain_type = VNChain
+);
+
+summarystats(latent_fit)
+
+md"""
+The latent fit recovers the same delay parameters as the marginal
+double-interval-censored model, confirming the two forms are one model scored
+two ways.
+"""
+
+plot_fit_with_truth(
+    latent_fit,
+    (; mu = meanlog, sigma = sdlog)
+)
