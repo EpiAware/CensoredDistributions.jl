@@ -337,10 +337,8 @@ sim_edge_means = mean(latent(event(sim_fit, :sourced)))
 
 # The posterior draws are shown against the simulating truth, the whole draw
 # cloud per parameter rather than a single mean. The incubation truth sits
-# inside its cloud, often near an edge at this light budget where the tied
-# log-mean and log-SD are correlated and shift together; the transmission timing
-# is recovered in the right region but with a broad cloud, the first sign of its
-# weak identifiability.
+# inside its cloud; the transmission timing is recovered in the right region but
+# with a broad cloud, the first sign of its weak identifiability.
 # [`param_draws`](@ref)`(template, chain)` reads every draw off the chain as a
 # vector of nested NamedTuples keyed like [`params`](@ref)`(template)`, so the
 # four parameters come off by name (the shared incubation under `inc`, the
@@ -531,17 +529,15 @@ presymptomatic_summary = (mean = round(mean(presymptomatic); digits = 2),
 # ## Transmission intensity through the outbreak
 #
 # The same line list records who infected whom, so each case carries an
-# offspring count: the number of secondaries the line list attributes to it. The
-# upstream model reads transmission intensity from these counts with a branching
-# (offspring) model, not a renewal recursion. Each source's offspring count is a
-# draw from a negative binomial whose mean is a time-varying reproduction number
-# `R(t)` evaluated at the source's own onset day, and whose dispersion `k`
-# captures the superspreading: a few sources drive most onward infections.
+# offspring count: the number of secondaries the line list attributes to it. Each
+# source's offspring count is a draw from a negative binomial whose mean is a
+# time-varying reproduction number `R(t)` evaluated at the source's own onset
+# day, and whose dispersion `k` captures the superspreading: a few sources drive
+# most onward infections.
 #
-# `R(t)` follows a weekly random walk on the log scale, written in plain Turing
-# as a non-centred walk so the knot innovations sample cleanly. The dispersion
-# uses the `1/sqrt(k)` parameterisation. The delays are not needed for the
-# retrospective offspring counts, so this section fits the offspring layer on
+# `R(t)` follows a weekly non-centred random walk on the log scale, and the
+# dispersion uses the `1/sqrt(k)` parameterisation. The delays are not needed for
+# the retrospective offspring counts, so this section fits the offspring layer on
 # its own with the incubation and transmission timing held at posterior means;
 # the upstream joint fit shares the delay parameters across both halves.
 
