@@ -33,7 +33,8 @@ import ForwardDiff, ReverseDiff, Mooncake, Enzyme
 import DifferentiationInterfaceTest as DIT
 import SurvivalDistributions as SD
 
-export scenarios, backends, working_backends, broken_backends,
+export scenarios, marginal_scenarios, latent_scenarios,
+       backends, working_backends, broken_backends,
        broken_scenario_names, backend_broken_scenarios,
        backend_skip_scenarios
 
@@ -301,13 +302,59 @@ function backend_skip_scenarios()
 end
 
 """
-    scenarios(; with_reference::Bool = false)
+    marginal_scenarios(; with_reference::Bool = false)
+
+The marginal-density AD scenarios (PrimaryCensored, IntervalCensored,
+DoubleIntervalCensored, Convolved, Difference, the composers, …). Equivalent
+to `scenarios(; category = :marginal)`. This is what the marginal AD test
+sweep consumes, so the marginal coverage is not conflated with the latent
+path.
+"""
+function marginal_scenarios(; with_reference::Bool = false)
+    return scenarios(; with_reference = with_reference, category = :marginal)
+end
+
+"""
+    latent_scenarios(; with_reference::Bool = false)
+
+The latent / augmented-primary AD scenarios (`Latent*`, `PrimaryConditional`),
+whose gradients flow through the augmented latent primaries or the latent
+conditional rather than the marginal density. Equivalent to
+`scenarios(; category = :latent)`. Consumed by the latent AD test sweep,
+alongside the vectorised `latent_*_ad.jl` test items.
+"""
+function latent_scenarios(; with_reference::Bool = false)
+    return scenarios(; with_reference = with_reference, category = :latent)
+end
+
+"""
+    scenarios(; with_reference::Bool = false, category::Symbol = :all)
 
 Return a `Vector{DIT.Scenario{:gradient, :out}}`. When
 `with_reference = true`, each scenario's `res1` is populated with a
 ForwardDiff reference gradient (see module docstring for rationale).
+
+`category` selects the scenario group:
+
+  - `:marginal` — the marginal-density scenarios (PrimaryCensored,
+    IntervalCensored, DoubleIntervalCensored, Convolved, composers, …).
+  - `:latent` — the latent/augmented-primary scenarios (`Latent*`,
+    `PrimaryConditional`), whose gradients flow through the augmented
+    latent primaries rather than the marginal density.
+  - `:all` (default) — both groups, in source order (the latent block sits
+    among the marginal pushes, so the order is unchanged from before the
+    split, only the set is the union). The same set and order the benchmark
+    and docs surfaces consumed before; they group per-scenario by name, so the
+    ordering is immaterial to them.
+
+The test sweep ([`test/ad/setup.jl`](@ref)) runs `:marginal` and `:latent`
+as separate test items so the marginal AD coverage is not conflated with
+the latent path. See [`marginal_scenarios`](@ref) and
+[`latent_scenarios`](@ref) for the per-group entry points.
 """
-function scenarios(; with_reference::Bool = false)
+function scenarios(; with_reference::Bool = false, category::Symbol = :all)
+    category in (:all, :marginal, :latent) ||
+        throw(ArgumentError("category must be :all, :marginal or :latent"))
     obs = [0.5, 1.2, 2.5, 3.8, 5.1]
     obs_int = [0.0, 1.0, 2.0, 3.0, 4.0]
     boundaries = [0.0, 1.5, 3.0, 5.0, 10.0]
@@ -317,7 +364,11 @@ function scenarios(; with_reference::Bool = false)
     out = DIT.Scenario{:gradient, :out}[]
     skip_ref = Set(broken_scenario_names())
 
-    function _push!(name, f, θ₀, contexts)
+    function _push!(name, f, θ₀, contexts; cat::Symbol = :marginal)
+        # Skip scenarios outside the requested category. `:all` keeps both
+        # the marginal and the latent groups (the default the benchmark and
+        # docs surfaces consume); `:marginal`/`:latent` keep only their own.
+        (category == :all || category == cat) || return nothing
         # Globally-broken scenarios may break the reference backend
         # itself. Construct them without res1 so the test
         # runner can still mark them broken without erroring here.
@@ -407,6 +458,14 @@ function scenarios(; with_reference::Bool = false)
             obs),
         [2.0, 1.5], (Constant(obs),))
 
+    # === LATENT / augmented-primary scenarios (category = :latent) ===
+    # These are scored on the augmented latent representation, NOT the marginal
+    # density: their gradients flow through the augmented primaries / the
+    # conditional `logpdf(delay, observed - primary)`. They are kept in their own
+    # category so the marginal AD sweep is purely marginal. See
+    # `latent_scenarios()` and the `latent_*_ad.jl` test items, which exercise the
+    # vectorised `latent_observed_logpdf` path this single-record group complements.
+
     # Latent representation. Its logpdf is the primary prior plus the conditional
     # `logpdf(delay, observed - primary)`, so gradients flow through the delay
     # distribution's own logpdf. Event-time pairs are concrete [primary,
@@ -419,7 +478,7 @@ function scenarios(; with_reference::Bool = false)
                 latent(primary_censored(LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0))),
                 py),
             pys),
-        [1.0, 0.75], (Constant(latent_obs),))
+        [1.0, 0.75], (Constant(latent_obs),); cat = :latent)
     _push!("Latent PrimaryCensored Gamma+Uniform",
         (θ,
             pys) -> sum(
@@ -427,7 +486,7 @@ function scenarios(; with_reference::Bool = false)
                 latent(primary_censored(Gamma(θ[1], θ[2]), Uniform(0.0, 1.0))),
                 py),
             pys),
-        [2.0, 1.5], (Constant(latent_obs),))
+        [2.0, 1.5], (Constant(latent_obs),); cat = :latent)
 
     # Latent gradient with respect to the sampled primary times themselves: the
     # varied vector IS the per-observation primary, delay parameters fixed. This
@@ -440,7 +499,18 @@ function scenarios(; with_reference::Bool = false)
                 latent(primary_censored(LogNormal(1.0, 0.75), Uniform(0.0, 1.0))),
                 [θ[i], ys[i]]),
             eachindex(ys)),
-        [0.3, 0.5, 0.2, 0.7], (Constant(latent_y),))
+        [0.3, 0.5, 0.2, 0.7], (Constant(latent_y),); cat = :latent)
+    # Latent Gamma wrt the sampled primary times (the Gamma delay analogue of the
+    # LogNormal wrt-primary scenario above), so both delay families have augmented
+    # latent-primary gradient coverage.
+    _push!("Latent PrimaryCensored Gamma+Uniform wrt primary",
+        (θ,
+            ys) -> sum(
+            i -> logpdf(
+                latent(primary_censored(Gamma(2.0, 1.5), Uniform(0.0, 1.0))),
+                [θ[i], ys[i]]),
+            eachindex(ys)),
+        [0.3, 0.5, 0.2, 0.7], (Constant(latent_y),); cat = :latent)
 
     # PrimaryConditional: the conditional scored via `~` in a model
     # (`y ~ PrimaryConditional(d, p)`). Differentiate with respect to the
@@ -454,7 +524,22 @@ function scenarios(; with_reference::Bool = false)
                     θ[i]),
                 ys[i]),
             eachindex(ys)),
-        [0.3, 0.5, 0.2, 0.7], (Constant(latent_y),))
+        [0.3, 0.5, 0.2, 0.7], (Constant(latent_y),); cat = :latent)
+    # PrimaryConditional wrt the DELAY parameters (the complement of the
+    # wrt-primary scenario): the realised primaries are fixed data and the
+    # gradient flows through the delay distribution's params, the gradient a
+    # parameter fit takes on the latent conditional.
+    _push!("PrimaryConditional LogNormal+Uniform wrt params",
+        (θ,
+            ys) -> sum(
+            i -> logpdf(
+                PrimaryConditional(
+                    primary_censored(LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0)),
+                    0.3),
+                ys[i]),
+            eachindex(ys)),
+        [1.0, 0.75], (Constant(latent_y),); cat = :latent)
+    # === end latent scenarios ===
 
     # ExponentiallyTilted primary event — no analytical
     # `primarycensored_cdf(::Delay, ::ExponentiallyTilted, ...)` exists,
