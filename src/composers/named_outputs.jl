@@ -170,6 +170,11 @@ end
 # ORDER does not matter; the names do.
 
 function logpdf(d::Union{Sequential, Parallel}, x::NamedTuple)
+    # A column table (a `NamedTuple` of vectors, `Tables.istable == true`) is a
+    # MULTI-record source, not a single labelled draw; route it to the public
+    # vectorised `logpdf(d, rows)` front-door. A single labelled draw
+    # (`Tables.istable == false`) scores its one event/value vector below.
+    Tables.istable(x) && return batched_event_logpdf(d, x)
     _tree_primary_event(d) === nothing &&
         return logpdf(d, _named_value_vector(d, x))
     return logpdf(d, _row_event_vector(d, x))

@@ -34,9 +34,12 @@ public component_names
 # `docs/src/developer/extending.md`.
 public child_nleaves, child_logpdf, child_rand!
 
-# Horizon-aware event-vector log density (public but not exported): the per-record
-# right-truncation entry point used by the composed record model.
-public event_logpdf
+# `event_logpdf` is the INTERNAL horizon-aware event-vector log density (the
+# per-record right-truncation scorer the composed record model and the
+# `logpdf(d, rows)` front-door delegate to). It is NOT part of the public surface:
+# `logpdf(d, events)` is the public single-record entry and `logpdf(d, rows)` the
+# public table entry. The horizon-kwarg variant stays internal (reached by the
+# qualified name) pending the `truncated(...)` folding (#637).
 
 # Sample a Resolve outcome and its time as `(name, time)` (public but not
 # exported): the outcome-retaining draw used by full-path tree simulation.

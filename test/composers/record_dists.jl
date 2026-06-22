@@ -912,3 +912,85 @@ end
     @test length(rand(seq, 6)) == 6
     @test rand(MersenneTwister(9), seq, 3) == rand(MersenneTwister(9), seq, 3)
 end
+
+# The public front-door `logpdf(d, rows)` scores a whole table / vector of
+# records directly, byte-identical to the internal batched path
+# (`batched_event_logpdf` / the `record_distributions` product). One PUBLIC
+# scoring entry over a table; the per-record event-vector scorer is unchanged.
+
+@testitem "logpdf(d, rows) equals the batched path (leaf, Sequential)" begin
+    using CensoredDistributions, Distributions
+
+    # A single-delay model: the leaf wrapped in a one-edge `Sequential` (the
+    # canonical composed form). The bare leaf itself keeps the
+    # `record_distributions` / `batched_event_logpdf` path (no pirating
+    # `logpdf(::leaf, rows)` method), and both forms agree.
+    leaf = primary_censored(LogNormal(1.4, 0.5), Uniform(0, 1))
+    leaf_seq = Sequential((leaf,), (:onset_delay,))
+    leaf_rows = [(onset = 0.0, delay = 2.0), (onset = 0.0, delay = 3.5)]
+    @test logpdf(leaf_seq, leaf_rows) ==
+          CensoredDistributions.batched_event_logpdf(leaf_seq, leaf_rows)
+
+    # Sequential chain over mixed observed-pattern records.
+    seq = compose((onset_admit = primary_censored(
+            LogNormal(1.2, 0.5), Uniform(0, 1)),
+        admit_death = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))))
+    seq_rows = [(onset = 0.0, admit = missing, death = 5.0),
+        (onset = 0.5, admit = 2.0, death = 7.0),
+        (onset = 0.3, admit = 4.0, death = 9.0, weight = 2.0)]
+    @test logpdf(seq, seq_rows) ==
+          CensoredDistributions.batched_event_logpdf(seq, seq_rows)
+
+    # A column table (NamedTuple of vectors) is the same multi-record source.
+    ct = (onset = [0.0, 0.5], admit = [1.0, 2.0], death = [5.0, 7.0])
+    @test logpdf(seq, ct) ==
+          CensoredDistributions.batched_event_logpdf(seq, ct)
+end
+
+@testitem "logpdf(d, rows) equals the batched path (Parallel)" begin
+    using CensoredDistributions, Distributions
+
+    shared = Uniform(0, 1)
+    par = Parallel(
+        primary_censored(LogNormal(1.0, 0.5), shared),
+        primary_censored(Gamma(2.0, 1.0), shared))
+    rows = [(event_1 = 0.0, event_2 = 3.0, event_3 = 5.0),
+        (event_1 = 0.5, event_2 = missing, event_3 = 6.0),
+        (event_1 = 0.3, event_2 = 5.0, event_3 = 8.0, weight = 4.0)]
+    @test logpdf(par, rows) ==
+          CensoredDistributions.batched_event_logpdf(par, rows)
+end
+
+@testitem "logpdf(d, rows) equals the batched path (Resolve tree)" setup=[CaseStudyRecords] begin
+    using CensoredDistributions, Distributions
+
+    d = bdbv_tree()
+    rows = [
+        (onset = 0.0, admit = 4.0, death = 12.0, discharge = missing,
+            notif = 9.0, branch_probs = (death = 0.2, discharge = 0.8)),
+        (onset = 0.5, admit = 5.0, death = missing, discharge = 11.0,
+            notif = 10.0, branch_probs = (death = 0.6, discharge = 0.4)),
+        (onset = 1.0, admit = 3.0, death = 14.0, discharge = missing,
+            notif = 8.0, branch_probs = 0.45, weight = 2.0)]
+
+    @test logpdf(d, rows) ==
+          CensoredDistributions.batched_event_logpdf(d, rows)
+    # And equals the per-record loop reference the batched path reproduces.
+    @test logpdf(d, rows) ≈ bdbv_ref_loop(d, rows)
+end
+
+@testitem "logpdf(d, rows) keeps the single event-vector scorer" begin
+    using CensoredDistributions, Distributions
+
+    # A single flat event vector still routes to the per-record event scorer, NOT
+    # the table front-door, so the two entries stay distinct.
+    seq = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    ev = Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0])
+    single = logpdf(seq, ev)
+    @test single isa Real
+    @test single == CensoredDistributions.event_logpdf(seq, ev)
+    # The one-record table of the same event scores equal to that single value.
+    @test logpdf(seq, [(onset = 0.0, admit = 2.0, death = 5.0)]) ≈ single
+end

@@ -32,8 +32,8 @@ Built by [`record_distributions`](@ref) from a table row. The observed event
 slots score against the prebuilt shared segments (`segs`) and the missing slots
 marginalise on `logpdf`; `rand` samples the full event path. The record's
 reserved metadata (the observation horizon, the weight) is baked in at assembly,
-so `logpdf` equals [`event_logpdf`](@ref)`(dist, events; horizon)` scaled by the
-weight.
+so `logpdf` equals the internal per-record `events` scorer (the same value the
+public [`logpdf`](@ref)`(d, rows)` table front-door sums) scaled by the weight.
 
 # Examples
 ```@example
@@ -270,7 +270,8 @@ logpdf(product_distribution(recs), [[0.0, 0.0, 5.0], [1.0, 0.0, 7.0]])
 ```
 
 # See also
-- [`event_logpdf`](@ref): the per-record log density this reproduces.
+- [`logpdf`](@ref)`(d, rows)`: the public table front-door summing these
+  per-record log densities.
 "
 function record_distributions(d::Sequential, rows)
     # A tree with a nested Choose routes per record by the row's selector, so each
