@@ -576,15 +576,16 @@ md"""
 ## Fitting the latent form
 
 The marginal `double_interval_censored` model above integrates the primary
-event time out inside `logpdf`. The latent form is the same delay wrapped in
-[`latent`](@ref). It carries the primary as an explicit sampled dimension, and
-exposes the same observed-delay `logpdf` analytically, delegating to the
-marginal node it wraps.
+event time out by the analytic closed form. The latent form is the same delay
+wrapped in [`latent`](@ref). It carries the primary as an explicit augmented
+variable, and its observed-delay `logpdf` is the augmented-data integral over
+the primary, evaluated numerically by the same Gauss-Legendre quadrature the
+package uses elsewhere.
 
 This is tenet four in practice: latent versus marginal is just a wrapper, not a
 new model. We reuse the same priors, windows and observed counts, wrap each
 delay in `latent(...)`, and score the observed delays through the wrapper's
-observed-marginal `logpdf` weighted by the count.
+observed `logpdf` weighted by the count.
 """
 
 @model function latent_model(
@@ -601,8 +602,8 @@ observed-marginal `logpdf` weighted by the count.
         )
     end
 
-    ## The observed-marginal logpdf of the latent wrapper delegates to the
-    ## marginal node, so this scores exactly as the marginal model does.
+    ## The latent observed `logpdf` is the augmented-data integral over the
+    ## primary, so this scores the latent formulation directly.
     for i in eachindex(latent_dists)
         Turing.@addlogprob! counts[i] * logpdf(latent_dists[i], observed[i])
     end

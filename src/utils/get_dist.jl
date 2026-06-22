@@ -113,6 +113,17 @@ Delegates to the wrapped node.
 "
 get_primary_event(d::Latent) = get_primary_event(d.dist)
 
+# Reach the PrimaryCensored node a latent wraps, through any interval or
+# truncation layers, so the latent integration can reuse the SAME quadrature
+# solver the primary-censored numeric path uses. Returns `nothing` when no
+# PrimaryCensored node is present (a bare delay), leaving the caller to fall
+# back to the default solver.
+_primary_censored_node(d::Latent) = _primary_censored_node(d.dist)
+_primary_censored_node(d::PrimaryCensored) = d
+_primary_censored_node(d::IntervalCensored) = _primary_censored_node(d.dist)
+_primary_censored_node(d::Truncated) = _primary_censored_node(d.untruncated)
+_primary_censored_node(d) = nothing
+
 @doc "
 
 Extract the delay distribution from a primary-conditional distribution.

@@ -29,17 +29,17 @@
   multivariate distribution over `[primary, observed]` whose joint
   `logpdf` scores the primary prior plus the conditional of the observed
   time given the primary, and whose `rand` draws a labelled
-  `(primary, observed)` event record. The observed-delay marginal is
-  exposed analytically through the Distributions interface (`cdf`, `pdf`,
-  single-value `logpdf`, `logcdf`, `ccdf`, `logccdf`, `quantile`), each
-  delegating to the wrapped marginal node, so no quadrature or Monte
-  Carlo is needed to evaluate it. `marginal` is the inverse,
-  unwrapping a `Latent` back to the censored node it carries. The
-  marginal node (primary integrated out) and the latent joint integrated
-  over the primary window are density-identical, verified for both the
-  pdf and the cdf to tight tolerance. `PrimaryConditional` and
-  `get_primary_event` support this path. The composed latent form (over a
-  composer tree) is a follow-up.
+  `(primary, observed)` event record. The observed-delay interface (`cdf`,
+  `pdf`, single-value `logpdf`, `logcdf`, `ccdf`, `logccdf`, `quantile`)
+  is computed from the LATENT formulation, numerically integrating the
+  augmented-data joint over the primary with the package's Gauss-Legendre
+  quadrature, rather than delegating to the analytic marginal. This is a
+  genuinely different computation from the analytic `primary_censored`
+  marginal, and the two agree to quadrature tolerance, validating the
+  formulation. `marginal` is the inverse, unwrapping a `Latent` back to the
+  censored node it carries. `PrimaryConditional` and `get_primary_event`
+  support this path. The composed latent form (over a composer tree) is a
+  follow-up.
 
 - `primary_censored` and `double_interval_censored` accept a `method`
   keyword taking a solver object, `AnalyticalSolver()` (the default) or

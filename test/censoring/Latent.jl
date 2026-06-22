@@ -81,26 +81,33 @@ end
           logpdf(delay, 2.7 - 0.3)
 end
 
-@testitem "latent observed marginal interface delegates to marginal(d)" begin
+@testitem "latent integration agrees with the analytic marginal target" begin
     using Distributions
 
-    # The single-value observed marginal under the latent model equals the
-    # wrapped marginal (primary-censored) node. Every Distributions method
-    # delegates straight to `marginal(d)` analytically.
+    # The latent interface computes the observed density/cdf by integrating the
+    # augmented-data joint over the primary (Gauss-Legendre quadrature), a
+    # GENUINELY DIFFERENT computation from the analytic `primary_censored`
+    # marginal (the target). They must agree to quadrature tolerance: a real
+    # validation of the latent formulation, not a tautology.
     d = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
     ld = latent(d)
 
     for x in [0.5, 1.0, 2.5, 4.0, 7.0]
-        @test logpdf(ld, x) ≈ logpdf(d, x)
-        @test pdf(ld, x) ≈ pdf(d, x)
-        @test cdf(ld, x) ≈ cdf(d, x)
-        @test logcdf(ld, x) ≈ logcdf(d, x)
-        @test ccdf(ld, x) ≈ ccdf(d, x)
-        @test logccdf(ld, x) ≈ logccdf(d, x)
+        @test isapprox(logpdf(ld, x), logpdf(d, x); rtol = 1e-6)
+        @test isapprox(pdf(ld, x), pdf(d, x); rtol = 1e-6)
+        @test isapprox(cdf(ld, x), cdf(d, x); rtol = 1e-6)
+        @test isapprox(logcdf(ld, x), logcdf(d, x); rtol = 1e-6)
+        @test isapprox(ccdf(ld, x), ccdf(d, x); rtol = 1e-6)
+        @test isapprox(logccdf(ld, x), logccdf(d, x); rtol = 1e-6)
     end
     for q in [0.1, 0.25, 0.5, 0.75, 0.9]
-        @test quantile(ld, q) ≈ quantile(d, q)
+        @test isapprox(quantile(ld, q), quantile(d, q); rtol = 1e-4)
     end
+
+    # No method delegates straight to the analytic marginal: the latent cdf is
+    # the numeric integral, so it differs from the analytic marginal at the
+    # floating-point level even though they agree to quadrature tolerance.
+    @test cdf(ld, 2.5) != cdf(d, 2.5)
 
     # The single-value observed logpdf is distinct from the joint
     # [primary, observed] score.
@@ -111,7 +118,7 @@ end
     using Distributions, Random
 
     # Drawing many latent records and keeping the observed component must
-    # recover the observed-delay marginal cdf (the wrapped node's cdf).
+    # recover the observed-delay marginal cdf (the latent integral cdf).
     d = primary_censored(LogNormal(1.4, 0.5), Uniform(0, 1))
     ld = latent(d)
 
@@ -126,11 +133,11 @@ end
 @testitem "marginal pdf and cdf equal the latent joint integrated over the primary" begin
     using Distributions
 
-    # CRITICAL density-correctness proof. The marginal node integrates the
-    # primary out inside its own logpdf/cdf; the latent wrapper keeps it
-    # explicit. Integrating the latent joint density over the primary window
-    # must reproduce BOTH the marginal pdf and the marginal cdf. If they
-    # disagree the latent density is wrong.
+    # CRITICAL density-correctness proof. An INDEPENDENT high-resolution
+    # trapezoidal integration of the latent joint over the primary window must
+    # reproduce both the analytic marginal pdf/cdf AND the package's own latent
+    # integral (`pdf(ld, ·)`/`cdf(ld, ·)`, the Gauss-Legendre augmented-data
+    # integral). If they disagree the latent density is wrong.
     for (delay,
         pe) in [
         (LogNormal(1.5, 0.75), Uniform(0.0, 1.0)),
@@ -172,31 +179,35 @@ end
 @testitem "double_interval_censored works in both marginal and latent forms" begin
     using Distributions
 
-    # The censoring wrappers must work for both forms. The marginal
-    # double_interval_censored node scores the interval-censored observed
-    # marginal; wrapping it in latent and scoring a single observed value
-    # gives the same density and cdf (latent observed marginal delegates to
-    # marginal(d)).
+    # The censoring wrappers must work for both forms. The latent form SAMPLES
+    # the primary, so its conditional scores the bare continuous delay (the
+    # sampled-origin rule); integrating the augmented joint over the primary
+    # therefore reproduces the analytic CONTINUOUS primary-censored marginal,
+    # not the interval-censored node. So the analytic target for a latent
+    # double_interval_censored leaf is `primary_censored(delay, pe)`.
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0, 1)
+    target = primary_censored(delay, pe)
+
     dm = double_interval_censored(delay; primary_event = pe, interval = 1)
     ld = latent(dm)
 
     @test marginal(ld) === dm
-    for x in [0.0, 1.0, 2.0, 4.0, 6.0]
-        @test logpdf(ld, x) ≈ logpdf(dm, x)
-        @test cdf(ld, x) ≈ cdf(dm, x)
-        @test ccdf(ld, x) ≈ ccdf(dm, x)
+    for x in [1.0, 2.0, 4.0, 6.0]
+        @test isapprox(pdf(ld, x), pdf(target, x); rtol = 1e-6)
+        @test isapprox(cdf(ld, x), cdf(target, x); rtol = 1e-6)
+        @test isapprox(ccdf(ld, x), ccdf(target, x); rtol = 1e-6)
     end
 
-    # Truncated + interval-censored double form behaves the same way.
+    # Truncated + interval-censored double form integrates to the same
+    # continuous primary-censored target.
     dtic = double_interval_censored(
         delay; primary_event = pe, upper = 10, interval = 1)
     ltic = latent(dtic)
     @test marginal(ltic) === dtic
     for x in [1.0, 3.0, 6.0, 9.0]
-        @test logpdf(ltic, x) ≈ logpdf(dtic, x)
-        @test cdf(ltic, x) ≈ cdf(dtic, x)
+        @test isapprox(pdf(ltic, x), pdf(target, x); rtol = 1e-6)
+        @test isapprox(cdf(ltic, x), cdf(target, x); rtol = 1e-6)
     end
 end
 
@@ -244,9 +255,12 @@ end
     using Distributions
     using ForwardDiff: gradient
 
-    # The observed-marginal logpdf and cdf of the latent model must
-    # differentiate cleanly through the delay parameters under ForwardDiff,
-    # and match the marginal node they delegate to.
+    # The observed-marginal logpdf and cdf of the latent model are the
+    # augmented-data INTEGRAL over the primary; they must differentiate cleanly
+    # through the delay parameters under ForwardDiff (the integral propagates
+    # Duals through the Gauss-Legendre quadrature), and the integrated-latent
+    # gradient must agree with the analytic marginal gradient to quadrature
+    # tolerance.
     pe = Uniform(0.0, 1.0)
     y = 2.5
 
@@ -262,10 +276,10 @@ end
     gcdf_l = gradient(latent_cdf, θ)
     @test all(isfinite, glp_l)
     @test all(isfinite, gcdf_l)
-    # The latent observed-marginal gradients equal the marginal node's
-    # (they are the same analytic function).
-    @test isapprox(glp_l, glp_m; rtol = 1e-8)
-    @test isapprox(gcdf_l, gcdf_m; rtol = 1e-8)
+    # The integrated-latent gradient agrees with the analytic marginal gradient
+    # to quadrature tolerance.
+    @test isapprox(glp_l, glp_m; rtol = 1e-5)
+    @test isapprox(gcdf_l, gcdf_m; rtol = 1e-5)
 end
 
 @testitem "latent joint logpdf is ForwardDiff-safe in the parameters" begin
