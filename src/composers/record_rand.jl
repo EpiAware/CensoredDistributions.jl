@@ -89,3 +89,34 @@ end
 function Base.rand(d::Union{Sequential, Parallel, Choose}, rows::AbstractVector)
     return rand(default_rng(), d, rows)
 end
+
+# The count form `rand(d, n)`: `n` independent labelled draws from the OBJECT
+# (the north-star batch path). A composer is multivariate but `rand(rng, d)`
+# returns a labelled `NamedTuple`, not a numeric vector that can fill a matrix
+# column, so the generic `rand(::Multivariate, ::Int)` matrix fallback recurses
+# (StackOverflow). This terminating method returns one full named record per
+# draw, the same self-describing shape as `rand(d, rows)`. The `n::Integer`
+# count form is disambiguated from `rand(d, rows::AbstractVector)`.
+function Base.rand(rng::AbstractRNG, d::Union{Sequential, Parallel, Choose},
+        n::Integer)
+    return [rand(rng, d) for _ in 1:n]
+end
+
+# Disambiguate against Distributions' `rand(::Sampleable{Multivariate,
+# Continuous}, ::Int)`: the composer is more specific in the distribution
+# argument but `Int` ties on the count, so spell out the `Int` method.
+function Base.rand(rng::AbstractRNG, d::Union{Sequential, Parallel, Choose},
+        n::Int)
+    return invoke(rand,
+        Tuple{AbstractRNG, Union{Sequential, Parallel, Choose}, Integer},
+        rng, d, n)
+end
+
+function Base.rand(d::Union{Sequential, Parallel, Choose}, n::Integer)
+    return rand(default_rng(), d, n)
+end
+
+# Disambiguate the no-rng count form against `rand(::Sampleable, ::Int...)`.
+function Base.rand(d::Union{Sequential, Parallel, Choose}, n::Int)
+    return rand(default_rng(), d, n)
+end

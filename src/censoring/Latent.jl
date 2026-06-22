@@ -96,6 +96,30 @@ function Base.rand(rng::AbstractRNG, d::Latent)
     return (primary = p, observed = y)
 end
 
+# Batch the count form into `n` independent labelled records (the north-star:
+# `rand(d, n)` simulates `n` draws from the OBJECT). A `Latent` is multivariate
+# but `rand(rng, d)` returns a labelled `NamedTuple`, not a numeric vector that
+# can fill a matrix column, so the generic `rand(::Multivariate, ::Int)` matrix
+# fallback recurses (StackOverflow). This terminating method returns one full
+# record per draw, matching the record-aware `rand(d, rows)` batch shape. The
+# `n::Integer` count form is disambiguated from `rand(d, rows::AbstractVector)`.
+function Base.rand(rng::AbstractRNG, d::Latent, n::Integer)
+    return [rand(rng, d) for _ in 1:n]
+end
+
+# Disambiguate against Distributions' `rand(::Sampleable{Multivariate,
+# Continuous}, ::Int)`: `Latent` is more specific in the distribution argument
+# but `Int` ties on the count, so spell out the `Int` method explicitly.
+function Base.rand(rng::AbstractRNG, d::Latent, n::Int)
+    invoke(
+        rand, Tuple{AbstractRNG, Latent, Integer}, rng, d, n)
+end
+
+Base.rand(d::Latent, n::Integer) = rand(default_rng(), d, n)
+
+# Disambiguate the no-rng count form against `rand(::Sampleable, ::Int...)`.
+Base.rand(d::Latent, n::Int) = rand(default_rng(), d, n)
+
 @doc "
 
 Log density of the latent event record: the primary prior density plus the
