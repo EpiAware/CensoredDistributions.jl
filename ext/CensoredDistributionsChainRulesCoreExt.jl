@@ -1,7 +1,8 @@
 module CensoredDistributionsChainRulesCoreExt
 
 using CensoredDistributions: _gamma_cdf, _gamma_cdf_value_and_partials,
-                             _primal, _window_quantile
+                             _primal, _window_quantile,
+                             _premodified_rate_primal
 using ChainRulesCore: ChainRulesCore, NoTangent
 
 # The quadrature-window endpoint is a non-differentiable hyperparameter
@@ -12,6 +13,16 @@ using ChainRulesCore: ChainRulesCore, NoTangent
 # integration component.
 ChainRulesCore.@non_differentiable _primal(::Any)
 ChainRulesCore.@non_differentiable _window_quantile(::Any, ::Any)
+
+# The `Modified` knot scan rate carries no gradient: the knots only locate where
+# the additive-hazard clamp engages and split the cumulative-hazard quadrature
+# at a continuous kink. Differentiating it runs `logpdf(base, lo) = -Inf` at the
+# support edge (Gamma shape > 1, LogNormal, ...), and the discarded `0 * (-Inf)`
+# adjoint becomes a `NaN` on the base distribution's first parameter under
+# reverse mode (#680). `@non_differentiable` keeps ReverseDiff (and any
+# ChainRules-based reverse mode) off it; Mooncake needs its own explicit
+# `@zero_derivative` (it does not lift this mark), declared in the Mooncake ext.
+ChainRulesCore.@non_differentiable _premodified_rate_primal(::Any, ::Any)
 
 # Reverse- and forward-mode rules for `_gamma_cdf(k, θ, x) = P(k, x/θ)`.
 # The analytical partials live in `_gamma_cdf_value_and_partials` (in
