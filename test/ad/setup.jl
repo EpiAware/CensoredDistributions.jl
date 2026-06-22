@@ -36,9 +36,15 @@
 
     # A working backend: hard correctness test on the scenarios it
     # supports, `@test_broken` on its known-broken scenarios (none today).
-    function test_working_backend(name)
+    # `all_scenarios` is the scenario set to run; it defaults to the MARGINAL
+    # group so the marginal AD sweep is purely marginal. The latent group is
+    # run separately via `test_working_backend(name; category = :latent)` (see
+    # `test/ad/scenarios.jl`), keeping marginal and latent AD coverage distinct.
+    function test_working_backend(
+            name; category::Symbol = :marginal,
+            all_scenarios = ADFixtures.scenarios(
+                with_reference = true, category = category))
         backend = _entry(name).backend
-        all_scenarios = ADFixtures.scenarios(with_reference = true)
         global_broken = Set(ADFixtures.broken_scenario_names())
         per_backend = get(
             ADFixtures.backend_broken_scenarios(), name, Set{String}())
