@@ -867,3 +867,48 @@ end
     @test all(d -> d isa NamedTuple, draws)
     @test all(d -> d.event_3 >= d.event_2 >= d.event_1 >= 0, draws)
 end
+
+@testitem "count form rand(d, n) batches n records (no overflow)" begin
+    using CensoredDistributions, Distributions, Random
+
+    # Regression for #675: the count form `rand(d, n)` StackOverflowed on the
+    # composers (multivariate but `rand(rng, d)` draws a NamedTuple, so the
+    # generic `rand(::Multivariate, ::Int)` matrix fallback recursed). It must
+    # batch into n independent labelled event records, the same self-describing
+    # shape as the record-aware `rand(d, rows)` path.
+    seq = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    rng = MersenneTwister(1)
+    draws = rand(rng, seq, 5)
+    @test draws isa AbstractVector
+    @test length(draws) == 5
+    @test all(d -> d isa NamedTuple, draws)
+    schema = keys(rand(MersenneTwister(0), seq))
+    @test all(d -> keys(d) == schema, draws)
+    # A chained Sequential draw is a monotone event path.
+    @test all(d -> d.event_3 >= d.event_2 >= d.event_1 >= 0, draws)
+
+    # Parallel and Choose batch too, with the right per-draw schema.
+    par = Parallel(
+        primary_censored(LogNormal(1.0, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    pdraws = rand(MersenneTwister(2), par, 3)
+    @test length(pdraws) == 3
+    @test all(d -> d isa NamedTuple, pdraws)
+    @test all(d -> keys(d) == keys(rand(MersenneTwister(0), par)), pdraws)
+
+    # A Choose over univariate leaves draws a scalar per alternative, so the
+    # batch is a vector of scalars (each draw matches a single `rand(ch)`).
+    ch = choose(
+        :index => primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+        :sourced => primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
+    cdraws = rand(MersenneTwister(3), ch, 4)
+    @test length(cdraws) == 4
+    one_draw = rand(MersenneTwister(0), ch)
+    @test all(d -> d isa typeof(one_draw), cdraws)
+
+    # The no-rng count form batches too, and a seeded rng is reproducible.
+    @test length(rand(seq, 6)) == 6
+    @test rand(MersenneTwister(9), seq, 3) == rand(MersenneTwister(9), seq, 3)
+end

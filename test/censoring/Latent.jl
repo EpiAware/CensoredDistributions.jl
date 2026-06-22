@@ -39,6 +39,40 @@ end
           logpdf(ld, x)
 end
 
+@testitem "latent rand(d, n) batches n labelled records (no overflow)" begin
+    using Distributions, Random
+
+    # Regression for #675: the count form `rand(d, n)` StackOverflowed on a
+    # Latent (multivariate but draws a NamedTuple, so the generic matrix
+    # fallback recursed). It must batch into n independent labelled records.
+    pe = Uniform(0, 1)
+    ld = latent(primary_censored(LogNormal(1.4, 0.5), pe))
+
+    rng = MersenneTwister(1)
+    draws = rand(rng, ld, 5)
+    @test draws isa AbstractVector
+    @test length(draws) == 5
+    # Each is a valid latent leaf record with the right schema.
+    @test all(x -> x isa NamedTuple, draws)
+    @test all(x -> keys(x) == (:primary, :observed), draws)
+    @test all(x -> insupport(pe, x.primary), draws)
+    @test all(x -> x.observed >= x.primary, draws)
+
+    # A Latent over a composer (latent(seq)) batches its flat event records.
+    seq = Sequential(
+        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+    lseq = latent(seq)
+    sdraws = rand(MersenneTwister(2), lseq, 3)
+    @test length(sdraws) == 3
+    @test all(x -> x isa NamedTuple, sdraws)
+    @test all(x -> keys(x) == keys(rand(MersenneTwister(0), lseq)), sdraws)
+
+    # The no-rng count form batches too, and a seeded rng is reproducible.
+    @test length(rand(ld, 4)) == 4
+    @test rand(MersenneTwister(7), ld, 3) == rand(MersenneTwister(7), ld, 3)
+end
+
 @testitem "marginal is the inverse of latent (idempotent)" begin
     using Distributions
 
