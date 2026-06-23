@@ -114,7 +114,7 @@ onset_case = double_interval_censored(
 onset_death = double_interval_censored(
     Gamma(3.0, 4.0); upper = 30.0, interval = 1.0)
 
-delay_stack = compose(incubation; case = onset_case, death = onset_death)
+delay_stack = compose(incubation; case = onset_case, death = onset_death);
 
 md"""
 The maximum reporting delay caps the number of delay bins we track per reference
