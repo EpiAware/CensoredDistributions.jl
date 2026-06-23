@@ -120,3 +120,21 @@ end
 function Base.rand(d::Union{Sequential, Parallel, Choose}, n::Int)
     return rand(default_rng(), d, n)
 end
+
+# The count form `rand(c, n)` for a STANDALONE disjunction node (`Resolve` /
+# `Compete`): `n` independent labelled records from the OBJECT. A one_of node is
+# multivariate (its scalar `rand` returns a labelled `NamedTuple`, not a column
+# vector), so the stock `rand(::Multivariate, ::Int)` matrix fallback recurses
+# (StackOverflow); this terminating method returns one full named record per
+# draw, matching the composer batch form. The `Int` method disambiguates against
+# Distributions' `rand(::Sampleable{Multivariate}, ::Int)`.
+function Base.rand(rng::AbstractRNG, c::AbstractOneOf, n::Integer)
+    return [rand(rng, c) for _ in 1:n]
+end
+
+function Base.rand(rng::AbstractRNG, c::AbstractOneOf, n::Int)
+    return invoke(rand, Tuple{AbstractRNG, AbstractOneOf, Integer}, rng, c, n)
+end
+
+Base.rand(c::AbstractOneOf, n::Integer) = rand(default_rng(), c, n)
+Base.rand(c::AbstractOneOf, n::Int) = rand(default_rng(), c, n)

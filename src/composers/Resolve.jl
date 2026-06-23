@@ -646,22 +646,42 @@ end
 
 @doc "
 
-Sample the one_of-outcome marginal time-to-resolution.
+Sample a [`Resolve`](@ref) node, returning the full named event record of the
+outcome that fired.
 
-See also: [`as_mixture`](@ref)
+The draw resolves to a single outcome (sampled from the branch probabilities)
+and the result is a `NamedTuple` keyed by [`event_names`](@ref): a positional
+origin slot then one slot per outcome, with the FIRED outcome's time present and
+the others `missing`. This is the SAME self-describing record the in-tree path
+produces (a `Resolve` nested in a `compose(...)` tree), so a standalone draw
+identifies which outcome won and feeds straight back into [`logpdf`](@ref). For
+`n` independent draws use the count form `rand(c, n)`.
+
+To recover the marginal time-to-resolution alone (the mixture over outcomes,
+discarding which fired) sample [`as_mixture`](@ref)`(c)`.
+
+See also: [`event_names`](@ref), [`as_mixture`](@ref), [`rand_outcome`](@ref)
 "
-Base.rand(rng::AbstractRNG, c::Resolve) = rand(rng, as_mixture(c))
+Base.rand(rng::AbstractRNG, c::Resolve) = _one_of_event_record(rng, c)
 Base.rand(c::Resolve) = rand(default_rng(), c)
+
+# The scalar MARGINAL draw of a terminal Resolve (its branch-prob-weighted
+# mixture time-to-resolution, discarding which outcome fired). Used by the PLAIN
+# flat value path (`child_rand!`), where a Resolve child is one value slot, and
+# wherever the marginal time alone is wanted. A no-event Resolve has no scalar
+# marginal, so it is excluded from the plain path (it is a defective marginal).
+_one_of_marginal_rand(rng::AbstractRNG, c::Resolve) = rand(rng, as_mixture(c))
 
 @doc "
 
 Sample a one_of outcome AND its time, returning `(name, time)`.
 
-Unlike the univariate [`rand`](@ref) (the marginal time-to-resolution, which
-discards which outcome occurred), this draws the resolved outcome from the branch
-probabilities and the time from that outcome's own delay, so the chosen outcome
-is retained. Used by the full-path tree simulation, where a `Resolve` node
-resolves to a single named outcome.
+A flat `(name, time)` view of the resolved draw: the resolved outcome is sampled
+from the branch probabilities and the time from that outcome's own delay. The
+full [`rand`](@ref) returns the same draw as a self-describing named record (the
+fired outcome's slot present, the others `missing`); this pair form is the
+compact two-tuple used where only the winning name and time are wanted (a
+no-event win gives `(name, missing)`).
 
 # Arguments
 - `rng`: random number generator (the no-`rng` method uses the global default).

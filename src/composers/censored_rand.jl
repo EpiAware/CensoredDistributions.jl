@@ -165,6 +165,31 @@ function _tree_event_record(rng::AbstractRNG, d::Union{Sequential, Parallel})
     return NamedTuple{enames}(Tuple(out))
 end
 
+# Draw the full NAMED event record of a STANDALONE disjunction node (a `Resolve`
+# or `Compete` sampled on its own, not nested in a tree). Its flat event names are
+# `(:event_1, c.names...)`: a positional origin slot then one slot per outcome.
+# A standalone node has no upstream origin event, so the origin anchors at zero
+# and the SAME `_tree_rand_step!` walk the in-tree path uses fills exactly the
+# winning outcome's slot(s), leaving the others `missing`. The record feeds
+# straight back into `logpdf` (one observed outcome, the rest missing), so a
+# standalone draw round-trips identically to the in-tree draw of the same node.
+function _one_of_event_record(rng::AbstractRNG, c::AbstractOneOf)
+    # A NON-TERMINAL node (an outcome whose payload is a composer subtree) has no
+    # standalone named-record layout: `_flat_event_names` gives one slot per
+    # outcome, but a composer outcome spans several event slots, so its subtree is
+    # only addressable once the node is nested in a `compose(...)` tree (where
+    # `_walk_edge!` expands the subtree's events). Error with the same guidance the
+    # scalar marginal methods give rather than build a mismatched record.
+    _is_nonterminal(c) && _nonterminal_marginal_error("rand")
+    T = float(_tree_core_eltype(c))
+    out = Vector{Union{Missing, T}}(missing, _event_child_nleaves(c) + 1)
+    origin = zero(T)
+    out[1] = origin
+    _tree_rand_step!(out, rng, c, origin, 2, T)
+    enames = _flat_event_names(c)
+    return NamedTuple{enames}(Tuple(out))
+end
+
 # The latent origin distribution seeding the whole tree: a `Sequential`'s origin
 # is its first step's primary (recursing into a nested first step); a `Parallel`'s
 # is its branches' shared primary (recursing into a nested branch). `nothing` for

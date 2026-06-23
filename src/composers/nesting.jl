@@ -351,10 +351,17 @@ function child_rand!(
     end
     return nothing
 end
-# A nested `Choose` samples its FIRST alternative on the flat path, matching the
-# committed alternative the flat `child_logpdf` scores.
-function child_rand!(out, offset, rng::AbstractRNG, c::Choose)
-    return child_rand!(out, offset, rng, _flat_choose_alternative(c))
+# A TERMINAL one_of node (`Resolve` / `Compete`) on the PLAIN flat value path is
+# its univariate MARGINAL time-to-resolution (one value slot, scored by the
+# scalar `logpdf(c, x::Real)`). The public `rand(c)` now returns the full named
+# outcome record (which outcome fired), but a nested child here is concatenated
+# into the flat value vector by position and must stay a single SCALAR, so the
+# marginal is drawn directly: a `Resolve` from its mixture lowering, a `Compete`
+# from its racing min time. A non-terminal one_of has no scalar marginal, so it
+# never reaches this plain flat path (its `_event_child_nleaves > 1`).
+function child_rand!(out, offset, rng::AbstractRNG, c::AbstractOneOf)
+    out[offset + 1] = _one_of_marginal_rand(rng, c)
+    return nothing
 end
 # A latent alternative samples its observed value through its marginal node on
 # the flat path (the latent primary is not part of the flat slot).

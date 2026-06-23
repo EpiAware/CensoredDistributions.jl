@@ -587,10 +587,15 @@ resolved = only(o for o in (:death, :discharge) if !ismissing(draw[o]));
 
 count(!ismissing, (draw.death, draw.discharge))
 
-# Sampling the `Resolve` node on its own makes the draw explicit:
-# [`rand_outcome`](@ref) returns the drawn `(outcome, time)` pair directly,
-# whereas the plain `rand` of a `Resolve` returns only the marginal
-# time-to-resolution and discards which outcome won.
+# Sampling the `Resolve` node on its own returns the same self-describing record
+# as the in-tree draw: a `NamedTuple` keyed by `event_names`, with the outcome
+# that fired present and the others `missing`, so a standalone draw tells you
+# which outcome won and feeds straight back into `logpdf`.
+
+rand(Xoshiro(7), sim_resolution)
+
+# [`rand_outcome`](@ref) is the compact `(outcome, time)` pair view of the same
+# draw.
 
 CensoredDistributions.rand_outcome(Xoshiro(7), sim_resolution)
 

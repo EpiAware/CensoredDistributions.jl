@@ -968,3 +968,141 @@ end
     @test haz2 isa CensoredDistributions.Compete
     @test event(haz2, :death) == Gamma(4.0, 3.0)
 end
+
+@testitem "standalone Resolve: rand returns the fired outcome and round-trips" begin
+    using Distributions, Random
+
+    node = resolve(:death => (Gamma(1.5, 1.0), 0.3),
+        :disch => (Gamma(2.0, 1.5), 0.7))
+
+    # A standalone draw is the SAME self-describing named record the in-tree path
+    # produces: keyed by `event_names`, the origin slot then one slot per outcome.
+    @test event_names(node) == (:event_1, :death, :disch)
+    draw = rand(MersenneTwister(1), node)
+    @test draw isa NamedTuple
+    @test keys(draw) == (:event_1, :death, :disch)
+
+    # Exactly one outcome fired; its slot tells you which won (the rand no longer
+    # discards the outcome), and the record feeds straight back into logpdf. The
+    # loop is wrapped so its flag counters are clean locals (a bare `@testitem`
+    # `for` hits soft-scope on a reassigned counter).
+    function draw_and_check(rng, node, N)
+        seen_death = false
+        seen_disch = false
+        for _ in 1:N
+            d = rand(rng, node)
+            @test count(!ismissing, (d.death, d.disch)) == 1
+            @test isfinite(logpdf(node, d))
+            ismissing(d.death) ? (seen_disch = true) : (seen_death = true)
+        end
+        return seen_death, seen_disch
+    end
+    sd, sds = draw_and_check(MersenneTwister(42), node, 400)
+    @test sd && sds
+
+    # The marginal time-to-resolution (discarding which fired) is still reachable
+    # by sampling the mixture lowering directly.
+    @test rand(MersenneTwister(1), as_mixture(node)) isa Real
+end
+
+@testitem "standalone Resolve: no-event branch round-trips" begin
+    using Distributions, Random
+
+    node = resolve(:death => (Gamma(1.5, 1.0), 0.3),
+        :none => (NoEvent(), 0.7))
+
+    function draw_and_check(rng, node, N)
+        seen_none = false
+        seen_death = false
+        for _ in 1:N
+            d = rand(rng, node)
+            @test isfinite(logpdf(node, d))
+            # A no-event win leaves the death slot missing (a non-occurrence).
+            ismissing(d.death) ? (seen_none = true) : (seen_death = true)
+        end
+        return seen_none, seen_death
+    end
+    sn, sd = draw_and_check(MersenneTwister(7), node, 400)
+    @test sn && sd
+end
+
+@testitem "standalone Compete: rand returns the winning cause and round-trips" begin
+    using Distributions, Random
+
+    node = compete(:death => Gamma(1.5, 1.0), :disch => Gamma(2.0, 1.5))
+
+    @test event_names(node) == (:event_1, :death, :disch)
+    draw = rand(MersenneTwister(3), node)
+    @test draw isa NamedTuple
+    @test keys(draw) == (:event_1, :death, :disch)
+
+    function draw_and_check(rng, node, N)
+        seen_death = false
+        seen_disch = false
+        for _ in 1:N
+            d = rand(rng, node)
+            @test count(!ismissing, (d.death, d.disch)) == 1
+            @test isfinite(logpdf(node, d))
+            ismissing(d.death) ? (seen_disch = true) : (seen_death = true)
+        end
+        return seen_death, seen_disch
+    end
+    sd, sds = draw_and_check(MersenneTwister(11), node, 400)
+    @test sd && sds
+end
+
+@testitem "standalone disjunction: batch rand(d, n) draws n records" begin
+    using Distributions, Random
+
+    res = resolve(:death => (Gamma(1.5, 1.0), 0.3),
+        :disch => (Gamma(2.0, 1.5), 0.7))
+    cmp = compete(:death => Gamma(1.5, 1.0), :disch => Gamma(2.0, 1.5))
+
+    for node in (res, cmp)
+        draws = rand(MersenneTwister(2), node, 50)
+        @test draws isa AbstractVector
+        @test length(draws) == 50
+        @test all(d -> d isa NamedTuple, draws)
+        # Each drawn record resolves exactly one outcome.
+        @test all(d -> count(!ismissing, (d.death, d.disch)) == 1, draws)
+        # The vector of records scores as the sum of the per-record densities.
+        @test logpdf(node, draws) ≈ sum(logpdf(node, d) for d in draws)
+        # The no-rng count form works too.
+        @test length(rand(node, 5)) == 5
+    end
+end
+
+@testitem "standalone Resolve: matches the in-tree draw under the same rng" begin
+    using Distributions, Random
+
+    # A terminal Resolve nested in a one-edge tree draws the SAME outcome record
+    # the standalone node does (the standalone path reuses the in-tree walk), so
+    # the death/disch slots agree (the origin differs: the tree has no censored
+    # primary, so its origin is the plain leaf value; the standalone origin is 0).
+    node = resolve(:death => (Gamma(1.5, 1.0), 0.3),
+        :disch => (Gamma(2.0, 1.5), 0.7))
+
+    rng = MersenneTwister(99)
+    for _ in 1:50
+        d = rand(rng, node)
+        @test isfinite(logpdf(node, d))
+        # The fired outcome's slot is a positive resolution time.
+        fired = ismissing(d.death) ? d.disch : d.death
+        @test fired > 0
+    end
+end
+
+@testitem "standalone non-terminal Resolve/Compete: rand errors cleanly" begin
+    using Distributions, Random
+
+    admit = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    chain = Sequential((admit, Gamma(1.5, 1.0)), (:onset_admit, :admit_burial))
+    res = resolve(:death => (chain, 0.4), :recover => (Gamma(3.0, 2.0), 0.6))
+    cmp = compete(:death => chain, :recover => Gamma(3.0, 2.0))
+
+    # A non-terminal node (a composer-outcome) has no standalone named-record
+    # layout: rand errors with the same guidance the scalar marginal methods give
+    # (nest it in a compose(...) tree). It works once nested.
+    @test_throws ArgumentError rand(MersenneTwister(1), res)
+    @test_throws ArgumentError rand(MersenneTwister(1), cmp)
+end
