@@ -207,3 +207,82 @@ function _batched_records_logpdf(recs)
     end
     return total
 end
+
+# ---------------------------------------------------------------------------
+# Public front-door: `logpdf(d, rows)` scores a table of records directly
+# ---------------------------------------------------------------------------
+#
+# `logpdf(d, rows)` is THE single public entry for scoring a whole table /
+# vector of records under a shared composed distribution `d`. It delegates to
+# the internal `batched_event_logpdf(d, rows)` (which assembles the per-record
+# distributions once, sharing the segment construction, and sums their per-
+# record log densities), so the value is byte-identical to the
+# `record_distributions` / `batched_event_logpdf` path. There is no separate
+# object to construct at the call site: a vector of NamedTuples or any Tables.jl
+# source of records is scored directly.
+#
+# Dispatch: a SINGLE flat event vector (`[E_0, ..., E_k]`, possibly with
+# `missing`) keeps hitting the per-record event-vector scorer; a TABLE of records
+# is recognised by `Tables.istable` and routed here. A vector of NamedTuples is
+# an `AbstractVector` (so it would otherwise hit the step-value method) and a
+# column table is a `NamedTuple` (so it would otherwise hit the single-record
+# NamedTuple method); both are intercepted below and forwarded once
+# `Tables.istable` confirms a multi-record source.
+
+@doc raw"
+Log density of a TABLE of records scored under a shared composed distribution.
+
+`logpdf(d, rows)` is the single public entry for vectorised scoring: it scores a
+whole table / vector of records (each keyed by event name) under the shared
+composed distribution `d`, returning the SUM of the per-record log densities. A
+record's reserved metadata (its `obs_time` horizon, `weight`/`count`, and
+missingness pattern) is read per row; the expensive segment construction is
+shared across records. The value equals
+`sum(logpdf(record_distributions(d, rows)[i], obs_i))`.
+
+`rows` is any Tables.jl source of records (a vector of NamedTuples, a column
+table, a `DataFrame`, ...). A single flat event vector `[E_0, ..., E_k]` still
+routes to the per-record event-vector scorer; only a multi-record table is
+scored here.
+
+# Arguments
+- `d`: the shared composed distribution (a [`Sequential`](@ref) /
+  [`Parallel`](@ref) / [`Choose`](@ref)). A single-delay leaf is scored by
+  wrapping it in a one-edge `Sequential`.
+- `rows`: a Tables.jl row source of records keyed by event name.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+seq = Sequential(
+    primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
+    primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
+rows = [(onset = 0.0, admit = 2.0, death = 5.0),
+    (onset = 1.0, admit = 3.0, death = 7.0)]
+logpdf(seq, rows)
+```
+
+# See also
+- [`record_distributions`](@ref): the per-record assembly this reproduces.
+"
+# Per-type methods (not a `Union`) so the distribution argument is as specific as
+# the existing `logpdf(::Sequential, ::AbstractVector)` step-value method and the
+# `<:NamedTuple` element type breaks the tie cleanly (no ambiguity).
+function logpdf(d::Sequential, rows::AbstractVector{<:NamedTuple})
+    return batched_event_logpdf(d, rows)
+end
+function logpdf(d::Parallel, rows::AbstractVector{<:NamedTuple})
+    return batched_event_logpdf(d, rows)
+end
+function logpdf(d::Choose, rows::AbstractVector{<:NamedTuple})
+    return batched_event_logpdf(d, rows)
+end
+
+# A bare leaf delay (a foreign `UnivariateDistribution`, e.g. a `LogNormal`) is
+# NOT given a `logpdf(::leaf, rows)` method: dispatching on the abstract
+# `UnivariateDistribution` would be type piracy (the function, the dist type and
+# the row-vector type are all foreign). A single-delay model scores a table by
+# wrapping the leaf in a one-edge `Sequential` (the canonical composed form,
+# density-identical to the bare leaf) and using the `Sequential` front-door
+# above, or by the `record_distributions` / `batched_event_logpdf` leaf path.
