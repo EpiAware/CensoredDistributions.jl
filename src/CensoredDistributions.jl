@@ -3,7 +3,7 @@ module CensoredDistributions
 # Non-submodule imports
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS, TYPEDEF, TYPEDFIELDS,
                            TYPEDSIGNATURES
-using Random: AbstractRNG
+using Random: AbstractRNG, default_rng
 
 # Explicit imports approach for issue #121
 # Import functions that we extend (for method extension)
