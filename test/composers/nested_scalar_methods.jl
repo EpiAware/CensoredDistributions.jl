@@ -88,9 +88,13 @@ end
     @test isapprox(logccdf(cvr, 5.0), log1p(-cdf(cvr, 5.0)); atol = 1e-8)
 
     # Monte-Carlo check of the convolution cdf: sum the Resolve marginal draw
-    # and the leaf draw, compare the empirical to the analytic cdf.
+    # and the leaf draw, compare the empirical to the analytic cdf. The Resolve
+    # marginal time-to-resolution (discarding which outcome fired) is drawn from
+    # the mixture lowering `as_mixture(r)`; `rand(r)` itself returns the full
+    # named outcome record.
     Random.seed!(202)
-    mc = mean(rand(r) + rand(g2) <= 5.0 for _ in 1:400_000)
+    mr = as_mixture(r)
+    mc = mean(rand(mr) + rand(g2) <= 5.0 for _ in 1:400_000)
     @test isapprox(cdf(cvr, 5.0), mc; atol = 5e-3)
 
     # The scalar cdf is monotone over a grid.
@@ -150,8 +154,10 @@ end
     @test isapprox(logccdf(r, 3.0), log1p(-cdf(r, 3.0)); atol = 1e-8)
     @test isapprox(logcdf(r, 3.0), log(cdf(r, 3.0)); atol = 1e-8)
 
-    # Monte-Carlo check of the marginal cdf.
+    # Monte-Carlo check of the marginal cdf. The marginal time-to-resolution is
+    # the mixture lowering `as_mixture(r)`; `rand(r)` returns the full named
+    # outcome record, so the marginal is sampled from the mixture directly.
     Random.seed!(303)
-    mc = mean(rand(r) <= 3.0 for _ in 1:400_000)
+    mc = mean(rand(as_mixture(r)) <= 3.0 for _ in 1:400_000)
     @test isapprox(cdf(r, 3.0), mc; atol = 5e-3)
 end

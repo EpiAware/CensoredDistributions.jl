@@ -302,6 +302,53 @@ function _hazard_cross_cause_logsurvival(step::Compete, j::Int, t)
     return acc
 end
 
+# --- standalone disjunction-node event-record scoring -----------------------
+#
+# A STANDALONE `Resolve` / `Compete` (one sampled on its own, not nested in a
+# `compose(...)` tree) scores the SAME named event record its `rand` produces: a
+# `NamedTuple` keyed by `_flat_event_names(c) = (:event_1, c.names...)`, the
+# positional origin slot then one slot per outcome with the fired outcome's time
+# present and the others `missing`. The record is matched BY NAME to the flat
+# event vector, then scored through the SAME outcome-slice scorer the in-tree path
+# uses (`_one_of_tree_logpdf` / `_hazard_one_of_tree_logpdf` with the origin at
+# slot 1 and the outcomes from slot 2), so a standalone draw round-trips through
+# `logpdf(c, rand(c))` identically to the in-tree draw of the same node. A
+# standalone node has no upstream latent origin and no observation horizon, so
+# `primary`/`horizon` are `nothing`. This is the disjunction sibling of the
+# `logpdf(::Sequential/Parallel, ::NamedTuple)` record scorer.
+
+# Score a standalone Resolve outcome record (a single labelled draw). A column
+# table (a `NamedTuple` of vectors) is a MULTI-record source, summed per row.
+function logpdf(c::Resolve, x::NamedTuple)
+    Tables.istable(x) && return _one_of_table_logpdf(c, x)
+    _is_nonterminal(c) && _nonterminal_marginal_error("logpdf")
+    events = _row_event_vector_by_name(_flat_event_names(c), x)
+    return _one_of_tree_logpdf(c, c.branch_probs, 1, events, 2, nothing,
+        Float64)
+end
+
+# Score a standalone Compete outcome record (the winning probability is DERIVED
+# from the hazards, so there is no branch-probability term).
+function logpdf(c::Compete, x::NamedTuple)
+    Tables.istable(x) && return _one_of_table_logpdf(c, x)
+    _is_nonterminal(c) && _nonterminal_marginal_error("logpdf")
+    events = _row_event_vector_by_name(_flat_event_names(c), x)
+    return _hazard_one_of_tree_logpdf(c, 1, events, 2, nothing, Float64)
+end
+
+# Score a TABLE / vector of standalone disjunction-node records: the SUM of each
+# record's single-record log density. A standalone one_of node carries no
+# per-record covariate routing (no Choose selector, no horizon), so the table is
+# scored by summing the per-row scorer directly rather than through the
+# `record_distributions` per-record assembly the composer tables use.
+function logpdf(c::AbstractOneOf, rows::AbstractVector{<:NamedTuple})
+    return sum(logpdf(c, r) for r in rows)
+end
+
+function _one_of_table_logpdf(c::AbstractOneOf, table)
+    return sum(logpdf(c, r) for r in Tables.namedtupleiterator(table))
+end
+
 # The log marginal SURVIVAL of a COMPOSER racing branch at `t`: the probability
 # the branch has NOT yet resolved by `t`, matching the marginal resolution time
 # `_hazard_outcome_racing_time` draws on the rand path. A `Sequential` resolves at

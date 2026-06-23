@@ -224,14 +224,29 @@ end
 
 @doc "
 
-Sample the racing-hazard marginal any-event time `min_k D_k`.
+Sample a [`Compete`](@ref) node, returning the full named event record of the
+cause that won the race.
 
-See also: [`rand_outcome`](@ref) to retain WHICH cause won.
+A latent time is drawn per cause and the `argmin` cause wins; the result is a
+`NamedTuple` keyed by [`event_names`](@ref) (a positional origin slot then one
+slot per cause) with the winning cause's time present and the others `missing`.
+This is the SAME self-describing record the in-tree path produces, so a
+standalone draw identifies which cause won and feeds straight back into
+[`logpdf`](@ref). For `n` independent draws use the count form `rand(c, n)`.
+
+The compact `(name, time)` pair view is [`rand_outcome`](@ref); the marginal
+any-event time `min_k D_k` alone is its second element.
+
+See also: [`event_names`](@ref), [`rand_outcome`](@ref).
 "
-function Base.rand(rng::AbstractRNG, c::Compete)
-    return rand_outcome(rng, c)[2]
-end
+Base.rand(rng::AbstractRNG, c::Compete) = _one_of_event_record(rng, c)
 Base.rand(c::Compete) = rand(default_rng(), c)
+
+# The scalar MARGINAL draw of a terminal Compete (its racing any-event time
+# `min_k D_k`, discarding which cause won). Used by the PLAIN flat value path
+# (`child_rand!`), where a Compete child is one value slot, and wherever the
+# marginal time alone is wanted.
+_one_of_marginal_rand(rng::AbstractRNG, c::Compete) = rand_outcome(rng, c)[2]
 
 @doc "
 
