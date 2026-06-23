@@ -135,7 +135,7 @@ d == sequential(:onset_admit => Gamma(2.0, 1.0),
 # See also
 - [`Sequential`](@ref): the composer type
 - [`parallel`](@ref), [`resolve`](@ref), [`compete`](@ref), [`choose`](@ref): the sibling constructors
-- [`compose`](@ref): the NamedTuple/table/matrix front-end
+- [`compose`](@ref): the NamedTuple/table front-end
 "
 function sequential(steps::Pair...)
     length(steps) >= 1 ||

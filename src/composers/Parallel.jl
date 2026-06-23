@@ -123,7 +123,7 @@ d == parallel(:admit => Gamma(2.0, 1.0), :notif => LogNormal(1.0, 0.5))
 # See also
 - [`Parallel`](@ref): the composer type
 - [`sequential`](@ref), [`resolve`](@ref), [`compete`](@ref), [`choose`](@ref): the sibling constructors
-- [`compose`](@ref): the NamedTuple/table/matrix front-end
+- [`compose`](@ref): the NamedTuple/table front-end
 "
 function parallel(branches::Pair...)
     length(branches) >= 1 ||
