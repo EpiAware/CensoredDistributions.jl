@@ -124,8 +124,8 @@ function backend_broken_scenarios()
     # batched path always allocated this way) and is orthogonal to it: the
     # #699 fix made the path Mooncake-reverse / ReverseDiff differentiable,
     # which it now is. Enzyme on the batched vector path is tracked
-    # separately. The scalar `IntervalCensored` scenarios still work under
-    # Enzyme.
+    # separately in #701. The scalar `IntervalCensored` scenarios still work
+    # under Enzyme.
     batched_interval = Set([
         "IntervalCensored LogNormal regular batched pdf",
         "IntervalCensored LogNormal regular batched logpdf",
