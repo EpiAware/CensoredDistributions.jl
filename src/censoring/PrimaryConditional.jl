@@ -7,16 +7,15 @@ the primary plus the delay, so conditioning on a realised primary `p` shifts the
 delay: `logpdf` scores `logpdf(get_dist(d), y - p)` (support `y > p`) and `rand`
 returns `p + rand(get_dist(d))`.
 
-This is the single source of the conditional: [`Latent`](@ref) and
-[`primary_conditional_logpdf`](@ref) both go through it. Turing-free, so it can
-be used with `~` in a model — `y ~ PrimaryConditional(d, p)` both scores an
-observed `y` and generates a missing one, with `p` the sampled latent primary.
+This is the single source of the conditional that [`Latent`](@ref) scores and
+samples. Turing-free, so it can be used with `~` in a model —
+`y ~ PrimaryConditional(d, p)` both scores an observed `y` and generates a
+missing one, with `p` the sampled latent primary.
 
 The `dist` field holds the primary-censored node; the `p` field holds the
 realised primary event time.
 
 # See also
-- [`primary_conditional_logpdf`](@ref): the named `logpdf` entry point
 - [`Latent`](@ref): the joint that reuses this conditional
 - [`get_dist`](@ref): the delay distribution scored here
 "
@@ -73,28 +72,3 @@ Draw an observed time given the primary `p`: `p + rand(get_dist(d))`.
 See also: [`logpdf`](@ref)
 "
 Base.rand(rng::AbstractRNG, d::PrimaryConditional) = d.p + rand(rng, get_dist(d))
-
-@doc "
-
-Conditional log density of the observed time `y` given a primary event time `p`.
-
-The named entry point for [`PrimaryConditional`](@ref); equal to
-`logpdf(PrimaryConditional(d, p), y) = logpdf(get_dist(d), y - p)`. Turing-free:
-`p` is the sampled latent primary, scored against the delay at the implied gap.
-
-# Arguments
-- `d`: A primary-censored node, or its [`Latent`](@ref) wrapper.
-- `p`: A primary event time (the sampled latent).
-- `y`: The observed time.
-
-# Examples
-```@example
-using CensoredDistributions, Distributions
-
-d = primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1))
-primary_conditional_logpdf(d, 0.3, 2.7)
-```
-"
-function primary_conditional_logpdf(d, p, y)
-    return logpdf(PrimaryConditional(d, p), y)
-end

@@ -61,7 +61,7 @@ end
     conditioned = condition(demo(ld, y), (@varname(obs.p) => p))
     @test logjoint(conditioned, (;)) ≈
           logpdf(get_primary_event(d), p) +
-          primary_conditional_logpdf(d, p, y)
+          logpdf(PrimaryConditional(d, p), y)
 end
 
 @testitem "primary_censored_model: latent model generates [p, y]" begin
@@ -102,7 +102,7 @@ end
     conditioned = condition(demo(ld, y, w), (@varname(obs.p) => p))
     @test logjoint(conditioned, (;)) ≈
           logpdf(get_primary_event(d), p) +
-          w * primary_conditional_logpdf(d, p, y)
+          w * logpdf(PrimaryConditional(d, p), y)
 end
 
 @testitem "interval_censored_model: marginal == logpdf" begin

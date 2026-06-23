@@ -75,11 +75,10 @@ end
 
 Extract the primary event time distribution through a secondary censoring layer.
 
-A [`double_interval_censored`](@ref) leaf wraps its primary-censored node in an
-[`IntervalCensored`](@ref) (and optionally a `Truncated`), so a bare
-`latent(double_interval_censored(...))` leaf must reach the primary event THROUGH
-those wrappers. Mirrors `_origin_primary_event`'s wrapper recursion so the latent
-leaf surfaces the same primary as the composer path.
+A [`double_interval_censored`](@ref) delay wraps its primary-censored node in an
+[`IntervalCensored`](@ref) (and optionally a `Truncated`), so
+`latent(double_interval_censored(...))` must reach the primary event THROUGH
+those wrappers. This recurses into the wrapped node to surface that primary.
 "
 get_primary_event(d::IntervalCensored) = get_primary_event(d.dist)
 
@@ -87,7 +86,7 @@ get_primary_event(d::IntervalCensored) = get_primary_event(d.dist)
 
 Extract the primary event time distribution through a truncation layer.
 
-Recurses into the untruncated node so a truncated primary-censored leaf still
+Recurses into the untruncated node so a truncated primary-censored node still
 surfaces its primary event.
 "
 get_primary_event(d::Truncated) = get_primary_event(d.untruncated)
@@ -97,13 +96,12 @@ get_primary_event(d::Truncated) = get_primary_event(d.untruncated)
 Extract the BARE continuous delay from a latent node.
 
 The latent representation SAMPLES the primary event, so its conditional scores
-the bare continuous delay — every censoring layer (primary, truncation, secondary
-interval) stripped, the same `_marginal_core` the marginal scorer conditions a
-sampled-origin edge on. Recurses with [`get_dist_recursive`](@ref) so a
-latent `double_interval_censored` leaf surfaces the same continuous core as a
-latent `primary_censored` leaf, and reapplying the secondary interval (which would
-double-count the within-window uncertainty already represented by the sampled
-primary) is avoided.
+the bare continuous delay, every censoring layer (primary, truncation, secondary
+interval) stripped. Recurses with [`get_dist_recursive`](@ref) so a latent
+`double_interval_censored` node surfaces the same continuous core as a latent
+`primary_censored` node, and avoids reapplying the secondary interval, which
+would double-count the within-window uncertainty already represented by the
+sampled primary.
 "
 get_dist(d::Latent) = get_dist_recursive(d.dist)
 
@@ -114,6 +112,17 @@ Extract the primary event time distribution from a latent primary-censored node.
 Delegates to the wrapped node.
 "
 get_primary_event(d::Latent) = get_primary_event(d.dist)
+
+# Reach the PrimaryCensored node a latent wraps, through any interval or
+# truncation layers, so the latent integration can reuse the SAME quadrature
+# solver the primary-censored numeric path uses. Returns `nothing` when no
+# PrimaryCensored node is present (a bare delay), leaving the caller to fall
+# back to the default solver.
+_primary_censored_node(d::Latent) = _primary_censored_node(d.dist)
+_primary_censored_node(d::PrimaryCensored) = d
+_primary_censored_node(d::IntervalCensored) = _primary_censored_node(d.dist)
+_primary_censored_node(d::Truncated) = _primary_censored_node(d.untruncated)
+_primary_censored_node(d) = nothing
 
 @doc "
 
