@@ -22,7 +22,7 @@ using Distributions: Distributions, UnivariateDistribution, Distribution,
 
 using PrecompileTools: @setup_workload, @compile_workload
 
-using LogExpFunctions: logsubexp, log1mexp
+using LogExpFunctions: logsubexp, log1mexp, logsumexp
 
 using SpecialFunctions: gamma, gamma_inc, loggamma, digamma
 

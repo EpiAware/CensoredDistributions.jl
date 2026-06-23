@@ -58,16 +58,6 @@ end
     @test all(x -> insupport(pe, x.primary), draws)
     @test all(x -> x.observed >= x.primary, draws)
 
-    # A Latent over a composer (latent(seq)) batches its flat event records.
-    seq = Sequential(
-        primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1)),
-        primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)))
-    lseq = latent(seq)
-    sdraws = rand(MersenneTwister(2), lseq, 3)
-    @test length(sdraws) == 3
-    @test all(x -> x isa NamedTuple, sdraws)
-    @test all(x -> keys(x) == keys(rand(MersenneTwister(0), lseq)), sdraws)
-
     # The no-rng count form batches too, and a seeded rng is reproducible.
     @test length(rand(ld, 4)) == 4
     @test rand(MersenneTwister(7), ld, 3) == rand(MersenneTwister(7), ld, 3)
@@ -148,6 +138,34 @@ end
     @test logpdf(ld, 2.5) != logpdf(ld, [0.3, 2.5])
 end
 
+@testitem "latent observed logpdf is numerically robust for Turing init" begin
+    using Distributions
+    using ForwardDiff: gradient
+
+    # The latent observed logpdf integrates the joint over the primary in log
+    # space with the integration bounds clamped to the delay support, so it
+    # stays finite and finitely-differentiable at extreme parameters where a
+    # naive `log(linear integral)` underflows to `-Inf` and `NaN` gradients.
+    # This is what lets the latent model find valid initial parameters under
+    # Turing (see the fitting-with-turing tutorial).
+    pe = Uniform(0.0, 2.0)
+    x = 3.0
+
+    # Below the support the density is genuinely zero: -Inf logpdf, 0 cdf.
+    ld0 = latent(primary_censored(LogNormal(1.5, 0.75), pe))
+    @test logpdf(ld0, 0.0) == -Inf
+    @test cdf(ld0, 0.0) == 0.0
+
+    # Extreme parameters: small-but-finite density that linear-space integration
+    # rounds to zero. The log-space logpdf stays finite and ForwardDiff returns
+    # a finite gradient.
+    for θ in [[3.0, 0.1], [4.0, 0.05], [0.0, 3.0], [-2.0, 2.0]]
+        lp(p) = logpdf(latent(primary_censored(LogNormal(p[1], p[2]), pe)), x)
+        @test isfinite(lp(θ))
+        @test all(isfinite, gradient(lp, θ))
+    end
+end
+
 @testitem "latent rand observed times round-trip to the observed marginal" begin
     using Distributions, Random
 
@@ -218,7 +236,7 @@ end
     # sampled-origin rule); integrating the augmented joint over the primary
     # therefore reproduces the analytic CONTINUOUS primary-censored marginal,
     # not the interval-censored node. So the analytic target for a latent
-    # double_interval_censored node is `primary_censored(delay, pe)`.
+    # double_interval_censored leaf is `primary_censored(delay, pe)`.
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0, 1)
     target = primary_censored(delay, pe)

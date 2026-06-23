@@ -183,16 +183,62 @@ function _latent_solver(d::Latent)
            node.method.solver
 end
 
-# Integrate `pdf(prior, p) * kernel(x - p)` over the primary window. `kernel`
-# is `pdf(delay, ·)` for the density and `cdf(delay, ·)` for the distribution
-# function. AD-safe: a fixed-node weighted sum whose accumulator type is taken
-# from the integrand.
-function _latent_integral(d::Latent, x::Real, kernel::K) where {K}
+# Primary-window integration bounds for an observed `x`. The conditional delay
+# `delay` at the implied gap `x - p` only has mass where `x - p > minimum(delay)`,
+# i.e. `p < x - minimum(delay)`. Clamping the upper bound to that point (rather
+# than integrating the full window and relying on `pdf(delay, ≤ 0) = 0`) keeps
+# every quadrature node strictly inside the delay support, away from the
+# `logpdf(delay, 0⁺) → -∞` boundary singularity. That stabilises the integrand
+# and, critically, its parameter gradient, mirroring how the analytic numeric
+# `primary_censored` path clamps its own integration bounds. Returns `lo == hi`
+# when `x` is below the support, signalling zero mass.
+function _latent_bounds(d::Latent, x::Real)
     prior = get_primary_event(d)
     delay = get_dist(d)
-    lo, hi = minimum(prior), maximum(prior)
+    lo = minimum(prior)
+    hi = min(maximum(prior), x - minimum(delay))
+    return lo, max(lo, hi)
+end
+
+# Integrate `pdf(prior, p) * kernel(x - p)` over the (clamped) primary window.
+# `kernel` is `pdf(delay, ·)` for the density and `cdf(delay, ·)` for the
+# distribution function. AD-safe: a fixed-node weighted sum whose accumulator
+# type is taken from the integrand.
+function _latent_integral(d::Latent, x::Real, kernel::K) where {K}
+    prior = get_primary_event(d)
+    lo, hi = _latent_bounds(d, x)
     integrand(p) = pdf(prior, p) * kernel(x - p)
     return integrate(_latent_solver(d), integrand, lo, hi)
+end
+
+# Log of the density integral, computed in LOG SPACE over the Gauss-Legendre
+# nodes so a tiny integrand (extreme parameters, far-tail observations) neither
+# underflows to `log(0) = -Inf` nor poisons the gradient with `NaN`. This is the
+# numerically robust analogue of `log(pdf(d, x))`: the linear integral takes the
+# log of a sum that can round to zero, while this sums log-densities with
+# `logsumexp` and never forms the tiny linear value. Used by the single-value
+# observed `logpdf` so the latent model is as init-robust as the analytic
+# marginal under Turing.
+#
+# The map `[-1, 1] -> [lo, hi]` contributes `log(h)`; each node contributes
+# `log(w_i) + log(pdf(prior, p_i)) + logpdf(delay, x - p_i)`. Falls back to
+# `log(pdf(d, x))` for a non-Gauss-Legendre solver (e.g. an Integrals.jl
+# algorithm), which does its own integration.
+function _latent_logpdf(d::Latent, x::Real)
+    solver = _latent_solver(d)
+    solver isa GaussLegendre || return log(pdf(d, x))
+    prior = get_primary_event(d)
+    delay = get_dist(d)
+    lo, hi = _latent_bounds(d, x)
+    hi <= lo && return oftype(float(x), -Inf)
+    h = (hi - lo) / 2
+    m = (lo + hi) / 2
+    nodes, weights = solver.rule.nodes, solver.rule.weights
+    log_terms = map(eachindex(nodes)) do i
+        p = m + h * nodes[i]
+        return log(weights[i]) + logpdf(prior, p) + logpdf(delay, x - p)
+    end
+    return log(h) + logsumexp(log_terms)
 end
 
 @doc "
@@ -210,13 +256,15 @@ pdf(d::Latent, x::Real) = _latent_integral(d, x, u -> pdf(get_dist(d), u))
 @doc "
 
 Observed-delay log density of `x` under the latent model, the single-value
-observed marginal: `log` of the augmented-data density integral (see
-[`pdf`](@ref)). Distinct from the joint `logpdf(d, [p, y])` (the
-primary-explicit score over the scored vector).
+observed marginal. Computed from the latent (augmented-data) formulation,
+integrating the joint over the primary in LOG SPACE (a `logsumexp` over the
+Gauss-Legendre nodes) so it stays finite and differentiable where the linear
+`log(pdf(d, x))` would underflow. Distinct from the joint `logpdf(d, [p, y])`
+(the primary-explicit score over the scored vector).
 
 See also: [`pdf`](@ref), [`cdf`](@ref)
 "
-logpdf(d::Latent, x::Real) = log(pdf(d, x))
+logpdf(d::Latent, x::Real) = _latent_logpdf(d, x)
 
 @doc "
 
