@@ -276,8 +276,57 @@ function _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector{<:Rea
     boundaries = isempty(boundary_pairs) ? T[] :
                  vcat([collect(pair) for pair in boundary_pairs]...)
 
-    # Return sorted unique boundaries without mutation
-    return sort(unique(boundaries))
+    # Return sorted unique boundaries without mutation. Sort first, then drop
+    # adjacent duplicates, rather than `unique` (which builds an internal
+    # `Dict` seen-set → a `DynamicDerivedRule{Dict{Any,Any}}` and a bitcast
+    # Mooncake reverse-mode refuses to differentiate, #699). The boundaries
+    # are functions of the (constant) lags, not the AD parameters, so this
+    # only affects which CDF evaluations happen, never their tangents.
+    return _sorted_unique(boundaries)
+end
+
+"""
+    _sorted_unique(v)
+
+Return the sorted unique elements of `v`. Equivalent to `sort(unique(v))`
+but implemented with a self-contained insertion sort and an adjacent-dedup
+pass, avoiding two things that break Mooncake reverse-mode (#699):
+
+  - the `Dict`-backed `unique` (a `DynamicDerivedRule{Dict{Any,Any}}`), and
+  - `Base`'s float sort, which reinterprets `Float64` as `UInt64` (the
+    IEEE-float radix optimisation, a bitcast Mooncake refuses).
+
+The boundaries are functions of the (constant) lags and carry no
+meaningful tangent, so insertion sort is purely to dodge the bitcast. The
+boundary count is `O(nlags)` (a few dozen here), so `O(n²)` is fine.
+"""
+function _sorted_unique(v::AbstractVector{T}) where {T}
+    n = length(v)
+    n == 0 && return T[]
+    # Insertion sort into a pre-sized buffer (no `reinterpret`/bitcast, no
+    # `push!`-driven array growth — the latter introduces `Union`-typed
+    # branches that break Enzyme's strict type analysis).
+    s = collect(T, v)
+    @inbounds for i in 2:n
+        x = s[i]
+        j = i - 1
+        while j >= 1 && isless(x, s[j])
+            s[j + 1] = s[j]
+            j -= 1
+        end
+        s[j + 1] = x
+    end
+    # Drop adjacent duplicates into a pre-sized buffer, then trim.
+    out = Vector{T}(undef, n)
+    out[1] = s[1]
+    m = 1
+    @inbounds for i in 2:n
+        if s[i] != s[i - 1]
+            m += 1
+            out[m] = s[i]
+        end
+    end
+    return out[1:m]
 end
 
 """
@@ -307,13 +356,79 @@ function _interval_cdf_eltype(d::IntervalCensored, x::AbstractVector{<:Real})
 end
 
 """
-    _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector, cdf_lookup::Dict)
+    _lookup_boundary_cdf(boundaries, cdf_values, b)
 
-Compute PDFs efficiently using cached CDF values.
+Look up the cached CDF for boundary `b` in the sorted, unique
+`boundaries` vector via `searchsortedfirst`. `boundaries` and
+`cdf_values` are parallel arrays produced by
+[`_compute_boundary_cdfs`](@ref); the index found in `boundaries` selects
+the matching `cdf_values` entry. Using parallel concretely-typed arrays
+plus an index lookup (rather than a `Dict{Any,Any}`) keeps the boundary
+CDF cache type-stable so the AD tangent type is tracked through it. The
+`Dict{Any,Any}` version forced a `DynamicDerivedRule{Dict{Any,Any}}` and
+a bitcast Mooncake reverse-mode refuses to differentiate (#699).
+"""
+function _lookup_boundary_cdf(boundaries::AbstractVector, cdf_values::AbstractVector, b)
+    idx = searchsortedfirst(boundaries, b)
+    return cdf_values[idx]
+end
+
+"""
+    _compute_boundary_cdfs(d::IntervalCensored, boundaries)
+
+Evaluate the boundary CDF once per unique boundary, returning a vector
+parallel to the sorted unique `boundaries`. `_cdf_ad_safe` keeps the
+`Gamma` path differentiable.
+
+The CDF values are kept in their natural type rather than converted to the
+boundary/data element type. The CDF carries the AD tangent w.r.t. the
+distribution parameters; converting it to the (constant) data eltype would
+strip a `Dual`/tracked number and drop the gradient (#699).
+
+Boundaries at or below `minimum(dist)` / at or above `maximum(dist)` get
+the literal CDF (`0` / `1`) instead of an evaluation, mirroring the scalar
+[`pdf`](@ref) method's boundary guard. This matters for reverse-mode AD:
+evaluating `_cdf_ad_safe` at a degenerate boundary (e.g. `LogNormal` at
+`0`) can produce a `-Inf`/`NaN` adjoint that poisons the reverse sweep even
+though the value itself is unused (the scalar path guards before the call).
+Keeping every boundary in the parallel arrays (with literal `0`/`1` seeds
+for the degenerate ones) also avoids the `KeyError` the old skip-and-`Dict`
+cache hit when a lag's interval bound landed exactly on `maximum(dist)`.
+"""
+function _compute_boundary_cdfs(d::IntervalCensored, boundaries::AbstractVector)
+    dist = get_dist(d)
+    dist_min = minimum(dist)
+    dist_max = maximum(dist)
+    # `partype(dist)` is the distribution's parameter type, which is the
+    # AD-tracked number type (e.g. a `Dual`) under differentiation. A zero of
+    # that type types the literal-branch `0`/`1` so the result vector stays
+    # type-stable and AD-aware WITHOUT evaluating `_cdf_ad_safe` at a
+    # degenerate boundary: doing so (e.g. `LogNormal` at `0`) produces a
+    # `-Inf`/`NaN` reverse adjoint that poisons the sweep even though `zero`
+    # discards the primal (the derivative is still taped). See #699.
+    z = zero(float(Distributions.partype(dist)))
+    return map(boundaries) do b
+        if b <= dist_min
+            z
+        elseif b >= dist_max
+            z + one(z)
+        else
+            _cdf_ad_safe(dist, b)
+        end
+    end
+end
+
+"""
+    _compute_pdfs_with_cache(d, x, boundaries, cdf_values)
+
+Compute PDFs efficiently using the cached boundary CDFs held in the
+parallel arrays `boundaries` (sorted, unique) and `cdf_values`.
 
 Uses the same boundary case handling as the scalar method.
 """
-function _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector{<:Real}, cdf_lookup::Dict)
+function _compute_pdfs_with_cache(
+        d::IntervalCensored, x::AbstractVector{<:Real},
+        boundaries::AbstractVector, cdf_values::AbstractVector)
     # Get distribution bounds once for boundary case handling
     dist_min = minimum(get_dist(d))
     dist_max = maximum(get_dist(d))
@@ -331,10 +446,12 @@ function _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector{<:Real}
 
         # Handle boundary cases for distributions with bounded support
         # For lower bound at or below distribution minimum, CDF is 0
-        cdf_lower = lower <= dist_min ? zero(T) : cdf_lookup[lower]
+        cdf_lower = lower <= dist_min ? zero(T) :
+                    _lookup_boundary_cdf(boundaries, cdf_values, lower)
 
         # For upper bound at or above distribution maximum, CDF is 1
-        cdf_upper = upper >= dist_max ? one(T) : cdf_lookup[upper]
+        cdf_upper = upper >= dist_max ? one(T) :
+                    _lookup_boundary_cdf(boundaries, cdf_values, upper)
 
         return max(cdf_upper - cdf_lower, zero(cdf_upper))
     end
@@ -354,33 +471,23 @@ function pdf(d::IntervalCensored, x::AbstractVector{<:Real})
     boundaries = _collect_unique_boundaries(d, x)
 
     # Element type for the CDF VALUES follows the distribution's parameter
-    # type so AD `Dual`/tracked numbers flow through the batched path;
-    # the dictionary KEYS stay at the (non-AD) evaluation/boundary type so
-    # lookups by `get_interval_bounds` values still hit.
+    # type so AD `Dual`/tracked numbers flow through the batched path.
     Tval = _interval_cdf_eltype(d, x)
     if isempty(boundaries)
         return fill(zero(Tval), length(x))
     end
 
-    # Compute CDFs once for all unique boundaries using functional approach.
-    # `_cdf_ad_safe` keeps the `Gamma` path differentiable; converting to the
-    # promoted value type preserves any AD numbers rather than stripping them.
-    #
-    # Boundaries at/below the distribution minimum or at/above its maximum are
-    # SKIPPED: `_compute_pdfs_with_cache` substitutes the `0`/`1` seeds for those
-    # cases and never looks them up, exactly mirroring the scalar `pdf` guard
-    # (`lower <= dist_min ? 0.0 : ...`). Differentiating `cdf` AT such a
-    # degenerate boundary (e.g. `cdf(LogNormal, 0.0)`, whose support starts at 0)
-    # produces a NaN gradient under ReverseDiff, so leaving them out of the cache
-    # keeps the batched path AD-safe and value-identical to the scalar loop.
-    dist_min = minimum(get_dist(d))
-    dist_max = maximum(get_dist(d))
-    cdf_lookup = Dict(
-        boundary => convert(Tval, _cdf_ad_safe(get_dist(d), boundary))
-    for boundary in boundaries if dist_min < boundary < dist_max)
+    # Compute CDFs once per unique boundary, stored in an array parallel to
+    # the sorted unique `boundaries`. A concretely-typed parallel array plus
+    # a `searchsortedfirst` index lookup replaces the old `Dict{Any,Any}`
+    # cache, which forced a dynamic rule and a bitcast Mooncake reverse-mode
+    # refuses to differentiate (#699). `_compute_boundary_cdfs` keeps the
+    # `Gamma` path differentiable and guards degenerate boundaries with typed
+    # `0`/`1` seeds (so they are never evaluated and never missing).
+    cdf_values = _compute_boundary_cdfs(d, boundaries)
 
     # Use cached values to compute PDFs efficiently
-    return _compute_pdfs_with_cache(d, x, cdf_lookup)
+    return _compute_pdfs_with_cache(d, x, boundaries, cdf_values)
 end
 
 @doc "
