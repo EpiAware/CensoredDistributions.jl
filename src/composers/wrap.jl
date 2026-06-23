@@ -4,29 +4,32 @@
 #
 # This layer defines what it MEANS to apply a censoring or truncation wrapper
 # (`primary_censored` / `interval_censored` / `double_interval_censored` /
-# `truncate_to_horizon`) ON TOP of a composer. It is the EXTERNAL direction:
-# combine first, then censor/truncate, the dual of the internal direction, which
-# specialises a composer whose internal nodes are already censored.
+# `truncate_to_horizon`) ON TOP of a composer. It is the node-level direction: a
+# censoring/truncation MODIFIER applies at ANY level — to a leaf OR to a whole
+# composed node alike (tenet 7) — and the modifier keeps the TREE SHAPE
+# unchanged, so the wrapped node is still record-scoreable.
 #
-# A censoring wrapper observes one scalar quantity. Each composer exposes its
-# observed scalar through `observed_distribution`:
-#   - `Convolved`  -> already the observed sum (itself);
-#   - `Resolve`  -> already the marginal time-to-resolution (itself);
-#   - `Sequential` -> the total elapsed time origin -> terminal event, i.e. the
-#     convolution of the chain steps.
-# A `Parallel` has several independent endpoints and so NO single observed
-# scalar; censoring a `Parallel` DISTRIBUTES the wrapper into every branch,
-# returning a `Parallel` of censored branches (each branch endpoint censored on
-# its own).
+# A modifier over a composer DISTRIBUTES the SHARED observation resolution DOWN
+# into the node's LEAF CORES, returning a node of the SAME shape whose leaves all
+# carry that one resolution:
+#   - `Sequential` -> a `Sequential` of the same step names whose every leaf core
+#     is wrapped (the origin step's primary anchors the latent origin once and
+#     each step is interval-/truncation-resolved), so `logpdf(wrapped, rows)`
+#     scores the per-event record exactly as the canonical per-leaf construction
+#     `Sequential(modifier(d_1), modifier(d_2), ...)` does;
+#   - `Parallel` -> a `Parallel` of the same branch names, each branch endpoint
+#     wrapped on its own (its branches hang off one shared origin);
+#   - `Choose` -> a `Choose` of the same alternatives, each wrapped.
+# Each leaf is reduced to its continuous CORE (`_marginal_core`) BEFORE the
+# modifier is reapplied, so wrapping an ALREADY-censored node re-resolves it at
+# the new resolution instead of stacking `PrimaryCensored{PrimaryCensored{...}}`.
 #
-# A `Choose` is a data-selected disjunction of independent alternatives, so a
-# wrapper distributes into every alternative and returns a `Choose` of wrapped
-# alternatives (the selected alternative's own observed scalar is wrapped).
-#
-# `Convolved` and `Resolve` are univariate, so the existing
-# `UnivariateDistribution` wrapper methods already accept them; this file adds
-# the `Sequential` (collapse-then-wrap), `Parallel` (distribute over branches)
-# and `Choose` (distribute over alternatives) cases.
+# `Convolved` and `Resolve` are univariate (the observed sum, resp. the marginal
+# time-to-resolution), so the existing `UnivariateDistribution` wrapper methods
+# already accept them and the SCALAR combine-then-censor lowering of a chain
+# total stays available EXPLICITLY through
+# `modifier(observed_distribution(seq))` / `modifier(convolve_distributions(...))`
+# — that is the dual, scalar direction, distinct from the node-level wrap here.
 # Dispatch on the composer type — no runtime predicate, no new hierarchy.
 
 @doc "
@@ -92,61 +95,91 @@ function _append_observed_leaves!(::Any, ::Parallel)
 end
 
 # ---------------------------------------------------------------------------
-# Sequential: collapse to the observed total, then censor.
+# Sequential: distribute the shared resolution into the leaf cores.
 # ---------------------------------------------------------------------------
+#
+# A modifier over a `Sequential` keeps the tree shape (tenet 7): it rebuilds the
+# SAME chain (same step names) with every leaf reduced to its continuous CORE and
+# re-wrapped at the shared resolution. The record scorer then applies the origin
+# step's primary once (at the latent origin E_0) and resolves each step's edge,
+# so `logpdf(wrapped, rows)` equals the canonical per-leaf construction
+# `Sequential(modifier(d_1), ..., modifier(d_k))`. A nested `Sequential` step
+# recurses; a nested `Parallel`/`Choose` step distributes through its own method,
+# so a chain whose step is a branching node stays scoreable (no collapse error).
+
+# Rebuild a composer node by applying `wrap_leaf` to each LEAF core, preserving
+# the tree shape and the step/branch/alternative names. A leaf is first reduced
+# to its continuous core (`_marginal_core`) so re-wrapping an already-censored
+# leaf re-resolves it rather than stacking censoring layers; a nested composer
+# recurses, keeping the structure unchanged.
+_distribute_into_leaves(d::UnivariateDistribution, wrap_leaf) = wrap_leaf(_marginal_core(d))
+function _distribute_into_leaves(d::Sequential, wrap_leaf)
+    return Sequential(
+        map(c -> _distribute_into_leaves(c, wrap_leaf), d.components), d.names)
+end
+function _distribute_into_leaves(d::Parallel, wrap_leaf)
+    return Parallel(
+        map(c -> _distribute_into_leaves(c, wrap_leaf), d.components), d.names)
+end
+function _distribute_into_leaves(d::Choose, wrap_leaf)
+    return Choose(d.names,
+        map(a -> _distribute_into_leaves(a, wrap_leaf), d.alternatives),
+        d.selector)
+end
 
 @doc "
 
-Primary-event-censor the total elapsed time of a [`Sequential`](@ref) chain.
+Primary-event-censor every leaf core of a [`Sequential`](@ref) chain.
 
-The chain is first collapsed to its observed quantity (the convolution of the
-steps via [`observed_distribution`](@ref)), then primary-censored. This is the
-combine-first-then-censor direction.
+The modifier distributes into the chain's leaves, returning a `Sequential` of the
+same step names whose every step delay is primary-censored. Tree shape is
+unchanged, so `logpdf(wrapped, rows)` scores the per-event record (the canonical
+per-leaf construction). The scalar combine-then-censor total stays available
+explicitly via `primary_censored(observed_distribution(d), primary_event)`.
 
 See also: [`primary_censored`](@ref), [`observed_distribution`](@ref)
 "
 function primary_censored(d::Sequential, primary_event::UnivariateDistribution;
         kwargs...)
-    return primary_censored(observed_distribution(d), primary_event; kwargs...)
+    return _distribute_into_leaves(
+        d, leaf -> primary_censored(leaf, primary_event; kwargs...))
 end
 
 function primary_censored(d::Sequential; kwargs...)
-    return primary_censored(observed_distribution(d); kwargs...)
+    return _distribute_into_leaves(d, leaf -> primary_censored(leaf; kwargs...))
 end
 
 @doc "
 
-Interval-censor (day-discretise) the total elapsed time of a
-[`Sequential`](@ref) chain.
+Interval-censor (day-discretise) every leaf core of a [`Sequential`](@ref) chain.
 
-The chain is collapsed to its observed total (see
-[`observed_distribution`](@ref)) before the interval boundaries are applied.
+The interval boundaries distribute into the chain's leaves, returning a
+`Sequential` of the same step names whose every step delay is interval-censored;
+tree shape is unchanged, so `logpdf(wrapped, rows)` scores the record. The scalar
+combine-then-censor total stays available via
+`interval_censored(observed_distribution(d), interval)`.
 
 See also: [`interval_censored`](@ref)
 "
 function interval_censored(d::Sequential, interval)
-    return interval_censored(observed_distribution(d), interval)
+    return _distribute_into_leaves(d, leaf -> interval_censored(leaf, interval))
 end
 
 @doc "
 
-Apply the full primary/truncation/interval pipeline to the total elapsed time
-of a [`Sequential`](@ref) chain.
+Apply the full primary/truncation/interval pipeline to every leaf core of a
+[`Sequential`](@ref) chain.
 
-The chain is collapsed to its observed total (see
-[`observed_distribution`](@ref)) before the pipeline runs.
+The pipeline distributes into the chain's leaves, returning a `Sequential` of the
+same step names whose every step delay carries the shared resolution; tree shape
+is unchanged, so `logpdf(wrapped, rows)` scores the per-event record exactly as
+the canonical per-leaf construction
+`Sequential(double_interval_censored(d_1; ...), ...)`. The scalar
+combine-then-censor chain total stays available explicitly via
+`double_interval_censored(observed_distribution(d); ...)`.
 
-See also: [`double_interval_censored`](@ref)
+See also: [`double_interval_censored`](@ref), [`observed_distribution`](@ref)
 "
-# Explicit keyword signature (NOT `; kwargs...`): forwarding a `kwargs...`
-# splat lowers to a dynamic `Core.kwcall`, which Enzyme cannot specialise. It
-# falls to `runtime_generic_augfwd` and then fails to allocate a shadow for the
-# freshly-built `Convolved` observed total (`EnzymeNoShadowError`). Naming
-# the keywords keeps the inner call statically dispatched, so Enzyme (and every
-# other backend) differentiates the `double_interval_censored(Sequential)` path.
-# `method` selects the primary-censoring solver (the migrated replacement for
-# the deprecated `force_numeric` flag); `force_numeric` is still forwarded so the
-# deprecation path keeps working through the composer wrapper.
 function double_interval_censored(
         d::Sequential;
         primary_event::UnivariateDistribution = Uniform(0, 1),
@@ -155,96 +188,95 @@ function double_interval_censored(
         interval::Union{Real, Nothing} = nothing,
         method::Union{AbstractSolverMethod, Nothing} = nothing,
         force_numeric = nothing)
-    return double_interval_censored(
-        observed_distribution(d);
-        primary_event = primary_event, lower = lower, upper = upper,
-        interval = interval, method = method, force_numeric = force_numeric)
+    return _distribute_into_leaves(d,
+        leaf -> double_interval_censored(leaf;
+            primary_event = primary_event, lower = lower, upper = upper,
+            interval = interval, method = method, force_numeric = force_numeric))
 end
 
 @doc "
 
-Right-truncate the total elapsed time of a [`Sequential`](@ref) chain to an
-observation `window`.
+Right-truncate every leaf core of a [`Sequential`](@ref) chain to an observation
+`window`.
 
-The chain is first collapsed to its observed quantity (the convolution of the
-steps via [`observed_distribution`](@ref)), then right-truncated, the same
-combine-first-then-truncate direction as
-[`interval_censored`](@ref)`(::Sequential)`.
+The right-truncation distributes into the chain's leaves, returning a
+`Sequential` of the same step names whose every step delay is right-truncated;
+tree shape is unchanged. The scalar combine-then-truncate chain total stays
+available via `truncate_to_horizon(observed_distribution(d), window)`.
 
 See also: [`truncate_to_horizon`](@ref), [`observed_distribution`](@ref)
 "
 function truncate_to_horizon(d::Sequential, window::Real)
-    return truncate_to_horizon(observed_distribution(d), window)
+    return _distribute_into_leaves(
+        d, leaf -> truncate_to_horizon(leaf, window))
 end
 
 # ---------------------------------------------------------------------------
-# Parallel: distribute the wrapper into every branch.
+# Parallel: distribute the wrapper into every branch's leaf core.
 # ---------------------------------------------------------------------------
 
 @doc "
 
-Primary-event-censor every branch of a [`Parallel`](@ref) independently.
+Primary-event-censor every branch core of a [`Parallel`](@ref) independently.
 
-A `Parallel` has several independent endpoints, so censoring distributes into
-each branch, returning a `Parallel` of primary-censored branches.
+A `Parallel` has several independent endpoints sharing one origin, so censoring
+distributes into each branch core, returning a `Parallel` of primary-censored
+branches (an already-censored branch is re-resolved, not double-wrapped).
 
 See also: [`primary_censored`](@ref)
 "
 function primary_censored(d::Parallel, primary_event::UnivariateDistribution;
         kwargs...)
-    return Parallel(
-        map(b -> primary_censored(b, primary_event; kwargs...), d.components),
-        d.names)
+    return _distribute_into_leaves(
+        d, leaf -> primary_censored(leaf, primary_event; kwargs...))
 end
 
 function primary_censored(d::Parallel; kwargs...)
-    return Parallel(
-        map(b -> primary_censored(b; kwargs...), d.components), d.names)
+    return _distribute_into_leaves(d, leaf -> primary_censored(leaf; kwargs...))
 end
 
 @doc "
 
-Interval-censor every branch of a [`Parallel`](@ref) independently.
+Interval-censor every branch core of a [`Parallel`](@ref) independently.
 
-Distributes the interval boundaries into each branch, returning a `Parallel` of
-interval-censored branches.
+Distributes the interval boundaries into each branch core, returning a `Parallel`
+of interval-censored branches.
 
 See also: [`interval_censored`](@ref)
 "
 function interval_censored(d::Parallel, interval)
-    return Parallel(
-        map(b -> interval_censored(b, interval), d.components), d.names)
+    return _distribute_into_leaves(d, leaf -> interval_censored(leaf, interval))
 end
 
 @doc "
 
-Apply the full primary/truncation/interval pipeline to every branch of a
+Apply the full primary/truncation/interval pipeline to every branch core of a
 [`Parallel`](@ref) independently.
 
-Distributes the pipeline into each branch, returning a `Parallel` of censored
-branches.
+Distributes the pipeline into each branch core, returning a `Parallel` of
+censored branches (an already-censored branch is re-resolved, not double-wrapped).
 
 See also: [`double_interval_censored`](@ref)
 "
 function double_interval_censored(d::Parallel; kwargs...)
-    return Parallel(
-        map(b -> double_interval_censored(b; kwargs...), d.components), d.names)
+    return _distribute_into_leaves(
+        d, leaf -> double_interval_censored(leaf; kwargs...))
 end
 
 @doc "
 
-Right-truncate every branch of a [`Parallel`](@ref) to an observation `window`
-independently.
+Right-truncate every branch core of a [`Parallel`](@ref) to an observation
+`window` independently.
 
 A `Parallel` has several independent endpoints, so right-truncation distributes
-into each branch, returning a `Parallel` of right-truncated branches (the same
-distribute idiom as [`interval_censored`](@ref)`(::Parallel)`).
+into each branch core, returning a `Parallel` of right-truncated branches (the
+same distribute idiom as [`interval_censored`](@ref)`(::Parallel)`).
 
 See also: [`truncate_to_horizon`](@ref)
 "
 function truncate_to_horizon(d::Parallel, window::Real)
-    return Parallel(
-        map(b -> truncate_to_horizon(b, window), d.components), d.names)
+    return _distribute_into_leaves(
+        d, leaf -> truncate_to_horizon(leaf, window))
 end
 
 # ---------------------------------------------------------------------------
@@ -276,14 +308,12 @@ See also: [`primary_censored`](@ref), [`Choose`](@ref)
 "
 function primary_censored(d::Choose, primary_event::UnivariateDistribution;
         kwargs...)
-    return Choose(d.names,
-        map(a -> primary_censored(a, primary_event; kwargs...),
-            d.alternatives), d.selector)
+    return _distribute_into_leaves(
+        d, leaf -> primary_censored(leaf, primary_event; kwargs...))
 end
 
 function primary_censored(d::Choose; kwargs...)
-    return Choose(d.names,
-        map(a -> primary_censored(a; kwargs...), d.alternatives), d.selector)
+    return _distribute_into_leaves(d, leaf -> primary_censored(leaf; kwargs...))
 end
 
 @doc "
@@ -296,8 +326,7 @@ of interval-censored alternatives (selector and names preserved).
 See also: [`interval_censored`](@ref), [`Choose`](@ref)
 "
 function interval_censored(d::Choose, interval)
-    return Choose(d.names,
-        map(a -> interval_censored(a, interval), d.alternatives), d.selector)
+    return _distribute_into_leaves(d, leaf -> interval_censored(leaf, interval))
 end
 
 @doc "
@@ -311,9 +340,8 @@ alternatives (selector and names preserved).
 See also: [`double_interval_censored`](@ref), [`Choose`](@ref)
 "
 function double_interval_censored(d::Choose; kwargs...)
-    return Choose(d.names,
-        map(a -> double_interval_censored(a; kwargs...), d.alternatives),
-        d.selector)
+    return _distribute_into_leaves(
+        d, leaf -> double_interval_censored(leaf; kwargs...))
 end
 
 @doc "
@@ -327,6 +355,6 @@ right-truncated alternatives (selector and names preserved).
 See also: [`truncate_to_horizon`](@ref), [`Choose`](@ref)
 "
 function truncate_to_horizon(d::Choose, window::Real)
-    return Choose(d.names,
-        map(a -> truncate_to_horizon(a, window), d.alternatives), d.selector)
+    return _distribute_into_leaves(
+        d, leaf -> truncate_to_horizon(leaf, window))
 end

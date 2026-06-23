@@ -33,10 +33,15 @@
             onset_notif = dic(Gamma(0.7, 20.0))))
     end
 
-    # An andv-style Choose tree over an index vs a coupled sourced branch.
+    # An andv-style Choose tree over an index vs a coupled sourced branch. The
+    # sourced alternative observes the chain TOTAL (a single scalar), so it uses
+    # the explicit scalar combine-then-censor form
+    # `dic(observed_distribution(Sequential(...)))`; a bare-node `dic(Sequential)`
+    # now distributes into leaves and would make the alternative multivariate.
     function andv_tree()
         index = dic(LogNormal(1.5, 0.4))
-        sourced = dic(Sequential(Normal(0.2, 0.6), LogNormal(1.5, 0.4)))
+        sourced = dic(observed_distribution(
+            Sequential(Normal(0.2, 0.6), LogNormal(1.5, 0.4))))
         return CensoredDistributions.choose(:index => index,
             :sourced => sourced; selector = :kind)
     end

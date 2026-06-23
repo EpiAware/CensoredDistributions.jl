@@ -763,9 +763,13 @@ function example_fixtures()
     # noise in the saturated tail — exercised by the dic fixtures already).
     conv_composed = convolve_distributions(
         affine(G(1.5, 2.0); shift = 0.5), LN(0.5, 0.4))
-    # Right-truncation over a composed tree: a Sequential chain bounded to a
-    # finite observation horizon (a censored/truncated wrapper over composed).
-    trunc_composed = truncate_to_horizon(seq, 20.0)
+    # Right-truncation of a composed chain's observed TOTAL: the chain is
+    # collapsed to its scalar combine-then-censor total via
+    # `observed_distribution`, then right-truncated, giving a univariate
+    # `Truncated` leaf. (A bare-node `truncate_to_horizon(seq)` now distributes
+    # the truncation into the leaf cores and stays multivariate, #655; this
+    # fixture intends the scalar total, so it uses the explicit collapse form.)
+    trunc_composed = truncate_to_horizon(observed_distribution(seq), 20.0)
 
     return InterfaceFixture[
         # A plain leaf has the full univariate interface (scalar moment + cdf),

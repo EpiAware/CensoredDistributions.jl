@@ -114,16 +114,19 @@ end
 @testitem "Parallel branch of primary_censored(Sequential) flat path" begin
     using Distributions, Random, Statistics
 
-    # `primary_censored(Sequential(...))` COLLAPSES the chain to a
-    # `PrimaryCensored{Convolved}` leaf, so the Parallel sits on the FLAT
-    # shared-origin path. The flat path strips each branch to its
-    # `_marginal_core`; the regression is that the nested `Convolved` must stay
-    # intact (not unwrap into its component VECTOR) so `rand`/`logpdf`/the
-    # `_param_eltype` machinery see a distribution, not a vector.
+    # `primary_censored(observed_distribution(Sequential(...)))` COLLAPSES the
+    # chain to a `PrimaryCensored{Convolved}` leaf (the explicit scalar
+    # combine-then-censor form), so the Parallel sits on the FLAT shared-origin
+    # path. The flat path strips each branch to its `_marginal_core`; the
+    # regression is that the nested `Convolved` must stay intact (not unwrap into
+    # its component VECTOR) so `rand`/`logpdf`/the `_param_eltype` machinery see a
+    # distribution, not a vector. (A bare-node `primary_censored(Sequential)` now
+    # distributes into leaves and stays multivariate — see test/composers/wrap.jl.)
     pe = Uniform(0.0, 1.0)
     coreA = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     seqbranch = primary_censored(
-        Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)), pe)
+        observed_distribution(Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))),
+        pe)
     d = Parallel((seqbranch, Exponential(1.0)), (:a, :b))
     @test CensoredDistributions._nested_trait(d.components) isa
           CensoredDistributions._Flat
@@ -163,10 +166,11 @@ end
     # Every branch endpoint is after the shared origin.
     @test all(>=(0), delaysA)
 
-    # `double_interval_censored(Sequential)` is the same collapse plus a
-    # secondary interval; it also rides the flat path and scores finitely.
+    # `double_interval_censored(observed_distribution(Sequential))` is the same
+    # collapse plus a secondary interval; it also rides the flat path and scores
+    # finitely.
     dbranch = double_interval_censored(
-        Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4));
+        observed_distribution(Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)));
         primary_event = pe, interval = 1.0)
     d2 = Parallel((dbranch, Exponential(1.0)), (:a, :b))
     @test isfinite(logpdf(d2, ev))
@@ -186,8 +190,8 @@ end
     ev_m = Vector{Union{Missing, Float64}}([missing, 3.0, 1.2])
     function f(theta, events)
         seqbranch = primary_censored(
-            Sequential(Gamma(theta[1], theta[2]),
-                LogNormal(theta[3], theta[4])), Uniform(0, 1))
+            observed_distribution(Sequential(Gamma(theta[1], theta[2]),
+                LogNormal(theta[3], theta[4]))), Uniform(0, 1))
         d = Parallel((seqbranch, Exponential(theta[5])), (:a, :b))
         return logpdf(d, events)
     end

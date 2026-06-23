@@ -1348,20 +1348,25 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
             [2.0, 1.0, 4.0, 1.5], (Constant(hanta_rows),))
     end
 
-    # External censoring wrappers over composers. Combine first, then
-    # censor: a Sequential collapses to the convolution of its steps (its
-    # observed total) before censoring, so the gradient flows through the
-    # numeric convolution and the interval/primary CDF. A Parallel distributes
-    # the wrapper into each branch. Guarded on the censoring wrappers existing
-    # so the AirspeedVelocity baseline (which lacks the composer overloads)
-    # skips them. Literal constructors keep Enzyme forward happy.
+    # External censoring wrappers over composers. The SCALAR combine-then-censor
+    # total is the explicit `observed_distribution(Sequential)` form: the chain
+    # collapses to the convolution of its steps (its observed total) before
+    # censoring, so the gradient flows through the numeric convolution and the
+    # interval/primary CDF. A Parallel distributes the wrapper into each branch.
+    # (The bare-node wrap now distributes into leaves and stays multivariate; the
+    # AD fixture for that record path is exercised elsewhere.) Guarded on the
+    # censoring wrappers existing so the AirspeedVelocity baseline (which lacks
+    # the composer overloads) skips them. Literal constructors keep Enzyme forward
+    # happy.
     if isdefined(CensoredDistributions, :Sequential)
         _push!("interval_censored(Sequential) over total",
             (θ,
                 obs) -> sum(
                 x -> logpdf(
                     interval_censored(
-                        Sequential(Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])),
+                        observed_distribution(
+                            Sequential(Gamma(θ[1], θ[2]),
+                            LogNormal(θ[3], θ[4]))),
                         1.0),
                     x),
                 obs),
@@ -1371,7 +1376,9 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
                 obs) -> sum(
                 x -> logpdf(
                     double_interval_censored(
-                        Sequential(Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4]));
+                        observed_distribution(
+                            Sequential(Gamma(θ[1], θ[2]),
+                            LogNormal(θ[3], θ[4])));
                         primary_event = Uniform(0.0, 1.0), interval = 1.0),
                     x),
                 obs),
