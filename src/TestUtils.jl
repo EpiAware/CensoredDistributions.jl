@@ -110,6 +110,14 @@ Base.@kwdef struct InterfaceFixture{D}
     to a multivariate composer whose `rand`/event vector can carry a `missing`
     slot (a censored `Parallel`/tree, a `Resolve` with an unobserved outcome)."
     missing_record::Bool = false
+    "Whether `rand(d)` returns a self-describing NamedTuple OUTCOME RECORD even
+    though the node has scalar marginal moments / cdf (`univariate = true`). True
+    for a standalone terminal `Resolve` / `Compete`: its `rand` returns the named
+    record of the outcome that fired (the fired slot present, the others
+    `missing`), while `mean`/`var`/`cdf` stay the scalar marginal via
+    `as_mixture`. The `rand isa Real` shape assertion is relaxed to a NamedTuple
+    record."
+    record_rand::Bool = false
 end
 
 # --- the checklist ----------------------------------------------------------
@@ -163,7 +171,8 @@ function test_interface(d; name::AbstractString = string(nameof(typeof(d))),
         subdensity_mass::Union{Nothing, Real} = nothing,
         integrate_upper::Real = 200.0,
         ad::Union{Nothing, Tuple{Function, Vector{Float64}}} = nothing,
-        missing_record::Bool = false, ad_gradient = nothing)
+        missing_record::Bool = false, record_rand::Bool = false,
+        ad_gradient = nothing)
     fix = InterfaceFixture(; name = name, dist = d, draw = draw, path = path,
         kind = kind, univariate = univariate, overall = overall,
         latent_moments = latent_moments, has_endpoint = has_endpoint,
@@ -171,7 +180,7 @@ function test_interface(d; name::AbstractString = string(nameof(typeof(d))),
         subdensity_mass = subdensity_mass === nothing ? nothing :
                           Float64(subdensity_mass),
         integrate_upper = Float64(integrate_upper), ad = ad,
-        missing_record = missing_record)
+        missing_record = missing_record, record_rand = record_rand)
     return test_interface(fix; ad_gradient = ad_gradient)
 end
 
@@ -226,8 +235,13 @@ function _check_moments_and_rand(d, fix)
         # A multivariate composer realisation is a labelled NamedTuple; a
         # univariate node is a bare scalar. A DEFECTIVE univariate leaf's `rand`
         # may return `missing` (the no-event outcome), so its realisation is
-        # `Real`-or-`missing`.
-        if fix.univariate
+        # `Real`-or-`missing`. A standalone terminal `Resolve` / `Compete`
+        # (`record_rand`) has scalar marginal moments but its `rand` returns the
+        # self-describing NamedTuple OUTCOME RECORD (which outcome fired), so its
+        # realisation is a NamedTuple even though it is univariate-collapsible.
+        if fix.record_rand
+            @test r isa NamedTuple
+        elseif fix.univariate
             @test fix.defective ? (r isa Real || r === missing) : r isa Real
         else
             @test r isa NamedTuple
@@ -779,8 +793,12 @@ function example_fixtures()
             draw = _insupport_event_draw(par),
             overall = :vector, latent_moments = true, has_endpoint = false,
             missing_record = true),
+        # A terminal `Resolve`: scalar marginal moments / cdf (via `as_mixture`),
+        # but `rand` returns the named outcome record (which outcome fired), so
+        # `record_rand` relaxes the `rand` shape check.
         InterfaceFixture(; name = "Resolve", dist = comp, draw = 4.0,
-            path = (:death,), univariate = true, overall = :scalar),
+            path = (:death,), univariate = true, overall = :scalar,
+            record_rand = true),
         InterfaceFixture(; name = "choose", dist = sel, draw = 3.0,
             kind = :index, path = (:index,), overall = :none,
             has_endpoint = false),
@@ -837,8 +855,11 @@ function example_fixtures()
         InterfaceFixture(; name = "ExponentiallyTilted", dist = et, draw = 2.0,
             univariate = true, overall = :scalar, ad = et_ad),
         # Compete (racing hazards): a univariate time-to-first-event marginal.
+        # Scalar marginal moments, but `rand` returns the named winning-cause
+        # record, so `record_rand` relaxes the `rand` shape check.
         InterfaceFixture(; name = "Compete", dist = cmp, draw = 2.0,
-            path = (:recovery,), univariate = true, overall = :scalar),
+            path = (:recovery,), univariate = true, overall = :scalar,
+            record_rand = true),
         # A DEFECTIVE Resolve (a no-event branch) nested in a Parallel: the
         # composer scores its event vector and the unobserved `:none` outcome
         # leaves a `missing` slot, exercising the sub-stochastic no-event

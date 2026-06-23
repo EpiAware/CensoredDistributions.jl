@@ -363,6 +363,11 @@ function child_rand!(out, offset, rng::AbstractRNG, c::AbstractOneOf)
     out[offset + 1] = _one_of_marginal_rand(rng, c)
     return nothing
 end
+# A nested `Choose` samples its FIRST alternative on the flat path, matching the
+# committed alternative the flat `child_logpdf` scores.
+function child_rand!(out, offset, rng::AbstractRNG, c::Choose)
+    return child_rand!(out, offset, rng, _flat_choose_alternative(c))
+end
 # A latent alternative samples its observed value through its marginal node on
 # the flat path (the latent primary is not part of the flat slot).
 function child_rand!(out, offset, rng::AbstractRNG, c::Latent)
