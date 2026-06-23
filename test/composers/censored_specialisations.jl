@@ -764,9 +764,14 @@ end
     @test keys(rs) == event_names(src)
     ri = rand(Xoshiro(3), sel; kind = :index)
     @test ri isa NamedTuple && length(ri) == 3
-    # Without a kind (forward simulation), a branch is sampled.
+    # Without a kind (forward simulation), a branch is sampled UNIFORMLY and the
+    # record is self-describing: the selector field names the drawn alternative,
+    # then that alternative's own labelled event fields. It round-trips through
+    # `logpdf` with no `kind`.
     r = rand(Xoshiro(5), sel)
     @test r isa NamedTuple
+    @test r.kind in (:index, :sourced)
+    @test isfinite(logpdf(sel, r))
 end
 
 @testitem "rand simulates a labelled record over a nested tree" begin

@@ -25,12 +25,19 @@ end
     # An unknown name is rejected.
     @test_throws ArgumentError logpdf(d, 3.0; kind = :missing_name)
     @test_throws ArgumentError rand(d; kind = :missing_name)
-    # A selection samples that alternative (seeded for determinism).
+    # A selection samples that alternative directly (the committed draw is the
+    # alternative's own raw value, no selector tag).
     x = rand(Xoshiro(1), d; kind = :a)
     @test x isa Real && x > 0
-    # Without a kind (forward simulation), an alternative is sampled.
+    # Without a kind (forward simulation) an alternative is sampled UNIFORMLY and
+    # the draw is a self-describing record: the selector field names the drawn
+    # alternative, and the value rides in `:value`. The record round-trips through
+    # `logpdf` with no `kind`.
     y = rand(Xoshiro(2), d)
-    @test y isa Real && y > 0
+    @test y isa NamedTuple
+    @test y.kind in (:a, :b)
+    @test y.value isa Real && y.value > 0
+    @test isfinite(logpdf(d, y))
 end
 
 @testitem "Choose rand samples the selected alternative's distribution" begin
@@ -175,4 +182,119 @@ end
     Random.seed!(11)
     draw = gen(d, (kind = :flat, value = missing))()
     @test draw isa Real && isfinite(draw)
+end
+
+@testitem "standalone Choose: bare rand tags the drawn alternative" begin
+    using CensoredDistributions, Distributions, Random
+
+    d = choose(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0))
+
+    # A bare draw (no kind) is a self-describing record: the selector field names
+    # the drawn alternative, the value rides in `:value`, and it round-trips
+    # through `logpdf` with no `kind` argument (the selector recovers the
+    # alternative).
+    draw = rand(MersenneTwister(1), d)
+    @test draw isa NamedTuple
+    @test keys(draw) == (:kind, :value)
+    @test draw.kind in (:short, :long)
+    @test draw.value isa Real
+
+    # Both alternatives are drawn over many samples, and every draw round-trips,
+    # with the score equal to the named alternative's own logpdf at the value.
+    function draw_and_check(rng, d, N)
+        seen_short = false
+        seen_long = false
+        for _ in 1:N
+            x = rand(rng, d)
+            @test isfinite(logpdf(d, x))
+            ref = logpdf(x.kind === :short ? Gamma(2.0, 1.0) : Gamma(5.0, 1.0),
+                x.value)
+            @test logpdf(d, x) ≈ ref
+            x.kind === :short ? (seen_short = true) : (seen_long = true)
+        end
+        return seen_short, seen_long
+    end
+    ss, sl = draw_and_check(MersenneTwister(42), d, 300)
+    @test ss && sl
+end
+
+@testitem "standalone Choose: custom selector names the tag field" begin
+    using CensoredDistributions, Distributions, Random
+
+    d = choose(:a => Gamma(2.0, 1.0), :b => LogNormal(0.5, 0.4);
+        selector = :variant)
+    draw = rand(MersenneTwister(2), d)
+    @test keys(draw) == (:variant, :value)
+    @test draw.variant in (:a, :b)
+    @test isfinite(logpdf(d, draw))
+
+    # The record's selector field is read by name: a record missing it errors
+    # clearly (no silent default), and a non-Symbol selector is rejected.
+    @test_throws ArgumentError logpdf(d, (value = 1.0,))
+    @test_throws ArgumentError logpdf(d, (variant = "a", value = 1.0))
+end
+
+@testitem "standalone Choose: bare rand over composer alternatives" begin
+    using CensoredDistributions, Distributions, Random
+
+    # Plain composer alternatives: the tagged record carries the selector plus the
+    # alternative's per-value fields, scored through the alternative's own logpdf.
+    sfast = Sequential((Gamma(1.0, 1.0), Gamma(1.0, 1.0)), (:a, :b))
+    sslow = Sequential((Gamma(2.0, 2.0), Gamma(2.0, 2.0)), (:c, :d))
+    d = choose(:fast => sfast, :slow => sslow)
+
+    rng = MersenneTwister(9)
+    seen = Set{Symbol}()
+    for _ in 1:100
+        x = rand(rng, d)
+        @test x isa NamedTuple
+        @test x.kind in (:fast, :slow)
+        @test isfinite(logpdf(d, x))
+        push!(seen, x.kind)
+    end
+    @test seen == Set((:fast, :slow))
+
+    # Censored composer alternatives round-trip too (the alternative's own event
+    # record rides under the selector tag).
+    ci = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1))
+    cseq = compose((onset_admit = ci,
+        admit_death = primary_censored(Gamma(1.5, 1.0), Uniform(0, 1))))
+    dc = choose(:x => cseq, :y => cseq)
+    rc = rand(MersenneTwister(2), dc)
+    @test rc isa NamedTuple
+    @test rc.kind in (:x, :y)
+    @test isfinite(logpdf(dc, rc))
+end
+
+@testitem "standalone Choose: batch rand(c, n) draws n tagged records" begin
+    using CensoredDistributions, Distributions, Random
+
+    d = choose(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0))
+    draws = rand(MersenneTwister(3), d, 50)
+    @test draws isa AbstractVector
+    @test length(draws) == 50
+    @test all(x -> x isa NamedTuple && x.kind in (:short, :long), draws)
+    # Every batched draw round-trips through logpdf.
+    @test all(x -> isfinite(logpdf(d, x)), draws)
+    # The no-rng count form works too.
+    @test length(rand(d, 5)) == 5
+end
+
+@testitem "standalone Choose: explicit kind still returns the raw draw" begin
+    using CensoredDistributions, Distributions, Random
+
+    d = choose(:short => Gamma(2.0, 1.0), :long => Gamma(5.0, 1.0))
+    # With an explicit kind the committed draw is the alternative's own raw value
+    # (no selector tag): the caller already named the alternative.
+    x = rand(MersenneTwister(1), d; kind = :short)
+    @test x isa Real
+    @test isfinite(logpdf(d, x; kind = :short))
+
+    # A composer alternative under explicit kind is its own labelled record (no
+    # selector tag added).
+    seq = Sequential((Gamma(1.0, 1.0), Gamma(1.0, 1.0)), (:a, :b))
+    dc = choose(:c => seq, :d => Gamma(3.0, 1.0))
+    rc = rand(MersenneTwister(1), dc; kind = :c)
+    @test rc isa NamedTuple
+    @test !haskey(rc, :kind)
 end
