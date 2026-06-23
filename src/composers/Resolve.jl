@@ -32,6 +32,47 @@ abstract type AbstractOneOf <: UnivariateDistribution{Continuous} end
 component_names(c::AbstractOneOf) = c.names
 _n_branches(c::AbstractOneOf) = length(c.names)
 
+# ---------------------------------------------------------------------------
+# Scalar marginal-time-to-resolution leaf of a one_of node
+# ---------------------------------------------------------------------------
+#
+# `observed_distribution(node)` returns the one_of node's SCALAR marginal time-to-
+# resolution as a plain univariate leaf, so `modifier(observed_distribution(node))`
+# stays the scalar combine-then-censor lowering (vs the node-level wrap, which
+# distributes the modifier into the outcome slots, #655). This thin wrapper forwards
+# the univariate interface to the node's OWN scalar methods (a `Resolve`'s mixture
+# density, a `Compete`'s racing-hazard `min_k D_k` density). It is NOT an
+# `AbstractOneOf`, so a censoring/truncation modifier over it scalar-collapses
+# through the generic `UnivariateDistribution` wrapper rather than re-distributing.
+struct OneOfMarginal{D <: AbstractOneOf} <: UnivariateDistribution{Continuous}
+    node::D
+end
+
+# Forward the scalar univariate interface to the wrapped node's own methods.
+get_dist(m::OneOfMarginal) = m.node
+params(m::OneOfMarginal) = params(m.node)
+Base.eltype(::Type{<:OneOfMarginal{D}}) where {D} = eltype(D)
+Base.minimum(m::OneOfMarginal) = minimum(m.node)
+Base.maximum(m::OneOfMarginal) = maximum(m.node)
+insupport(m::OneOfMarginal, x::Real) = insupport(m.node, x)
+logpdf(m::OneOfMarginal, x::Real) = logpdf(m.node, x)
+pdf(m::OneOfMarginal, x::Real) = pdf(m.node, x)
+cdf(m::OneOfMarginal, x::Real) = cdf(m.node, x)
+logcdf(m::OneOfMarginal, x::Real) = logcdf(m.node, x)
+ccdf(m::OneOfMarginal, x::Real) = ccdf(m.node, x)
+logccdf(m::OneOfMarginal, x::Real) = logccdf(m.node, x)
+quantile(m::OneOfMarginal, q::Real) = quantile(m.node, q)
+mean(m::OneOfMarginal) = mean(m.node)
+var(m::OneOfMarginal) = var(m.node)
+Base.rand(rng::AbstractRNG, m::OneOfMarginal) = rand(rng, m.node)
+
+# A `Resolve`'s marginal is the `MixtureModel` over its outcome delays, so prefer
+# that concrete univariate lowering (it carries no one_of dispatch and reuses the
+# Distributions mixture machinery). A `Compete` has no fixed-probability mixture
+# form (its winning probabilities are derived from the hazards), so its marginal
+# stays the forwarding `OneOfMarginal` over the racing-hazard `min_k D_k` density.
+_one_of_marginal(c::AbstractOneOf) = OneOfMarginal(c)
+
 @doc "
 
 Marker distribution for a NO-EVENT (absorbing) outcome of a [`resolve`](@ref)

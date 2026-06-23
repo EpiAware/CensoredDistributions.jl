@@ -19,15 +19,19 @@
 #     `Sequential(modifier(d_1), modifier(d_2), ...)` does;
 #   - `Parallel` -> a `Parallel` of the same branch names, each branch endpoint
 #     wrapped on its own (its branches hang off one shared origin);
-#   - `Choose` -> a `Choose` of the same alternatives, each wrapped.
+#   - `Choose` -> a `Choose` of the same alternatives, each wrapped;
+#   - `Resolve` / `Compete` (the one_of nodes) -> the SAME node with each
+#     OUTCOME's delay core wrapped, keeping the per-outcome slots so the result
+#     scores a record per outcome (the loser's slot is `missing`). A `NoEvent`
+#     no-event branch carries no delay and passes through unchanged.
 # Each leaf is reduced to its continuous CORE (`_marginal_core`) BEFORE the
 # modifier is reapplied, so wrapping an ALREADY-censored node re-resolves it at
 # the new resolution instead of stacking `PrimaryCensored{PrimaryCensored{...}}`.
 #
-# `Convolved` and `Resolve` are univariate (the observed sum, resp. the marginal
-# time-to-resolution), so the existing `UnivariateDistribution` wrapper methods
-# already accept them and the SCALAR combine-then-censor lowering of a chain
-# total stays available EXPLICITLY through
+# `Convolved` is univariate (the observed sum), so the existing
+# `UnivariateDistribution` wrapper methods accept it directly, and the SCALAR
+# combine-then-censor lowering of a chain total or a one_of marginal
+# time-to-resolution stays available EXPLICITLY through
 # `modifier(observed_distribution(seq))` / `modifier(convolve_distributions(...))`
 # — that is the dual, scalar direction, distinct from the node-level wrap here.
 # Dispatch on the composer type — no runtime predicate, no new hierarchy.
@@ -39,9 +43,13 @@ The univariate scalar a censoring wrapper observes for a composer.
 A censoring wrapper observes one quantity, so wrapping a composer first lowers
 it to that quantity:
 
-- a [`Convolved`](@ref) or [`Resolve`](@ref) is already univariate (the
-  observed sum, resp. the marginal time-to-resolution) and is returned
+- a [`Convolved`](@ref) is already univariate (the observed sum) and is returned
   unchanged;
+- a [`Resolve`](@ref) / [`Compete`](@ref) one_of node's observed quantity is the
+  marginal time-to-resolution, returned as the `MixtureModel` over its outcome
+  delays (via [`as_mixture`](@ref)); this is the SCALAR lowering used by
+  `modifier(observed_distribution(node))`, distinct from the node-level wrap that
+  distributes the modifier into the outcome slots;
 - a [`Sequential`](@ref) chain's observed quantity is the total elapsed time
   from origin to the terminal event, the convolution of its steps, returned as
   a [`Convolved`](@ref).
@@ -60,8 +68,18 @@ observed_distribution(seq)
 
 # See also
 - [`convolve_distributions`](@ref): the chain-step convolution
+- [`as_mixture`](@ref): the one_of marginal time-to-resolution
 "
 observed_distribution(d::UnivariateDistribution) = d
+
+# A one_of node's observed scalar is its marginal time-to-resolution. Returned
+# here as a univariate marginal leaf (NOT the node itself) so
+# `modifier(observed_distribution(node))` stays the SCALAR combine-then-censor
+# lowering even though a bare-node modifier now distributes into the outcome slots
+# (#655). The marginal forwards to the node's OWN scalar density (a `Resolve`'s
+# mixture, a `Compete`'s racing-hazard `min_k D_k`); a non-terminal one_of (a
+# composer-valued outcome) has no scalar marginal and errors there as before.
+observed_distribution(d::AbstractOneOf) = _one_of_marginal(d)
 
 function observed_distribution(d::Sequential)
     leaves = _observed_leaves(d.components)
@@ -126,6 +144,29 @@ function _distribute_into_leaves(d::Choose, wrap_leaf)
         map(a -> _distribute_into_leaves(a, wrap_leaf), d.alternatives),
         d.selector)
 end
+
+# A one_of node (`Resolve` / `Compete`) is a UnivariateDistribution (its scalar
+# marginal is the time-to-resolution), but it is a DISJUNCTION over outcome
+# delays, the dual of a `Choose`'s alternatives. So a modifier distributes into
+# each OUTCOME's delay core, keeping the per-outcome slot layout (the wrapped node
+# scores a record per outcome, the loser's slot `missing`), rather than collapsing
+# to the scalar marginal via the `UnivariateDistribution` leaf method. This more-
+# specific `AbstractOneOf` method shadows that leaf method. A `NoEvent` no-event
+# branch carries no delay (its mass is a survival/residual term) and is left
+# untouched. `_rebuild_one_of` keeps the node type: a `Resolve` retains its
+# `branch_probs`, a `Compete` its derived-hazard form.
+function _distribute_into_leaves(d::AbstractOneOf, wrap_leaf)
+    wrapped = map(d.delays) do delay
+        _is_no_event(delay) ? delay : _distribute_into_leaves(delay, wrap_leaf)
+    end
+    return _rebuild_one_of(d, wrapped)
+end
+
+# Rebuild a one_of node from its wrapped outcome delays, preserving the node type
+# and its probability data: a `Resolve` keeps its `branch_probs`, a `Compete`
+# derives the winning probabilities from the (wrapped) hazards.
+_rebuild_one_of(d::Resolve, delays) = Resolve(d.names, delays, d.branch_probs)
+_rebuild_one_of(d::Compete, delays) = Compete(d.names, delays)
 
 @doc "
 
@@ -355,6 +396,113 @@ right-truncated alternatives (selector and names preserved).
 See also: [`truncate_to_horizon`](@ref), [`Choose`](@ref)
 "
 function truncate_to_horizon(d::Choose, window::Real)
+    return _distribute_into_leaves(
+        d, leaf -> truncate_to_horizon(leaf, window))
+end
+
+# ---------------------------------------------------------------------------
+# Resolve / Compete (one_of): distribute the wrapper into every outcome's delay.
+# ---------------------------------------------------------------------------
+#
+# A one_of node is a DISJUNCTION over outcome delays (the dual of a `Choose`'s
+# alternatives): exactly one outcome resolves, the record observes the winner's
+# time and leaves the losers `missing`. A censoring/truncation modifier therefore
+# distributes into each OUTCOME's delay core and returns the SAME one_of node
+# (type and probabilities preserved) with every outcome wrapped, keeping the per-
+# outcome slot layout so `logpdf(wrapped, rows)` scores a record per outcome. This
+# mirrors the `Choose` distribute idiom; a `NoEvent` no-event branch is left
+# untouched (it carries no delay). The SCALAR combine-then-censor marginal time-
+# to-resolution stays available explicitly via
+# `modifier(observed_distribution(node))`.
+#
+# A bare-`AbstractOneOf` wrapper method is needed (rather than relying on the
+# `UnivariateDistribution` fallback, which a one_of subtypes): without it a
+# modifier over a one_of node would hit that leaf method and collapse to the
+# scalar marginal, dropping the outcome slots.
+
+@doc "
+
+Primary-event-censor every outcome's delay core of a [`Resolve`](@ref) /
+[`Compete`](@ref) one_of node independently.
+
+A one_of node is a disjunction over outcome delays, so censoring distributes into
+each outcome, returning the same one_of node (type and probabilities preserved)
+with every outcome's delay primary-censored. The per-outcome slot layout is kept,
+so the result scores a record per outcome. A `NoEvent` no-event branch is left
+untouched. The scalar marginal-time-to-resolution stays available via
+`primary_censored(observed_distribution(d), primary_event)`.
+
+See also: [`primary_censored`](@ref), [`Resolve`](@ref), [`Compete`](@ref)
+"
+function primary_censored(d::AbstractOneOf, primary_event::UnivariateDistribution;
+        kwargs...)
+    return _distribute_into_leaves(
+        d, leaf -> primary_censored(leaf, primary_event; kwargs...))
+end
+
+function primary_censored(d::AbstractOneOf; kwargs...)
+    return _distribute_into_leaves(d, leaf -> primary_censored(leaf; kwargs...))
+end
+
+@doc "
+
+Interval-censor every outcome's delay core of a [`Resolve`](@ref) /
+[`Compete`](@ref) one_of node independently.
+
+Distributes the interval boundaries into each outcome, returning the same one_of
+node with every outcome's delay interval-censored (per-outcome slots preserved).
+
+See also: [`interval_censored`](@ref), [`Resolve`](@ref), [`Compete`](@ref)
+"
+# `interval`/`window` are typed `::Real` here (unlike the Sequential/Parallel/
+# Choose methods, which need no annotation): a one_of node IS a
+# `UnivariateDistribution`, so without the `::Real` match these would be ambiguous
+# with the base `interval_censored(::UnivariateDistribution, ::Real)` /
+# `truncate_to_horizon(::UnivariateDistribution, ::Real)` leaf methods.
+function interval_censored(d::AbstractOneOf, interval::Real)
+    return _distribute_into_leaves(d, leaf -> interval_censored(leaf, interval))
+end
+
+@doc "
+
+Apply the full primary/truncation/interval pipeline to every outcome's delay core
+of a [`Resolve`](@ref) / [`Compete`](@ref) one_of node independently.
+
+Distributes the pipeline into each outcome, returning the same one_of node with
+every outcome's delay carrying the shared resolution; the per-outcome slot layout
+is unchanged, so `logpdf(wrapped, rows)` scores a record per outcome exactly as
+the canonical per-outcome construction
+`resolve(:a => (double_interval_censored(d_a; ...), p), ...)`. The scalar marginal
+time-to-resolution stays available via
+`double_interval_censored(observed_distribution(d); ...)`.
+
+See also: [`double_interval_censored`](@ref), [`Resolve`](@ref), [`Compete`](@ref)
+"
+function double_interval_censored(
+        d::AbstractOneOf;
+        primary_event::UnivariateDistribution = Uniform(0, 1),
+        lower::Union{Real, Nothing} = nothing,
+        upper::Union{Real, Nothing} = nothing,
+        interval::Union{Real, Nothing} = nothing,
+        method::Union{AbstractSolverMethod, Nothing} = nothing,
+        force_numeric = nothing)
+    return _distribute_into_leaves(d,
+        leaf -> double_interval_censored(leaf;
+            primary_event = primary_event, lower = lower, upper = upper,
+            interval = interval, method = method, force_numeric = force_numeric))
+end
+
+@doc "
+
+Right-truncate every outcome's delay core of a [`Resolve`](@ref) /
+[`Compete`](@ref) one_of node to an observation `window` independently.
+
+Distributes the right-truncation into each outcome, returning the same one_of node
+with every outcome's delay right-truncated (per-outcome slots preserved).
+
+See also: [`truncate_to_horizon`](@ref), [`Resolve`](@ref), [`Compete`](@ref)
+"
+function truncate_to_horizon(d::AbstractOneOf, window::Real)
     return _distribute_into_leaves(
         d, leaf -> truncate_to_horizon(leaf, window))
 end
