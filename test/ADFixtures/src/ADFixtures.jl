@@ -25,7 +25,7 @@ __precompile__(false)
 
 using CensoredDistributions
 using Distributions: Distributions, Gamma, LogNormal, Weibull, Uniform, Normal,
-                     truncated, logpdf, logccdf, cdf
+                     truncated, pdf, logpdf, logccdf, cdf
 using ADTypes: ADTypes, AutoForwardDiff, AutoReverseDiff, AutoMooncake,
                AutoMooncakeForward, AutoEnzyme
 using DifferentiationInterface: DifferentiationInterface, Constant
@@ -116,13 +116,28 @@ backend `name` from [`working_backends`](@ref).
 
 """
 function backend_broken_scenarios()
+    # The batched `pdf(::IntervalCensored, ::AbstractVector)` path collects
+    # interval boundaries through dynamically-grown / sliced arrays
+    # (`_collect_unique_boundaries`, `_sorted_unique`). Enzyme's strict type
+    # analysis rejects the resulting `Union`-typed temporaries with
+    # `IllegalTypeAnalysisException` (both modes). This predates #699 (the
+    # batched path always allocated this way) and is orthogonal to it: the
+    # #699 fix made the path Mooncake-reverse / ReverseDiff differentiable,
+    # which it now is. Enzyme on the batched vector path is tracked
+    # separately. The scalar `IntervalCensored` scenarios still work under
+    # Enzyme.
+    batched_interval = Set([
+        "IntervalCensored LogNormal regular batched pdf",
+        "IntervalCensored LogNormal regular batched logpdf",
+        "DoubleIntervalCensored LogNormal batched pdf"
+    ])
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => Set{String}(),
         "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => Set{String}(),
-        "Enzyme forward" => Set{String}()
+        "Enzyme reverse" => copy(batched_interval),
+        "Enzyme forward" => copy(batched_interval)
     )
 end
 
@@ -288,6 +303,35 @@ function scenarios(; with_reference::Bool = false)
                     upper = 10.0, interval = 1.0), x),
             obs),
         [1.0, 0.75], (Constant(obs_double),))
+
+    # Batched (vectorised) `pdf`/`logpdf` over an AbstractVector of lags.
+    # These hit the `pdf(::IntervalCensored, ::AbstractVector)` path, which
+    # evaluates each unique interval-boundary CDF once via the boundary cache
+    # rather than the `2·(n+1)` overlapping evals a scalar `pdf`-per-lag loop
+    # does. The old `Dict{Any,Any}` boundary cache forced a
+    # `DynamicDerivedRule{Dict{Any,Any}}` and a bitcast Mooncake reverse-mode
+    # refused to differentiate, so this whole batched path errored on
+    # `prepare_gradient_cache` (#699). The scalar scenarios above never
+    # exercised it. Passing the lag vector `obs` as the differentiated
+    # argument's data (a `Constant` context) keeps the gradient w.r.t. the
+    # delay params only.
+    obs_batch = collect(0.0:1.0:9.0)
+    _push!("IntervalCensored LogNormal regular batched pdf",
+        (θ, obs) -> sum(
+            pdf(interval_censored(LogNormal(θ[1], θ[2]), 1.0), obs)),
+        [1.0, 0.75], (Constant(obs_batch),))
+    _push!("IntervalCensored LogNormal regular batched logpdf",
+        (θ, obs) -> sum(
+            logpdf(interval_censored(LogNormal(θ[1], θ[2]), 1.0), obs)),
+        [1.0, 0.75], (Constant(obs_batch),))
+    _push!("DoubleIntervalCensored LogNormal batched pdf",
+        (θ,
+            obs) -> sum(
+            pdf(
+            double_interval_censored(LogNormal(θ[1], θ[2]);
+                primary_event = Uniform(0.0, 1.0),
+                upper = 10.0, interval = 1.0), obs)),
+        [1.0, 0.75], (Constant(obs_batch),))
 
     # Weighted scalar logpdf: a count/aggregated-data likelihood term
     # `n * logpdf(dist, x)`. The integer count is an inactive `Constant`
