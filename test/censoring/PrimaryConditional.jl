@@ -10,8 +10,6 @@
         @test logpdf(pc, y) ≈ logpdf(delay, y - p)
         @test pdf(pc, y) ≈ pdf(delay, y - p)
         @test cdf(pc, y) ≈ cdf(delay, y - p)
-        # The named function is the same as the distribution's logpdf.
-        @test primary_conditional_logpdf(d, p, y) ≈ logpdf(pc, y)
     end
 end
 

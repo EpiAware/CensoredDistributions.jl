@@ -41,7 +41,7 @@ export primary_censored, interval_censored, double_interval_censored,
        double_censored
 
 # Exported latent representation and its inverse
-export latent, marginal, PrimaryConditional, primary_conditional_logpdf
+export latent, marginal, PrimaryConditional
 
 # Exported marginal -> latent wrapper over a composed tree and its row deriver.
 export latent_segments, latent_records

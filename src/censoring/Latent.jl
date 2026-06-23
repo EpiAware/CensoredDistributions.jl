@@ -1,9 +1,9 @@
 @doc "
 
-Latent-variable wrapper turning a primary-censored node into its latent
+Latent-variable wrapper turning a primary-censored delay into its latent
 representation, sampling the primary event time rather than integrating it out.
 
-A latent primary-censored node is multivariate over the event times
+A latent primary-censored delay is multivariate over the event times
 `[primary, observed]`: the primary event time is a sampled latent variable
 rather than integrated out. `rand` produces `[primary, observed]` and
 `logpdf([primary, observed])` is the primary prior plus the conditional of the
@@ -80,6 +80,11 @@ Base.length(::Latent) = 2
 Base.eltype(::Type{<:Latent{D}}) where {D} = eltype(D)
 params(d::Latent) = params(d.dist)
 
+# Support of the observed-delay marginal: primary window plus the bare delay.
+minimum(d::Latent) = minimum(get_primary_event(d)) + minimum(get_dist(d))
+maximum(d::Latent) = maximum(get_primary_event(d)) + maximum(get_dist(d))
+insupport(d::Latent, x::Real) = minimum(d) <= x <= maximum(d)
+
 @doc "
 
 Draw a labelled latent event record `(primary = ..., observed = ...)`: a primary
@@ -122,13 +127,14 @@ Base.rand(d::Latent, n::Int) = rand(default_rng(), d, n)
 
 @doc "
 
-Log density of the latent event record: the primary prior density plus the
-[`PrimaryConditional`](@ref) of the observed time given the primary,
+Joint log density of the latent event record: the primary prior density plus
+the [`PrimaryConditional`](@ref) of the observed time given the primary,
 `logpdf(get_primary_event(d), p) + logpdf(PrimaryConditional(d, p), y)`.
 
 Accepts either the scored vector `[primary, observed]` or the labelled
 `NamedTuple` `(primary = ..., observed = ...)` (converted internally to the
-scored vector).
+scored vector). For the single-value observed marginal, call `logpdf(d, x)`
+with a scalar `x`, which integrates this joint over the primary.
 
 See also: [`PrimaryConditional`](@ref), [`rand`](@ref)
 "
@@ -142,12 +148,129 @@ end
 # observed]` vector internally. Keying is BY NAME, so field order does not
 # matter and an unexpected field errors.
 function logpdf(d::Latent, x::NamedTuple)
-    return logpdf(d, _latent_leaf_vector(x))
+    return logpdf(d, _latent_record_vector(x))
 end
 
-function _latent_leaf_vector(x::NamedTuple)
+function _latent_record_vector(x::NamedTuple)
     Set(keys(x)) == Set((:primary, :observed)) || throw(ArgumentError(
-        "a latent leaf record needs fields (:primary, :observed); got " *
+        "a latent event record needs fields (:primary, :observed); got " *
         "$(collect(keys(x)))"))
     return [x.primary, x.observed]
+end
+
+# Observed-delay interface via the augmented-data integral
+# --------------------------------------------------------
+# The observed-delay density and distribution function are computed from the
+# LATENT formulation: the primary event time is the augmented variable, and the
+# observed marginal is the joint integrated over it. This is genuinely distinct
+# from the analytic `primary_censored` marginal (the target), so comparing the
+# two is a real validation rather than a tautology.
+#
+# With prior `p ~ get_primary_event(d)` and the bare continuous delay
+# `get_dist(d)`, the conditional of the observed time is `delay` shifted by `p`
+# (the sampled-origin rule the joint `logpdf(d, [p, y])` already uses), so
+#   f_Y(y) = ∫ pdf(prior, p) · pdf(delay, y - p) dp     (= ∫ exp(logpdf(d,[p,y])) dp)
+#   F_Y(x) = ∫ pdf(prior, p) · cdf(delay, x - p) dp
+# over the primary window `[minimum(prior), maximum(prior)]`. The integral uses
+# the SAME Gauss-Legendre solver the primary-censored numeric path uses.
+
+# Resolve the quadrature solver: reuse the one carried by the wrapped
+# primary-censored node so the latent integral matches the package's numeric
+# path, falling back to the default 64-node rule for a bare delay.
+function _latent_solver(d::Latent)
+    node = _primary_censored_node(d)
+    return node === nothing ? GaussLegendre(; n = _PRIMARY_NODES) :
+           node.method.solver
+end
+
+# Integrate `pdf(prior, p) * kernel(x - p)` over the primary window. `kernel`
+# is `pdf(delay, ·)` for the density and `cdf(delay, ·)` for the distribution
+# function. AD-safe: a fixed-node weighted sum whose accumulator type is taken
+# from the integrand.
+function _latent_integral(d::Latent, x::Real, kernel::K) where {K}
+    prior = get_primary_event(d)
+    delay = get_dist(d)
+    lo, hi = minimum(prior), maximum(prior)
+    integrand(p) = pdf(prior, p) * kernel(x - p)
+    return integrate(_latent_solver(d), integrand, lo, hi)
+end
+
+@doc "
+
+Observed-delay density of `x` under the latent model, the joint integrated over
+the primary, `∫ pdf(prior, p) · pdf(delay, x - p) dp`. Computed from the latent
+(augmented-data) formulation by Gauss-Legendre quadrature over the primary
+window, NOT the analytic `primary_censored` marginal. Distinct from the joint
+`pdf(d, [p, y])`.
+
+See also: [`cdf`](@ref), [`logpdf`](@ref)
+"
+pdf(d::Latent, x::Real) = _latent_integral(d, x, u -> pdf(get_dist(d), u))
+
+@doc "
+
+Observed-delay log density of `x` under the latent model, the single-value
+observed marginal: `log` of the augmented-data density integral (see
+[`pdf`](@ref)). Distinct from the joint `logpdf(d, [p, y])` (the
+primary-explicit score over the scored vector).
+
+See also: [`pdf`](@ref), [`cdf`](@ref)
+"
+logpdf(d::Latent, x::Real) = log(pdf(d, x))
+
+@doc "
+
+Observed-delay cumulative distribution function of the latent model, the joint
+integrated over the primary, `∫ pdf(prior, p) · cdf(delay, x - p) dp`. Computed
+from the latent (augmented-data) formulation by Gauss-Legendre quadrature over
+the primary window, NOT the analytic `primary_censored` marginal. It agrees
+with that analytic marginal to quadrature tolerance.
+
+See also: [`logcdf`](@ref), [`ccdf`](@ref), [`pdf`](@ref)
+"
+function cdf(d::Latent, x::Real)
+    result = _latent_integral(d, x, u -> _cdf_ad_safe(get_dist(d), u))
+    return clamp(result, zero(result), one(result))
+end
+
+@doc "
+
+Observed-delay log cumulative distribution function of the latent model, the
+log of the augmented-data [`cdf`](@ref) integral.
+
+See also: [`cdf`](@ref)
+"
+logcdf(d::Latent, x::Real) = log(cdf(d, x))
+
+@doc "
+
+Observed-delay complementary cumulative distribution function (survival) of the
+latent model, `1 - cdf(d, x)` from the augmented-data integral.
+
+See also: [`logccdf`](@ref), [`cdf`](@ref)
+"
+ccdf(d::Latent, x::Real) = 1 - cdf(d, x)
+
+@doc "
+
+Observed-delay log complementary cumulative distribution function of the latent
+model, `log(ccdf(d, x))` from the augmented-data integral.
+
+See also: [`ccdf`](@ref)
+"
+logccdf(d::Latent, x::Real) = log(ccdf(d, x))
+
+@doc "
+
+Observed-delay quantile (inverse CDF) of the latent model, found by root-finding
+on the latent [`cdf`](@ref). The cdf is the augmented-data integral, so the
+quantile inverts the latent formulation rather than the analytic marginal.
+
+See also: [`cdf`](@ref)
+"
+function quantile(d::Latent, q::Real)
+    initial_guess_fn = function (d, q)
+        return [quantile(get_dist(d), q) + mean(get_primary_event(d))]
+    end
+    return _quantile_optimization(d, q; initial_guess_fn = initial_guess_fn)
 end

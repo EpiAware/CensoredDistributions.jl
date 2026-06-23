@@ -14,12 +14,12 @@ The submodel is `to_submodel`-able and dispatches on the type of `d`:
 - a [`latent`](@ref)-wrapped `d` (a [`Latent`](@ref) node) declares the primary
   event time as a latent variable inside the model (`p ~ get_primary_event(d)`)
   and scores the conditional of the observed time given that sampled `p` with
-  [`primary_conditional_logpdf`](@ref). The user never passes `p` in; it is
+  `logpdf(PrimaryConditional(d, p), y)`. The user never passes `p` in; it is
   sampled inside the submodel.
 
 For a coupled latent origin shared across records (for example a source's onset
 feeding an offspring's infection), the caller samples the shared primary in their
-own model and scores each record with `primary_conditional_logpdf(d, p_shared, y)`
+own model and scores each record with `logpdf(PrimaryConditional(d, p_shared), y)`
 directly, rather than wrapping with `latent`.
 
 This function has no methods until `DynamicPPL` (or `Turing`) is loaded; the
@@ -47,7 +47,7 @@ only(logjoint(demo(d, 2.0), (;))), logpdf(d, 2.0)
 ```
 
 # See also
-- [`latent`](@ref), [`primary_conditional_logpdf`](@ref), [`get_primary_event`](@ref)
+- [`latent`](@ref), [`PrimaryConditional`](@ref), [`get_primary_event`](@ref)
 - [`interval_censored_model`](@ref), [`double_interval_censored_model`](@ref)
 "
 function primary_censored_model end
