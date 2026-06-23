@@ -395,3 +395,47 @@ end
         @test logcdf(gg, t) ≈ log(cdf(gg, t))
     end
 end
+
+@testitem "hazard accessors interop with SurvivalDistributions" begin
+    using CensoredDistributions, Distributions
+    import SurvivalDistributions as SD
+    const CD = CensoredDistributions
+
+    # An SD leaf reads identically through our accessor and SD's own (both are
+    # the standard survival identities over `pdf`/`ccdf`).
+    gg = SD.GeneralizedGamma(1.0, 1.5, 2.0)
+    for t in (0.5, 1.5, 3.0)
+        @test CD.hazard(gg, t) ≈ SD.hazard(gg, t) rtol=1e-8
+        @test CD.loghazard(gg, t) ≈ SD.loghazard(gg, t) rtol=1e-8
+        @test CD.cumhazard(gg, t) ≈ SD.cumhazard(gg, t) rtol=1e-8
+    end
+
+    # An SD leaf as a composed univariate delay (interval-censored) agrees too.
+    ic = interval_censored(LogNormal(1.5, 0.5), 1.0)
+    for t in (1.0, 3.0, 5.0)
+        @test CD.cumhazard(ic, t) ≈ SD.cumhazard(ic, t) rtol=1e-8
+        @test CD.hazard(ic, t) ≈ SD.hazard(ic, t) rtol=1e-8
+    end
+
+    # SD's verb (`SD.hazard`) reaches the tree marginal of a `Sequential` /
+    # `Compete` through the package accessor: the extension forwards the verb
+    # composers so the same tree-level hazard is reachable from EITHER name.
+    seq = sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    for t in (1.0, 3.0, 6.0)
+        @test SD.hazard(seq, t) ≈ CD.hazard(seq, t) rtol=1e-10
+        @test SD.cumhazard(seq, t) ≈ CD.cumhazard(seq, t) rtol=1e-10
+        @test SD.loghazard(seq, t) ≈ CD.loghazard(seq, t) rtol=1e-10
+    end
+
+    # A tree of SD leaves: the chain's marginal hazard is the convolution's.
+    sdseq = sequential(SD.GeneralizedGamma(1.0, 1.5, 2.0), Gamma(1.5, 1.0))
+    conv = convolve_distributions(
+        SD.GeneralizedGamma(1.0, 1.5, 2.0), Gamma(1.5, 1.0))
+    for t in (1.0, 3.0)
+        @test CD.hazard(sdseq, t) ≈ pdf(conv, t) / ccdf(conv, t) rtol=1e-5
+    end
+
+    # `SD.hazard` on a Parallel raises the same ambiguity error as the accessor.
+    @test_throws ArgumentError SD.hazard(
+        parallel(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)), 2.0)
+end

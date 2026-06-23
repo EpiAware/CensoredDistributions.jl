@@ -315,6 +315,14 @@ include("composers/record_grouped.jl")
 # named_outputs.jl (the `_as_named` / `_output_names` labelling it reuses).
 include("composers/record_rand.jl")
 
+# Hazard accessors from a composed tree (north-star tenet 5): `hazard`,
+# `loghazard`, `cumhazard` and `survival` read the hazard surface of any composed
+# delay through the verbs. After the composer files and the censored
+# specialisations (`_marginal_core`) the `Sequential` marginal needs, and after
+# `Convolved` / `Modified`. The SurvivalDistributions extension aligns these with
+# `SurvivalDistributions.hazard` / `cumhazard` / `loghazard`.
+include("utils/hazards.jl")
+
 # Turing-free `primary_censored_model` function stub. Has no methods
 # until DynamicPPL is loaded; the methods live in the package extension.
 include("turing_models.jl")

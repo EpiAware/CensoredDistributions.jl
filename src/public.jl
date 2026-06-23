@@ -27,6 +27,13 @@ public primarycensored_uniform_cdf_formula
 # DynamicPPL extension to key parameter priors by child name.
 public component_names
 
+# Hazard accessors from a composed tree (public but not exported): `hazard`,
+# `loghazard`, `cumhazard` and `survival` read the hazard surface of any composed
+# delay through the verbs. Unexported so they do not clash with
+# `SurvivalDistributions.hazard` / `cumhazard` / `loghazard` when both packages
+# are loaded; the SurvivalDistributions extension makes the two coincide.
+public hazard, loghazard, cumhazard, survival
+
 # Composer-node extension contract (public but not exported): the three methods
 # a new composer node implements to walk the flat event vector. Reached by the
 # qualified name (`CensoredDistributions.child_nleaves` etc.), as the leaf hooks
