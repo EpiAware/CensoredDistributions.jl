@@ -575,65 +575,95 @@ size(mu_samples)
 md"""
 ## Fitting the latent form
 
-The marginal `double_interval_censored` model above integrates the primary
-event time out by the analytic closed form. The latent form is the same delay
-wrapped in [`latent`](@ref). It carries the primary as an explicit augmented
-variable, and its observed-delay `logpdf` is the augmented-data integral over
-the primary, evaluated numerically by the same Gauss-Legendre quadrature the
-package uses elsewhere.
+The marginal `primary_censored` form integrates the primary event time out by
+the analytic closed form. The latent form is the same delay wrapped in
+[`latent`](@ref). It carries the primary as an explicit augmented variable, and
+its observed-delay `logpdf` is the augmented-data integral over the primary,
+evaluated numerically by the same Gauss-Legendre quadrature the package uses
+elsewhere.
 
 This is tenet four in practice: latent versus marginal is just a wrapper, not a
-new model. We reuse the same priors, windows and observed counts, wrap each
-delay in `latent(...)`, and score the observed delays through the wrapper's
-observed `logpdf` weighted by the count.
+new model. The latent form models the CONTINUOUS observed time, so we compare it
+against the continuous `primary_censored` marginal on the same primary-censored
+draws. We define one model parameterised by the wrapper applied to the delay, so
+the marginal and latent fits differ by exactly that wrapper.
 """
 
-@model function latent_model(
-        pwindows, swindows, obs_times, observed, counts
+md"""
+We draw continuous primary-censored observations (no interval censoring) from
+the same true delay and a uniform primary window, then aggregate to counts.
+"""
+
+primary_window = Uniform(0, 2)
+
+primary_censored_draws = rand(
+    primary_censored(true_dist, primary_window), n
 )
+
+primary_counts = @chain DataFrame(obs = primary_censored_draws) begin
+    @groupby :obs
+    @combine :n = length(:obs)
+end;
+
+md"""
+The model takes the wrapped delay as an argument. Passing the plain
+`primary_censored` node fits the marginal form; passing `latent(...)` of the
+same node fits the latent form. Everything else is shared.
+"""
+
+@model function wrapper_model(make_delay, observed, counts)
     dist ~ to_submodel(latent_delay_dist())
-
-    ## The only change from the marginal model: wrap each delay in `latent`.
-    latent_dists = map(pwindows, obs_times, swindows) do pw, D, sw
-        latent(
-            double_interval_censored(
-            dist; primary_event = Uniform(0, pw), upper = D, interval = sw
-        )
-        )
-    end
-
-    ## The latent observed `logpdf` is the augmented-data integral over the
-    ## primary, so this scores the latent formulation directly.
-    for i in eachindex(latent_dists)
-        Turing.@addlogprob! counts[i] * logpdf(latent_dists[i], observed[i])
+    delay = make_delay(dist)
+    for i in eachindex(observed)
+        Turing.@addlogprob! counts[i] * logpdf(delay, observed[i])
     end
 end
 
 md"""
-We reuse the same windows and observed counts from the simulated data.
+The marginal fit passes the bare `primary_censored` node.
 """
 
-latent_mdl = @with simulated_counts begin
-    latent_model(
-        :pwindows, :swindows, :obs_times, :obs, :n
+marginal_primary_mdl = @with primary_counts begin
+    wrapper_model(
+        d -> primary_censored(d, primary_window), :obs, :n
     )
 end;
 
-latent_fit = sample(
-    latent_mdl,
+marginal_primary_fit = sample(
+    marginal_primary_mdl,
     NUTS(; adtype = AutoMooncakeForward()), MCMCThreads(), 1000, 4;
     chain_type = VNChain
 );
 
-summarystats(latent_fit)
+summarystats(marginal_primary_fit)
 
 md"""
-The latent fit recovers the same delay parameters as the marginal
-double-interval-censored model, confirming the two forms are one model scored
-two ways.
+The latent fit is the same model with the only change being `latent(...)`
+wrapping the same node.
+"""
+
+latent_primary_mdl = @with primary_counts begin
+    wrapper_model(
+        d -> latent(primary_censored(d, primary_window)), :obs, :n
+    )
+end;
+
+latent_primary_fit = sample(
+    latent_primary_mdl,
+    NUTS(; adtype = AutoMooncakeForward()), MCMCThreads(), 1000, 4;
+    chain_type = VNChain
+);
+
+summarystats(latent_primary_fit)
+
+md"""
+The latent fit recovers the same delay parameters as the marginal fit on the
+same data, confirming the two forms are one model scored two ways: the latent
+observed `logpdf` is the augmented-data integral, the marginal `logpdf` the
+analytic closed form, and they agree to quadrature tolerance.
 """
 
 plot_fit_with_truth(
-    latent_fit,
+    latent_primary_fit,
     (; mu = meanlog, sigma = sdlog)
 )

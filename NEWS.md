@@ -36,7 +36,11 @@
   quadrature, rather than delegating to the analytic marginal. This is a
   genuinely different computation from the analytic `primary_censored`
   marginal, and the two agree to quadrature tolerance, validating the
-  formulation. `marginal` is the inverse, unwrapping a `Latent` back to the
+  formulation. The observed `logpdf` integrates in log space with the
+  integration bounds clamped to the delay support, so it stays finite and
+  finitely differentiable at extreme parameters and far-tail observations,
+  which lets a Turing model on the latent form find valid initial
+  parameters. `marginal` is the inverse, unwrapping a `Latent` back to the
   censored node it carries. `PrimaryConditional` and `get_primary_event`
   support this path. The composed latent form (over a composer tree) is a
   follow-up.
