@@ -121,21 +121,31 @@ end
     using DifferentiationInterface: gradient
     using ForwardDiff: ForwardDiff
 
-    # The wrap-over-composer paths must differentiate: a
-    # Sequential collapsed then truncated/censored, a Parallel and a Choose with
-    # the wrapper distributed into branches/alternatives. θ = leaf
-    # LogNormal log-means; LogNormal keeps truncation `logcdf` off the Gamma
-    # shape-derivative path.
+    # The wrap-over-composer paths must differentiate. A modifier over a composed
+    # node now DISTRIBUTES into the leaf cores and keeps the tree shape (#655), so
+    # a wrapped Sequential/Parallel is multivariate and scores an event/value
+    # vector; the scalar combine-then-censor total is the explicit
+    # `modifier(observed_distribution(node))` form. θ = leaf LogNormal log-means;
+    # LogNormal keeps truncation `logcdf` off the Gamma shape-derivative path.
     function f(θ)
         a = LogNormal(θ[1], 0.5)
         b = LogNormal(θ[2], 0.4)
 
-        # Sequential: collapse-then-truncate and collapse-then-double-censor.
+        # Sequential, node-level wrap (distributes into leaves, tree shape kept).
+        # truncate_to_horizon adds no origin primary, so the chain scores a
+        # length-2 step-value vector; double_interval_censored adds the origin
+        # primary, so it scores a length-3 event vector [E_0, E_1, E_2].
         seq = Sequential(a, b)
-        s1 = logpdf(truncate_to_horizon(seq, 10.0), 3.0)
+        s1 = logpdf(truncate_to_horizon(seq, 10.0), [3.0, 5.0])
         s2 = logpdf(
             double_interval_censored(seq; primary_event = Uniform(0, 1),
-                upper = 12.0, interval = 1.0), 3.0)
+                upper = 12.0, interval = 1.0),
+            Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0]))
+        # Sequential, scalar combine-then-censor total via observed_distribution.
+        s2b = logpdf(
+            double_interval_censored(observed_distribution(seq);
+                primary_event = Uniform(0, 1), upper = 12.0, interval = 1.0),
+            3.0)
 
         # Parallel: distributed truncation + interval censoring.
         par = Parallel(a, b)
@@ -147,7 +157,7 @@ end
         s5 = logpdf(primary_censored(sel, Uniform(0, 1)), 2.0; kind = :index)
         s6 = logpdf(truncate_to_horizon(sel, 10.0), 3.0; kind = :sourced)
 
-        return s1 + s2 + s3 + s4 + s5 + s6
+        return s1 + s2 + s2b + s3 + s4 + s5 + s6
     end
 
     θ = [1.0, 0.5]
