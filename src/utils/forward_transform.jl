@@ -109,10 +109,11 @@ transform(d::UnivariateDistribution, op) = Transformed(d, op)
 Thin a delay by a reporting probability `p`: each event is reported with
 probability `p`, else nothing happens.
 
-`thin(d, p)` is the friendly constructor over the probabilistic one-of
+`thin(d, p)` produces a `Transformed(d, ThinOp(p))` that carries the same
+semantics as the probabilistic one-of
 `resolve(:event => (d, p), :none => (NoEvent(), 1 - p))` (see [`resolve`](@ref) /
-[`NoEvent`](@ref)). It is a first-class composable op, not a convolve-only forward
-scaler:
+[`NoEvent`](@ref)); it does not construct a `resolve` node. It is a first-class
+composable op, not a convolve-only forward scaler:
 
 - Under `logpdf` / `rand` it is the honest generative model. An event is reported
   with probability `p` (its time then drawn from `d`), else `missing`:
@@ -142,7 +143,7 @@ logpdf(d, 2.0) == log(0.3) + logpdf(LogNormal(1.5, 0.5), 2.0)
 ```
 
 # See also
-- [`resolve`](@ref), [`NoEvent`](@ref): the one-of `thin` builds under the hood
+- [`resolve`](@ref), [`NoEvent`](@ref): the one-of whose semantics `thin` carries
 - [`transform`](@ref): the generic forward transform
 - [`cumulative`](@ref): cumulative-sum a branch's series
 "
