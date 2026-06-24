@@ -12,10 +12,10 @@ concurrency:
 
 jobs:
   mooncake-reverse:
-    uses: ./.github/workflows/ad-backend.yaml
+    # Pinned to @main until EpiAware/.github tags @v1.
+    uses: EpiAware/.github/.github/workflows/ad-backend.yml@main
     with:
       name: Mooncake reverse
       tag: mooncake_reverse
       flag: ad-mooncake-reverse
-    secrets:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}  # pragma: allowlist secret
+    secrets: inherit  # pragma: allowlist secret

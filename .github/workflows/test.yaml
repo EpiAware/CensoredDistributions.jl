@@ -1,5 +1,13 @@
 name: Test
 
+# Thin caller: delegates to the shared EpiAware reusable workflows
+# (EpiAware/.github). Package-specific inputs (the Julia version matrix)
+# are passed here; the matrix definition, step ordering and skip_quality
+# convention live in the reusable workflow. See EpiAware/.github#8.
+#
+# NOTE: pinned to @main until EpiAware/.github tags @v1; switch to @v1 once
+# that tag exists.
+
 on:
   push:
     branches:
@@ -13,45 +21,19 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental || false }}
-    strategy:
-      fail-fast: true
-      matrix:
-        julia-version: ['1', 'lts', 'pre']
-        os: [ubuntu-latest, windows-latest, macOS-latest]
-        include:
-          - julia-version: 'pre'
-            experimental: true
-    env:
-      JULIA_CI_EXPERIMENTAL: ${{ matrix.experimental || false }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: julia-actions/setup-julia@v3
-        with:
-          version: ${{ matrix.julia-version }}
-      - uses: julia-actions/cache@v3
-      - uses: julia-actions/julia-buildpkg@v1
-      - uses: julia-actions/julia-runtest@v1
-        with:
-          test_args: ${{ (matrix.julia-version != '1' || matrix.os == 'windows-latest') && 'skip_quality' || '' }}
+    uses: EpiAware/.github/.github/workflows/tests.yml@main
+    with:
+      julia_versions: '["1", "lts", "pre"]'
+      os: '["ubuntu-latest", "windows-latest", "macOS-latest"]'
+      experimental_versions: '["pre"]'
+    secrets: inherit  # pragma: allowlist secret
 
   downgrade-compat:
-    name: Downgrade Compat
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: julia-actions/setup-julia@v3
-        with:
-          version: '1.10'
-      - uses: julia-actions/julia-downgrade-compat@v2
-        with:
-          mode: deps
-      - uses: julia-actions/cache@v3
-      - uses: julia-actions/julia-buildpkg@v1
-      - uses: julia-actions/julia-runtest@v1
-        with:
-          test_args: skip_quality
+    uses: EpiAware/.github/.github/workflows/downgrade.yml@main
+    with:
+      julia_version: '1.10'
+      mode: deps
+    secrets: inherit  # pragma: allowlist secret
 
   # AD gradient tests run per backend in dedicated workflows
   # (ad-<backend>.yaml) so each backend has its own status badge and a

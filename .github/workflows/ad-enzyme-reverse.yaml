@@ -12,10 +12,10 @@ concurrency:
 
 jobs:
   enzyme-reverse:
-    uses: ./.github/workflows/ad-backend.yaml
+    # Pinned to @main until EpiAware/.github tags @v1.
+    uses: EpiAware/.github/.github/workflows/ad-backend.yml@main
     with:
       name: Enzyme reverse
       tag: enzyme_reverse
       flag: ad-enzyme-reverse
-    secrets:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}  # pragma: allowlist secret
+    secrets: inherit  # pragma: allowlist secret

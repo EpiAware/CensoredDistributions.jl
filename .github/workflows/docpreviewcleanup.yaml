@@ -1,30 +1,22 @@
 name: Doc Preview Cleanup
 
+# Thin caller: delegates to the shared EpiAware docs-preview-cleanup
+# workflow (EpiAware/.github). See EpiAware/.github#8.
+#
+# NOTE: pinned to @main until EpiAware/.github tags @v1; switch to @v1 once
+# that tag exists.
+
 on:
   pull_request:
     types: [closed]
 
+permissions:
+  contents: write
+
 jobs:
   doc-preview-cleanup:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout gh-pages branch
-        uses: actions/checkout@v6
-        with:
-          ref: gh-pages
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Delete preview and history + push changes
-        run: |
-            if [ -d "previews/PR$PRNUM" ]; then
-              git config user.name "CensoredDistributions.jl"
-              git config user.email "action@github.com"
-              git rm -rf "previews/PR$PRNUM"
-              git commit -m "delete preview for PR$PRNUM"
-              git branch gh-pages-new $(echo "delete history" | git commit-tree HEAD^{tree})
-              git push --force origin gh-pages-new:gh-pages
-            fi
-        env:
-            PRNUM: ${{ github.event.number }}
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    uses: EpiAware/.github/.github/workflows/docs-preview-cleanup.yml@main
+    with:
+      git_user_name: CensoredDistributions.jl
+      git_user_email: action@github.com
+    secrets: inherit  # pragma: allowlist secret

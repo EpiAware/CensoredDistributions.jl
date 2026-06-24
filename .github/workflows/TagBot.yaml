@@ -1,4 +1,12 @@
 name: TagBot
+
+# Thin caller: delegates to the shared EpiAware TagBot workflow
+# (EpiAware/.github). The triggers and the JuliaTagBot actor guard stay
+# here; DOCUMENTER_KEY is inherited. See EpiAware/.github#8.
+#
+# NOTE: pinned to @main until EpiAware/.github tags @v1; switch to @v1 once
+# that tag exists.
+
 on:
   issue_comment:
     types:
@@ -7,12 +15,11 @@ on:
     inputs:
       lookback:
         default: "3"
+
 jobs:
   TagBot:
     if: github.event_name == 'workflow_dispatch' || github.actor == 'JuliaTagBot'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: JuliaRegistries/TagBot@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          ssh: ${{ secrets.DOCUMENTER_KEY }}
+    uses: EpiAware/.github/.github/workflows/tagbot.yml@main
+    with:
+      lookback: ${{ github.event.inputs.lookback || '3' }}
+    secrets: inherit  # pragma: allowlist secret

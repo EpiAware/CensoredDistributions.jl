@@ -12,10 +12,10 @@ concurrency:
 
 jobs:
   reversediff:
-    uses: ./.github/workflows/ad-backend.yaml
+    # Pinned to @main until EpiAware/.github tags @v1.
+    uses: EpiAware/.github/.github/workflows/ad-backend.yml@main
     with:
       name: ReverseDiff (tape)
       tag: reversediff
       flag: ad-reversediff
-    secrets:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}  # pragma: allowlist secret
+    secrets: inherit  # pragma: allowlist secret

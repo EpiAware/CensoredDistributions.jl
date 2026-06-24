@@ -12,10 +12,10 @@ concurrency:
 
 jobs:
   forwarddiff:
-    uses: ./.github/workflows/ad-backend.yaml
+    # Pinned to @main until EpiAware/.github tags @v1.
+    uses: EpiAware/.github/.github/workflows/ad-backend.yml@main
     with:
       name: ForwardDiff
       tag: forwarddiff
       flag: ad-forwarddiff
-    secrets:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}  # pragma: allowlist secret
+    secrets: inherit  # pragma: allowlist secret
