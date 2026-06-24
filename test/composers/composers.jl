@@ -557,8 +557,11 @@ end
 
     tree = compose((onset_admit = LogNormal(1.5, 0.4),
         admit_death = Gamma(2.0, 1.0)))
-    # event_names is the FLAT per-event tuple (origin + one per leaf edge).
-    @test event_names(tree) == (:onset, :admit, :death)
+    # event_names is the per-RECORD key space: exactly the keys of `rand(d)`.
+    # This PLAIN (uncensored) stack realises one value per edge with no latent
+    # origin, so the keys are the branch/edge names (NOT a split flat path).
+    @test event_names(tree) == (:onset_admit, :admit_death)
+    @test event_names(tree) == keys(rand(tree))
     # event_tree keys are the top-level child names.
     @test keys(event_tree(tree)) == (:onset_admit, :admit_death)
     @test event(tree, :admit_death) == Gamma(2.0, 1.0)
@@ -578,6 +581,47 @@ end
         :disch => (Gamma(2.0, 1.5), 0.7))
     @test keys(event_tree(c)) == (:death, :disch)
     @test event(c, :death) == Gamma(1.5, 1.0)
+end
+
+@testitem "event_names equals the actual rand/logpdf record keys (#712)" begin
+    using Distributions, Random
+
+    # A PLAIN named-branch Parallel keys its record on the BRANCH names, NOT a
+    # positional `:event_i` flat path. `event_names` must match `keys(rand(d))`
+    # (the bug: it returned `(:event_1, :event_2, :event_3)`).
+    par = compose((a = LogNormal(1.5, 0.5), b = Gamma(2.0, 1.0)))
+    @test event_names(par) == (:a, :b)
+    @test event_names(par) == keys(rand(Xoshiro(1), par))
+    @test event_names(par) == keys(rand(Xoshiro(1), latent(par)))
+
+    # A Sequential with UNDERSCORE edge names: a plain stack keys on the edge
+    # names; the underscore split is only the latent/censored flat path.
+    seq = compose((onset_admit = LogNormal(1.5, 0.5),
+        admit_death = Gamma(2.0, 1.0)))
+    @test event_names(seq) == (:onset_admit, :admit_death)
+    @test event_names(seq) == keys(rand(Xoshiro(1), seq))
+
+    # The SAME stack censored realises the flat event path, and `event_names`
+    # follows that schema, still matching `keys(rand(d))`.
+    cseq = compose((
+        onset_admit = double_interval_censored(
+            LogNormal(1.5, 0.5); primary_event = Uniform(0, 1), interval = 1.0),
+        admit_death = double_interval_censored(
+            Gamma(2.0, 1.0); primary_event = Uniform(0, 1), interval = 1.0)))
+    @test event_names(cseq) == (:onset, :admit, :death)
+    @test event_names(cseq) == keys(rand(Xoshiro(1), cseq))
+
+    # A standalone Choose: its record keys are the selector form `(:kind,
+    # :value)` from `rand`, but its `event_names` is the alternative names (the
+    # active alternative is data-selected). Documented as the alternative names.
+    ch = choose((a = Gamma(2.0, 1.0), b = LogNormal(1.0, 0.5)))
+    @test event_names(ch) == (:a, :b)
+
+    # A standalone Resolve realises the flat event record directly, so
+    # `event_names == keys(rand(c))`.
+    res = resolve(:death => (Gamma(2.0, 1.0), 0.3),
+        :disch => (LogNormal(1.0, 0.5), 0.7))
+    @test event_names(res) == keys(rand(Xoshiro(1), res))
 end
 
 @testitem "params_table is transparent to a censored leaf" begin

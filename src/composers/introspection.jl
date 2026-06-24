@@ -1136,17 +1136,27 @@ end
 
 @doc "
 
-The FLAT event names of a composed distribution.
+The per-record key names of a composed distribution.
 
-`event_names(d)` returns the tuple of event names in the SAME flat depth-first
-layout as a `rand(latent(d))` draw and the per-event
-[`mean`](@ref)`(latent(d))`/`var(latent(d))`/`std(latent(d))`: the root origin
-event followed by one target event per leaf edge.
-An inner composer's events are exposed, so `compose((path = [a, b],))` lists the
-inner `(:onset, ...)` events rather than just the `(:path,)` edge. Event names
-are derived from the edge names (an edge `:onset_admit` gives origin `:onset` and
-target `:admit`); a positional default edge contributes `:event_i`. These EVENT
-names key a data ROW, distinct from the nested EDGE/child structure of
+`event_names(d)` returns the tuple of names keying one drawn/scored record,
+EXACTLY the keys of `rand(d)`, `rand(latent(d))`, and the `NamedTuple` a
+`logpdf(d, ::NamedTuple)` accepts, in the same order. The names follow the
+RECORD SCHEMA the distribution actually realises:
+
+  - A CENSORED composer (one carrying a primary-censoring event) realises the
+    flat EVENT path — the root origin event then one target event per leaf edge
+    — so its keys are the flat event names. These are derived from the edge
+    names (an edge `:onset_admit` gives origin `:onset` and target `:admit`); a
+    positional default edge contributes `:event_i`.
+  - A PLAIN (uncensored) composer realises one value per leaf edge with no
+    latent origin, so its keys are the BRANCH/edge names themselves
+    (`compose((a = ..., b = ...))` keys on `(:a, :b)`, a nested chain joining
+    with `_`). The edge names are NOT split here: a plain branch named `:a`
+    appears as `:a`, matching `keys(rand(d))`.
+
+An inner composer's events are exposed, so a nested `compose((path = [a, b],))`
+flattens the inner layout rather than stopping at the `(:path,)` edge. These
+record keys are distinct from the nested EDGE/child structure of
 [`event_tree`](@ref) (whose first level is the top-level child names).
 
 # Examples
@@ -1163,9 +1173,13 @@ event_names(tree)
 - [`event`](@ref): fetch a child or subtree by name path
 - [`params_table`](@ref): the parameter table
 "
-function event_names(d::Union{Sequential, Parallel, AbstractOneOf})
-    return _flat_event_names(d)
+function event_names(d::Union{Sequential, Parallel})
+    return _output_names(d)
 end
+# A standalone disjunction (`Resolve` / `Compete`) realises the flat event
+# record directly (a positional origin slot then one slot per outcome), so its
+# record keys ARE the flat event names — `event_names == keys(rand(c))` already.
+event_names(c::AbstractOneOf) = _flat_event_names(c)
 # A `Choose` has no single flat layout (the active alternative is data-selected),
 # so its flat event names are its alternative names.
 event_names(d::Choose) = d.names

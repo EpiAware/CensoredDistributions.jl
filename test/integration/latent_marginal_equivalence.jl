@@ -19,13 +19,15 @@
 @testitem "marginal == latent-integrated: bare two-edge chain" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, convolve_distributions,
-                                 composed_distribution_model, event_names
+                                 composed_distribution_model, _flat_event_names
     using DynamicPPL: VarInfo, logjoint
 
     inc = LogNormal(1.5, 0.4)
     delta = Normal(0.3, 0.6)
     seq = Sequential((delta, inc), (:src_inf, :inf_onset))
-    en = event_names(seq)                     # (:src, :inf, :onset)
+    # Flat LATENT event path for the row schema (the split origin/target names);
+    # the public `event_names` follows the bare rand/logpdf record keys.
+    en = _flat_event_names(seq)               # (:src, :inf, :onset)
     chain = latent(seq)
 
     # Origin observed (srconset = 0), intermediate (infection) sampled, terminal
@@ -78,7 +80,7 @@ end
 @testitem "marginal == latent-integrated: 3-edge chain, sampled intermediate" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, composed_distribution_model,
-                                 event_names
+                                 _flat_event_names
     using DynamicPPL: VarInfo, logjoint
 
     # A three-edge bare chain: origin observed, the first intermediate SAMPLED, the
@@ -90,7 +92,9 @@ end
     e2 = Gamma(2.0, 0.8)
     e3 = LogNormal(0.6, 0.3)
     seq = Sequential((e1, e2, e3), (:a_b, :b_c, :c_d))
-    en = event_names(seq)                     # (:a, :b, :c, :d)
+    # Flat LATENT path for the row schema (the split names), not the public
+    # `event_names` (the bare rand/logpdf record keys).
+    en = _flat_event_names(seq)               # (:a, :b, :c, :d)
     chain = latent(seq)
 
     function latent_int(b_unused, c, d; n = 50_000)
@@ -542,7 +546,7 @@ end
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, Resolve,
                                  convolve_distributions,
-                                 composed_distribution_model, event_names
+                                 composed_distribution_model, _flat_event_names
     using DynamicPPL: VarInfo, logjoint
 
     # onset(observed) -> admit(SAMPLED) -> {death(observed), discharge}. The latent
@@ -559,7 +563,7 @@ end
     cfr = 0.3
     cmp = Resolve(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
     seq = Sequential((oa, cmp), (:onset_admit, :admit))
-    en = event_names(seq)                      # (:onset, :admit, :death, :discharge)
+    en = _flat_event_names(seq)                # (:onset, :admit, :death, :discharge)
     chain = latent(seq)
     conv = convolve_distributions(oa, death_d)
 
@@ -585,7 +589,7 @@ end
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, convolve_distributions,
                                  composed_distribution_model, completeness_probability,
-                                 event_names, truncate_to_horizon
+                                 _flat_event_names, truncate_to_horizon
     using DynamicPPL: VarInfo, logjoint
 
     # The andv sourced branch at the published posterior means. Source onset is the
@@ -595,7 +599,11 @@ end
     inc = LogNormal(3.06, 0.32)
     delta = Normal(0.17, 0.62)
     seq = Sequential((delta, inc), (:srconset_infection, :infection_onset))
-    en = event_names(seq)
+    # The latent scorer (`composed_distribution_model`) keys a row on the FLAT
+    # latent event path, the split `(:srconset, :infection, :onset)`. The public
+    # `event_names` follows the rand/logpdf record schema (here the bare edge
+    # names), so use the internal flat path for the latent-row construction.
+    en = _flat_event_names(seq)
     chain = latent(seq)
     conv = convolve_distributions(delta, inc)
 
@@ -773,7 +781,8 @@ end
 
 @testitem "single latent wrapper: nested-Parallel sampled-admit integrates" begin
     using CensoredDistributions, Distributions
-    using CensoredDistributions: latent, composed_distribution_model, event_names,
+    using CensoredDistributions: latent, composed_distribution_model,
+                                 _flat_event_names,
                                  Sequential, Parallel, Resolve
     using DynamicPPL: @model, to_submodel, logjoint, VarInfo
 
@@ -792,7 +801,7 @@ end
     admit_path = Sequential((oa, res), (:onset_admit, :admit))
     leaf = Normal(2.0, 0.5)
     tree = Parallel((admit_path, leaf), (:admit_path, :onset_notif))
-    en = event_names(tree)   # (:onset, :admit, :death, :discharge, :notif)
+    en = _flat_event_names(tree)   # (:onset, :admit, :death, :discharge, :notif)
     @test tree isa CensoredDistributions.Parallel
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))

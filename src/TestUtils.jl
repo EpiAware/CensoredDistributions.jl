@@ -472,30 +472,34 @@ function _check_params(d)
     return nothing
 end
 
-# The flat `event_names` and the nested `event_tree` must agree in LEAF count:
+# The flat EVENT PATH and the nested `event_tree` must agree in LEAF count:
 # every `event_tree` leaf (a Resolve outcome / a leaf delay) has its own flat
 # slot, plus the flat origin event, so `length(flat) == leaves + 1`. A `Choose`
 # (standalone or nested as a composer child) shares ONE flat slot across its
 # alternatives, while its `event_tree` carries every alternative name, so the
 # leaf-count equality does not hold; for a Choose-containing node the check is
 # that the flat count matches the actual flat EVENT layout and both are
-# non-empty.
+# non-empty. This tests the STRUCTURAL flat event path (`_flat_event_names`,
+# origin + one per leaf), not the public `event_names` record-key space, which
+# for a PLAIN composer drops the origin and follows the branch names.
 function _check_event_names(d, fix)
     d isa Union{Sequential, Parallel, Resolve, Choose} || return nothing
     @testset "event_names / event_tree leaf count" begin
-        flat = event_names(d)
         tree = event_tree(d)
         if d isa Choose
-            @test !isempty(flat)
+            # A Choose has no shared origin / flat path; its record keys are the
+            # alternative names, which must be non-empty.
+            @test !isempty(event_names(d))
             @test !isempty(keys(tree))
         elseif _contains_choose(d)
             # A nested Choose collapses its alternatives to one shared flat slot,
             # so the flat count tracks the event layout, not the tree leaf count.
-            @test length(flat) ==
+            @test length(CensoredDistributions._flat_event_names(d)) ==
                   CensoredDistributions._event_nleaves(d.components) + 1
             @test !isempty(keys(tree))
         else
-            @test length(flat) == _tree_leaf_count(tree) + 1
+            @test length(CensoredDistributions._flat_event_names(d)) ==
+                  _tree_leaf_count(tree) + 1
         end
     end
     return nothing
