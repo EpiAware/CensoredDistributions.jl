@@ -8,8 +8,9 @@
 # incubation period, the transmission timing of each onward infection, a
 # time-varying reproduction number, and the dispersion of onward transmission.
 # This page fits the two delay distributions of that model with
-# CensoredDistributions.jl, reads transmission intensity from the recorded
-# offspring counts, and checks that the published estimates are recovered.
+# CensoredDistributions.jl, scores the offspring branching process from the
+# recorded offspring counts, and checks that the published delay estimates are
+# recovered.
 #
 # Two delays describe how a case reaches symptom onset.
 # The incubation period runs from a case's own infection to its symptom onset.
@@ -35,13 +36,21 @@
 # term.
 #
 # This disjunction (a case is index or sourced, never both) is exactly what
-# [`Choose`](@ref) expresses: two independent named alternatives. Here the split
-# is known before fitting, so the records are sorted into an index batch and a
-# sourced batch in Julia and each batch is scored against its named alternative,
-# rather than routed per record by the node's selector. We build the two
-# alternatives with the composer front-ends and tie their shared incubation
-# period across both with [`shared`](@ref), so one incubation parameter set is
-# sampled once and reused by both branches.
+# [`Choose`](@ref) expresses: two independent named alternatives, normally
+# routed per record by the node's `:kind` selector in one scoring statement.
+# The two alternatives here have different event-slot counts (the index case
+# observes one delay, a sourced case two), and the batched marginal scorer
+# scores a record table in one rectangular `product_distribution`, which needs
+# every record to share a slot count; mixed lengths under one real-time horizon
+# are deferred (see
+# [#413](https://github.com/EpiAware/CensoredDistributions.jl/issues/413) and
+# [#623](https://github.com/EpiAware/CensoredDistributions.jl/issues/623)). The
+# split is known before fitting, so we score it the way the package recommends
+# in the meantime: the records are sorted into an index batch and a sourced
+# batch in Julia, and each fixed-length batch is scored against its named
+# alternative. We build the two alternatives with the composer front-ends and
+# tie their shared incubation period across both with [`shared`](@ref), so one
+# incubation parameter set is sampled once and reused by both branches.
 #
 # Two features of the data shape the model.
 # Exposure and onset dates are recorded to the day, so every delay is doubly
@@ -177,10 +186,14 @@ end
 # the leaf's primary event is a `Uniform(0, inc_window)` standing in for the
 # unobserved within-window infection position, so the index case's infection is
 # the sampled latent primary event and the incubation period carries it to the
-# observed onset. The sourced alternative is a two-step [`Sequential`](@ref)
-# chain `srconset → infection → onset` whose middle event is observed: the
-# transmission timing carries the source's onset to the recorded exposure, then
-# the incubation period carries that exposure to the case's onset.
+# observed onset. The onset is recorded to the day, so the index leaf is
+# [`double_interval_censored`](@ref) with the same one-day secondary window as
+# every other delay, matching the upstream index case whose onset is drawn
+# `Uniform(onset_lo, onset_hi)` over its one-day record. The sourced alternative
+# is a two-step [`Sequential`](@ref) chain `srconset → infection → onset` whose
+# middle event is observed: the transmission timing carries the source's onset to
+# the recorded exposure, then the incubation period carries that exposure to the
+# case's onset.
 #
 # The incubation leaf in both alternatives is tagged [`shared`](@ref)`(:inc, …)`,
 # so the prior/params interface treats the two occurrences as one free parameter:
@@ -193,7 +206,8 @@ double_day(d) = double_interval_censored(d; primary_event = Uniform(0, 1),
 
 function delay_select(; inc = LogNormal(3.0, 0.3), delta = Normal(0.0, 1.0))
     index = compose((infection_onset = shared(:inc,
-        primary_censored(inc, Uniform(0, inc_window))),))
+        double_interval_censored(inc; primary_event = Uniform(0, inc_window),
+            interval = 1)),))
     sourced = sequential(
         :srconset_infection => double_day(delta),
         :infection_onset => shared(:inc, double_day(inc)))
@@ -292,10 +306,11 @@ Random.seed!(20260608)
 sim_index = NamedTuple[]
 for _ in 1:4
     ## Index path off a broad-prior infection: an infection position drawn across
-    ## the window plus the incubation period gives the observed onset. The latent
-    ## leaf `rand` returns a `(primary, observed)` NamedTuple, so the observed
-    ## onset is `path.observed`.
-    path = rand(latent(primary_censored(inc_true, Uniform(0, inc_window))))
+    ## the window plus the day-censored incubation period gives the observed
+    ## onset. The latent leaf `rand` returns a `(primary, observed)` NamedTuple,
+    ## so the observed onset is `path.observed`.
+    path = rand(latent(double_interval_censored(inc_true;
+        primary_event = Uniform(0, inc_window), interval = 1)))
     push!(sim_index, (infection = missing, onset = path.observed))
 end
 sim_sourced = NamedTuple[]
@@ -529,17 +544,24 @@ presymptomatic_summary = (mean = round(mean(presymptomatic); digits = 2),
 # ## Transmission intensity through the outbreak
 #
 # The same line list records who infected whom, so each case carries an
-# offspring count: the number of secondaries the line list attributes to it. Each
-# source's offspring count is a draw from a negative binomial whose mean is a
-# time-varying reproduction number `R(t)` evaluated at the source's own onset
-# day, and whose dispersion `k` captures the superspreading: a few sources drive
-# most onward infections.
+# offspring count: the number of secondaries the line list attributes to it.
+# This is a branching process. Each source's offspring count is a draw from a
+# negative binomial whose mean is a time-varying reproduction number `R(t)`
+# evaluated at the source's own onset day, and whose dispersion `k` captures the
+# superspreading: a few sources drive most onward infections.
 #
 # `R(t)` follows a weekly non-centred random walk on the log scale, and the
-# dispersion uses the `1/sqrt(k)` parameterisation. The delays are not needed for
-# the retrospective offspring counts, so this section fits the offspring layer on
-# its own with the incubation and transmission timing held at posterior means;
-# the upstream joint fit shares the delay parameters across both halves.
+# dispersion uses the `1/sqrt(k)` parameterisation. The upstream re-analysis
+# fits this offspring layer jointly with the delays so the delay parameters
+# carry the real-time completeness of each source's offspring chain. We score it
+# here as a separate fit instead: expressing the joint coupling through the
+# package's [`thin_by_completeness`](@ref) on the per-draw convolved delay is
+# correct on paper but is currently both too slow for the doc build and
+# numerically unstable under Mooncake reverse (the completeness CDF can drive the
+# negative-binomial success probability to `NaN`); see
+# [#643](https://github.com/EpiAware/CensoredDistributions.jl/issues/643). So
+# this section fits the offspring layer on its own, then reads the completeness
+# off the fitted delays below.
 
 # Per-source onset day (in days from the first onset) and offspring count.
 Z = Int.(ll.Z)
@@ -641,8 +663,7 @@ hlines!(rax, [1.0]; color = :grey, linestyle = :dash)
 rfig
 
 # The dispersion and the early/late reproduction number against the published
-# targets, with the posterior 95% interval alongside so the wide bands that
-# cover the targets are visible next to the point-estimate gaps.
+# targets, with the posterior 95% interval alongside.
 rt_compare = DataFrame(
     quantity = ["dispersion k", "R(t) week 1", "R(t) week $(n_knots)"],
     posterior = [round(k_summary.mean; digits = 2),
@@ -655,17 +676,19 @@ rt_compare = DataFrame(
 
 # ## Reading R(t) in real time
 #
-# The retrospective offspring fit above scores every source at full strength:
-# `R_eff = R`. Read in real time, a source's recent offspring may not yet have
-# shown symptoms, so the count is incomplete and the rate must be thinned by the
+# The offspring fit above scores every source at full strength: `R_eff = R`.
+# Read in real time, a source's recent offspring may not yet have shown
+# symptoms, so the count is incomplete and the rate must be thinned by the
 # completeness of the offspring chain. The completeness is the CDF of the
 # convolved delay `delta + inc` (the same convolution the sourced truncation
 # uses) evaluated at the time available since the source's onset. To keep the
 # demonstration to one rate we thin the single week-1 reproduction number for
 # every source; a real-time read would instead thin each source by its own
-# `R(t)` interpolated at its onset day. The package's
-# [`thin_by_completeness`](@ref) returns the thinned `R_eff = R * p` directly,
-# and [`completeness_probability`](@ref) the underlying fraction `p`:
+# `R(t)` interpolated at its onset day. This is the completeness coupling the
+# joint upstream fit applies to every offspring term, read here off the fitted
+# delays with the package's
+# [`completeness_probability`](@ref) (the fraction `p`) and
+# [`thin_by_completeness`](@ref) (the thinned `R_eff = R * p`):
 inc_post = LogNormal(here.mu_inc.mean, here.sigma_inc.mean)
 delta_post = Normal(here.mu_delta.mean, here.sigma_delta.mean)
 completion_chain = convolve_distributions(delta_post, inc_post)
@@ -702,11 +725,14 @@ first(realtime_thinning, 6)
 #   `LogNormal(mu_inc ≈ 3.06, sigma_inc ≈ 0.32)` and its mean delay; the weakly
 #   identified transmission timing stays close to its prior, in agreement with
 #   the upstream finding that transmission clusters around source onset.
-# - The offspring layer shows a descending weekly reproduction number and a
-#   superspreading dispersion. Fitted on its own (delays held at posterior
-#   means, full completeness) rather than jointly as upstream, it is
-#   illustrative: the published descent and dispersion fall inside its wide
-#   credible bands but the point estimates are flatter. The completeness
-#   thinning corrects the rate when the line list is read before the outbreak
-#   has finished. The upstream model also runs counterfactual outbreak
+# - The offspring branching process shows a descending weekly reproduction
+#   number and a superspreading dispersion. The upstream re-analysis fits it
+#   jointly with the delays; expressing that coupling here through the package's
+#   [`thin_by_completeness`](@ref) on the per-draw convolved delay is correct on
+#   paper but currently too slow for the doc build and numerically unstable under
+#   Mooncake reverse (the completeness CDF can drive the negative-binomial
+#   success probability to `NaN`; see
+#   [#643](https://github.com/EpiAware/CensoredDistributions.jl/issues/643)), so
+#   it is fitted on its own and the completeness thinning is read off the fitted
+#   delays afterwards. The upstream model also runs counterfactual outbreak
 #   projections from these same posteriors, which are left to that analysis.
