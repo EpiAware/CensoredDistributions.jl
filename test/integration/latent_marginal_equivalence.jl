@@ -715,3 +715,239 @@ end
         @test isapprox(lj, ref; atol = 1e-8)
     end
 end
+
+# ===========================================================================
+# Single `latent(tree)` wrapper: composed marginal == latent on the SAME rows
+# ===========================================================================
+#
+# North-star tenet 4: converting a COMPOSED model from marginal to latent must be
+# the single change of wrapping the composed object in `latent(...)`, on the SAME
+# record rows, with the SAME model structure and priors. These tests prove the
+# single wrapper is density-identical to the marginal for the composed node types,
+# including the nested-Parallel bdbv shape (a nested-chain branch's first edge must
+# stay DECLARED, matching the marginal `_nested_tree_logpdf`, not be forced bare)
+# and the top-level Choose andv shape (the latent routes per record to the chosen
+# alternative's latent form).
+
+@testitem "single latent wrapper: nested-Parallel branch edge stays declared" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent, composed_distribution_model
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    # A Parallel whose FIRST branch is a nested chain (onset -> admit -> resolution)
+    # and whose second branch is a leaf (onset -> notif), the bdbv tree shape. The
+    # MARGINAL routes this through `_nested_tree_logpdf`, which scores every edge
+    # with its DECLARED censoring when both endpoints are observed (origin observed,
+    # so all edges declared). The latent wrapper must match edge-for-edge: forcing
+    # the branches BARE (the FLAT shared-origin Parallel rule) over-strips the
+    # nested-chain first edge and the leaf branch, diverging by ~4e-4. With the
+    # origin observed (onset = 0) NOTHING is sampled, so the latent logjoint is a
+    # point density that must EQUAL the marginal to machine precision.
+    dic(d) = double_interval_censored(d;
+        primary_event = Uniform(0, 1), interval = 1.0)
+    res = resolve(:death => (dic(Gamma(2.0, 3.5)), 0.3),
+        :discharge => (dic(Gamma(1.0, 8.0)), 0.7))
+    admit_path = sequential(:onset_admit => dic(Gamma(1.2, 3.0)),
+        :admit_resolution => res)
+    tree = compose((admit_path = admit_path,
+        onset_notif = dic(Gamma(0.7, 20.0))))
+    @test tree isa CensoredDistributions.Parallel
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    rows = [
+        (onset = 0.0, admit = 4.0, death = 12.0, discharge = missing,
+            notif = 18.0, branch_probs = (death = 0.3, discharge = 0.7)),
+        (onset = 0.0, admit = 5.0, death = missing, discharge = 9.0,
+            notif = 20.0, branch_probs = (death = 0.4, discharge = 0.6))]
+    for row in rows
+        marg = only(logjoint(demo(tree, [row]), (;)))
+        lat = only(logjoint(demo(latent(tree), [row]), (;)))
+        @test isapprox(marg, lat; atol = 1e-10)
+    end
+    # The whole batch (one `~` over both records) is also identical.
+    marg_all = only(logjoint(demo(tree, rows), (;)))
+    lat_all = only(logjoint(demo(latent(tree), rows), (;)))
+    @test isapprox(marg_all, lat_all; atol = 1e-10)
+end
+
+@testitem "single latent wrapper: nested-Parallel sampled-admit integrates" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent, composed_distribution_model, event_names,
+                                 Sequential, Parallel, Resolve
+    using DynamicPPL: @model, to_submodel, logjoint, VarInfo
+
+    # The bdbv-shaped nested Parallel with admit UNOBSERVED but death observed: the
+    # latent samples the admission time; integrating it over the onset->admit window
+    # must reproduce the marginal nested-Resolve scoring with a sampled anchor (the
+    # bare onset->death convolution weighted by the death branch probability). This
+    # is the capability the single wrapper adds over the marginal (which needs an
+    # observed anchor), and integrating it must land on the same bare-convolution
+    # term the equivalence invariant predicts.
+    oa = Normal(0.4, 0.5)
+    death_d = Gamma(2.0, 0.8)
+    disch_d = LogNormal(0.6, 0.3)
+    cfr = 0.3
+    res = Resolve(:death => (death_d, cfr), :discharge => (disch_d, 1 - cfr))
+    admit_path = Sequential((oa, res), (:onset_admit, :admit))
+    leaf = Normal(2.0, 0.5)
+    tree = Parallel((admit_path, leaf), (:admit_path, :onset_notif))
+    en = event_names(tree)   # (:onset, :admit, :death, :discharge, :notif)
+    @test tree isa CensoredDistributions.Parallel
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+    conv = CensoredDistributions.convolve_distributions(oa, death_d)
+
+    function latent_int(tdeath, tnotif; n = 50_000)
+        xs = range(-6.0, tdeath - 1e-4; length = n)
+        dx = step(xs)
+        s = 0.0
+        for a in xs
+            row = NamedTuple{en}((0.0, a, tdeath, missing, tnotif))
+            m = demo(latent(tree), [row])
+            s += exp(logjoint(m, VarInfo(m))) * dx
+        end
+        return log(s)
+    end
+
+    for (tdeath, tnotif) in ((3.0, 2.5), (5.0, 1.8))
+        # onset observed (0), notif observed leaf (bare branch, sampled-free origin
+        # reference), death observed via the bare onset->death convolution.
+        ref = logpdf(conv, tdeath) + log(cfr) + logpdf(leaf, tnotif)
+        @test isapprox(latent_int(tdeath, tnotif), ref; atol = 5e-3)
+    end
+end
+
+@testitem "single latent wrapper: top-level Resolve == marginal" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent, composed_distribution_model
+    using DynamicPPL: @model, to_submodel, logjoint, VarInfo
+
+    # A top-level Resolve has no origin latent of its own (outcomes hang off the
+    # implicit origin reference), so `latent(resolve)` is density-identical to the
+    # marginal resolve: same conditioned-outcome score, same branch probability.
+    dic(d) = double_interval_censored(d;
+        primary_event = Uniform(0, 1), interval = 1.0)
+    res = resolve(:death => (dic(Gamma(2.0, 3.5)), 0.3),
+        :discharge => (dic(Gamma(1.0, 8.0)), 0.7))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    for row in (
+        (death = 12.0, discharge = missing,
+            branch_probs = (death = 0.3, discharge = 0.7)),
+        (death = missing, discharge = 9.0,
+            branch_probs = (death = 0.4, discharge = 0.6)))
+        marg = logjoint(demo(res, row), VarInfo(demo(res, row)))
+        lat = logjoint(demo(latent(res), row), VarInfo(demo(latent(res), row)))
+        @test isapprox(marg, lat; atol = 1e-12)
+    end
+end
+
+@testitem "single latent wrapper: top-level Choose routes to alt latent" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent, composed_distribution_model, event,
+                                 event_names
+    using DynamicPPL: @model, to_submodel, logjoint, VarInfo
+
+    # A top-level Choose (the andv shape) routes a record to one alternative by its
+    # selector, then scores that alternative's LATENT form. With each record fully
+    # observed (nothing sampled) the latent wrapper is a point density that must
+    # EQUAL the marginal Choose. The `index` alternative is a single-leaf compose
+    # (Parallel) and the `sourced` alternative a two-edge Sequential with its
+    # intermediate observed, so both alternatives' observed-observed edges stay
+    # declared under the latent wrapper.
+    inc_window = 1.0
+    dd(d) = double_interval_censored(d; primary_event = Uniform(0, 1), interval = 1)
+    index = compose((infection_onset = primary_censored(
+        LogNormal(3.0, 0.3), Uniform(0, inc_window)),))
+    sourced = sequential(:srconset_infection => dd(Normal(0.0, 1.0)),
+        :infection_onset => dd(LogNormal(3.0, 0.3)))
+    tree = choose(:index => index, :sourced => sourced)
+    @test tree isa CensoredDistributions.Choose
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    rows = [(kind = :index, infection = 0.0, onset = 4.0),
+        (kind = :sourced, srconset = 0.0, infection = 2.0, onset = 6.0),
+        (kind = :index, infection = 0.0, onset = 5.0)]
+    for row in rows
+        marg = logjoint(demo(tree, row), VarInfo(demo(tree, row)))
+        lat = logjoint(
+            demo(latent(tree), row), VarInfo(demo(latent(tree), row)))
+        @test isapprox(marg, lat; atol = 1e-10)
+    end
+end
+
+@testitem "single latent wrapper: andv index leaf-latent integrates" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent, composed_distribution_model, event,
+                                 event_names
+    using DynamicPPL: @model, to_submodel, logjoint, VarInfo
+
+    # The andv `index` alternative is a single-leaf compose whose origin (infection)
+    # is UNOBSERVED: the marginal integrates the primary, the latent samples it.
+    # Integrating the sampled primary over its window must reproduce the marginal
+    # leaf logpdf (the leaf marginal == latent invariant, now reached through the
+    # single composed wrapper).
+    inc_window = 1.0
+    idx = compose((infection_onset = primary_censored(
+        LogNormal(3.0, 0.3), Uniform(0, inc_window)),))
+    en = event_names(idx)   # (:infection, :onset)
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    function latent_int(onset; n = 40_000)
+        s = 0.0
+        for p in range(1e-6, inc_window - 1e-6; length = n)
+            row = NamedTuple{en}((p, onset))
+            m = demo(latent(idx), [row])
+            s += exp(logjoint(m, VarInfo(m))) * (inc_window / n)
+        end
+        return log(s)
+    end
+
+    for onset in (4.0, 5.0)
+        row = (infection = missing, onset = onset)
+        marg = only(logjoint(demo(idx, [row]), (;)))
+        @test isapprox(latent_int(onset), marg; atol = 5e-4)
+    end
+end
+
+@testitem "single latent wrapper: plain-leaf and Choose-of-leaves" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent, composed_distribution_model
+    using DynamicPPL: @model, to_submodel, logjoint, VarInfo
+
+    # A `latent`-wrapped PLAIN leaf (a double-interval-censored pipeline, not a bare
+    # primary-censored node) has no compositional latent to sample: its marginal
+    # already integrates the primary analytically, so `latent(leaf)` is density-
+    # identical to the marginal leaf. A top-level Choose whose alternatives are such
+    # leaves routes each record to the chosen alternative's latent form, which must
+    # therefore equal the marginal Choose. This guards the leaf-fallback method the
+    # Choose routing relies on (and that a bare `latent(primary_censored)` keeps its
+    # own primary-sampling, scored separately by the equivalence integral above).
+    dic(d) = double_interval_censored(d;
+        primary_event = Uniform(0, 1), interval = 1.0)
+    leaf_a = dic(Gamma(2.0, 3.0))
+    leaf_b = dic(Gamma(1.0, 5.0))
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+
+    # Plain-leaf latent == marginal.
+    for delay in (4.0, 6.0)
+        row = (delay = delay,)
+        marg = logjoint(demo(leaf_a, row), VarInfo(demo(leaf_a, row)))
+        lat = logjoint(
+            demo(latent(leaf_a), row), VarInfo(demo(latent(leaf_a), row)))
+        @test isapprox(marg, lat; atol = 1e-10)
+    end
+
+    # Choose of plain leaves: latent routes to the chosen leaf's latent (== marginal).
+    ch = choose(:a => leaf_a, :b => leaf_b)
+    for row in ((kind = :a, delay = 6.0), (kind = :b, delay = 4.0))
+        marg = logjoint(demo(ch, row), VarInfo(demo(ch, row)))
+        lat = logjoint(demo(latent(ch), row), VarInfo(demo(latent(ch), row)))
+        @test isapprox(marg, lat; atol = 1e-10)
+    end
+end

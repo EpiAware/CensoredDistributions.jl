@@ -6,7 +6,7 @@ module CensoredDistributionsDynamicPPLExt
 
 using CensoredDistributions: CensoredDistributions, PrimaryCensored, Latent,
                              IntervalCensored, PrimaryConditional, Sequential,
-                             Parallel, Resolve, Choose,
+                             Parallel, Resolve, Choose, latent,
                              get_primary_event, component_names
 import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model,
@@ -126,6 +126,18 @@ end
 # reject it rather than silently drop it.
 function composed_distribution_model(
         d::Latent{<:PrimaryCensored}, row; weight = nothing)
+    _reject_latent_horizon(row)
+    return primary_censored_model(
+        d, _leaf_value(row); weight = _leaf_weight(row, weight))
+end
+
+# Disambiguate `Latent{<:PrimaryCensored}` + a `NamedTuple` row against the generic
+# `Latent{<:UnivariateDistribution}, row::NamedTuple` leaf fallback (defined with
+# the Choose routing below): both match (one more specific in `d`, the other in the
+# argument), so spell out the primary-censored NamedTuple case to keep its
+# primary-SAMPLING leaf model rather than the marginal fallback.
+function composed_distribution_model(
+        d::Latent{<:PrimaryCensored}, row::NamedTuple; weight = nothing)
     _reject_latent_horizon(row)
     return primary_censored_model(
         d, _leaf_value(row); weight = _leaf_weight(row, weight))
@@ -953,16 +965,34 @@ end
     return e
 end
 
+# Whether a latent-wrapped `Parallel` forces its branches BARE (the root flat
+# shared-origin rule). A FLAT Parallel (plain leaf branches) is scored by the
+# marginal `_parallel_conditional_logpdf` / `_parallel_marginal_logpdf` on the
+# continuous core, so the latent forces every branch bare to match. A NESTED
+# Parallel (a branch is itself a composer) is scored by `_nested_tree_logpdf`
+# instead, which keeps each edge's declared censoring on observed endpoints and
+# marginalises a sampled origin through its primary core (the same per-edge rule a
+# `Sequential` uses), so the latent must NOT force bare. The choice is the
+# `_nested_trait` of the branches, the SAME compile-time trait the marginal
+# scorer dispatches on, so the latent and marginal stay in lock-step per shape.
+function _latent_root_parallel(tree::Parallel)
+    _latent_root_parallel_trait(
+        CensoredDistributions._nested_trait(tree.components))
+end
+_latent_root_parallel_trait(::CensoredDistributions._Flat) = true
+_latent_root_parallel_trait(::CensoredDistributions._Nested) = false
+
 # A `latent`-wrapped `Parallel` shares one latent origin across its branches over
 # the flat event layout `[O, leaf events...]`. The split is DRIVEN BY THE ROW like
 # the latent Sequential: an observed branch (or origin) CONDITIONS on its edge
-# through `@addlogprob!`, a missing one is SAMPLED with an indexed `~`. The root
-# flat shared-origin Parallel conditions each branch on the continuous core
-# (`strip = true` in the plan), matching the marginal `_parallel_conditional_logpdf`;
-# a nested composer branch keeps its declared censoring. The shared origin couples
-# the branches; each leaf event is the origin plus the branch delay. A nested
-# composer branch recurses through `_latent_plan!`. The likelihood is scaled by the
-# row weight via the conditional contribution.
+# through `@addlogprob!`, a missing one is SAMPLED with an indexed `~`. A FLAT
+# shared-origin Parallel conditions each branch on the continuous core
+# (`always_bare` in the plan), matching the marginal `_parallel_conditional_logpdf`;
+# a NESTED Parallel branch keeps the per-edge declared/bare rule, matching the
+# marginal `_nested_tree_logpdf`. The shared origin couples the branches; each leaf
+# event is the origin plus the branch delay. A nested composer branch recurses
+# through `_latent_plan!`. The likelihood is scaled by the row weight via the
+# conditional contribution.
 @model function composed_distribution_model(
         d::Latent{<:Parallel}, row::NamedTuple; weight = nothing)
     # A column table is the whole table, not one record; route it to the batch
@@ -984,9 +1014,21 @@ end
     # root flat Parallel additionally forces every branch bare (`always_bare`),
     # matching the marginal `_parallel_conditional_logpdf` / `_parallel_marginal_logpdf`.
     sampled = [v === missing for v in e]
-    # Root flat Parallel branches are always bare (the marginal conditional scores
-    # each branch on the continuous core).
-    plan = _latent_plan!(_LatentPlan(), tree, 1, 2, true)
+    # The root-Parallel `always_bare` flag must match the MARGINAL path the same
+    # shape routes through. A FLAT Parallel (plain leaf branches) is scored by
+    # `_parallel_conditional_logpdf` / `_parallel_marginal_logpdf`, which condition
+    # each branch on its continuous core, so the latent forces every branch BARE
+    # (`root_parallel = true`). A NESTED Parallel (a branch is itself a composer)
+    # is instead scored by `_nested_tree_logpdf` / `_tree_step`, which scores each
+    # edge with its DECLARED censoring (both endpoints observed) and marginalises a
+    # sampled origin through `primary_censored(_marginal_core(edge), prim)` — the
+    # SAME bare-on-sampled / declared-on-observed rule a `Sequential` uses. So a
+    # nested Parallel must NOT force bare; it threads the per-edge rule
+    # (`root_parallel = false`), making the latent density-identical to the nested
+    # marginal for the bdbv/andv compose shapes (a nested-chain branch's first
+    # edge stays declared when its endpoints are observed).
+    root_parallel = _latent_root_parallel(tree)
+    plan = _latent_plan!(_LatentPlan(), tree, 1, 2, root_parallel)
     # A per-record `obs_time` horizon right-truncates a nested Resolve branch;
     # a Parallel with no nested Resolve keeps the leaf-twin truncation out
     # of scope and rejects a horizon as before.
@@ -1020,6 +1062,73 @@ end
             c, e, sampled, row, w, horizon)
     end
     return e
+end
+
+# --- Latent Choose / Resolve / Compete (top-level node) ----------------------
+#
+# A top-level `Choose` / `Resolve` / `Compete` has NO sampled origin of its own:
+# its outcomes/alternatives hang off the implicit origin reference (`0`), the same
+# reference the marginal node conditions against. So `latent(node)` over these top
+# nodes is the marginal node for the parts that carry no internal latent, with a
+# `Choose` routing per record to the chosen alternative's LATENT form. This makes
+# the single `latent(tree)` wrapper close over the andv (top-level `Choose`) shape
+# the same way the Parallel fix closes over the bdbv (top-level `Parallel`) shape:
+# the only caller-visible change is `latent(tree)` vs `tree`, on the SAME records.
+
+# A `latent`-wrapped top-level `Choose` routes a record to ONE alternative by the
+# row's selector (exactly like the marginal `Choose`), then delegates to the chosen
+# alternative's LATENT model: `composed_distribution_model(latent(chosen),
+# inner_row)`. The selector is a pure data field (not an event time), so it is
+# unchanged by `latent`; only the chosen alternative's scoring switches to its
+# latent twin. A leaf/Sequential/Parallel alternative therefore samples its own
+# internal latents while the unselected alternatives contribute nothing — the
+# marginal Choose's data-selected disjunction with each branch in its latent form.
+@model function composed_distribution_model(
+        d::Latent{<:Choose}, row::NamedTuple; weight = nothing)
+    inner = d.dist
+    kind = row[inner.selector]
+    kind isa Symbol || throw(ArgumentError(
+        "the Choose selector field $(repr(inner.selector)) must hold a Symbol " *
+        "naming the alternative; got $(typeof(kind))"))
+    chosen = CensoredDistributions._pick(inner, kind)
+    inner_row = _drop_field(row, inner.selector)
+    obs ~ DynamicPPL.to_submodel(
+        composed_distribution_model(latent(chosen), inner_row; weight = weight))
+    return obs
+end
+
+# A `latent`-wrapped top-level `Resolve` / `Compete` is density-identical to the
+# marginal node: the outcomes hang off the implicit origin reference (`0`), so
+# there is NO origin latent to sample (the origin is observed data, not a sampled
+# event), and the recorded outcome is conditioned on exactly as the marginal node
+# does. So `latent` over a top-level one_of node is the marginal node's own scoring
+# — delegate to it unwrapped. (A NESTED Resolve inside a latent chain DOES interact
+# with a sampled anchor; that path is the `Latent{<:Sequential}` /
+# `Latent{<:Parallel}` `_latent_one_of_logprob`, not this top-level method.)
+@model function composed_distribution_model(
+        d::Latent{<:CensoredDistributions.AbstractOneOf}, row::NamedTuple;
+        weight = nothing)
+    obs ~ DynamicPPL.to_submodel(
+        composed_distribution_model(d.dist, row; weight = weight))
+    return obs
+end
+
+# A `latent`-wrapped PLAIN leaf that is NOT a separable primary-censored node (an
+# `IntervalCensored`, a `double_interval_censored` pipeline, a `Truncated`, a bare
+# delay, ...) has no compositional latent to sample on its own: its marginal
+# already integrates any internal primary analytically. So `latent(leaf)` over such
+# a leaf is density-identical to the marginal leaf — delegate to the marginal leaf
+# model unwrapped. The more specific `Latent{<:PrimaryCensored}` method above keeps
+# its primary-sampling (the genuine leaf latent); the composer methods
+# (`Latent{<:Sequential/Parallel/Choose/AbstractOneOf}`) are more specific in `d`
+# and dispatch ahead of this. This is what lets a top-level `Choose` route to a
+# plain-leaf alternative's latent form (`latent(chosen)`) without a missing method:
+# the leaf alternative scores its marginal, the andv/bdbv invariant unchanged.
+@model function composed_distribution_model(
+        d::Latent{<:UnivariateDistribution}, row::NamedTuple; weight = nothing)
+    obs ~ DynamicPPL.to_submodel(
+        composed_distribution_model(d.dist, row; weight = weight))
+    return obs
 end
 
 # --- Batch latent entry: a whole table of records in one `~` -----------------
