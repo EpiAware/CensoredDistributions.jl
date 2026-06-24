@@ -644,6 +644,91 @@ end
     @test length(params(cens)) > 2
 end
 
+@testitem "params_table surfaces a thin weight as a [0, 1] row (#642b)" begin
+    using Distributions
+
+    # A `thin(delay, p)` leaf surfaces the inner delay params PLUS a `:thin` row
+    # for the reporting probability `p`, supported on [0, 1].
+    tree = compose((inc = Gamma(2.0, 1.0), cases = thin(LogNormal(1.5, 0.4), 0.3)))
+    tbl = params_table(tree)
+
+    @test tbl.edge == [:inc, :inc, :cases, :cases, :cases]
+    @test tbl.param == [:shape, :scale, :mu, :sigma, :thin]
+
+    # The inner delay params keep the delay's support; the thin row is [0, 1].
+    rows = collect(zip(tbl.edge, tbl.param, tbl.value, tbl.support))
+    thin_row = only(filter(r -> r[2] === :thin, rows))
+    @test thin_row[1] === :cases
+    @test thin_row[3] == 0.3
+    @test thin_row[4] == (0.0, 1.0)
+    # The inner LogNormal params keep the positive half-line support.
+    inner_rows = filter(r -> r[1] === :cases && r[2] !== :thin, rows)
+    @test all(r -> r[4] == (0.0, Inf), inner_rows)
+
+    # A thinned, CENSORED leaf still surfaces the inner free params + thin.
+    ctree = compose((cases = thin(
+        double_interval_censored(Gamma(2.0, 1.5); primary_event = Uniform(0, 1),
+            interval = 1.0), 0.4),))
+    ctbl = params_table(ctree)
+    @test ctbl.param == [:shape, :scale, :thin]
+    @test ctbl.value == [2.0, 1.5, 0.4]
+    @test ctbl.support[end] == (0.0, 1.0)
+
+    # `cumulative` carries no numeric weight, so it surfaces NO extra row.
+    cum = compose((inc = cumulative(Gamma(2.0, 1.0)),))
+    @test params_table(cum).param == [:shape, :scale]
+end
+
+@testitem "build_priors gives a thin weight a [0, 1] default (#642b)" begin
+    using Distributions
+
+    tree = compose((cases = thin(LogNormal(1.5, 0.4), 0.3),))
+    tbl = params_table(tree)
+
+    # The thin row's default prior is the [0, 1]-supported `Uniform(0, 1)`.
+    nested = build_priors(tbl)
+    @test nested.cases.thin == Uniform(0, 1)
+    @test minimum(nested.cases.thin) == 0
+    @test maximum(nested.cases.thin) == 1
+
+    # `default_prior` classifies a `:thin` row by its [0, 1] support.
+    @test default_prior((; edge = :cases, param = :thin, value = 0.3,
+        support = (0.0, 1.0))) == Uniform(0, 1)
+
+    # A user can override the thin prior like any other parameter.
+    over = build_priors(tbl; priors = (cases = (thin = Beta(2, 5),),))
+    @test over.cases.thin == Beta(2, 5)
+end
+
+@testitem "update round-trips a thin weight (#642b)" begin
+    using Distributions
+
+    tree = compose((cases = thin(LogNormal(1.5, 0.4), 0.3),))
+
+    # `update` re-routes a new thin weight into the `ThinOp`, keeping the inner
+    # delay params, and round-trips the value.
+    updated = update(tree, (cases = (mu = 1.0, sigma = 0.5, thin = 0.6),))
+    leaf = event(updated, :cases)
+    @test leaf isa CensoredDistributions.Transformed
+    @test leaf.op isa CensoredDistributions.ThinOp
+    @test leaf.op.factor == 0.6
+    @test CensoredDistributions.get_dist(leaf) == LogNormal(1.0, 0.5)
+
+    # The new thin weight surfaces back through params_table (round-trip).
+    rt = params_table(updated)
+    @test rt.value[findfirst(==(:thin), rt.param)] == 0.6
+
+    # A censored thinned leaf round-trips inner params + thin + censoring.
+    ctree = compose((cases = thin(
+        double_interval_censored(Gamma(2.0, 1.5); primary_event = Uniform(0, 1),
+            interval = 1.0), 0.4),))
+    cup = update(ctree, (cases = (shape = 3.0, scale = 1.0, thin = 0.7),))
+    cleaf = event(cup, :cases)
+    @test cleaf.op.factor == 0.7
+    @test CensoredDistributions.free_leaf(cleaf) == Gamma(3.0, 1.0)
+    @test cleaf.dist isa CensoredDistributions.IntervalCensored
+end
+
 @testitem "update rebuilds a composed distribution from a nested NamedTuple" begin
     using Distributions
 
