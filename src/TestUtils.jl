@@ -41,6 +41,7 @@ using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
                                interval_censored, resolve, compete,
                                affine, modify, weight, thin, difference,
                                convolve_distributions, truncate_to_horizon,
+                               mean_gamma, MeanGamma,
                                Affine, Modified, Weighted, Transformed,
                                Convolved, Difference, ExponentiallyTilted,
                                PrimaryCensored, IntervalCensored,
@@ -731,6 +732,12 @@ function example_fixtures()
     et = ExponentiallyTilted(0.0, 5.0, 0.5)
     et_ad = (θ -> Distributions.logpdf(
             ExponentiallyTilted(0.0, 5.0, θ[1]), 2.0), [0.5])
+    # MeanGamma: a Gamma reparameterised by (mean, shape), density-identical to
+    # the native `Gamma(shape, mean / shape)`, with a closed-form mean. The AD
+    # closure differentiates the log density wrt the (mean, shape) pair.
+    mg = mean_gamma(5.0, 2.0)
+    mg_ad = (θ -> Distributions.logpdf(mean_gamma(θ[1], θ[2]), 4.0),
+        [5.0, 2.0])
     # Compete (racing hazards): a UNIVARIATE time-to-first-event marginal, an
     # AbstractOneOf like Resolve. Plain (non-censored) delays so it has an
     # analytic-enough scalar mean.
@@ -862,6 +869,9 @@ function example_fixtures()
         # ExponentiallyTilted: a bounded exponentially-tilted leaf.
         InterfaceFixture(; name = "ExponentiallyTilted", dist = et, draw = 2.0,
             univariate = true, overall = :scalar, ad = et_ad),
+        # MeanGamma: a (mean, shape)-reparameterised Gamma leaf, scalar moment.
+        InterfaceFixture(; name = "MeanGamma", dist = mg, draw = 4.0,
+            univariate = true, overall = :scalar, ad = mg_ad),
         # Compete (racing hazards): a univariate time-to-first-event marginal.
         # Scalar marginal moments, but `rand` returns the named winning-cause
         # record, so `record_rand` relaxes the `rand` shape check.
@@ -937,7 +947,7 @@ documented reason in the source.
         PrimaryCensored, IntervalCensored, Latent,
         # distribution-modifier / derived leaves
         Affine, Modified, Weighted, Transformed, Convolved, Difference,
-        ExponentiallyTilted
+        ExponentiallyTilted, MeanGamma
     ]
 end
 

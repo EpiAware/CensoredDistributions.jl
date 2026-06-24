@@ -55,6 +55,13 @@ export AnalyticalSolver, NumericSolver
 # Exported distributions
 export ExponentiallyTilted
 
+# Exported mean/shape-reparameterised Gamma leaf: a Gamma whose free parameters
+# are its `(mean, shape)` (the scale derived as `mean / shape`), so a prior on a
+# delay's mean couples correctly through the prior front-door where the native
+# `Gamma(shape, scale)` leaf cannot. `MeanGamma` is the type; `mean_gamma` the
+# friendly constructor.
+export MeanGamma, mean_gamma
+
 # Exported hazard-modified distribution: modify the hazard of a base delay
 # through a link, `h*(t) = g⁻¹(g(h(t)) + effect)`. `modify` is the verb;
 # `Modified` the type. The named links `LogLink` (proportional hazards, the
@@ -198,6 +205,11 @@ include("censoring/IntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")
+# Mean/shape-reparameterised Gamma leaf: a plain delay leaf (no censoring
+# wrapper), so it has no `free_leaf`/`rewrap_leaf` to extend and can be included
+# here with the other distribution leaves. Its `_param_names` are registered in
+# `composers/introspection.jl`.
+include("distributions/MeanGamma.jl")
 include("distributions/Convolved.jl")
 # Difference (Z = X - Y), the dual of Convolved. After Convolved.jl since it
 # reuses `_window_quantile` / `_CONVOLVED_TAIL` for the quadrature window clamp.
