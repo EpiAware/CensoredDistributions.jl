@@ -75,35 +75,33 @@ end
     @test "d.cases.thin" in Set(string.(collect(keys(VarInfo(m2)))))
 end
 
-@testitem "thin weight gradient is finite (#642b)" tags=[:turing] begin
-    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
-    using ForwardDiff
+@testitem "thin weight gradient is finite (#642b)" begin
+    using CensoredDistributions, Distributions
+    using ForwardDiff: ForwardDiff
 
     # The thin weight enters the per-record likelihood (defective density), so a
-    # gradient through it must be finite.
+    # gradient through the surfaced parameter (delay mu/sigma AND the thin
+    # weight) must be finite and non-zero in the thin direction. `update` routes
+    # `θ[3]` back into the `ThinOp`, exercising the `_set_thin_factor` /
+    # `_update_leaf` reconstruction path under AD.
     template = compose((cases = thin(LogNormal(1.5, 0.4), 0.3),))
-    priors = (cases = (mu = Normal(1.5, 0.3),
-        sigma = truncated(Normal(0.4, 0.1); lower = 0),
-        thin = Uniform(0, 1)),)
+    obs = [1.0, 2.0, 3.5, 0.8, 4.2]
 
-    @model function fit(t, p, obs)
-        d ~ to_submodel(composed_parameters_model(t, p))
+    # θ = [mu, sigma, thin].
+    function f(θ)
+        d = update(template,
+            (cases = (mu = θ[1], sigma = θ[2], thin = θ[3]),))
         leaf = event(d, :cases)
-        for y in obs
-            DynamicPPL.@addlogprob! logpdf(leaf, y)
-        end
-        return d
+        return sum(logpdf(leaf, y) for y in obs)
     end
 
-    Random.seed!(642)
-    obs = rand(LogNormal(1.5, 0.4), 25)
-    m = fit(template, priors, obs)
-    vi = DynamicPPL.VarInfo(m)
-    θ = vi[:]
-    f = θ -> DynamicPPL.logjoint(m, DynamicPPL.unflatten(vi, θ))
+    θ = [1.5, 0.4, 0.3]
     g = ForwardDiff.gradient(f, θ)
+    @test g isa AbstractVector && length(g) == 3
     @test all(isfinite, g)
-    @test length(g) == length(θ)
+    # The thin weight contributes to the log-likelihood (`n * log p` term), so its
+    # gradient component is non-zero.
+    @test g[3] != 0
 end
 
 @testitem "chain_to_params + update round-trip a thin weight (#642b)" tags=[
