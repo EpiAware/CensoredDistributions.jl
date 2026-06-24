@@ -80,7 +80,7 @@
 # ├─ probs                   the one-of mixture weights
 # ├─ occurrence_probability  the any-event probability (their sum)
 # ├─ params_table            the flat free-parameter inventory
-# ├─ event / event_names     fetch a child / the flat per-event names
+# ├─ event / event_names     fetch a child / the per-record key names
 # ├─ update                  replace values or whole nodes
 # └─ inspect                 print the assembled tree
 # ```
@@ -337,8 +337,7 @@ plain_stack = compose((
 # truncation, and interval censoring onto a delay. It is the default leaf for
 # line-list data, because day-resolution dates carry both a primary-event window
 # and a day-wide observation interval. Swap each plain leaf for its censored
-# counterpart and the NamedTuple keys, the tree shape, and the call site are all
-# unchanged.
+# counterpart and the tree shape and the call site are unchanged.
 
 censored_stack = compose((
     onset_admit = double_interval_censored(LogNormal(1.5, 0.5); interval = 1,
@@ -347,9 +346,13 @@ censored_stack = compose((
 
 # A composer holds any univariate distribution as a leaf and dispatches on the
 # leaf type, so it treats a censored leaf exactly as it treated the plain one.
-# The two stacks expose the same events.
+# The record schema does change with the swap, because a censored leaf carries a
+# latent primary event: the plain stack draws one value per edge keyed by the
+# edge names, while the censored stack draws the full event path (a shared origin
+# then one target per edge). `event_names` reports each schema as `rand` realises
+# it, so it always equals `keys(rand(d))`.
 
-event_names(plain_stack) == event_names(censored_stack)
+(plain = event_names(plain_stack), censored = event_names(censored_stack))
 
 # The package handles the swap transparently: the same `compose` stack scores
 # and simulates either way, and the censoring is carried inside the leaf rather
@@ -798,7 +801,7 @@ event_names(event(spliced, :admit_death))
 # | `splice(d, path; before, after)` | insert a before/after step at a node | no (topology) |
 # | `event(d, path)` | fetch a child or descend a name path | read |
 # | `event_tree(d)` | the nested tree of event names | read |
-# | `event_names(d)` | the flat per-event names | read |
+# | `event_names(d)` | the per-record key names (`keys(rand(d))`) | read |
 # | `params_table(d)` | the flat free-parameter inventory | read |
 # | `update(d, chain_to_params(d, chain))` | read fitted values back onto `d` | yes |
 #

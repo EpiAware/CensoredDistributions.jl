@@ -46,13 +46,16 @@ function _named_composer_rand(rng::AbstractRNG, d)
 end
 
 # The output names matching the per-event/per-value vector of `rand(d)` /
-# `mean(latent(d))`. A CENSORED composer realises the flat EVENT path (origin +
-# one target per leaf edge), so its output names are the flat `event_names(d)`.
-# A PLAIN (uncensored) composer realises the per-VALUE vector (one value per
-# leaf, no latent origin), so its output names are the per-value leaf names.
+# `mean(latent(d))`, and the per-record key space the public
+# [`event_names`](@ref) reports. A CENSORED composer realises the flat EVENT
+# path (origin + one target per leaf edge), so its output names are the flat
+# `_flat_event_names(d)`. A PLAIN (uncensored) composer realises the per-VALUE
+# vector (one value per leaf, no latent origin), so its output names are the
+# per-value leaf names. Calls `_flat_event_names` directly (not the public
+# `event_names`, which now delegates BACK to this) to avoid a cycle.
 function _output_names(d::Union{Sequential, Parallel})
     _tree_primary_event(d) === nothing && return _value_names(d)
-    return event_names(d)
+    return _flat_event_names(d)
 end
 
 # Per-VALUE leaf names of a plain (uncensored) composer, in the same depth-first
