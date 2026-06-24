@@ -617,8 +617,8 @@ end
         truncated(Gamma(2.0, 1.0); upper = 20.0),
         truncated(LogNormal(0.5, 0.4); upper = 20.0))
     names = CensoredDistributions.event_names(t_seq)
-    rows = [NamedTuple{names}((0.0, 2.0, 5.0)),
-        NamedTuple{names}((1.0, 3.0, 7.0))]
+    rows = [NamedTuple{names}((2.0, 5.0)),
+        NamedTuple{names}((3.0, 7.0))]
     scored = logpdf(t_seq, rows)
     @test isfinite(scored)
     @test scored ≈ logpdf(perleaf, rows)
