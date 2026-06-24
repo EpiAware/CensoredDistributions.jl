@@ -347,15 +347,18 @@ _param_names(::Any) = ()
 # Names for the inner free delay's `params` tuple, padding with positional
 # fallbacks so every value has a label even when the family is unmapped. A
 # censored leaf delegates to its free delay (`free_leaf`), so the censoring
-# bounds never appear.
+# bounds never appear. A `thin(d, p)` leaf appends a trailing `:thin` name for
+# its reporting weight, the free parameter the `ThinOp` carries.
 function _leaf_param_names(leaf)
     inner = free_leaf(leaf)
     vals = params(inner)
     base = _param_names(inner)
     n = length(vals)
-    return ntuple(n) do i
+    delay_names = ntuple(n) do i
         i <= length(base) ? base[i] : Symbol(:param_, i)
     end
+    return _thin_factor(leaf) === nothing ? delay_names :
+           (delay_names..., :thin)
 end
 
 # --- params_table (hand-rolled pre-order walk) -----------------------------
@@ -472,6 +475,11 @@ A bare leaf distribution (no composer wrapping it) is also accepted; its rows
 carry an empty `edge`, so [`build_priors`](@ref) keys the priors flat by
 parameter name.
 
+A [`thin`](@ref)`(d, p)` leaf surfaces an extra `:thin` row for its reporting
+probability `p` (after the inner delay's rows, support `[0, 1]`), since `p` is a
+free parameter that enters the per-record likelihood, so it can be given a prior
+and overridden like the delay parameters.
+
 # Examples
 ```@example
 using CensoredDistributions, Distributions
@@ -578,15 +586,21 @@ function _walk_rows!(edges, params_col, values, supports, seen, leaf, path)
     tag !== nothing && tag in seen && return nothing
     inner = free_leaf(leaf)
     pnames = _leaf_param_names(leaf)
-    vals = params(inner)
     sup = (minimum(inner), maximum(inner))
+    factor = _thin_factor(leaf)
+    # The inner delay params take the delay support; a trailing `:thin` weight
+    # takes the `[0, 1]` probability support so its default prior is bounded.
+    vals = factor === nothing ? params(inner) : (params(inner)..., factor)
+    sups = factor === nothing ? ntuple(_ -> sup, length(vals)) :
+           (ntuple(_ -> sup, length(vals) - 1)...,
+        (zero(factor), one(factor)))
     edge = tag === nothing ? _join_path(path) : tag
     tag === nothing || push!(seen, tag)
-    for (pname, v) in zip(pnames, vals)
+    for (pname, v, s) in zip(pnames, vals, sups)
         push!(edges, edge)
         push!(params_col, pname)
         push!(values, v)
-        push!(supports, sup)
+        push!(supports, s)
     end
     return nothing
 end
@@ -603,11 +617,19 @@ _join_path(path::Tuple) = Symbol(join(string.(path), "."))
 # Reconstruct a (possibly censored) leaf from a new inner free delay built out
 # of `vals`, re-applying the fixed censoring. Mirrors the extension's
 # `_reconstruct_leaf` but is Turing-free; argument checks are kept on (this is
-# building a concrete distribution, not a gradient hot path).
+# building a concrete distribution, not a gradient hot path). For a thinned leaf
+# the trailing value is the new `thin` weight: it is split off, the inner delay
+# rebuilt from the remaining values, and the new factor routed into the op via
+# `_set_thin_factor`.
 function _update_leaf(leaf, vals::Tuple)
     inner = free_leaf(leaf)
     ctor = Base.typename(typeof(inner)).wrapper
-    return rewrap_leaf(leaf, ctor(vals...))
+    if _thin_factor(leaf) === nothing
+        return rewrap_leaf(leaf, ctor(vals...))
+    end
+    delay_vals = vals[1:(end - 1)]
+    rebuilt = rewrap_leaf(leaf, ctor(delay_vals...))
+    return _set_thin_factor(rebuilt, vals[end])
 end
 
 @doc "
@@ -620,7 +642,9 @@ mirrors the tree: a [`Sequential`](@ref)/[`Parallel`](@ref) is keyed by its edge
 names, a leaf by its parameter names (as in [`params_table`](@ref)'s `param`
 column), and a [`Resolve`](@ref) by its outcome names plus an optional
 `branch_probs` entry. A censored leaf is transparent: supply only the inner
-delay's parameters and the censoring is carried through.
+delay's parameters and the censoring is carried through. A [`thin`](@ref) leaf
+takes its delay parameters plus a trailing `thin` weight (as in
+[`params_table`](@ref)), routed back into the reporting probability.
 
 Pair with [`chain_to_params`](@ref) to read posterior means or a single draw
 from a Turing chain into the right NamedTuple, so `update(template, means)`
@@ -847,8 +871,8 @@ NamedTuple (a [`params_table`](@ref) row); the prior family follows the
 parameter's own natural domain (classified by name), not the leaf's variate
 support:
 
-- a probability parameter, support `[0, 1]` (a `branch_probs` row) ->
-  `Uniform(0, 1)`.
+- a probability parameter, support `[0, 1]` (a `branch_probs` row or a
+  [`thin`](@ref) reporting weight) -> `Uniform(0, 1)`.
 - a scale/shape/rate-type parameter (`:sigma`, `:scale`, `:shape`, `:rate`, ...)
   -> `truncated(Normal(value, scale); lower = 0)`, positive by construction even
   for a location-family delay (a `Normal`/`Affine(Normal)` `sigma`).

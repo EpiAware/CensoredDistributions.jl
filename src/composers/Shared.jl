@@ -99,6 +99,11 @@ get_dist(d::Shared) = d.dist
 free_leaf(d::Shared) = free_leaf(d.dist)
 rewrap_leaf(d::Shared, inner) = Shared(d.tag, rewrap_leaf(d.dist, inner))
 
+# A thin weight under a shared tag (`shared(:inc, thin(d, p))`) surfaces and
+# round-trips like any leaf weight: peel the tag to find/set the `ThinOp` factor.
+_thin_factor(d::Shared) = _thin_factor(d.dist)
+_set_thin_factor(d::Shared, p) = Shared(d.tag, _set_thin_factor(d.dist, p))
+
 # The tag does not change the realisation type, so the element type is the
 # wrapped leaf's (keeps a composed tree's `eltype`/`rand` element type correct).
 Base.eltype(::Type{<:Shared{D}}) where {D} = eltype(D)
