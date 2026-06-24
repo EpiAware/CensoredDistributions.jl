@@ -126,7 +126,11 @@ natural_history = compose((onset = incubation,
     severity = severity))
 
 md"""
-The object names its events; `event_names` is the flat per-record key space.
+The object names its events.
+`event_names` returns the per-record key space: exactly the keys of `rand` and
+the `NamedTuple` `logpdf` accepts.
+For this censored history it is the flat event path (a shared origin then one
+slot per branch); a plain, uncensored stack instead keys on its branch names.
 """
 
 event_names(natural_history)

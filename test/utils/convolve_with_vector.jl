@@ -49,9 +49,11 @@ end
     ln = LogNormal(0.5, 0.4)
     seq = Sequential((g, ln), (:onset_admit, :admit_death))
 
-    # Events of the chain: origin :onset, targets :admit (prefix 1) and
-    # :death (prefix 2 = endpoint).
-    @test event_names(seq) ==
+    # The `events=` selector keys on the FLAT event path of the chain: origin
+    # :onset, targets :admit (prefix 1) and :death (prefix 2 = endpoint). For a
+    # plain chain the public `event_names` follows the bare edge names, so the
+    # flat path is taken from `_flat_event_names`.
+    @test CensoredDistributions._flat_event_names(seq) ==
           (:onset, :admit, :death)
 
     # The interim :admit series uses ONLY the first leaf (prefix-1 delay).

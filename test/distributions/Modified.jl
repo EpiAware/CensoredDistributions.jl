@@ -237,9 +237,11 @@ end
     m2 = modify(LogNormal(1.0, 0.5), 0.2; link = identity)
 
     # Nests in compose: the stack names its events and exposes the inner
-    # free params of each Modified leaf through the introspection layer.
+    # free params of each Modified leaf through the introspection layer. A plain
+    # (uncensored) stack keys its record on the edge names, so `event_names`
+    # equals `keys(rand(stack))` (one per edge, no latent origin).
     stack = compose(m; tail = m2)
-    @test length(event_names(stack)) == 3
+    @test event_names(stack) == keys(rand(stack))
     tbl = params_table(stack)
     @test tbl !== nothing
 
