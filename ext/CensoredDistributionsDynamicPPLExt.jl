@@ -1351,8 +1351,15 @@ _base_ctor(leaf) = Base.typename(typeof(CensoredDistributions.free_leaf(leaf))).
 # plain (checked) constructor.
 function _reconstruct_leaf(leaf, vals::Tuple)
     ctor = _base_ctor(leaf)
-    inner = _construct_unchecked(ctor, vals)
-    return CensoredDistributions.rewrap_leaf(leaf, inner)
+    if CensoredDistributions._thin_factor(leaf) === nothing
+        inner = _construct_unchecked(ctor, vals)
+        return CensoredDistributions.rewrap_leaf(leaf, inner)
+    end
+    # A thinned leaf carries a trailing `thin` weight: rebuild the inner delay
+    # from the remaining sampled values and route the new factor into the op.
+    inner = _construct_unchecked(ctor, vals[1:(end - 1)])
+    rebuilt = CensoredDistributions.rewrap_leaf(leaf, inner)
+    return CensoredDistributions._set_thin_factor(rebuilt, vals[end])
 end
 
 # Reconstruct a leaf's inner delay from sampled params, skipping the argument check

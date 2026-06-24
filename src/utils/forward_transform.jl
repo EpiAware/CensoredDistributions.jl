@@ -257,6 +257,52 @@ end
 free_leaf(d::Transformed) = free_leaf(d.dist)
 rewrap_leaf(d::Transformed, inner) = Transformed(rewrap_leaf(d.dist, inner), d.op)
 
+# --- thin weight as a surfaced free parameter --------------------------------
+#
+# Unlike the fixed censoring bounds, a `thin(d, p)` reporting probability `p` is
+# a FREE parameter (it enters the per-record likelihood as the defective density
+# `log p + logpdf(d, x)`), so it must be inventoried by `params_table`,
+# defaulted by `build_priors`, and round-tripped by `update` /
+# `composed_parameters_model` like any leaf parameter. These helpers expose the
+# outermost `ThinOp` factor (`_thin_factor`) and rebuild a leaf with a new factor
+# (`_set_thin_factor`); a leaf with no thin op reports `nothing` and is left
+# unchanged. The introspection layer appends one `:thin` row per thinned leaf
+# (support `[0, 1]`), and reconstruction splits the trailing thin value off the
+# value tuple and routes it back into the op.
+
+# The outermost `ThinOp` factor of a (possibly censored) leaf, or `nothing` when
+# the leaf carries no thin op. Peels the same wrappers as `free_leaf` so a
+# thinned censored delay still reports its factor, but stops at the first
+# `ThinOp` (a single surfaced weight per leaf).
+_thin_factor(leaf) = nothing
+function _thin_factor(d::Transformed)
+    return d.op isa ThinOp ? d.op.factor : _thin_factor(d.dist)
+end
+_thin_factor(d::PrimaryCensored) = _thin_factor(d.dist)
+_thin_factor(d::IntervalCensored) = _thin_factor(d.dist)
+_thin_factor(d::Truncated) = _thin_factor(d.untruncated)
+
+# Rebuild a leaf with its outermost `ThinOp` factor replaced by `p`, keeping the
+# inner delay and any censoring untouched. Mirrors `_thin_factor`'s peel; only
+# the `ThinOp` node is swapped (the censoring wrappers are returned unchanged, so
+# nothing re-validates the inner delay on the AD reconstruction path). A
+# non-thinned leaf is returned unchanged (it has no factor to set).
+_set_thin_factor(leaf, p) = leaf
+function _set_thin_factor(d::Transformed, p)
+    return d.op isa ThinOp ? Transformed(d.dist, ThinOp(p)) :
+           Transformed(_set_thin_factor(d.dist, p), d.op)
+end
+function _set_thin_factor(d::PrimaryCensored, p)
+    return PrimaryCensored(_set_thin_factor(d.dist, p), d.primary_event, d.method)
+end
+function _set_thin_factor(d::IntervalCensored, p)
+    return IntervalCensored(_set_thin_factor(d.dist, p), d.boundaries)
+end
+function _set_thin_factor(d::Truncated, p)
+    return truncated(_set_thin_factor(d.untruncated, p); lower = d.lower,
+        upper = d.upper)
+end
+
 # --- the forward op the convolve layer applies -------------------------------
 
 # Peel forward-transform wrappers to the underlying (possibly censored) delay,
