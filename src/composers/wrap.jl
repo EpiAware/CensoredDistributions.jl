@@ -506,3 +506,98 @@ function truncate_to_horizon(d::AbstractOneOf, window::Real)
     return _distribute_into_leaves(
         d, leaf -> truncate_to_horizon(leaf, window))
 end
+
+# ---------------------------------------------------------------------------
+# truncated: a FIXED-BOUND truncation distributed into a composed node's leaves.
+# ---------------------------------------------------------------------------
+#
+# `Distributions.truncated(node; lower, upper)` is the FIXED-BOUND truncation
+# variant over a composed node, the truncation sibling of the censoring node
+# wraps above. It distributes the SAME fixed bound into every leaf CORE (each
+# leaf reduced to its continuous core first, then truncated), returning a node of
+# the SAME shape so the wrapped node stays record-scoreable (tenet 7). This is
+# density-identical to the canonical per-leaf construction
+# `Sequential(truncated(d_1; ...), ..., truncated(d_k; ...))`.
+#
+# This is DISTINCT from the per-record `truncate_to_horizon(node, window)` /
+# `truncate_to_window(node, window, δ)` path above, which is the PER-RECORD-FIELD
+# variant: there the bound is the per-observation horizon supplied at score time.
+# Both are legitimate; this one fixes the bound at construction.
+#
+# The AGGREGATE-total truncation (truncate the chain's observed scalar total, not
+# each leaf) stays available EXPLICITLY through
+# `truncated(observed_distribution(node); ...)`, the dual scalar direction —
+# exactly as the censoring node wraps keep `modifier(observed_distribution(node))`
+# available. Matching the censoring path, the bare-node form distributes into
+# leaves.
+#
+# `Sequential`/`Parallel`/`Choose` are multivariate, so no base `truncated`
+# method applies and the keyword + positional forms below are unambiguous. An
+# `AbstractOneOf` (`Resolve`/`Compete`) IS a `UnivariateDistribution`, so the
+# bounds are typed (`::Real` / `::Nothing`) to SHADOW the base
+# `truncated(::UnivariateDistribution, ...)` leaf methods (which would otherwise
+# collapse it to its scalar marginal and drop the outcome slots), the same wrinkle
+# the `interval_censored(::AbstractOneOf, ::Real)` method handles.
+
+# The composed verb nodes a fixed-bound `truncated` distributes into.
+const _TruncatableNode = Union{Sequential, Parallel, Choose, AbstractOneOf}
+
+# Distribute one fixed `(lower, upper)` bound into every leaf core, truncating
+# each at the SHARED bound. A leaf is reduced to its continuous core first so a
+# fixed-bound truncation over an ALREADY-truncated node re-truncates the core
+# rather than nesting `Truncated{Truncated{...}}`. `(nothing, nothing)` is a
+# no-op truncation, so the node is returned unchanged.
+function _truncate_into_leaves(d::_TruncatableNode, lower, upper)
+    lower === nothing && upper === nothing && return d
+    return _distribute_into_leaves(
+        d, leaf -> truncated(leaf; lower = lower, upper = upper))
+end
+
+@doc "
+
+Fixed-bound–truncate every leaf core of a composed node, keeping the tree shape.
+
+`Distributions.truncated(node; lower, upper)` over a [`Sequential`](@ref) /
+[`Parallel`](@ref) / [`Choose`](@ref) / [`Resolve`](@ref) / [`Compete`](@ref)
+node distributes the SAME fixed bound into every leaf core (each reduced to its
+continuous core first, then truncated), returning a node of the same shape. Tree
+shape is unchanged, so `logpdf(truncated(node; ...), rows)` scores the record
+exactly as the canonical per-leaf construction
+`Sequential(truncated(d_1; ...), ...)`.
+
+This is the FIXED-BOUND truncation variant; the per-observation-horizon variant
+is [`truncate_to_horizon`](@ref)`(node, window)` /
+[`truncate_to_window`](@ref)`(node, window, δ)`. The AGGREGATE chain-total
+truncation stays available explicitly via `truncated(observed_distribution(node);
+lower, upper)`.
+
+See also: [`truncate_to_horizon`](@ref), [`observed_distribution`](@ref)
+"
+function Distributions.truncated(
+        d::_TruncatableNode;
+        lower::Union{Real, Nothing} = nothing,
+        upper::Union{Real, Nothing} = nothing)
+    return _truncate_into_leaves(d, lower, upper)
+end
+
+# Positional forms Distributions dispatches through (`truncated(d, l, u)` and the
+# one-sided `nothing` variants), each distributing the fixed bound into the leaf
+# cores. Sequential/Parallel/Choose need no `::Real` annotation (multivariate, no
+# base method to disambiguate from); the AbstractOneOf methods follow.
+function Distributions.truncated(d::Union{Sequential, Parallel, Choose}, l, u)
+    return _truncate_into_leaves(d, l, u)
+end
+
+# An `AbstractOneOf` is a `UnivariateDistribution`, so these positional forms must
+# be typed to SHADOW the base `truncated(::UnivariateDistribution, ...)` methods
+# (interval, right-only, left-only, and the empty `nothing, nothing`).
+function Distributions.truncated(d::AbstractOneOf, l::Real, u::Real)
+    return _truncate_into_leaves(d, l, u)
+end
+function Distributions.truncated(d::AbstractOneOf, ::Nothing, u::Real)
+    return _truncate_into_leaves(d, nothing, u)
+end
+function Distributions.truncated(d::AbstractOneOf, l::Real, ::Nothing)
+    return _truncate_into_leaves(d, l, nothing)
+end
+Distributions.truncated(d::AbstractOneOf, ::Nothing, ::Nothing) = d

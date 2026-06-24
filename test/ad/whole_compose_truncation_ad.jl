@@ -157,7 +157,13 @@ end
         s5 = logpdf(primary_censored(sel, Uniform(0, 1)), 2.0; kind = :index)
         s6 = logpdf(truncate_to_horizon(sel, 10.0), 3.0; kind = :sourced)
 
-        return s1 + s2 + s2b + s3 + s4 + s5 + s6
+        # Fixed-bound `truncated(node; ...)` over a node distributes into the
+        # leaf cores too (#711): the per-leaf truncation `logcdf` normaliser must
+        # differentiate w.r.t. the leaf params through the kept tree shape.
+        s7 = logpdf(truncated(seq; upper = 12.0), [3.0, 5.0])
+        s8 = logpdf(truncated(par; lower = 0.5, upper = 12.0), [2.0, 3.0])
+
+        return s1 + s2 + s2b + s3 + s4 + s5 + s6 + s7 + s8
     end
 
     θ = [1.0, 0.5]

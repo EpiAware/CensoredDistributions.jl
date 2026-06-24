@@ -279,6 +279,7 @@ end
 
     wrappers = (
         ("truncate_to_horizon", d -> truncate_to_horizon(d, 10.0)),
+        ("truncated(upper)", d -> truncated(d; upper = 20.0)),
         ("primary_censored", d -> primary_censored(d, Uniform(0, 1))),
         ("interval_censored", d -> interval_censored(d, 1.0)),
         ("double_interval_censored",
@@ -586,6 +587,134 @@ end
     names = CensoredDistributions.event_names(w_bare)
     rows = [NamedTuple{names}((0.0, 3.0, missing))]
     @test logpdf(w_bare, rows) ≈ logpdf(w_censored, rows)
+end
+
+# ---------------------------------------------------------------------------
+# Fixed-bound `truncated(node; lower, upper)` over a composed node distributes
+# the SAME fixed bound into the leaf cores (the truncation sibling of the
+# censoring node wraps, #711, tenet 7 truncation half). This is DISTINCT from the
+# per-record `truncate_to_horizon(node, window)` variant: the bound here is fixed
+# at construction. The aggregate chain-total truncation stays explicit via
+# `truncated(observed_distribution(node); ...)`.
+# ---------------------------------------------------------------------------
+
+@testitem "truncated(Sequential; upper) distributes into leaves (== per-leaf)" begin
+    using Distributions
+
+    seq = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+
+    t_seq = truncated(seq; upper = 20.0)
+    @test t_seq isa CensoredDistributions.Sequential
+    @test t_seq.names === seq.names
+    @test all(c -> c isa Truncated, t_seq.components)
+    # Each leaf is truncated at the shared fixed bound.
+    for (c, leaf) in zip(t_seq.components, (Gamma(2.0, 1.0), LogNormal(0.5, 0.4)))
+        @test logpdf(c, 3.0) ≈ logpdf(truncated(leaf; upper = 20.0), 3.0)
+    end
+
+    # Density-identical to the canonical per-leaf construction.
+    perleaf = Sequential(
+        truncated(Gamma(2.0, 1.0); upper = 20.0),
+        truncated(LogNormal(0.5, 0.4); upper = 20.0))
+    names = CensoredDistributions.event_names(t_seq)
+    rows = [NamedTuple{names}((2.0, 5.0)),
+        NamedTuple{names}((3.0, 7.0))]
+    scored = logpdf(t_seq, rows)
+    @test isfinite(scored)
+    @test scored ≈ logpdf(perleaf, rows)
+
+    # The positional forms Distributions dispatches through agree.
+    @test logpdf(truncated(seq, nothing, 20.0), rows) ≈ scored
+    @test logpdf(truncated(seq; lower = 1.0, upper = 20.0), rows) isa Real
+
+    # `(nothing, nothing)` is a no-op truncation: the node is unchanged.
+    @test truncated(seq; lower = nothing, upper = nothing) === seq
+end
+
+@testitem "truncated(Parallel; lower) distributes into branches" begin
+    using Distributions
+
+    par = Parallel((Gamma(2.0, 1.0), LogNormal(1.0, 0.5)), (:a, :b))
+
+    t = truncated(par; lower = 1.0)
+    @test t isa CensoredDistributions.Parallel
+    @test t.components[1] isa Truncated
+    @test t.components[2] isa Truncated
+    # Each branch scores independently against the fixed-bound truncated leaf.
+    @test logpdf(t, [2.0, 3.0]) ≈
+          logpdf(truncated(Gamma(2.0, 1.0); lower = 1.0), 2.0) +
+          logpdf(truncated(LogNormal(1.0, 0.5); lower = 1.0), 3.0)
+
+    # Interval bound (both sides) also distributes.
+    ti = truncated(par; lower = 0.5, upper = 15.0)
+    @test ti isa CensoredDistributions.Parallel
+    @test logpdf(ti, [2.0, 3.0]) ≈
+          logpdf(truncated(Gamma(2.0, 1.0); lower = 0.5, upper = 15.0), 2.0) +
+          logpdf(truncated(LogNormal(1.0, 0.5); lower = 0.5, upper = 15.0), 3.0)
+end
+
+@testitem "truncated(Resolve/Compete; upper) distributes into outcomes" begin
+    using Distributions
+
+    res = resolve(:a => (Gamma(2.0, 1.0), 0.5), :b => (Gamma(1.5, 2.0), 0.5))
+    tr = truncated(res; upper = 20.0)
+    @test tr isa CensoredDistributions.Resolve
+    @test tr.names === res.names
+    @test tr.branch_probs === res.branch_probs
+    @test all(d -> d isa Truncated, tr.delays)
+    for (d, leaf) in zip(tr.delays, (Gamma(2.0, 1.0), Gamma(1.5, 2.0)))
+        @test logpdf(d, 3.0) ≈ logpdf(truncated(leaf; upper = 20.0), 3.0)
+    end
+
+    # Density-identical to the per-outcome construction, scored per record.
+    perout = resolve(:a => (truncated(Gamma(2.0, 1.0); upper = 20.0), 0.5),
+        :b => (truncated(Gamma(1.5, 2.0); upper = 20.0), 0.5))
+    names = CensoredDistributions.event_names(tr)
+    @test names === CensoredDistributions.event_names(perout)
+    rows = [NamedTuple{names}((0.0, 3.0, missing)),
+        NamedTuple{names}((0.5, missing, 4.0))]
+    scored = logpdf(tr, rows)
+    @test isfinite(scored)
+    @test scored ≈ logpdf(perout, rows)
+
+    cmp = compete(:a => Gamma(2.0, 1.0), :b => Gamma(1.5, 2.0))
+    tc = truncated(cmp; lower = 0.5, upper = 15.0)
+    @test tc isa CensoredDistributions.Compete
+    @test all(d -> d isa Truncated, tc.delays)
+end
+
+@testitem "truncated(Choose; upper) distributes into alternatives" begin
+    using Distributions
+
+    sel = choose(:index => Gamma(2.0, 1.0), :sourced => LogNormal(0.5, 0.4))
+    ts = truncated(sel; upper = 20.0)
+    @test ts isa CensoredDistributions.Choose
+    @test ts.names === sel.names
+    @test ts.selector === sel.selector
+    @test logpdf(ts, 2.0; kind = :index) ≈
+          logpdf(truncated(Gamma(2.0, 1.0); upper = 20.0), 2.0)
+    @test logpdf(ts, 2.0; kind = :sourced) ≈
+          logpdf(truncated(LogNormal(0.5, 0.4); upper = 20.0), 2.0)
+end
+
+@testitem "truncated over a verb node re-truncates the core (no nesting)" begin
+    using Distributions
+
+    # Truncating an ALREADY-truncated node reduces each leaf to its continuous
+    # core first, so the result is density-identical to truncating the bare-core
+    # node — no stacked `Truncated{Truncated{...}}`.
+    seq = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    t1 = truncated(seq; upper = 20.0)
+    t2 = truncated(t1; upper = 15.0)
+    for c in t2.components
+        @test c isa Truncated
+        @test !(c.untruncated isa Truncated)
+    end
+
+    # The AGGREGATE chain-total truncation stays available EXPLICITLY (the dual
+    # scalar direction), distinct from this per-leaf distribute.
+    agg = truncated(observed_distribution(seq); upper = 20.0)
+    @test agg isa Truncated
 end
 
 @testitem "node-level wrap over a Resolve nested as a Sequential step" begin
