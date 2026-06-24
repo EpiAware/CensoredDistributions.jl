@@ -71,7 +71,6 @@ and CensoredDistributions for the composed delay model.
 
 using CSV, DataFramesMeta, Dates
 using CensoredDistributions, Distributions
-using CensoredDistributions: latent_primary_priors, latent_observed_logpdf
 using Turing, Random, Statistics
 using DynamicPPL: to_submodel, @varname
 using FlexiChains: Parameter
@@ -523,28 +522,20 @@ used the latent form instead, and the two are one family on the same parameters
 [Fit marginal, sample event based](@ref) for the how-to).
 This section runs the latent form on the real records and checks the two agree.
 
-The latent model is the marginal `bdbv` with one swap.
-[`latent_segments`](@ref)`(delays)` lowers the same composed `delays` object into
-the latent form, a [`Choose`](@ref) of single-edge [`latent`](@ref) chains, one
-per delay segment, that samples each origin event and conditions the observed
-time on it at the floored gap rather than integrating it out.
-[`latent_records`](@ref)`(template, obs_rows)` turns the SAME record schema the
-marginal model scores (the event columns plus the per-record `:branch_probs`)
-into the per-segment rows the vectorised latent path consumes.
-The whole record set then scores in one
-`primaries ~ product_distribution(...)` statement plus one
-[`latent_observed_logpdf`](@ref), with the death-versus-discharge split folded in
-through each resolved segment's branch probability, so there is no per-record
-submodel and no hand-rolled segment machinery.
+The latent model is the marginal `bdbv` with ONE swap: the composed `delays`
+object is wrapped in [`latent`](@ref).
+The marginal model scores `composed_distribution_model(delays, obs_rows)`; the
+latent model scores `composed_distribution_model(latent(delays), obs_rows)` on the
+SAME rows, with the same parameter block, case-fatality regression and priors.
+Wrapping in `latent` samples each unobserved event time internally (the origin and
+any unobserved intermediate) and conditions the observed events on it, rather than
+integrating them out inside `logpdf`; the death-versus-discharge split rides the
+same per-record `:branch_probs` field.
+The two forms are density-identical (the project marginal == latent invariant), so
+the latent fit recovers the same delays as the marginal fit.
 Because admission is recorded for every resolved case here, no admission time is
-sampled and the onset → admission and admission → resolution segments are
-independent observed leaves; a single-edge chain is density-identical to the
-marginal leaf, so the latent fit recovers the same delays as the marginal fit.
-
-The latent model shares the parameter block, the case-fatality regression, the
-priors and the data with the marginal `bdbv`, differing only by the
-[`latent_segments`](@ref) / [`latent_records`](@ref) wrapper on the composed
-object.
+sampled and the onset → admission and admission → resolution edges score their
+declared censoring at the observed gaps, density-identical to the marginal.
 """
 
 @model function bdbv_latent(template, priors, rows)
@@ -562,11 +553,7 @@ object.
             (branch_probs = (death = p, discharge = 1 - p),))
     end
 
-    segments = latent_segments(delays)
-    table = latent_records(template, obs_rows)
-
-    primaries ~ product_distribution(latent_primary_priors(segments, table))
-    Turing.@addlogprob! latent_observed_logpdf(segments, table, primaries)
+    obs ~ to_submodel(composed_distribution_model(latent(delays), obs_rows))
 end
 
 md"""
@@ -608,9 +595,11 @@ delay_labels = ["onset → admission", "admission → death",
     "admission → discharge", "onset → notification"];
 
 md"""
-The case-fatality coefficients are recovered the same way by both formulations,
-which confirms the Bernoulli case-fatality term in the latent model and the
-`:branch_probs` term in the marginal model are scoring the same split.
+The case-fatality coefficients are recovered the same way by both formulations.
+Both score the death-versus-discharge split through the same per-record
+`:branch_probs` field on the same resolve node, differing only by whether the
+unobserved event times are integrated out (marginal) or sampled (latent), so the
+two recover the same coefficients.
 """
 
 cfr_comparison = let
