@@ -339,6 +339,9 @@ end
 _param_names(::Distributions.Normal) = (:mu, :sigma)
 _param_names(::Distributions.LogNormal) = (:mu, :sigma)
 _param_names(::Distributions.Gamma) = (:shape, :scale)
+# The reparameterised Gamma leaf's free parameters are its mean and shape (the
+# scale is derived), so a prior on the mean couples correctly.
+_param_names(::MeanGamma) = (:mean, :shape)
 _param_names(::Distributions.Weibull) = (:shape, :scale)
 _param_names(::Distributions.Exponential) = (:scale,)
 _param_names(::Distributions.Uniform) = (:lower, :upper)
@@ -828,13 +831,13 @@ end
 
 # Scale/shape/rate-type parameters are positive by construction (the `sigma` of a
 # `Normal`/`LogNormal`, the `shape`/`scale` of a `Gamma`/`Weibull`, the `scale`
-# of an `Exponential`, and the common positive parameter names of related
-# families), so they get a positive-truncated default regardless of the leaf's
-# variate support.
+# of an `Exponential`, the reparameterised `mean` of a `MeanGamma`, and the
+# common positive parameter names of related families), so they get a
+# positive-truncated default regardless of the leaf's variate support.
 function _is_positive_param(p::Symbol)
     p === :sigma || p === :scale || p === :rate || p === :shape ||
         p === :alpha || p === :beta || p === :theta || p === :nu ||
-        p === :k || p === :df
+        p === :k || p === :df || p === :mean
 end
 
 @doc "
