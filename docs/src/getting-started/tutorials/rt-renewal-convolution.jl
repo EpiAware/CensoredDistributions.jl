@@ -188,16 +188,17 @@ md"""
 
 The forward map from parameters to expected event streams is defined ONCE and
 reused everywhere: the simulator, the Turing `@model`, and the
-posterior-predictive check all call the same function rather than re-implementing
-the renewal-and-convolve pipeline per step.
-It takes the per-day reproduction number, the ascertainment and the IFR, plus the
-fixed delays, generation interval and seed, runs the renewal recursion, rebuilds
-the branched observation stack with the scales threaded through [`thin`](@ref),
-and pushes the infections through with a single [`convolve_distributions`](@ref)
-call and `events = (:cases, :deaths)`, returning a `NamedTuple` of both streams
-discretised, convolved and thinned in one pass.
-Calling the convolution once per stream would rebuild the shared incubation twice
-and lose the shared-origin structure, so we do it once.
+posterior-predictive check all call the same function rather than
+re-implementing the renewal-and-convolve pipeline per step.
+It takes the per-day reproduction number, the ascertainment and the IFR, plus
+the fixed delays, generation interval and seed, runs the renewal recursion,
+rebuilds the branched observation stack with the scales threaded through
+[`thin`](@ref), and pushes the infections through with a single
+[`convolve_distributions`](@ref) call and `events = (:cases, :deaths)`,
+returning a `NamedTuple` of both streams discretised, convolved and thinned in
+one pass.
+Calling the convolution once per stream would rebuild the shared incubation
+twice and lose the shared-origin structure, so we do it once.
 It returns the FULL streams over every day; which days are scored is the
 likelihood's choice (see the observed-only window below), not the forward map's.
 """
