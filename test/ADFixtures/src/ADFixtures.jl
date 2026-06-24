@@ -116,28 +116,20 @@ backend `name` from [`working_backends`](@ref).
 
 """
 function backend_broken_scenarios()
-    # The batched `pdf(::IntervalCensored, ::AbstractVector)` path collects
-    # interval boundaries through dynamically-grown / sliced arrays
-    # (`_collect_unique_boundaries`, `_sorted_unique`). Enzyme's strict type
-    # analysis rejects the resulting `Union`-typed temporaries with
-    # `IllegalTypeAnalysisException` (both modes). This predates #699 (the
-    # batched path always allocated this way) and is orthogonal to it: the
-    # #699 fix made the path Mooncake-reverse / ReverseDiff differentiable,
-    # which it now is. Enzyme on the batched vector path is tracked
-    # separately in #701. The scalar `IntervalCensored` scenarios still work
-    # under Enzyme.
-    batched_interval = Set([
-        "IntervalCensored LogNormal regular batched pdf",
-        "IntervalCensored LogNormal regular batched logpdf",
-        "DoubleIntervalCensored LogNormal batched pdf"
-    ])
+    # The batched `pdf(::IntervalCensored, ::AbstractVector)` boundary
+    # collection is now marked non-differentiable per backend (Mooncake
+    # `@zero_derivative`, Enzyme `inactive`, ChainRules `@non_differentiable`),
+    # so neither Mooncake nor Enzyme traces the `unique`/sort internals. The
+    # boundaries are functions of the constant lags, not the AD parameters, so
+    # the zero-tangent rule is exact; all backends now differentiate the path
+    # (#699, #701).
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => Set{String}(),
         "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => copy(batched_interval),
-        "Enzyme forward" => copy(batched_interval)
+        "Enzyme reverse" => Set{String}(),
+        "Enzyme forward" => Set{String}()
     )
 end
 
@@ -308,13 +300,12 @@ function scenarios(; with_reference::Bool = false)
     # These hit the `pdf(::IntervalCensored, ::AbstractVector)` path, which
     # evaluates each unique interval-boundary CDF once via the boundary cache
     # rather than the `2·(n+1)` overlapping evals a scalar `pdf`-per-lag loop
-    # does. The old `Dict{Any,Any}` boundary cache forced a
-    # `DynamicDerivedRule{Dict{Any,Any}}` and a bitcast Mooncake reverse-mode
-    # refused to differentiate, so this whole batched path errored on
-    # `prepare_gradient_cache` (#699). The scalar scenarios above never
-    # exercised it. Passing the lag vector `obs` as the differentiated
-    # argument's data (a `Constant` context) keeps the gradient w.r.t. the
-    # delay params only.
+    # does. The boundary collection is marked non-differentiable per backend
+    # (the boundaries are functions of the constant lags, not the AD params),
+    # so all backends differentiate the path: see #699 (Mooncake/ReverseDiff)
+    # and #701 (Enzyme). The scalar scenarios above never exercised it.
+    # Passing the lag vector `obs` as the differentiated argument's data (a
+    # `Constant` context) keeps the gradient w.r.t. the delay params only.
     obs_batch = collect(0.0:1.0:9.0)
     _push!("IntervalCensored LogNormal regular batched pdf",
         (θ, obs) -> sum(
