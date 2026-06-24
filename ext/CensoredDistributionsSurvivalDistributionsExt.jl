@@ -1,8 +1,9 @@
 module CensoredDistributionsSurvivalDistributionsExt
 
-using CensoredDistributions: _gamma_cdf
+using CensoredDistributions: CensoredDistributions, _gamma_cdf
 import CensoredDistributions: _cdf_ad_safe, _ccdf_ad_safe,
                               _logcdf_ad_safe, _logccdf_ad_safe
+using CensoredDistributions: Sequential, Parallel
 using Distributions: shape, scale
 import Distributions: logcdf
 import SurvivalDistributions as SD
@@ -77,5 +78,33 @@ end
 # censoring pipelines already use and which the AD-parity testitem locks in.
 # Only `logcdf` is unclaimed and so safely AD-routed at the public method.
 logcdf(d::SD.GeneralizedGamma, t::Real) = _logcdf_ad_safe(d, t)
+
+# ============================================================================
+# Hazard accessor interop with SurvivalDistributions
+# ============================================================================
+#
+# CensoredDistributions defines its OWN unexported `hazard` / `loghazard` /
+# `cumhazard` / `survival` (see `src/utils/hazards.jl`) so they do not clash
+# with SurvivalDistributions' EXPORTED `hazard`/`loghazard`/`cumhazard` when
+# both packages are loaded. The definitions are identical (the standard survival
+# identities `h = f/S`, `H = -log S`, `log h = log f - log S`), so the two agree
+# on every UNIVARIATE delay automatically: `SD.hazard` already reads
+# `pdf`/`ccdf`, which every composed univariate delay defines, and
+# `CensoredDistributions.hazard` reads the same surface, so a tree of SD leaves
+# and an SD leaf in a tree both work under either entry.
+#
+# The only gap is the MULTIVARIATE verb composer (`Sequential`): SD's generic
+# `hazard(::UnivariateDistribution, t)` does not match a `Sequential` (which is
+# `Multivariate`), so `SD.hazard(tree, t)` would error where
+# `CensoredDistributions.hazard(tree, t)` reduces the chain to its marginal
+# time-to-event convolution. Forward SD's verbs to the package accessors for
+# the verb composers so the SAME tree-level hazard is reachable through EITHER
+# package's function name. A `Parallel` raises the same ambiguity error the
+# package accessor does (its `_hazard_marginal(::Parallel)` throws).
+for V in (Sequential, Parallel)
+    SD.hazard(d::V, t::Real) = CensoredDistributions.hazard(d, t)
+    SD.loghazard(d::V, t::Real) = CensoredDistributions.loghazard(d, t)
+    SD.cumhazard(d::V, t::Real) = CensoredDistributions.cumhazard(d, t)
+end
 
 end # module

@@ -104,6 +104,53 @@ total = convolve_distributions(
 
 [round(cdf(total, x); digits = 3) for x in 0.0:2.0:10.0]
 
+# ## Hazards from a composed tree
+#
+# The survival families exist for hazard modelling, and the package reads the
+# hazard surface off ANY composed delay through the verbs (north-star tenet 5:
+# the composed object is the input to downstream layers). The four accessors
+# [`hazard`](@ref CensoredDistributions.hazard),
+# [`loghazard`](@ref CensoredDistributions.loghazard),
+# [`cumhazard`](@ref CensoredDistributions.cumhazard) and
+# [`survival`](@ref CensoredDistributions.survival) are the standard
+# survival-analysis identities (`h = f/S`, `H = -log S`), so they read a leaf,
+# a censored wrapper, a [`modify`](@ref) hazard modification, or a composer.
+#
+# A SurvivalDistributions leaf reports its own hazard.
+
+CensoredDistributions.hazard(SD.GeneralizedGamma(1.0, 1.5, 2.0), 2.0)
+
+# The accessor matches SurvivalDistributions' own `hazard`, so the two
+# interoperate: a tree of survival leaves and a survival leaf in a tree both
+# read through either function.
+
+CensoredDistributions.hazard(SD.GeneralizedGamma(1.0, 1.5, 2.0), 2.0) ==
+SD.hazard(SD.GeneralizedGamma(1.0, 1.5, 2.0), 2.0)
+
+# Getting the hazard from a TREE goes through the verbs. A
+# [`sequential`](@ref) chain's total-time hazard is the hazard of its marginal
+# convolution, reachable from either package's function name.
+
+chain = sequential(SD.GeneralizedGamma(1.0, 1.5, 2.0), LogNormal(0.5, 0.4))
+[round(CensoredDistributions.hazard(chain, x); digits = 4) for x in 1.0:2.0:9.0]
+
+# A [`compete`](@ref) racing node's hazard is the total cause hazard (the rate
+# of the first event), the natural input to a competing-risks layer.
+
+race = compete(:recover => SD.GeneralizedGamma(1.0, 1.5, 2.0),
+    :die => Weibull(1.4, 3.0))
+[round(CensoredDistributions.hazard(race, x); digits = 4) for x in 1.0:1.0:5.0]
+
+# A [`modify`](@ref) hazard modification reads back the hazard it constructed,
+# `g⁻¹(g(h) + effect)`: a proportional-hazards (`log` link) doubling scales the
+# base hazard by two.
+
+base = SD.GeneralizedGamma(1.0, 1.5, 2.0)
+doubled = modify(base, log(2.0); link = log)
+[(t = t, base = round(CensoredDistributions.hazard(base, t); digits = 4),
+     doubled = round(CensoredDistributions.hazard(doubled, t); digits = 4))
+ for t in 1.0:2.0:5.0]
+
 # ## When to reach for these families
 #
 # The survival families add delay shapes Distributions.jl does not cover: the
