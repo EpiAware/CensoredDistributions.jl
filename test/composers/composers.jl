@@ -197,18 +197,17 @@ end
           logpdf(Normal(0.0, 1.0), 0.0)
 end
 
-@testitem "compose: NamedTuple, table and matrix are structurally equal" begin
+@testitem "compose: NamedTuple and table are structurally equal" begin
     using Distributions
 
-    # The three front-ends build the same nested STRUCTURE; their node names may
+    # Both front-ends build the same nested STRUCTURE; their node names may
     # differ (each format carries its own), and `==` compares structure only
-    # (Option A). These assertions exercise that relaxed equivalence.
+    # (Option A). These assertions exercise that relaxed equivalence. A column
+    # table is passed as an explicit row table (a Tables.jl source); a
+    # NamedTuple is always read structurally, never as a column table.
 
-    # --- irregular tree: NamedTuple, column table, row table agree ---
+    # --- irregular tree: NamedTuple and row table agree ---
     nt = (a = Gamma(2.0, 1.0), b = [LogNormal(0.5, 0.4), Gamma(1.0, 1.0)])
-    column_table = (name = [:a, :b1, :b2],
-        dist = [Gamma(2.0, 1.0), LogNormal(0.5, 0.4), Gamma(1.0, 1.0)],
-        chain = [0, 1, 1])
     row_table = [(name = :a, dist = Gamma(2.0, 1.0), chain = 0),
         (name = :b1, dist = LogNormal(0.5, 0.4), chain = 1),
         (name = :b2, dist = Gamma(1.0, 1.0), chain = 1)]
@@ -216,40 +215,37 @@ end
         Sequential(LogNormal(0.5, 0.4), Gamma(1.0, 1.0)))
 
     @test compose(nt) == target
-    @test compose(column_table) == target
     @test compose(row_table) == target
-    @test compose(nt) == compose(column_table) == compose(row_table)
+    @test compose(nt) == compose(row_table)
 
-    # --- regular grid: NamedTuple, table and Matrix agree ---
+    # --- regular grid: NamedTuple and table agree ---
     nt2 = (r1 = [Gamma(2.0, 1.0), LogNormal(0.5, 0.4)],
         r2 = [Gamma(1.0, 1.0), Gamma(3.0, 1.0)])
-    table2 = (name = [:a, :b, :c, :d],
-        dist = [Gamma(2.0, 1.0), LogNormal(0.5, 0.4),
-            Gamma(1.0, 1.0), Gamma(3.0, 1.0)],
-        chain = [1, 1, 2, 2])
-    mat2 = [Gamma(2.0, 1.0) LogNormal(0.5, 0.4)
-            Gamma(1.0, 1.0) Gamma(3.0, 1.0)]
+    table2 = [(name = :a, dist = Gamma(2.0, 1.0), chain = 1),
+        (name = :b, dist = LogNormal(0.5, 0.4), chain = 1),
+        (name = :c, dist = Gamma(1.0, 1.0), chain = 2),
+        (name = :d, dist = Gamma(3.0, 1.0), chain = 2)]
     target2 = Parallel(Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)),
         Sequential(Gamma(1.0, 1.0), Gamma(3.0, 1.0)))
 
     @test compose(nt2) == target2
     @test compose(table2) == target2
-    @test compose(mat2) == target2
-    @test compose(nt2) == compose(table2) == compose(mat2)
+    @test compose(nt2) == compose(table2)
 end
 
-@testitem "compose: matrix orientation and flat equivalences" begin
+@testitem "compose: flat equivalences across front-ends" begin
     using Distributions
 
-    # Rows are parallel branches, columns are sequential steps.
-    flat_parallel = compose(reshape(
-        [Gamma(2.0, 1.0), LogNormal(1.0, 0.5)], 2, 1))
-    @test flat_parallel == compose((a = Gamma(2.0, 1.0), b = LogNormal(1.0, 0.5)))
-    @test flat_parallel ==
-          compose((name = [:a, :b], dist = [Gamma(2.0, 1.0), LogNormal(1.0, 0.5)]))
+    # A flat NamedTuple of leaves and the equivalent row table agree.
+    flat_parallel = compose((a = Gamma(2.0, 1.0), b = LogNormal(1.0, 0.5)))
+    flat_table = [(name = :a, dist = Gamma(2.0, 1.0)),
+        (name = :b, dist = LogNormal(1.0, 0.5))]
+    @test flat_parallel == compose(flat_table)
 
-    # A one-row matrix is a single sequential branch.
-    chain = compose([Gamma(2.0, 1.0) LogNormal(0.5, 0.4) Gamma(1.0, 1.0)])
+    # A single-chain row table is one sequential branch.
+    chain = compose([(name = :s1, dist = Gamma(2.0, 1.0), chain = 1),
+        (name = :s2, dist = LogNormal(0.5, 0.4), chain = 1),
+        (name = :s3, dist = Gamma(1.0, 1.0), chain = 1)])
     @test chain == Parallel(Sequential(
         Gamma(2.0, 1.0), LogNormal(0.5, 0.4), Gamma(1.0, 1.0)))
 
@@ -263,25 +259,26 @@ end
 @testitem "compose: input validation" begin
     using Distributions
 
-    @test_throws ArgumentError compose((name = [:a], extra = [1]))
-    @test_throws ArgumentError compose((name = [:a], dist = [1.0]))
     @test_throws ArgumentError compose(42)
     # A NamedTuple sequential child must hold distributions.
     @test_throws ArgumentError compose((a = [1.0, 2.0],))
+    # An explicit table needs `name` and `dist` columns.
+    @test_throws ArgumentError compose([(name = :a, extra = 1)])
+    @test_throws ArgumentError compose([(name = :a, dist = 1.0)])
     # Negative chain group ids would collide with auto-generated leaf ids.
-    @test_throws ArgumentError compose((name = [:a, :b],
-        dist = [Gamma(2.0, 1.0), LogNormal(0.5, 0.4)], chain = [-1, -1]))
+    @test_throws ArgumentError compose([
+        (name = :a, dist = Gamma(2.0, 1.0), chain = -1),
+        (name = :b, dist = LogNormal(0.5, 0.4), chain = -1)])
 end
 
-@testitem "compose: name/dist distribution vectors are not a column table" begin
+@testitem "compose: a name/dist NamedTuple is always structural" begin
     using Distributions
     const CD = CensoredDistributions
 
-    # A NamedTuple whose `:name` and `:dist` fields BOTH hold distribution
-    # vectors is two user-named chain branches (a structural NamedTuple), NOT
-    # a (name, dist) column table. The old heuristic misread the `:name`
-    # vector as a row-name column and silently built a wrong 2-branch
-    # Parallel; it must instead lower as named Sequential branches.
+    # A NamedTuple is ALWAYS read structurally, even one whose keys are
+    # `:name`/`:dist`: there is no column-table auto-detection. Here the two
+    # fields are user-named chain branches (a structural NamedTuple), NOT a
+    # (name, dist) column table; the keys `:name`/`:dist` are just branch names.
     nt = (name = [Gamma(2.0, 1.0), LogNormal(0.5, 0.4)],
         dist = [Gamma(1.0, 1.0), Gamma(3.0, 1.0)])
     target = Parallel(Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4)),
@@ -467,39 +464,26 @@ end
     const CD = CensoredDistributions
 
     nt = (onset_admit = LogNormal(1.5, 0.4), admit_death = Gamma(2.0, 1.0))
-    tbl = (name = [:onset_admit, :admit_death],
-        dist = [LogNormal(1.5, 0.4), Gamma(2.0, 1.0)])
-    mat = reshape([LogNormal(1.5, 0.4), Gamma(2.0, 1.0)], 2, 1)
+    tbl = [(name = :onset_admit, dist = LogNormal(1.5, 0.4)),
+        (name = :admit_death, dist = Gamma(2.0, 1.0))]
 
     c_nt = compose(nt)
     c_tbl = compose(tbl)
-    c_mat = compose(mat; names = (:onset_admit, :admit_death))
-    c_mat_default = compose(mat)
 
     # User names pass through whichever format carries them.
     @test CD.component_names(c_nt) == (:onset_admit, :admit_death)
     @test CD.component_names(c_tbl) == (:onset_admit, :admit_death)
-    @test CD.component_names(c_mat) == (:onset_admit, :admit_death)
-    # Positional fallback only when no names are supplied.
-    @test CD.component_names(c_mat_default) == (:branch_1, :branch_2)
 
     # Structurally equal regardless of names (relaxed equivalence).
-    @test c_nt == c_tbl == c_mat == c_mat_default
+    @test c_nt == c_tbl
 
     # Chained table: branch named by its first row; steps by their own rows.
-    tc = (name = [:incub, :rep, :solo],
-        dist = [Gamma(2.0, 1.0), LogNormal(0.5, 0.4), Normal(1.0, 0.5)],
-        chain = [1, 1, 0])
+    tc = [(name = :incub, dist = Gamma(2.0, 1.0), chain = 1),
+        (name = :rep, dist = LogNormal(0.5, 0.4), chain = 1),
+        (name = :solo, dist = Normal(1.0, 0.5), chain = 0)]
     cc = compose(tc)
     @test CD.component_names(cc) == (:incub, :solo)
     @test CD.component_names(cc.components[1]) == (:incub, :rep)
-
-    # Matrix step names label the columns within a multi-step row.
-    m2 = [Gamma(2.0, 1.0) LogNormal(0.5, 0.4)
-          Gamma(1.0, 1.0) Gamma(3.0, 1.0)]
-    cm = compose(m2; names = (:r1, :r2), step_names = (:s1, :s2))
-    @test CD.component_names(cm) == (:r1, :r2)
-    @test CD.component_names(cm.components[1]) == (:s1, :s2)
 end
 
 @testitem "params is nested and name-keyed for composed dists" begin

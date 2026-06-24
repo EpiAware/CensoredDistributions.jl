@@ -139,7 +139,7 @@ logpdf(d, 3.0; kind = :index)
 - [`Choose`](@ref): the disjunction type
 - [`resolve`](@ref), [`compete`](@ref): the one-of sibling constructors
 - [`sequential`](@ref), [`parallel`](@ref): the sibling composers
-- [`compose`](@ref): the NamedTuple/table/matrix front-end
+- [`compose`](@ref): the NamedTuple/table front-end
 "
 function choose(alternatives::Pair...; selector::Symbol = :kind)
     length(alternatives) >= 2 ||

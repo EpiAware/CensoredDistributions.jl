@@ -178,9 +178,10 @@ chain = compose((path = [onset_admit, admit_death],));
 
 event_names(chain)
 
-# The same stack also lowers from a Tables.jl table or a matrix, so a
+# The same stack also lowers from an explicit Tables.jl table, so a
 # column-oriented data source builds a composer without a hand-written
-# NamedTuple.
+# NamedTuple. A NamedTuple is always read structurally, so a column-table
+# source is passed as a row table (or any non-NamedTuple Tables.jl source).
 # A table has `name` and `dist` columns, one row per branch.
 # A `chain` column folds rows sharing a non-zero id into a [`Sequential`](@ref),
 # and a `compete`/`prob` column pair folds rows into a [`Resolve`](@ref) node
@@ -192,25 +193,15 @@ event_names(chain)
 # Here the death and discharge rows share a `compete` group, while the
 # notification row stays a plain branch.
 
-table = (name = [:death, :discharge, :onset_notif],
-    dist = [Gamma(1.5, 1.0), Gamma(2.0, 1.5), Gamma(1.5, 1.0)],
-    compete = [1, 1, 0],
-    prob = [0.3, 0.7, missing]);
+table = [
+    (name = :death, dist = Gamma(1.5, 1.0), compete = 1, prob = 0.3),
+    (name = :discharge, dist = Gamma(2.0, 1.5), compete = 1, prob = 0.7),
+    (name = :onset_notif, dist = Gamma(1.5, 1.0), compete = 0,
+        prob = missing)];
 
 table_stack = compose(table);
 
 event_names(table_stack)
-
-# A matrix lowers the same way: rows are [`Parallel`](@ref) branches and the
-# columns within a row are [`Sequential`](@ref) steps.
-# `names` labels the rows and `step_names` labels the columns.
-# A one-row matrix is a single chain, so this builds the onset-to-admission then
-# admission-to-death sequence.
-
-matrix_stack = compose([onset_admit admit_death];
-    names = [:path], step_names = [:onset_admit, :admit_death]);
-
-event_names(matrix_stack)
 
 # ## The five composers
 #
@@ -785,8 +776,7 @@ event_names(event(spliced, :admit_death))
 # | Syntax | What it does | Shape-preserving? |
 # |---|---|---|
 # | `compose((a = d1, b = d2))` | NamedTuple front-end; a `Vector` value is a chain | builds |
-# | `compose(table)` | table front-end (a `name`/`dist` column source); an optional `chain` column folds rows into a `Sequential`, a `compete`/`prob` column pair into a `Resolve` | builds |
-# | `compose(matrix; names, step_names)` | matrix front-end (rows are `Parallel` branches, columns within a row `Sequential` steps) | builds |
+# | `compose(table)` | explicit Tables.jl `name`/`dist` source (a NamedTuple is read structurally); an optional `chain` column folds rows into a `Sequential`, a `compete`/`prob` column pair into a `Resolve` | builds |
 # | `sequential(:a => d1, :b => d2)` | a [`Sequential`](@ref) chain (steps add up) | builds |
 # | `parallel(:a => d1, :b => d2)` | a [`Parallel`](@ref) branch set (shared origin) | builds |
 # | `resolve(:a => (d1, p1), :b => (d2, p2))` | a [`Resolve`](@ref) node (one outcome occurs by fixed probability); the last prob may be omitted as the residual `1 - sum(others)` | builds |

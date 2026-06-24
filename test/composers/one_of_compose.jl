@@ -62,16 +62,16 @@ end
           logpdf(d_notif, y_notif - o)
 end
 
-@testitem "compose: matrix front-end carries a Resolve entry" begin
+@testitem "compose: table front-end carries a Resolve entry" begin
     using Distributions
 
     cmp = Resolve(:death => (Gamma(1.5, 1.0), 0.3),
         :disch => (Gamma(2.0, 1.5), 0.7))
     d_notif = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
 
-    # A 2x1 column matrix is two parallel branches; the Resolve is the first.
-    mat = reshape([cmp, d_notif], 2, 1)
-    dm = compose(mat)
+    # A two-row table is two parallel branches; the Resolve is the first.
+    tbl = [(name = :a, dist = cmp), (name = :b, dist = d_notif)]
+    dm = compose(tbl)
     @test dm isa CensoredDistributions.Parallel
     @test dm.components[1] === cmp
     @test dm == Parallel(cmp, d_notif)
@@ -94,13 +94,13 @@ end
     # An edge-list table whose `compete` column folds the death/discharge rows
     # into ONE Resolve node (their `prob` values are the branch
     # probabilities), while the notification row stays an ordinary leaf branch.
-    table = (
-        name = [:death, :discharge, :notification],
-        dist = [d_death, d_disc, d_notif],
-        compete = [1, 1, 0],
-        prob = [cfr, 1 - cfr, missing],
-        chain = [0, 0, 0]
-    )
+    table = [
+        (name = :death, dist = d_death, compete = 1, prob = cfr, chain = 0),
+        (name = :discharge, dist = d_disc, compete = 1, prob = 1 - cfr,
+            chain = 0),
+        (name = :notification, dist = d_notif, compete = 0, prob = missing,
+            chain = 0)
+    ]
 
     d = compose(table)
     expected = Parallel(
@@ -123,12 +123,11 @@ end
 
     # The `chain` column is optional; a `compete`/`prob` table alone still
     # builds the Resolve branch (compete id 0 rows stay leaf branches).
-    table = (
-        name = [:death, :discharge, :notification],
-        dist = [d_death, d_disc, d_notif],
-        compete = [2, 2, 0],
-        prob = [cfr, 1 - cfr, missing]
-    )
+    table = [
+        (name = :death, dist = d_death, compete = 2, prob = cfr),
+        (name = :discharge, dist = d_disc, compete = 2, prob = 1 - cfr),
+        (name = :notification, dist = d_notif, compete = 0, prob = missing)
+    ]
 
     d = compose(table)
     @test d == Parallel(
@@ -144,12 +143,11 @@ end
     d_notif = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))
     cmp = Resolve(:death => (d_death, 0.3), :disch => (d_disc, 0.7))
 
-    table = (
-        name = [:death, :disch, :notification],
-        dist = [d_death, d_disc, d_notif],
-        compete = [1, 1, 0],
-        prob = [0.3, 0.7, missing]
-    )
+    table = [
+        (name = :death, dist = d_death, compete = 1, prob = 0.3),
+        (name = :disch, dist = d_disc, compete = 1, prob = 0.7),
+        (name = :notification, dist = d_notif, compete = 0, prob = missing)
+    ]
 
     dt = compose(table)
     dn = compose((resolution = cmp, notification = d_notif))
@@ -164,29 +162,24 @@ end
     d_disc = Gamma(2.0, 1.5)
 
     # Branch probabilities in a compete group must sum to one.
-    bad_sum = (
-        name = [:death, :disch],
-        dist = [d_death, d_disc],
-        compete = [1, 1],
-        prob = [0.3, 0.3]
-    )
+    bad_sum = [
+        (name = :death, dist = d_death, compete = 1, prob = 0.3),
+        (name = :disch, dist = d_disc, compete = 1, prob = 0.3)
+    ]
     @test_throws ArgumentError compose(bad_sum)
 
     # A `compete` row needs a non-missing `prob`.
-    missing_prob = (
-        name = [:death, :disch],
-        dist = [d_death, d_disc],
-        compete = [1, 1],
-        prob = [0.3, missing]
-    )
+    missing_prob = [
+        (name = :death, dist = d_death, compete = 1, prob = 0.3),
+        (name = :disch, dist = d_disc, compete = 1, prob = missing)
+    ]
     @test_throws ArgumentError compose(missing_prob)
 
     # A `prob` column without a `compete` column is rejected (ambiguous).
-    no_compete = (
-        name = [:death, :disch],
-        dist = [d_death, d_disc],
-        prob = [0.3, 0.7]
-    )
+    no_compete = [
+        (name = :death, dist = d_death, prob = 0.3),
+        (name = :disch, dist = d_disc, prob = 0.7)
+    ]
     @test_throws ArgumentError compose(no_compete)
 end
 
