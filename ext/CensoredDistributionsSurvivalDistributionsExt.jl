@@ -4,7 +4,7 @@ using CensoredDistributions: CensoredDistributions, _gamma_cdf
 import CensoredDistributions: _cdf_ad_safe, _ccdf_ad_safe,
                               _logcdf_ad_safe, _logccdf_ad_safe
 using CensoredDistributions: Sequential, Parallel
-using Distributions: shape, scale, UnivariateDistribution
+using Distributions: shape, scale
 import Distributions: logcdf
 import SurvivalDistributions as SD
 

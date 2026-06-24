@@ -34,6 +34,12 @@ public component_names
 # are loaded; the SurvivalDistributions extension makes the two coincide.
 public hazard, loghazard, cumhazard, survival
 
+# Hazard link type (public but not exported): the `(g, g⁻¹)` link pair that
+# `hazard_link` builds and the exported `LogLink` / `IdentityLink` / `LogitLink`
+# constants are instances of. Marked `public` so the `[`HazardLink`](@ref)`
+# cross-references in the `Modified` / `hazard_link` / `modify` docstrings resolve.
+public HazardLink
+
 # Composer-node extension contract (public but not exported): the three methods
 # a new composer node implements to walk the flat event vector. Reached by the
 # qualified name (`CensoredDistributions.child_nleaves` etc.), as the leaf hooks
