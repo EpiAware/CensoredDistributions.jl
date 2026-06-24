@@ -103,24 +103,24 @@ infection series.
 ### The generation interval
 
 The generation interval is a short discrete PMF over positive lags.
-We discretise a Gamma with [`double_interval_censored`](@ref), which applies
-primary-event censoring and truncation before interval censoring, then read the
-day-bin masses with [`discretise_pmf`](@ref) so each entry is a proper bin
-integral rather than a point-mass evaluation.
-We drop the zero lag so an infection can only generate new infections from the
-next day on, and renormalise the remaining positive lags to a PMF.
+Unlike the observation delays below, it is not a delay measured from a censored
+primary event, so it needs no primary-event censoring: it is a continuous
+generation-time density read off in day bins.
+We `truncated` (from `Distributions.jl`) a Gamma to the lags an infection can
+generate new infections at, `lower = 1` so the zero lag is dropped (an infection
+generates from the next day on) and `upper = gi_max` for the window, then
+[`interval_censored`](@ref) it so each entry is the proper day-bin integral
+rather than a point-mass evaluation.
+Truncation carries the normalisation, so the day-bin masses already sum to one
+over the positive lags with no manual renormalisation.
 """
-
-gen_dist = double_interval_censored(Gamma(2.5, 1.3); upper = 14.0,
-    interval = 1.0)
 
 gi_max = 12
 
-gen_pmf = CensoredDistributions.discretise_pmf(gen_dist, gi_max)
+gen_dist = interval_censored(
+    truncated(Gamma(2.5, 1.3); lower = 1.0, upper = Float64(gi_max)), 1.0)
 
-g = let masses = pdf(gen_pmf, 1:gi_max)
-    masses ./ sum(masses)
-end
+g = pdf(gen_dist, 1:gi_max)
 
 md"""
 ### The renewal step
@@ -184,15 +184,29 @@ function observation_stack(incubation, onset_report, onset_death, alpha, rho)
 end
 
 md"""
-Pushing an infection series through the combined stack with a single
-[`convolve_distributions`](@ref) call and `events = (:cases, :deaths)` returns a
-`NamedTuple` of both streams, each discretised, convolved and thinned in one
-pass.
+### One reusable forward map
+
+The forward map from parameters to expected event streams is defined ONCE and
+reused everywhere: the simulator, the Turing `@model`, and the
+posterior-predictive check all call the same function rather than
+re-implementing the renewal-and-convolve pipeline per step.
+It takes the per-day reproduction number, the ascertainment and the IFR, plus
+the fixed delays, generation interval and seed, runs the renewal recursion,
+rebuilds the branched observation stack with the scales threaded through
+[`thin`](@ref), and pushes the infections through with a single
+[`convolve_distributions`](@ref) call and `events = (:cases, :deaths)`,
+returning a `NamedTuple` of both streams discretised, convolved and thinned in
+one pass.
 Calling the convolution once per stream would rebuild the shared incubation
 twice and lose the shared-origin structure, so we do it once.
+It returns the FULL streams over every day; which days are scored is the
+likelihood's choice (see the observed-only window below), not the forward map's.
 """
 
-function expected_streams(stack, infections)
+function forward_map(Rt, alpha, rho, g, incubation, onset_report, onset_death,
+        I0)
+    infections = renewal(Rt, g, I0)
+    stack = observation_stack(incubation, onset_report, onset_death, alpha, rho)
     return convolve_distributions(stack, infections;
         events = (:cases, :deaths))
 end
@@ -224,14 +238,13 @@ I0 = 10.0
 infections = renewal(true_Rt, g, I0)
 
 md"""
-One [`convolve_distributions`](@ref) call over the combined stack returns the
-expected cases and deaths together, each already thinned by its branch scale.
+One `forward_map` call returns the expected cases and deaths together, each
+already thinned by its branch scale, from the single
+[`convolve_distributions`](@ref) call inside the map.
 """
 
-true_stack = observation_stack(incubation, onset_report, onset_death,
-    true_alpha, true_rho)
-
-expected = expected_streams(true_stack, infections)
+expected = forward_map(true_Rt, true_alpha, true_rho, g, incubation,
+    onset_report, onset_death, I0)
 
 expected_cases = expected.cases
 
@@ -289,15 +302,22 @@ md"""
 ## The Turing fit
 
 The model puts priors on the reproduction number, the ascertainment and the
-IFR, then rebuilds the same combined stack inside the `@model` with the sampled
-scales threaded through [`thin`](@ref) and recomputes both expected streams with
-the same single [`convolve_distributions`](@ref) call used in the forward demo.
+IFR, then runs the SAME `forward_map` as the demo with the sampled scales,
+recomputing both expected streams with the single
+[`convolve_distributions`](@ref) call inside the map.
 The sampled `alpha` and `rho` are AD duals; [`thin`](@ref) carries them as
 forward factors and the convolution stays AD-safe, so nothing special is needed.
 We give Rt a small piecewise level per block, so the parameter count stays low.
 The block layout (`n_blocks`, `block_len`, `block_of`) is defined once below and
 read as globals inside the `@model` and the predictive map, to keep the renewal
 and observation code shared across the forward demo and the fit.
+
+The forward map returns the full streams over every day, but the likelihood
+scores only the OBSERVED days: the first `length(g)` days are the seeded burn-in
+the renewal needs as history and carry no information about Rt, so we drop them
+from the likelihood while the map still returns them for prediction.
+The `observed` index set is the model's choice; passing the full range scores
+every day.
 """
 
 n_blocks = 4
@@ -306,19 +326,20 @@ block_len = ceil(Int, n_days / n_blocks)
 
 block_of(t) = min(n_blocks, fld(t - 1, block_len) + 1)
 
+observed_days = (length(g) + 1):n_days
+
 @model function rt_renewal(cases, deaths, g, incubation, onset_report,
-        onset_death, I0)
+        onset_death, I0, observed)
     n = length(cases)
     R_block ~ filldist(truncated(Normal(1.0, 0.5); lower = 0.1), n_blocks)
     alpha ~ Beta(2, 5)
     rho ~ Beta(1, 50)
 
     Rt = [R_block[block_of(t)] for t in 1:n]
-    infections = renewal(Rt, g, I0)
-    stack = observation_stack(incubation, onset_report, onset_death, alpha, rho)
-    expected = expected_streams(stack, infections)
+    expected = forward_map(Rt, alpha, rho, g, incubation, onset_report,
+        onset_death, I0)
 
-    for t in 1:n
+    for t in observed
         cases[t] ~ Poisson(expected.cases[t] + 1e-6)
         deaths[t] ~ Poisson(expected.deaths[t] + 1e-6)
     end
@@ -332,7 +353,7 @@ so the page sits with the heavy fitting tutorials.
 """
 
 model = rt_renewal(cases_obs, deaths_obs, g, incubation, onset_report,
-    onset_death, I0)
+    onset_death, I0, observed_days)
 
 chain = sample(Xoshiro(1), model,
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
@@ -397,12 +418,12 @@ md"""
 
 Recovering the parameters is one check; a stronger one is whether the fitted
 model reproduces the data it was fit to.
-We push the posterior back through the same forward map used in the demo and the
-`@model`: for each draw we rebuild the Rt path, run the renewal, rebuild the
-observation stack with that draw's ascertainment and IFR, and convolve to
-expected cases and deaths.
-This reuses [`convolve_distributions`](@ref) through the `observation_stack` /
-`expected_streams` helpers with no new machinery.
+We push the posterior back through the SAME `forward_map` used in the demo and
+the `@model`: for each draw we expand the block-level Rt to a per-day path and
+call the one forward map with that draw's ascertainment and IFR, with no new
+machinery and no re-implementation of the renewal-and-convolve pipeline.
+The map returns the full streams over every day, including the burn-in the
+likelihood dropped, so the predictive overlays the whole series.
 """
 
 post_draws = [(R_block = draws.R_block[i], alpha = draws.alpha[i],
@@ -410,10 +431,8 @@ post_draws = [(R_block = draws.R_block[i], alpha = draws.alpha[i],
 
 function predict_streams(draw)
     Rt = [draw.R_block[block_of(t)] for t in 1:n_days]
-    infections = renewal(Rt, g, I0)
-    stack = observation_stack(incubation, onset_report, onset_death,
-        draw.alpha, draw.rho)
-    return expected_streams(stack, infections)
+    return forward_map(Rt, draw.alpha, draw.rho, g, incubation, onset_report,
+        onset_death, I0)
 end
 
 pred = [predict_streams(d) for d in post_draws];
@@ -487,6 +506,12 @@ rather than only by parameter recovery.
 - Thinning matters because the streams sit at different scales; fitting both at
   once identifies the case-side ascertainment, while the IFR stays only weakly
   identified from the thin death stream.
+- One `forward_map` from parameters to expected streams is defined once and
+  reused by the simulator, the `@model` and the posterior-predictive check, so
+  the renewal-and-convolve pipeline is never re-implemented per step.
+- The forward map returns the full streams over every day; the likelihood scores
+  only the observed days and drops the seeded burn-in, while prediction keeps
+  every day.
 - The combined stack is AD-safe, so the same renewal, single convolution and
   in-stack thinning run inside a Turing `@model` with Mooncake reverse-mode AD
   across parallel chains; Rt and the ascertainment recover well, while the IFR
