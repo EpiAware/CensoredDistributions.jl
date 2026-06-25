@@ -1340,7 +1340,8 @@ end
 # the template's concrete one (e.g. `Gamma` from a `Gamma{Float64}` template).
 # Resolves the INNER free delay of a (possibly censored) leaf so a censored leaf
 # rebuilds its delay family, not the censoring wrapper.
-_base_ctor(leaf) = Base.typename(typeof(CensoredDistributions.free_leaf(leaf))).wrapper
+_base_ctor(leaf) = CensoredDistributions._leaf_ctor(
+    CensoredDistributions.free_leaf(leaf))
 
 # Reconstruct a leaf from sampled parameters. For a censored leaf the inner free
 # delay is rebuilt from the params and the FIXED censoring is re-applied via
