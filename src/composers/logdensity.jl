@@ -140,8 +140,8 @@ struct ComposedLogDensity{D, P, T, L}
     loglik::L
 end
 
-# Default likelihood: sum `logpdf(d, record)` over the observed records,
-# matching the DynamicPPL path's `for y in data; @addlogprob! logpdf(d, y); end`.
+# Default likelihood: sum `logpdf(d, record)` over the observed records, the
+# same contribution as the DynamicPPL path's per-record `@addlogprob! logpdf`.
 _default_loglik(d, data) = sum(record -> logpdf(d, record), data)
 
 @doc "
@@ -236,3 +236,27 @@ function _prior_logpdf(priors, dist, x::AbstractVector)
     flat_priors = flatten(dist, priors)
     return sum(i -> logpdf(flat_priors[i], x[i]), eachindex(x))
 end
+
+# The flat priors in table-row order: the per-row constraint registry the
+# transform layer reads (`bijector(prior)` per row). A row-aligned vector, so
+# `BijectorsExt` builds the whole flat transform from it.
+flat_priors(prob::ComposedLogDensity) = flatten(prob.dist, prob.priors)
+
+@doc "
+
+Map an unconstrained vector to the constrained scale and its log-Jacobian.
+
+`to_constrained(prob, z)` returns `(x, logjac)`, the constrained flat parameters
+`x` of the unconstrained vector `z` and the log-determinant Jacobian of that
+inverse transform, derived from the per-row priors of `prob` (each row's
+`bijector(prior)`, **not** the table's `support` column). The unconstrained
+log-density a sampler needs is `logdensity(prob, x) + logjac`.
+
+This has no method until `Bijectors` is loaded; the prior-driven transform lives
+in the `BijectorsExt` extension so the core stays free of `Bijectors`.
+
+# Arguments
+- `prob`: the assembled [`ComposedLogDensity`](@ref).
+- `z`: an unconstrained flat vector of length [`flat_dimension`](@ref).
+"
+function to_constrained end
