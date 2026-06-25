@@ -203,8 +203,12 @@ function _sequential_segment(components, a, b, primary)
     # Single observed-bounded edge: respect the edge's declared censoring.
     length(run) == 1 && return run[1]
     # Unobserved-intermediate run: convolve the continuous cores; the origin
-    # segment reapplies the (latent) primary event.
-    core = convolve_distributions(map(_marginal_core, collect(run)))
+    # segment reapplies the (latent) primary event. Map over the component
+    # tuple (not a collected `Vector{UnivariateDistribution}`) so the
+    # `Convolved` keeps a concrete component tuple; an abstract-eltype vector
+    # defeats Enzyme's activity analysis on the reverse pass (the same defect
+    # fixed for `observed_distribution(::Sequential)`).
+    core = convolve_distributions(map(_marginal_core, run))
     primary === nothing && return core
     return primary_censored(core, primary)
 end

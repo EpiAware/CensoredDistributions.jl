@@ -88,25 +88,24 @@ function observed_distribution(d::Sequential)
 end
 
 # Flatten a composer's components to the univariate leaves whose sum is the
-# chain's terminal time. A nested `Sequential` contributes its own steps; a
-# nested `Parallel` has no single terminal time, so a chain step that is itself
-# a `Parallel` cannot be collapsed and is rejected with a clear message.
-function _observed_leaves(components::Tuple)
-    leaves = UnivariateDistribution[]
-    for c in components
-        _append_observed_leaves!(leaves, c)
-    end
-    return leaves
+# chain's terminal time, as a CONCRETE tuple. A nested `Sequential` contributes
+# its own steps; a nested `Parallel` has no single terminal time, so a chain
+# step that is itself a `Parallel` cannot be collapsed and is rejected with a
+# clear message. The result is a tuple (not a `Vector{UnivariateDistribution}`)
+# so the eventual `Convolved` carries a concretely-typed component tuple, e.g.
+# `Tuple{Gamma, LogNormal}`; an abstract-eltype vector would defeat Enzyme's
+# activity analysis (the differentiable leaf params get mixed with the constant
+# quadrature nodes), failing the `double_interval_censored(Sequential)` AD path.
+_observed_leaves(components::Tuple) = _flatten_observed_leaves(components...)
+
+_flatten_observed_leaves() = ()
+function _flatten_observed_leaves(c, rest...)
+    return (_observed_leaf_steps(c)..., _flatten_observed_leaves(rest...)...)
 end
 
-_append_observed_leaves!(leaves, c::UnivariateDistribution) = push!(leaves, c)
-function _append_observed_leaves!(leaves, c::Sequential)
-    for child in c.components
-        _append_observed_leaves!(leaves, child)
-    end
-    return leaves
-end
-function _append_observed_leaves!(::Any, ::Parallel)
+_observed_leaf_steps(c::UnivariateDistribution) = (c,)
+_observed_leaf_steps(c::Sequential) = _flatten_observed_leaves(c.components...)
+function _observed_leaf_steps(::Parallel)
     throw(ArgumentError(
         "cannot collapse a Sequential chain whose step is a Parallel to a " *
         "single observed time; censor the Parallel's branches instead"))
