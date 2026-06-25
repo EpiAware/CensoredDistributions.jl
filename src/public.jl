@@ -100,3 +100,12 @@ public ParamsTable
 # Useful for joint offspring scoring but kept off the top-level namespace,
 # reached qualified (`CensoredDistributions.log_thin_by_completeness`).
 public log_completeness_probability, log_thin_by_completeness
+
+# LogDensityProblems-layer seam (public but not exported, #734): the
+# constrained-scale `logdensity` evaluation on a `ComposedLogDensity` and the
+# prior-driven `to_constrained` transform (its method lives in `BijectorsExt`).
+# Marked `public` so the weakdep extensions import them from a public name and
+# their docstring `@ref`s resolve; reached by the qualified name
+# (`CensoredDistributions.logdensity`). The exported surface is `as_logdensity`
+# / `flatten` / `unflatten` / `flat_dimension` / `ComposedLogDensity`.
+public logdensity, to_constrained

@@ -34,6 +34,18 @@ of [`params_table`](@ref)`(d)`. It is the length of the flat vector
 
 # Arguments
 - `d`: a composed distribution (or bare leaf).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+tree = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+flat_dimension(tree)
+```
+
+# See also
+- [`flatten`](@ref), [`unflatten`](@ref): the flat <-> nested codec.
 "
 flat_dimension(d) = length(Tables.getcolumn(params_table(d), :edge))
 
@@ -61,6 +73,16 @@ table's pre-order row walk. It is the inverse of [`unflatten`](@ref):
 - `d`: the composed distribution (or bare leaf) whose table fixes the order.
 - `nt`: a nested parameter `NamedTuple` keyed like `params(d)`.
 
+# Examples
+```@example
+using CensoredDistributions, Distributions, Tables
+
+tree = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+x = collect(Tables.getcolumn(params_table(tree), :value))
+flatten(tree, unflatten(tree, x)) == x
+```
+
 # See also
 - [`unflatten`](@ref): the inverse, flat vector -> nested NamedTuple.
 - [`flat_dimension`](@ref): the flat length.
@@ -84,6 +106,16 @@ them, so `update(d, unflatten(d, x))` reconstructs the distribution.
 # Arguments
 - `d`: the composed distribution (or bare leaf) whose table fixes the layout.
 - `x`: a flat vector of length [`flat_dimension`](@ref)`(d)`.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, Tables
+
+tree = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+x = collect(Tables.getcolumn(params_table(tree), :value))
+update(tree, unflatten(tree, x)) == tree
+```
 
 # See also
 - [`flatten`](@ref): the inverse, nested NamedTuple -> flat vector.
@@ -218,6 +250,17 @@ sampler needs (transform + log-Jacobian) is added by `BijectorsExt` /
 - `prob`: the assembled [`ComposedLogDensity`](@ref).
 - `x`: a flat constrained parameter vector of length [`flat_dimension`](@ref).
 
+# Examples
+```@example
+using CensoredDistributions, Distributions, Tables
+
+tree = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+prob = as_logdensity(tree, build_priors(tree), [[0.5, 2.0], [1.0, 3.0]])
+x = collect(Tables.getcolumn(params_table(tree), :value))
+CensoredDistributions.logdensity(prob, x)
+```
+
 # See also
 - [`as_logdensity`](@ref): assemble `prob`.
 - [`flatten`](@ref), [`unflatten`](@ref): the flat <-> nested codec.
@@ -258,5 +301,22 @@ in the `BijectorsExt` extension so the core stays free of `Bijectors`.
 # Arguments
 - `prob`: the assembled [`ComposedLogDensity`](@ref).
 - `z`: an unconstrained flat vector of length [`flat_dimension`](@ref).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, Tables, Bijectors
+
+tree = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+prob = as_logdensity(tree, build_priors(tree), [[0.5, 2.0]])
+# An unconstrained vector maps back to constrained parameters + log-Jacobian.
+z = zeros(flat_dimension(tree))
+x, logjac = CensoredDistributions.to_constrained(prob, z)
+x
+```
+
+# See also
+- [`as_logdensity`](@ref): assemble `prob`.
+- [`logdensity`](@ref): the constrained-scale density this transform feeds.
 "
 function to_constrained end
