@@ -4,8 +4,9 @@ name: pre-commit
 # (EpiAware/.github). The JuliaFormatter pin (matching `test/formatter`)
 # is passed as an input. See EpiAware/.github#8.
 #
-# NOTE: pinned to @main until EpiAware/.github tags @v1; switch to @v1 once
-# that tag exists.
+# NOTE: reusable workflows are pinned to a full release SHA (the secure
+# practice GitHub recommends); Dependabot's github-actions updater bumps
+# the pin and rewrites the trailing version comment.
 
 on:
   pull_request:
@@ -15,7 +16,7 @@ on:
 
 jobs:
   pre-commit:
-    uses: EpiAware/.github/.github/workflows/format-check.yml@main
+    uses: EpiAware/.github/.github/workflows/format-check.yml@f73e8f8f19b2b658a552b1c21af77110f44a36b0 # v1.0.0
     with:
       juliaformatter_version: '2.5.5'
     secrets: inherit  # pragma: allowlist secret

@@ -5,8 +5,9 @@ name: Test
 # are passed here; the matrix definition, step ordering and skip_quality
 # convention live in the reusable workflow. See EpiAware/.github#8.
 #
-# NOTE: pinned to @main until EpiAware/.github tags @v1; switch to @v1 once
-# that tag exists.
+# NOTE: reusable workflows are pinned to a full release SHA (the secure
+# practice GitHub recommends); Dependabot's github-actions updater bumps
+# the pin and rewrites the trailing version comment.
 
 on:
   push:
@@ -21,7 +22,7 @@ concurrency:
 
 jobs:
   test:
-    uses: EpiAware/.github/.github/workflows/tests.yml@main
+    uses: EpiAware/.github/.github/workflows/tests.yml@f73e8f8f19b2b658a552b1c21af77110f44a36b0 # v1.0.0
     with:
       julia_versions: '["1", "lts", "pre"]'
       os: '["ubuntu-latest", "windows-latest", "macOS-latest"]'
@@ -29,7 +30,7 @@ jobs:
     secrets: inherit  # pragma: allowlist secret
 
   downgrade-compat:
-    uses: EpiAware/.github/.github/workflows/downgrade.yml@main
+    uses: EpiAware/.github/.github/workflows/downgrade.yml@f73e8f8f19b2b658a552b1c21af77110f44a36b0 # v1.0.0
     with:
       julia_version: '1.10'
       mode: deps
