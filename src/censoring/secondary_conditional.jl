@@ -24,8 +24,10 @@ end
 # pipeline's truncation constant `Z = cdf(pc, upper) - cdf(pc, lower)` (with
 # `pc = primary_censored(delay, primary_event)`), so the joint integrates over
 # `p` to the analytic `double_interval_censored` marginal. With no truncation
-# `Z = 1`; the `PrimaryCensored` method handles the no-interval case, so this
-# type always carries an interval.
+# `Z = 1`. A `nothing` interval (truncated but not interval-censored) scores the
+# continuous shifted delay inside the window instead of the interval mass; the
+# bare `PrimaryCensored` method (no interval and no truncation) is handled in
+# `PrimaryConditional.jl`, so this type always carries truncation or an interval.
 struct _SecondaryConditional{D, E, B, I, P <: Real} <:
        UnivariateDistribution{Continuous}
     delay::D
