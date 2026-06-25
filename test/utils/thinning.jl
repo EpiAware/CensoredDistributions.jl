@@ -30,6 +30,52 @@ end
     @test thin_by_completeness(R, d, 1e6) ≈ R
 end
 
+@testitem "log_completeness_probability equals the delay logcdf" begin
+    using Distributions
+    using CensoredDistributions: log_completeness_probability
+
+    d = LogNormal(1.5, 0.5)
+    for w in (1.0, 3.5, 7.0, 21.0)
+        @test log_completeness_probability(d, w) == logcdf(d, w)
+        @test log_completeness_probability(d, w) ≈
+              log(completeness_probability(d, w)) atol=1e-10
+    end
+
+    # Works on a Convolved chain, and stays finite where the linear-space
+    # completeness underflows to zero.
+    chain = convolve_distributions(Normal(0.0, 1.0), LogNormal(3.0, 0.3))
+    for w in (5.0, 14.0, 30.0)
+        @test log_completeness_probability(chain, w) == logcdf(chain, w)
+    end
+    # A short window against a long delay: completeness rounds to ~0 in linear
+    # space, but the log stays finite and large-magnitude negative.
+    short = log_completeness_probability(chain, 3.0)
+    @test isfinite(short)
+    @test short < -5
+end
+
+@testitem "log_thin_by_completeness thins a log rate in log space" begin
+    using Distributions
+    using CensoredDistributions: log_thin_by_completeness
+
+    d = LogNormal(1.5, 0.5)
+    log_R = log(1.7)
+    for w in (1.0, 7.0, 21.0)
+        # log of the same thinned rate the linear helper returns.
+        @test log_thin_by_completeness(log_R, d, w) ≈
+              log(thin_by_completeness(exp(log_R), d, w)) atol=1e-10
+        @test exp(log_thin_by_completeness(log_R, d, w)) ≈
+              thin_by_completeness(exp(log_R), d, w) atol=1e-10
+    end
+
+    # The log-space form keeps the thinned rate strictly positive even when the
+    # completeness underflows, where the linear form collapses to exactly zero.
+    chain = convolve_distributions(Normal(0.0, 1.0), LogNormal(3.5, 0.3))
+    lr = log_thin_by_completeness(log(2.3), chain, 3.0)
+    @test isfinite(lr)
+    @test exp(lr) > 0
+end
+
 @testitem "andv real-time decomposition (index, sourced, R_eff)" begin
     using Distributions
 

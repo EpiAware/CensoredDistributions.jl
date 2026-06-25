@@ -87,3 +87,9 @@ public TestUtils
 # The Tables.jl column table `params_table` returns (public but not exported): a
 # Tables.jl source that prints as a padded table and forwards column access.
 public ParamsTable
+
+# Log-space completeness thinning (public but not exported): the AD-stable
+# companions to the exported `completeness_probability` / `thin_by_completeness`.
+# Useful for joint offspring scoring but kept off the top-level namespace,
+# reached qualified (`CensoredDistributions.log_thin_by_completeness`).
+public log_completeness_probability, log_thin_by_completeness
