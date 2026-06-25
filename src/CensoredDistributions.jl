@@ -102,6 +102,14 @@ export Sequential, Parallel, Resolve, Compete, NoEvent,
 export params_table, event_names, event_tree, event, update, build_priors,
        param_priors, default_prior, inspect
 
+# Exported PPL-neutral log-density layer (#734): the flat-vector <-> nested-
+# NamedTuple codec (`flatten` / `unflatten` / `flat_dimension`, ordered by
+# `params_table`) and the `as_logdensity` assembler producing a
+# `ComposedLogDensity` spec, evaluatable on a flat vector via the (unexported)
+# `logdensity`. The LogDensityProblems / DensityInterface / Bijectors glue lives
+# in weakdep extensions; the codec and spec stay core and Turing-free.
+export flatten, unflatten, flat_dimension, as_logdensity, ComposedLogDensity
+
 # Exported structural edits on a composed tree. `update` (the `path => new_node`
 # method, sharing the verb with the value-update NamedTuple method) replaces a
 # named node, KEEPING the tree shape. `prune` drops a branch (renormalising a
@@ -222,6 +230,12 @@ include("composers/nesting.jl")
 include("composers/equality.jl")
 include("composers/compose.jl")
 include("composers/introspection.jl")
+# Flat-vector <-> nested-NamedTuple codec and the PPL-neutral
+# `ComposedLogDensity` spec (the LogDensityProblems layer's core piece). After
+# introspection so it reuses `params_table`, `_edge_path`, `_nest_insert!`,
+# `_freeze_tree` and the `update` value method. The library-specific glue
+# (LogDensityProblems / DensityInterface / Bijectors) lives in weakdep exts.
+include("composers/logdensity.jl")
 # Linear chain trick: lower an Exp/Erlang composed delay to its (rate, stages)
 # compartment structure. After introspection so it reuses `free_leaf` to peel
 # censoring; depends on `Sequential`.
