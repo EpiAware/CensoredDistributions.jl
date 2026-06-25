@@ -115,9 +115,13 @@ end
 params(c::Compete) = map(params, c.delays)
 
 # The marginal any-event distribution `T = min_k D_k` is univariate: its survival
-# is `∏_k S_k(t)` and its support is the intersection of the cause supports'
-# lower bounds (the soonest any cause can fire) up to the largest cause maximum.
-Base.minimum(c::Compete) = maximum(map(minimum, c.delays))
+# is `∏_k S_k(t)` and its support runs from the union floor (the soonest ANY
+# cause can fire, i.e. the earliest cause lower bound) up to the largest cause
+# maximum. With staggered onsets the floor must be the earliest cause, not the
+# latest: a min over racing causes can fire as soon as the first one's support
+# opens, and integrating the cause-resolved split from the latest floor would
+# drop the mass where an early cause wins before a later cause's clock starts.
+Base.minimum(c::Compete) = minimum(map(minimum, c.delays))
 Base.maximum(c::Compete) = maximum(map(maximum, c.delays))
 function insupport(c::Compete, x::Real)
     return minimum(c) <= x <= maximum(c)

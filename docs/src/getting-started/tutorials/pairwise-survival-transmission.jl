@@ -608,33 +608,18 @@ unknown source — but we can check that the fitted contact intervals assign hig
 ``\arg\min`` probability to the recorded infector.
 
 The racing-hazard node's `Distributions.probs` integrates the
-cause-resolved split over a *shared* support floor, which assumes every cause
-can fire from the same earliest time; with anchored sources that floor differs
-per cause, so we read the ``\arg\min`` split by Monte Carlo instead — drawing a
-latent contact time from each anchored source and counting how often each
-source's contact is the earliest.
-This is the generative dual of the racing marginal (and the basis of
-`Distributions.probs` for a shared-floor node).
-For each case with a recorded infector we estimate the probability the model
-places on the *recorded* source winning the race.
+cause-resolved split ``\int f_i \prod_{k \ne i} S_k`` from the union support
+floor — the earliest time *any* anchored source can fire — so it gives the
+``\arg\min`` (who-infected-whom) split directly, even when the sources have
+staggered onsets.
+This is the closed-form dual of the generative ``\arg\min`` race: drawing a
+latent contact time from each anchored source and counting the earliest matches
+`probs` to Monte Carlo error.
+For each case with a recorded infector we read the probability the model places
+on the *recorded* source winning the race.
 """
 
-function argmin_source_probs(rng, node_delays, draws)
-    n = length(node_delays)
-    wins = zeros(Int, n)
-    for _ in 1:draws
-        best_i, best_t = 1, rand(rng, node_delays[1])
-        for i in 2:n
-            t = rand(rng, node_delays[i])
-            t < best_t && ((best_i, best_t) = (i, t))
-        end
-        wins[best_i] += 1
-    end
-    return wins ./ draws
-end
-
-function recorded_infector_mass(
-        rng, post, cases, onset, household, class; draws = 2000)
+function recorded_infector_mass(post, cases, onset, household, class)
     id_to_pos = Dict(id => k for (k, id) in enumerate(cases.case_ID))
     masses = Float64[]
     for j in 1:nrow(cases)
@@ -643,17 +628,17 @@ function recorded_infector_mass(
         tj = onset[j]
         sources = [i for i in eachindex(onset) if i != j && onset[i] < tj]
         isempty(sources) && continue
-        delays = source_delays(post.log_lambda0, post.beta, post.gamma,
+        node = source_node(post.log_lambda0, post.beta, post.gamma,
             onset, household, class, sources, j)
-        probs = argmin_source_probs(rng, delays, draws)
+        wins = collect(values(probs(node)))
         k = findfirst(==(id_to_pos[inf_id]), sources)
         isnothing(k) && continue
-        push!(masses, probs[k])
+        push!(masses, wins[k])
     end
     return masses
 end
 
-masses = recorded_infector_mass(rng, post, cases, onset, household, class);
+masses = recorded_infector_mass(post, cases, onset, household, class);
 chance = [1 / n_sources_at_risk(onset, j)
           for j in eachindex(onset) if n_sources_at_risk(onset, j) > 0];
 (; n_pairs_checked = length(masses),
