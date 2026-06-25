@@ -544,6 +544,84 @@ log-density equals the Turing log-joint on the same parameters, and an
 AdvancedHMC fit recovers known parameters with no Turing in the path). A
 runnable standalone-fit tutorial is tracked as follow-up.
 
+## Fitting the same model in latent form
+
+Every fit so far has been marginal, with the primary event integrated out inside
+the leaf `logpdf`.
+The same composed object also has a latent form, reached by wrapping it in
+[`latent`](@ref).
+The latent form samples the event times rather than integrating them out, so an
+unobserved intermediate event becomes an explicitly sampled latent variable that
+appears in the posterior chain.
+
+The single onset-to-report edge has no intermediate event to sample, so wrapping
+a single censored leaf in `latent` collapses to the marginal.
+The only latent there is the leaf's own primary, which the marginal already
+integrates out, which is why the section above used the marginal form.
+To show a genuinely sampled latent we add an intermediate event, an exposure
+between onset and report, and leave it unobserved.
+The leaf type and the record model are otherwise unchanged.
+"""
+
+latent_template = sequential(
+    :onset_exposure => full_leaf(0.5, 0.5),
+    :exposure_report => full_leaf(1.2, 0.6))
+
+latent_priors = build_priors(params_table(latent_template))
+
+md"""
+We simulate full event paths from the template, then drop the intermediate
+`exposure` column so each record observes only onset and report.
+The fitting model is the marginal `fit_model` with one change, where the delays
+are wrapped in [`latent`](@ref) so the record model dispatches to the latent
+form.
+"""
+
+latent_paths = rand(MersenneTwister(99), latent_template,
+    fill((onset = missing, exposure = missing, report = missing), 50))
+
+latent_data = [(onset = 0.0, exposure = missing, report = p.report)
+               for p in latent_paths]
+
+@model function latent_fit_model(template, priors, data)
+    delays ~ to_submodel(composed_parameters_model(template, priors))
+    obs ~ to_submodel(composed_distribution_model(latent(delays), data))
+end
+
+latent_fit = sample(Xoshiro(1),
+    latent_fit_model(latent_template, latent_priors, latent_data),
+    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 300, 2;
+    chain_type = VNChain, progress = false)
+
+md"""
+The chain now carries two kinds of parameter.
+The delay parameters sit under the `delays` prefix, and one sampled latent
+exposure time per record sits under the `obs` prefix, keyed `obs.recN.e[2]` (the
+second event slot, the unobserved exposure).
+Listing the parameters shows the per-record latents explicitly, evidence that
+the intermediate event is sampled rather than marginalised.
+"""
+
+latent_parameters = parameters(latent_fit)
+
+md"""
+We can pull a single record's latent exposure time out of the chain by name and
+summarise its posterior, the per-record latent the marginal form never forms.
+"""
+
+exposure_1 = latent_fit[@varname(obs.rec1.e[2])]
+
+mean(exposure_1)
+
+md"""
+The delay parameters recover the truth as in the marginal fits, read back with
+[`update`](@ref) over the `delays` prefix.
+"""
+
+latent_recovered = params_table(
+    update(latent_template, latent_fit; prefix = :delays))
+
+md"""
 ## Summary
 
 - One composed [`Sequential`](@ref) delay describes each record; the censored
@@ -559,6 +637,10 @@ runnable standalone-fit tutorial is tracked as follow-up.
   count weighting without changing the model.
 - The naive model is misspecified; adding interval censoring and truncation
   improves it, and the full double-censored model recovers the truth.
+- Wrapping the same composed object in [`latent`](@ref) switches from the
+  marginal form to the latent form; an unobserved intermediate event is then a
+  sampled latent (`obs.recN.e[2]`) in the posterior, while a single censored
+  leaf collapses to the marginal.
 - [`update`](@ref)`(template, chain)`, [`event`](@ref), and
   [`mean`](@ref CensoredDistributions.mean) read
   the fitted delay back onto the composed object with no manual chain indexing,
