@@ -199,6 +199,9 @@ tree shape is unchanged, so `logpdf(wrapped, rows)` scores the record. The scala
 combine-then-censor total stays available via
 `interval_censored(observed_distribution(d), interval)`.
 
+`interval` may be a `Symbol` naming a per-record column
+(`interval_censored(d, :interval)`); the width is then read per row.
+
 See also: [`interval_censored`](@ref)
 "
 function interval_censored(d::Sequential, interval)
@@ -208,30 +211,47 @@ end
 @doc "
 
 Apply the full primary/truncation/interval pipeline to every leaf core of a
-[`Sequential`](@ref) chain.
+[`Sequential`](@ref) or [`Parallel`](@ref) node.
 
-The pipeline distributes into the chain's leaves, returning a `Sequential` of the
-same step names whose every step delay carries the shared resolution; tree shape
-is unchanged, so `logpdf(wrapped, rows)` scores the per-event record exactly as
-the canonical per-leaf construction
+The pipeline distributes into the node's leaves, returning a node of the same
+step/branch names whose every leaf delay carries the shared resolution; tree
+shape is unchanged, so `logpdf(wrapped, rows)` scores the per-event record
+exactly as the canonical per-leaf construction
 `Sequential(double_interval_censored(d_1; ...), ...)`. The scalar
 combine-then-censor chain total stays available explicitly via
 `double_interval_censored(observed_distribution(d); ...)`.
 
+Any of `lower` / `upper` / `interval` may be a `Symbol` naming a per-record
+column (`double_interval_censored(node; interval = :interval)`); the bound is
+then read per row.
+
 See also: [`double_interval_censored`](@ref), [`observed_distribution`](@ref)
 "
+# A `:field` bound on any of `lower` / `upper` / `interval` binds that parameter
+# to a per-record column; an all-constant call distributes the fixed pipeline
+# into the leaves as before. The `Sequential` and `Parallel` cases share this
+# method (both distribute into branch/step leaves identically).
 function double_interval_censored(
-        d::Sequential;
+        d::Union{Sequential, Parallel};
         primary_event::UnivariateDistribution = Uniform(0, 1),
-        lower::Union{Real, Nothing} = nothing,
-        upper::Union{Real, Nothing} = nothing,
-        interval::Union{Real, Nothing} = nothing,
+        lower::_MaybeField = nothing, upper::_MaybeField = nothing,
+        interval::_MaybeField = nothing,
         method::Union{AbstractSolverMethod, Nothing} = nothing,
         force_numeric = nothing)
-    return _distribute_into_leaves(d,
-        leaf -> double_interval_censored(leaf;
-            primary_event = primary_event, lower = lower, upper = upper,
-            interval = interval, method = method, force_numeric = force_numeric))
+    (_is_field(lower) || _is_field(upper) || _is_field(interval)) ||
+        return _distribute_into_leaves(d,
+            leaf -> double_interval_censored(leaf;
+                primary_event = primary_event, lower = lower, upper = upper,
+                interval = interval, method = method,
+                force_numeric = force_numeric))
+    fields = _field_names(lower, upper, interval)
+    build = row -> double_interval_censored(d;
+        primary_event = primary_event,
+        lower = _resolve_field(lower, row),
+        upper = _resolve_field(upper, row),
+        interval = _resolve_field(interval, row),
+        method = method, force_numeric = force_numeric)
+    return _DeferredFields(d, build, fields)
 end
 
 @doc "
@@ -286,21 +306,6 @@ See also: [`interval_censored`](@ref)
 "
 function interval_censored(d::Parallel, interval)
     return _distribute_into_leaves(d, leaf -> interval_censored(leaf, interval))
-end
-
-@doc "
-
-Apply the full primary/truncation/interval pipeline to every branch core of a
-[`Parallel`](@ref) independently.
-
-Distributes the pipeline into each branch core, returning a `Parallel` of
-censored branches (an already-censored branch is re-resolved, not double-wrapped).
-
-See also: [`double_interval_censored`](@ref)
-"
-function double_interval_censored(d::Parallel; kwargs...)
-    return _distribute_into_leaves(
-        d, leaf -> double_interval_censored(leaf; kwargs...))
 end
 
 @doc "
@@ -570,13 +575,25 @@ is [`truncate_to_horizon`](@ref)`(node, window)` /
 truncation stays available explicitly via `truncated(observed_distribution(node);
 lower, upper)`.
 
+A bound may also be a `Symbol` naming a per-record column, e.g.
+`truncated(node; lower = :lo, upper = :obs_time)`: the value is then read from
+that field of each row at scoring time (`logpdf(node, rows)` /
+`composed_distribution_model`), a constant otherwise.
+
 See also: [`truncate_to_horizon`](@ref), [`observed_distribution`](@ref)
 "
+# A `:field` bound binds that bound to a per-record column, read at scoring time
+# (the same mechanism as the observation horizon, generalised); an all-constant
+# call distributes the fixed bound into the leaves as before.
 function Distributions.truncated(
         d::_TruncatableNode;
-        lower::Union{Real, Nothing} = nothing,
-        upper::Union{Real, Nothing} = nothing)
-    return _truncate_into_leaves(d, lower, upper)
+        lower::_MaybeField = nothing, upper::_MaybeField = nothing)
+    (_is_field(lower) || _is_field(upper)) ||
+        return _truncate_into_leaves(d, lower, upper)
+    fields = _field_names(lower, upper)
+    build = row -> truncated(d; lower = _resolve_field(lower, row),
+        upper = _resolve_field(upper, row))
+    return _DeferredFields(d, build, fields)
 end
 
 # Positional forms Distributions dispatches through (`truncated(d, l, u)` and the
@@ -600,3 +617,22 @@ function Distributions.truncated(d::AbstractOneOf, l::Real, ::Nothing)
     return _truncate_into_leaves(d, l, nothing)
 end
 Distributions.truncated(d::AbstractOneOf, ::Nothing, ::Nothing) = d
+
+# `interval_censored(node, :interval)` binds the interval width to a per-record
+# column (the same per-record mechanism as the truncation bounds). A constant
+# width hits the per-type `interval_censored(::Sequential, interval)` etc.
+# methods above; a `Symbol` routes here. The methods are spelt per concrete node
+# type (not the `_TruncatableNode` union) so the `::Symbol` arg disambiguates
+# cleanly against those per-type constant methods.
+function _interval_field(d, interval::Symbol)
+    return _DeferredFields(d, row -> interval_censored(d, row[interval]),
+        (interval,))
+end
+function interval_censored(d::Sequential, interval::Symbol)
+    return _interval_field(d, interval)
+end
+interval_censored(d::Parallel, interval::Symbol) = _interval_field(d, interval)
+interval_censored(d::Choose, interval::Symbol) = _interval_field(d, interval)
+function interval_censored(d::AbstractOneOf, interval::Symbol)
+    return _interval_field(d, interval)
+end
