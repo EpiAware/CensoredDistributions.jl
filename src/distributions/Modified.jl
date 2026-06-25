@@ -569,7 +569,11 @@ function _discrete_grid(d::_DiscreteModified)
             "discrete modify requires a regular interval-censored base"))
     w = interval_width(ic)
     n = length(d.effect)
-    return (0:(n - 1)) .* w, w
+    # Explicit comprehension, not `(0:(n-1)) .* w`: a float-stepped range
+    # builds a `StepRangeLen`/`TwicePrecision` whose `floatrange`
+    # bit-twiddling Enzyme reverse cannot differentiate (#728).
+    grid = [i * w for i in 0:(n - 1)]
+    return grid, w
 end
 
 # The baseline PMF over the grid, then the link-modified PMF: the base hazard is
