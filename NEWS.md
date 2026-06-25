@@ -18,7 +18,11 @@
   `VarName`/Chains path, so a posterior is interchangeable across backends, and
   the LogDensityProblems log-density equals the Turing log-joint on the same
   parameters. Implements EpiAware/CensoredDistributions.jl#734 (and the
-  org-level interface design EpiAware/.github#16).
+  org-level interface design EpiAware/.github#16). The codec / assembler surface
+  (`flatten` / `unflatten` / `flat_dimension` / `as_logdensity` /
+  `ComposedLogDensity`) is public but NOT exported, so it is reached by the
+  qualified name (`CensoredDistributions.flatten`, ...) to keep the generic
+  names out of the top-level namespace.
 - `strip_prefix`: drop the outer submodel prefix from a fitted chain's parameter
   names. `composed_parameters_model` is scored as a submodel (`d ~
   to_submodel(...)`), so every sampled parameter carries the `~`-bound name as a

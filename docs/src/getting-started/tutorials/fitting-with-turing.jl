@@ -500,8 +500,11 @@ demoted to one consumer among several.
 moves between the flat vector and the named, `update`-able `NamedTuple`, and the
 `Bijectors` extension derives the unconstrained transform from the priors. The
 flat layout and names match the `VarName`-keyed chain above, so a posterior is
-interchangeable across backends. Loading `LogDensityProblems`, `Bijectors` and
-an AD backend gives a standalone fit:
+interchangeable across backends. This layer is public but NOT exported (so the
+generic `flatten` / `unflatten` names do not crowd the top-level namespace), so
+it is reached by the qualified name (`CensoredDistributions.as_logdensity`,
+...). Loading `LogDensityProblems`, `Bijectors` and an AD backend gives a
+standalone fit:
 
 ```julia
 using CensoredDistributions, Distributions, Tables
@@ -511,7 +514,8 @@ using AdvancedHMC
 
 ## `data` is a vector of event-vector records (one `[onset, report]` per row,
 ## as the composed `logpdf` scores); build it from the simulated records.
-prob = as_logdensity(full_template, full_priors, data)
+## The layer is public but not exported, so reach it qualified.
+prob = CensoredDistributions.as_logdensity(full_template, full_priors, data)
 adprob = ADgradient(AutoForwardDiff(), prob)
 D = LogDensityProblems.dimension(prob)
 
@@ -531,7 +535,8 @@ samples, _ = sample(ham, kernel, z0, 1000, adaptor, 500)
 ## Map unconstrained draws back to named, constrained parameters via the codec.
 post = [first(CensoredDistributions.to_constrained(prob, z))
         for z in samples[501:end]]
-fitted = update(full_template, unflatten(full_template, mean(post)))
+fitted = update(full_template,
+    CensoredDistributions.unflatten(full_template, mean(post)))
 ```
 
 This path is covered end-to-end in the test suite (the LogDensityProblems

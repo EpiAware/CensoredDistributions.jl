@@ -102,13 +102,16 @@ export Sequential, Parallel, Resolve, Compete, NoEvent,
 export params_table, event_names, event_tree, event, update, build_priors,
        param_priors, default_prior, inspect
 
-# Exported PPL-neutral log-density layer (#734): the flat-vector <-> nested-
+# The PPL-neutral log-density layer (#734) — the flat-vector <-> nested-
 # NamedTuple codec (`flatten` / `unflatten` / `flat_dimension`, ordered by
-# `params_table`) and the `as_logdensity` assembler producing a
-# `ComposedLogDensity` spec, evaluatable on a flat vector via the (unexported)
-# `logdensity`. The LogDensityProblems / DensityInterface / Bijectors glue lives
-# in weakdep extensions; the codec and spec stay core and Turing-free.
-export flatten, unflatten, flat_dimension, as_logdensity, ComposedLogDensity
+# `params_table`), the `as_logdensity` assembler and the `ComposedLogDensity`
+# spec — is PUBLIC but NOT exported: the generic `flatten` / `unflatten` names
+# would otherwise occupy the top-level namespace and clash with the
+# `Iterators.flatten` mental model, so it is reached by the qualified name
+# (`CensoredDistributions.flatten`). The `public` declarations live in
+# `public.jl` (guarded for Julia >= 1.11). The LogDensityProblems /
+# DensityInterface / Bijectors glue lives in weakdep extensions; the codec and
+# spec stay core and Turing-free.
 
 # Exported structural edits on a composed tree. `update` (the `path => new_node`
 # method, sharing the verb with the value-update NamedTuple method) replaces a

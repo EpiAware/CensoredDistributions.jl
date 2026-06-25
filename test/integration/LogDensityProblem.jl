@@ -7,6 +7,8 @@
 
 @testitem "codec: flatten/unflatten round-trip (basic)" begin
     using CensoredDistributions, Distributions, Tables
+    # The codec / assembler are public but not exported; bring them in by name.
+    using CensoredDistributions: flatten, unflatten, flat_dimension
 
     tree = compose((onset_admit = Gamma(2.0, 1.0),
         admit_death = LogNormal(0.5, 0.4)))
@@ -27,6 +29,7 @@ end
 
 @testitem "codec: thin weight and shared tag round-trip" begin
     using CensoredDistributions, Distributions, Tables
+    using CensoredDistributions: flatten, unflatten
 
     # A thinned leaf surfaces a `thin` row after the delay params.
     t = compose((cases = thin(LogNormal(1.5, 0.4), 0.3),))
@@ -50,6 +53,7 @@ end
 
 @testitem "logdensity: constrained = priors + likelihood" begin
     using CensoredDistributions, Distributions, Tables
+    using CensoredDistributions: flatten, unflatten, as_logdensity
 
     tree = compose((onset_admit = Gamma(2.0, 1.0),
         admit_death = LogNormal(0.5, 0.4)))
@@ -73,6 +77,7 @@ end
 
 @testitem "LogDensityProblems: dimension / capabilities / transform" begin
     using CensoredDistributions, Distributions, Tables
+    using CensoredDistributions: as_logdensity, flat_dimension
     using Bijectors: bijector
     using LogDensityProblems
 
@@ -101,6 +106,7 @@ end
 
 @testitem "DensityInterface: trait + logdensityof" begin
     using CensoredDistributions, Distributions, Tables
+    using CensoredDistributions: as_logdensity
     using DensityInterface
 
     tree = compose((onset_admit = Gamma(2.0, 1.0),
@@ -115,6 +121,7 @@ end
 
 @testitem "gradient: ADgradient over the LDP is finite" begin
     using CensoredDistributions, Distributions, Tables
+    using CensoredDistributions: as_logdensity, flat_dimension
     using Bijectors: bijector
     using LogDensityProblems, LogDensityProblemsAD
     using ADTypes: AutoForwardDiff
@@ -138,6 +145,7 @@ end
 
 @testitem "CONSISTENCY: LDP logdensity == Turing log-joint" tags=[:turing] begin
     using CensoredDistributions, Distributions, Random
+    using CensoredDistributions: flatten, as_logdensity
     using DynamicPPL, Turing
     using FlexiChains: FlexiChains, VNChain, Extra
 
@@ -173,6 +181,7 @@ end
 
 @testitem "RECOVERY: AdvancedHMC off the LDP (no Turing)" tags=[:turing] begin
     using CensoredDistributions, Distributions, Random, Statistics, Tables
+    using CensoredDistributions: as_logdensity, unflatten
     using Bijectors: bijector
     using LogDensityProblems, LogDensityProblemsAD
     using ADTypes: AutoForwardDiff
@@ -220,6 +229,7 @@ end
 
 @testitem "param_draws labels match the codec names" tags=[:turing] begin
     using CensoredDistributions, Distributions, Random
+    using CensoredDistributions: flatten, flat_dimension
     using DynamicPPL, Turing
     using FlexiChains: VNChain
 

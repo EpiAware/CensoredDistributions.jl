@@ -101,11 +101,17 @@ public ParamsTable
 # reached qualified (`CensoredDistributions.log_thin_by_completeness`).
 public log_completeness_probability, log_thin_by_completeness
 
-# LogDensityProblems-layer seam (public but not exported, #734): the
-# constrained-scale `logdensity` evaluation on a `ComposedLogDensity` and the
+# PPL-neutral LogDensityProblems layer (public but not exported, #734): the
+# flat-vector <-> nested-NamedTuple codec (`flatten` / `unflatten` /
+# `flat_dimension`, ordered by the `params_table` row walk), the `as_logdensity`
+# assembler and the `ComposedLogDensity` spec, plus the seam the weakdep
+# extensions extend — the constrained-scale `logdensity` evaluation and the
 # prior-driven `to_constrained` transform (its method lives in `BijectorsExt`).
-# Marked `public` so the weakdep extensions import them from a public name and
-# their docstring `@ref`s resolve; reached by the qualified name
-# (`CensoredDistributions.logdensity`). The exported surface is `as_logdensity`
-# / `flatten` / `unflatten` / `flat_dimension` / `ComposedLogDensity`.
+# These are PUBLIC but NOT exported: the generic `flatten` / `unflatten` names
+# would clash with the `Iterators.flatten` mental model and crowd the top-level
+# namespace, so the whole layer is reached by the qualified name
+# (`CensoredDistributions.flatten`, `CensoredDistributions.as_logdensity`, ...).
+# Marked `public` so they are documented, their docstring `@ref`s resolve, and
+# the weakdep extensions import them from a public name.
+public flatten, unflatten, flat_dimension, as_logdensity, ComposedLogDensity
 public logdensity, to_constrained

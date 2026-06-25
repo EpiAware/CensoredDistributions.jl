@@ -41,7 +41,8 @@ using CensoredDistributions, Distributions
 
 tree = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
-flat_dimension(tree)
+# Public but not exported; reach it by the qualified name.
+CensoredDistributions.flat_dimension(tree)
 ```
 
 # See also
@@ -80,7 +81,9 @@ using CensoredDistributions, Distributions, Tables
 tree = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
 x = collect(Tables.getcolumn(params_table(tree), :value))
-flatten(tree, unflatten(tree, x)) == x
+# Public but not exported; reach the codec by the qualified name.
+nt = CensoredDistributions.unflatten(tree, x)
+CensoredDistributions.flatten(tree, nt) == x
 ```
 
 # See also
@@ -114,7 +117,8 @@ using CensoredDistributions, Distributions, Tables
 tree = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
 x = collect(Tables.getcolumn(params_table(tree), :value))
-update(tree, unflatten(tree, x)) == tree
+# Public but not exported; reach it by the qualified name.
+update(tree, CensoredDistributions.unflatten(tree, x)) == tree
 ```
 
 # See also
@@ -213,7 +217,8 @@ using Tables
 tree = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
 data = [[0.5, 2.0], [1.0, 3.0]]
-prob = as_logdensity(tree, build_priors(tree), data)
+# Public but not exported; reach the layer by the qualified name.
+prob = CensoredDistributions.as_logdensity(tree, build_priors(tree), data)
 # The table's `value` column is the flat layout; score at those values.
 x = collect(Tables.getcolumn(params_table(tree), :value))
 CensoredDistributions.logdensity(prob, x)
@@ -256,7 +261,8 @@ using CensoredDistributions, Distributions, Tables
 
 tree = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
-prob = as_logdensity(tree, build_priors(tree), [[0.5, 2.0], [1.0, 3.0]])
+prob = CensoredDistributions.as_logdensity(
+    tree, build_priors(tree), [[0.5, 2.0], [1.0, 3.0]])
 x = collect(Tables.getcolumn(params_table(tree), :value))
 CensoredDistributions.logdensity(prob, x)
 ```
@@ -308,9 +314,10 @@ using CensoredDistributions, Distributions, Tables, Bijectors
 
 tree = compose((onset_admit = Gamma(2.0, 1.0),
     admit_death = LogNormal(0.5, 0.4)))
-prob = as_logdensity(tree, build_priors(tree), [[0.5, 2.0]])
+prob = CensoredDistributions.as_logdensity(
+    tree, build_priors(tree), [[0.5, 2.0]])
 # An unconstrained vector maps back to constrained parameters + log-Jacobian.
-z = zeros(flat_dimension(tree))
+z = zeros(CensoredDistributions.flat_dimension(tree))
 x, logjac = CensoredDistributions.to_constrained(prob, z)
 x
 ```
