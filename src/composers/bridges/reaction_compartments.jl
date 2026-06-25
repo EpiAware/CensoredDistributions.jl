@@ -47,6 +47,9 @@ stays an intentional optional weak-dependency extension for that reason.
 # Keyword Arguments
 - `prefix`: a `Symbol` prefixing the generated sub-compartment species names
   (defaults to `:stage`), e.g. `:E` gives `E1_1, E1_2, ...`.
+- `moment_match`: lower a non-Erlang delay to the nearest Erlang chain by
+  matching its first two moments, instead of throwing (see
+  [`linear_chain_stages`](@ref)). Defaults to `false`.
 
 # Returns
 A `NamedTuple` `(species, reactions)`: the generated sub-compartment `species`

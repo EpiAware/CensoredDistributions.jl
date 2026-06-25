@@ -56,6 +56,23 @@ end
     @test meant ≈ mean(delay) atol=1e-2
 end
 
+@testitem "linear_chain_reactions moment-matches a non-Erlang delay" begin
+    using CensoredDistributions, Distributions
+    using Catalyst
+    using Catalyst: default_t
+
+    # A non-Erlang LogNormal delay drops onto a transition under moment matching,
+    # giving one sub-compartment per matched Erlang stage.
+    delay = LogNormal(1.0, 0.5)
+    t = default_t()
+    @species From(t) To(t)
+    chain = linear_chain_reactions(delay, From, To; moment_match = true)
+    stages = linear_chain_stages(delay; moment_match = true)
+    @test length(chain.species) == stages[1].stages
+    # Without moment matching the same delay is rejected.
+    @test_throws ArgumentError linear_chain_reactions(delay, From, To)
+end
+
 @testitem "linear_chain_reactions threads a Sequential chain in order" begin
     using CensoredDistributions, Distributions
     using Catalyst

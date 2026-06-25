@@ -14,9 +14,12 @@
 # downstream ODE/compartment view consumes; it does NOT build the ODE itself.
 # The Catalyst reaction-network bridge (`linear_chain_reactions`) lives in the
 # package extension; this lowering stays Catalyst-free.
-# The lowering is EXACT only for Exponential / Erlang leaves; any other family
+# The lowering is exact only for Exponential / Erlang leaves; any other family
 # (general Gamma, LogNormal, ...) throws, since no exact finite linear chain
-# represents it.
+# represents it. Passing `moment_match = true` instead lowers a non-Erlang leaf
+# to the nearest Erlang chain by matching its mean and squared coefficient of
+# variation (the method of stages); over-dispersed delays still have no Erlang
+# representation, and a fuller phase-type fit is future work.
 
 @doc raw"
 A single Erlang stage of a linear-chain delay representation.
@@ -81,7 +84,31 @@ function _leaf_stage(d)
     throw(ArgumentError(
         "the linear chain trick needs an Exponential or Erlang " *
         "(integer-shape Gamma) leaf; got $(typeof(d)). Other delay families " *
-        "have no exact finite linear-chain representation."))
+        "have no exact finite linear-chain representation. Pass " *
+        "`moment_match = true` to lower it to the nearest Erlang chain."))
+end
+
+# Lower any leaf to its nearest Erlang `(rate, stages)` by matching the first
+# two moments. The squared coefficient of variation `c² = var / mean²` of an
+# Erlang(k) chain is `1/k`, so the stage count is `k = round(1 / c²)` and the
+# rate `k / mean` fixes the mean exactly. An Erlang chain cannot represent an
+# over-dispersed delay (`c² > 1`, i.e. `k < 1`), so that case errors. This is
+# the dependency-light method of stages; a fuller phase-type / Coxian fit for
+# over-dispersed delays is future work.
+function _moment_stage(d)
+    m = mean(d)
+    v = var(d)
+    (isfinite(m) && isfinite(v) && m > 0 && v > 0) || throw(ArgumentError(
+        "moment matching needs a finite positive mean and variance; got " *
+        "mean = $m, var = $v for $(typeof(d))."))
+    scv = v / m^2
+    scv <= 1 || throw(ArgumentError(
+        "moment matching to an Erlang chain needs squared coefficient of " *
+        "variation ≤ 1 (under-dispersed); got $(round(scv; digits = 3)) for " *
+        "$(typeof(d)). An over-dispersed delay needs a phase-type / Coxian " *
+        "representation, which is future work."))
+    k = max(round(Int, inv(scv)), 1)
+    return (rate = k / m, stages = k)
 end
 
 @doc raw"
@@ -108,7 +135,12 @@ Catalyst reaction-network assembly is the optional weak-dependency extension on
 top); it does not build the ODE itself.
 
 The lowering is EXACT only for Exponential / Erlang leaves; any other family
-(general Gamma, LogNormal, ...) throws.
+(general Gamma, LogNormal, ...) throws unless `moment_match = true`, which lowers
+each leaf to the nearest Erlang chain by matching its mean and squared
+coefficient of variation `c² = var / mean²`. The Erlang stage count is
+`round(1 / c²)` and the rate `stages / mean` fixes the mean exactly. An Erlang
+chain cannot represent an over-dispersed delay (`c² > 1`), so that case still
+throws; a fuller phase-type representation is future work.
 
 # Arguments
 - `d`: an Exp/Erlang delay leaf, or a flat [`Sequential`](@ref) chain of such
@@ -117,6 +149,9 @@ The lowering is EXACT only for Exponential / Erlang leaves; any other family
 # Keyword Arguments
 - `name`: the [`ChainStage`](@ref) name for a single-leaf lowering (a chain names
   each stage by its step name instead). Defaults to `:delay`.
+- `moment_match`: lower a non-Erlang leaf to the nearest Erlang chain by matching
+  the first two moments, instead of throwing. Exp/Erlang leaves stay exact.
+  Defaults to `false`.
 
 # Examples
 ```@example
@@ -134,24 +169,47 @@ chain = Sequential(Gamma(2.0, 1.0), Exponential(0.5))
 linear_chain_stages(chain)
 ```
 
+```@example
+using CensoredDistributions, Distributions
+
+# A non-Erlang LogNormal delay lowers to its nearest Erlang chain.
+linear_chain_stages(LogNormal(1.0, 0.5); moment_match = true)
+```
+
 # See also
 - [`ChainStage`](@ref): the per-step record
 - [`Sequential`](@ref): the chain composer this reads
 "
-function linear_chain_stages(d::Distribution; name::Symbol = :delay)
+# Pick the `(rate, stages)` for one free leaf. The exact Exp/Erlang fast path is
+# always tried first, so `moment_match` only changes behaviour for delays the
+# exact lowering would reject; an Erlang lowers identically either way.
+function _stage(d, moment_match::Bool)
+    moment_match || return _leaf_stage(d)
+    (d isa Exponential || d isa Gamma) && _is_erlang_shape(d) &&
+        return _leaf_stage(d)
+    return _moment_stage(d)
+end
+
+_is_erlang_shape(::Exponential) = true
+_is_erlang_shape(d::Gamma) = isapprox(shape(d), round(shape(d)); atol = 1e-8)
+_is_erlang_shape(_) = false
+
+function linear_chain_stages(
+        d::Distribution; name::Symbol = :delay, moment_match::Bool = false)
     inner = free_leaf(d)
-    s = _leaf_stage(inner)
+    s = _stage(inner, moment_match)
     return [ChainStage(name, Float64(s.rate), s.stages)]
 end
 
-function linear_chain_stages(chain::Sequential)
+function linear_chain_stages(chain::Sequential; moment_match::Bool = false)
     stages = ChainStage[]
     for (component, nm) in zip(chain.components, chain.names)
         component isa Sequential && throw(ArgumentError(
             "linear_chain_stages handles a flat Sequential of Exp/Erlang " *
             "leaves; flatten nested chains before lowering (nested step " *
             "`$(nm)` is itself a Sequential)."))
-        append!(stages, linear_chain_stages(component; name = nm))
+        append!(stages,
+            linear_chain_stages(component; name = nm, moment_match))
     end
     return stages
 end
