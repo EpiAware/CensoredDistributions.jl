@@ -315,14 +315,22 @@ function scenarios(; with_reference::Bool = false)
         (θ, obs) -> sum(
             logpdf(interval_censored(LogNormal(θ[1], θ[2]), 1.0), obs)),
         [1.0, 0.75], (Constant(obs_batch),))
-    _push!("DoubleIntervalCensored LogNormal batched pdf",
+    # The double-interval batched path scores at specific lags rather than
+    # summing pdf over the full truncated support: `sum(pdf(dic, 0:9))` with
+    # `upper=10, interval=1` is identically 1.0 (the whole support), so its
+    # gradient is the zero vector — a degenerate reference that "passes" on
+    # every backend even if AD were broken. Scoring `logpdf` at a partial set
+    # of lags gives a genuine non-zero param gradient that exercises the
+    # cdf-eval tangent the boundary rule must leave intact (#699, #701).
+    obs_double_batch = [1.0, 2.0, 4.0, 6.0]
+    _push!("DoubleIntervalCensored LogNormal batched logpdf",
         (θ,
             obs) -> sum(
-            pdf(
+            logpdf(
             double_interval_censored(LogNormal(θ[1], θ[2]);
                 primary_event = Uniform(0.0, 1.0),
                 upper = 10.0, interval = 1.0), obs)),
-        [1.0, 0.75], (Constant(obs_batch),))
+        [1.0, 0.75], (Constant(obs_double_batch),))
 
     # Weighted scalar logpdf: a count/aggregated-data likelihood term
     # `n * logpdf(dist, x)`. The integer count is an inactive `Constant`
