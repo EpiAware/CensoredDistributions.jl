@@ -96,6 +96,20 @@ end
     @test event_names(bound) == event_names(seq)
 end
 
+@testitem "per-record field params score in a DynamicPPL model" setup=[PerRecordFieldSeq] tags=[:turing] begin
+    using DynamicPPL: @model, to_submodel, logjoint
+
+    seq=seq_chain()
+    rows=[(onset = 0.0, admit = 2.0, death = 5.0, lo = 1.0),
+        (onset = 0.5, admit = 3.0, death = 7.0, lo = 0.5)]
+    bound=truncated(seq; lower = :lo)
+
+    @model demo(d, t) = obs ~ to_submodel(composed_distribution_model(d, t))
+    lp=only(logjoint(demo(bound, rows), (;)))
+    # The model scores byte-equal to the table front-door (same resolved nodes).
+    @test lp ≈ logpdf(bound, rows)
+end
+
 @testitem "per-record field params AD-safe gradient" setup=[PerRecordFieldSeq] tags=[:turing] begin
     using ForwardDiff
 
