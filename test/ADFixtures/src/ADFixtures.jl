@@ -185,12 +185,15 @@ function backend_broken_scenarios()
     # no gradient -- only the leaf distribution PARAMS do), so it is now marked
     # `EnzymeRules.inactive` in `CensoredDistributionsEnzymeExt`. With that shield
     # the plain nested tree differentiates on BOTH Enzyme modes;
-    # `double_interval_censored(Sequential)` (the explicit-keyword `wrap.jl`
-    # signature replacing a kwargs-splat dynamic `Core.kwcall`) and the Resolve /
-    # hazard trees differentiate on Enzyme FORWARD. The residual reverse-only and
-    # non-terminal gaps below are SEPARATE, deeper Enzyme limitations (documented
-    # per scenario). ForwardDiff / ReverseDiff / Mooncake differentiate every one
-    # of these correctly.
+    # `double_interval_censored(Sequential)` now also differentiates on BOTH
+    # modes (#506): collapsing the chain to a CONCRETE component tuple in
+    # `wrap.jl`/`_sequential_segment` keeps the `Convolved`'s component types
+    # concrete, so Enzyme's activity analysis no longer mixes the differentiable
+    # leaf params with the constant quadrature nodes. The Resolve / hazard trees
+    # differentiate on Enzyme FORWARD. The residual reverse-only and non-terminal
+    # gaps below are SEPARATE, deeper Enzyme limitations (documented per
+    # scenario). ForwardDiff / ReverseDiff / Mooncake differentiate every one of
+    # these correctly.
 
     # The nested-Resolve tree and the nested racing-hazard tree
     # recurse through the heterogeneous censored-edge walk plus a one_of /
@@ -204,23 +207,27 @@ function backend_broken_scenarios()
     # broken for Enzyme REVERSE only.
     nested_comp = "Nested Resolve tree conditioned logpdf"
     nested_hazard = "Nested racing-hazard tree conditioned logpdf"
-    # The external censoring wrapper over a `Sequential`. This works
-    # on Enzyme FORWARD (the explicit-keyword `wrap.jl` signature avoids the
-    # dynamic kwargs splat there), and it differentiates on every analytic backend
-    # and on Mooncake (both modes). Enzyme REVERSE still fails: the augmented
-    # primal pass re-introduces a `Core.kwcall` and cannot build a reverse shadow
-    # for the freshly-allocated `Convolved{Gamma,LogNormal}` observed total
-    # (`EnzymeNoShadowError`). This is the same reverse-only upstream struct-shadow
-    # gap as nested_comp/nested_hazard, not reachable from a value-level rule.
-    # Registered broken for Enzyme REVERSE only.
-    dic_seq_total = "double_interval_censored(Sequential) over total"
+    # The external censoring wrapper over a `Sequential`. Now differentiates
+    # on BOTH Enzyme modes (verified against the ForwardDiff reference). The
+    # earlier reverse failure came from `observed_distribution(::Sequential)`
+    # collapsing the chain through a `Vector{UnivariateDistribution}` (abstract
+    # eltype): the `Convolved` then carried an abstractly-typed component tuple,
+    # and Enzyme's activity analysis mixed the differentiable leaf params with
+    # the constant quadrature nodes (`EnzymeRuntimeActivityError`, formerly seen
+    # upstream as the `EnzymeNoShadowError` of #506). Flattening the chain to a
+    # CONCRETE component tuple (`Tuple{Gamma, LogNormal}`) in `wrap.jl` fixes it
+    # on both modes; no value-level rule needed. Fixes #506.
     # The whole-compose conv-to-last-observed right-truncation denominator:
     # its single `-logcdf(conv-to-last-observed, window)` builds a freshly
-    # allocated `Convolved` observed total whose reverse shadow Enzyme cannot
-    # construct (`EnzymeNoShadowError`), the same reverse-only struct-shadow gap as
-    # `dic_seq_total`. Enzyme FORWARD differentiates it (verified), and so do
-    # ReverseDiff and Mooncake reverse/forward; registered broken for Enzyme
-    # REVERSE only.
+    # allocated `Convolved` observed total. The `Convolved` build is now
+    # concretely typed (`_sequential_segment` maps over the component tuple, not
+    # a collected vector), but this scenario STILL fails on Enzyme REVERSE for a
+    # separate reason: an `EnzymeInternalError` inside `_seq_event_logpdf_h`'s
+    # `Vector{Union{Missing, Float64}}` non-bits-union event-vector handling
+    # (the same non-bits-union class as the `_subevent_slice` gap, not the
+    # Convolved build of #506). Enzyme FORWARD differentiates it (verified), and
+    # so do ReverseDiff and Mooncake reverse/forward; registered broken for
+    # Enzyme REVERSE only.
     whole_compose_trunc = "Whole-compose conv-to-last-observed truncation logpdf"
     # The non-terminal whole-tree Resolve scores a
     # composer-VALUED one_of outcome's subtree through the nested `_tree_score`,
@@ -267,13 +274,13 @@ function backend_broken_scenarios()
         "Mooncake reverse" => copy(compiled_broken),
         "Mooncake forward" => copy(compiled_broken),
         # Enzyme REVERSE: the Resolve/hazard trees (reverse shadow construction),
-        # the non-terminal Resolve, and `double_interval_censored(Sequential)`
-        # (reverse-only `EnzymeNoShadowError` on the freshly-built `Convolved`
-        # observed total via a re-introduced `Core.kwcall`) remain broken; the
-        # plain nested tree is fixed.
+        # the non-terminal Resolve, and the whole-compose conv-to-last-observed
+        # truncation (non-bits-union event-vector `EnzymeInternalError`) remain
+        # broken; `double_interval_censored(Sequential)` (#506) and the plain
+        # nested tree are fixed.
         "Enzyme reverse" => union(
             Set{String}(
-                [nested_comp, nested_hazard, nonterminal_comp, dic_seq_total,
+                [nested_comp, nested_hazard, nonterminal_comp,
                 whole_compose_trunc]),
             compiled_broken),
         # Enzyme FORWARD: only the non-terminal Resolve remains broken; the
