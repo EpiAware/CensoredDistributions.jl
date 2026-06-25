@@ -1,0 +1,16 @@
+name: AD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ad:
+    uses: EpiAware/.github/.github/workflows/ad.yml@de0f8f56ec29481854592c5e80602eee381febfe
+    secrets: inherit  # pragma: allowlist secret

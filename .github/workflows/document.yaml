@@ -1,12 +1,5 @@
 name: Documenter
 
-# Thin caller: delegates to the shared EpiAware documentation workflow
-# (EpiAware/.github). See EpiAware/.github#8.
-#
-# NOTE: reusable workflows are pinned to a full release SHA (the secure
-# practice GitHub recommends); Dependabot's github-actions updater bumps
-# the pin and rewrites the trailing version comment.
-
 on:
   push:
     branches: main
@@ -23,5 +16,5 @@ concurrency:
 
 jobs:
   Documenter:
-    uses: EpiAware/.github/.github/workflows/documentation.yml@f73e8f8f19b2b658a552b1c21af77110f44a36b0 # v1.0.0
+    uses: EpiAware/.github/.github/workflows/documentation.yml@de0f8f56ec29481854592c5e80602eee381febfe
     secrets: inherit  # pragma: allowlist secret
