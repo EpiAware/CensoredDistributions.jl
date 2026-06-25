@@ -2,6 +2,23 @@
 
 ### Features
 
+- PPL-agnostic inference: expose a composed model as a standard
+  `LogDensityProblems` problem, so it can be fit without Turing (AdvancedHMC /
+  DynamicHMC / Pathfinder straight off the problem), with the DynamicPPL
+  extension demoted to one consumer. The one new core piece is a flat-vector
+  <-> nested-`NamedTuple` codec (`flatten` / `unflatten` / `flat_dimension`)
+  ordered by the `params_table` row walk; `as_logdensity(dist, priors, data)`
+  assembles a `ComposedLogDensity` whose constrained log-density is
+  `sum(prior logpdfs) + loglik(update(dist, unflatten(x)), data)`, reusing the
+  existing `update` / scoring scalars. The library glue is weakdep extensions: a
+  `LogDensityProblemsExt` (`dimension` / `capabilities` / unconstrained
+  `logdensity`, gradient via `LogDensityProblemsAD`), a `BijectorsExt` deriving
+  the constrained<->unconstrained transform from the PRIORS, and a
+  `DensityInterfaceExt`. The flat layout and names match the existing
+  `VarName`/Chains path, so a posterior is interchangeable across backends, and
+  the LogDensityProblems log-density equals the Turing log-joint on the same
+  parameters. Implements EpiAware/CensoredDistributions.jl#734 (and the
+  org-level interface design EpiAware/.github#16).
 - `strip_prefix`: drop the outer submodel prefix from a fitted chain's parameter
   names. `composed_parameters_model` is scored as a submodel (`d ~
   to_submodel(...)`), so every sampled parameter carries the `~`-bound name as a
