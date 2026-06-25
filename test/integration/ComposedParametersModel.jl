@@ -528,6 +528,62 @@ end
     @test keys(params(d)) == keys(params(template))
 end
 
+@testitem "composed_parameters_model: Compete node via build_priors" tags=[
+    :turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Random
+
+    # A racing-hazard Compete node must round-trip through the front-door:
+    # `build_priors` drives `composed_parameters_model` and `update` overrides
+    # only the two shapes, with the scales kept at their support-derived default.
+    template = compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
+    priors = update(build_priors(template),
+        (:death,) => (shape = truncated(Normal(2.0, 0.5); lower = 0.2),),
+        (:recover,) => (shape = truncated(Normal(3.0, 0.5); lower = 0.2),))
+
+    @model function pm(t, p)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        return d
+    end
+
+    Random.seed!(112)
+    m = pm(template, priors)
+    d = m()
+    @test d isa CensoredDistributions.Compete
+    @test event_names(d) == event_names(template)
+    @test keys(params(d)) == keys(params(template))
+
+    vns = Set(string.(collect(keys(VarInfo(m)))))
+    @test "d.death.shape" in vns
+    @test "d.recover.shape" in vns
+end
+
+@testitem "composed_parameters_model: Resolve with NoEvent outcome" tags=[
+    :turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Random
+
+    # A Resolve with a no-event outcome carries no parameters for that branch, so
+    # `build_priors` emits no key for it; `composed_parameters_model` must not
+    # require one and the default priors must drive the fit unchanged.
+    report = resolve(:report => (Gamma(2.0, 1.5), 0.6),
+        :none => (NoEvent(), 0.4))
+    template = compose((reporting = report,))
+    priors = build_priors(template)
+    @test !haskey(priors.reporting, :none)
+
+    @model function pm(t, p)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        return d
+    end
+
+    Random.seed!(113)
+    m = pm(template, priors)
+    d = m()
+    @test event_names(d) == event_names(template)
+
+    vns = Set(string.(collect(keys(VarInfo(m)))))
+    @test "d.reporting.report.shape" in vns
+end
+
 @testitem "chain_to_params + update reconstruct from a chain" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
     using FlexiChains: Prefixed, VNChain

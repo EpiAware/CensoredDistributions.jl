@@ -1499,8 +1499,11 @@ end
 @model function _one_of_params_model(c::Resolve, priors::NamedTuple, shared)
     expected = (c.names..., :branch_probs)
     have = keys(priors)
-    # `branch_probs` is optional; every other expected key is required.
-    required = c.names
+    # `branch_probs` is optional, and a no-event outcome carries no parameters
+    # (it is never inventoried by `build_priors`/`params_table`), so it needs no
+    # prior key; every other outcome is required.
+    has_params = map(!CensoredDistributions._is_no_event, c.delays)
+    required = Tuple(c.names[i] for i in eachindex(c.names) if has_params[i])
     _check_one_of_keys(priors, required, expected, shared)
     delays ~ to_submodel(
         _children_params_model(c.delays, c.names, priors, shared), false)
@@ -1521,7 +1524,7 @@ end
 # `branch_probs` block (the winning probability is derived from the hazards).
 @model function _hazard_one_of_params_model(
         c::CensoredDistributions.Compete, priors::NamedTuple, shared)
-    _check_composer_prior_keys(priors, c.names, :Compete, shared)
+    _check_composer_prior_keys(priors, c.names, "Compete", shared)
     delays ~ to_submodel(
         _children_params_model(c.delays, c.names, priors, shared), false)
     return CensoredDistributions.Compete(c.names, delays)
