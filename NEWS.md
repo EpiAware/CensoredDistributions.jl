@@ -50,16 +50,18 @@
   irrelevant) so a draw round-trips straight back through `logpdf(d, rand(d))`;
   the internal vector-valued scored representation (and the
   `product_distribution` record path and AD) are unchanged. Closes #425.
-- `MeanGamma` / `mean_gamma(mean, shape)`: a Gamma delay leaf reparameterised by
-  its mean and shape, with the scale `mean / shape` derived. It is
-  density-identical to `Gamma(shape, mean / shape)`, but its free parameters are
-  `(mean, shape)`, so the prior front-door (`params_table`, `build_priors`,
-  `update`) lists and updates the mean and shape rather than the native
-  `(shape, scale)`. This lets a model place a prior directly on a delay's mean,
-  matching upstream delay models that do so (which the native `Gamma(shape,
-  scale)` leaf cannot express, an independent scale prior not being able to
-  couple to a mean prior). It nests as a leaf in `compose` / `choose` /
-  `Compete` and scores through every AD backend. Closes #710.
+- `from_moments(D; alt_params...)` / `MomentParams`: a generic, portable wrapper
+  parameterising any registered family by its moments or other alternative
+  parameters, delegating every density / cdf / quantile / rand / mean / var to
+  the equivalent native distribution. The free parameters are the alternative
+  names, so the prior front-door (`params_table`, `build_priors`, `update`) lists
+  and updates them rather than the native parameters. This lets a model place a
+  prior directly on a derived quantity (a delay's mean) that the native
+  parameterisation cannot express (an independent scale prior not being able to
+  couple to a mean prior). `register_moment_params(D, names)` adds a family in
+  one line; `Gamma` by `(mean, shape)` and `LogNormal` by `(mean, sd)` ship.
+  It nests as a leaf in `compose` / `choose` / `Compete` and scores through every
+  AD backend. Closes #710 (supersedes the bespoke `MeanGamma` / `mean_gamma`).
 - `marginal(d)` is the inverse of `latent`: it unwraps a `Latent` back to the
   marginal node it carries (`marginal(latent(d)) == d`) and is idempotent (a
   non-`Latent` node is returned unchanged).

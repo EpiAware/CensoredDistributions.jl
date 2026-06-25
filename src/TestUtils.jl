@@ -41,7 +41,7 @@ using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
                                interval_censored, resolve, compete,
                                affine, modify, weight, thin, difference,
                                convolve_distributions, truncate_to_horizon,
-                               mean_gamma, MeanGamma,
+                               from_moments, MomentParams,
                                Affine, Modified, Weighted, Transformed,
                                Convolved, Difference, ExponentiallyTilted,
                                PrimaryCensored, IntervalCensored,
@@ -732,11 +732,14 @@ function example_fixtures()
     et = ExponentiallyTilted(0.0, 5.0, 0.5)
     et_ad = (θ -> Distributions.logpdf(
             ExponentiallyTilted(0.0, 5.0, θ[1]), 2.0), [0.5])
-    # MeanGamma: a Gamma reparameterised by (mean, shape), density-identical to
-    # the native `Gamma(shape, mean / shape)`, with a closed-form mean. The AD
+    # MomentParams: a Gamma reparameterised by (mean, shape) via the generic
+    # moment wrapper, density-identical to `Gamma(shape, mean / shape)`. The AD
     # closure differentiates the log density wrt the (mean, shape) pair.
-    mg = mean_gamma(5.0, 2.0)
-    mg_ad = (θ -> Distributions.logpdf(mean_gamma(θ[1], θ[2]), 4.0),
+    mg = from_moments(Distributions.Gamma; mean = 5.0, shape = 2.0)
+    mg_ad = (
+        θ -> Distributions.logpdf(
+            from_moments(Distributions.Gamma; mean = θ[1], shape = θ[2]),
+            4.0),
         [5.0, 2.0])
     # Compete (racing hazards): a UNIVARIATE time-to-first-event marginal, an
     # AbstractOneOf like Resolve. Plain (non-censored) delays so it has an
@@ -869,8 +872,8 @@ function example_fixtures()
         # ExponentiallyTilted: a bounded exponentially-tilted leaf.
         InterfaceFixture(; name = "ExponentiallyTilted", dist = et, draw = 2.0,
             univariate = true, overall = :scalar, ad = et_ad),
-        # MeanGamma: a (mean, shape)-reparameterised Gamma leaf, scalar moment.
-        InterfaceFixture(; name = "MeanGamma", dist = mg, draw = 4.0,
+        # MomentParams: a (mean, shape)-reparameterised Gamma leaf, scalar moment.
+        InterfaceFixture(; name = "MomentParams", dist = mg, draw = 4.0,
             univariate = true, overall = :scalar, ad = mg_ad),
         # Compete (racing hazards): a univariate time-to-first-event marginal.
         # Scalar marginal moments, but `rand` returns the named winning-cause
@@ -947,7 +950,7 @@ documented reason in the source.
         PrimaryCensored, IntervalCensored, Latent,
         # distribution-modifier / derived leaves
         Affine, Modified, Weighted, Transformed, Convolved, Difference,
-        ExponentiallyTilted, MeanGamma
+        ExponentiallyTilted, MomentParams
     ]
 end
 

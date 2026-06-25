@@ -718,13 +718,15 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
             x -> logpdf(ExponentiallyTilted(0.0, 1.0, θ[1]), x), obs),
         [0.5], (Constant(obs_et),))
 
-    # Reparameterised (mean, shape) Gamma leaf: differentiate the log density
-    # wrt the natural (mean, shape) pair (θ), so the gradient flows through the
+    # Moment-parameterised (mean, shape) Gamma leaf: differentiate the log
+    # density wrt the (mean, shape) pair (θ), so the gradient flows through the
     # derived scale `mean / shape` into the underlying Gamma density. This is
     # the scoring path a mean-coupled upstream prior uses (#710).
-    _push!("MeanGamma logpdf wrt mean+shape",
-        (θ, obs) -> sum(
-            x -> logpdf(mean_gamma(θ[1], θ[2]), x), obs),
+    _push!("MomentParams Gamma logpdf wrt mean+shape",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(from_moments(Gamma; mean = θ[1], shape = θ[2]), x),
+            obs),
         [5.0, 2.0], (Constant(obs),))
 
     # Hazard-modified `modify`/`Modified` leaf. Four scenarios cover the

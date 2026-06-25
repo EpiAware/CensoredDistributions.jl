@@ -330,6 +330,29 @@ function _ctor_has_check_args(ctor, vals::Tuple)
     return hasmethod(ctor, typeof(vals), (:check_args,))
 end
 
+# The constructor a leaf reconstructs through from a value tuple (the inverse of
+# `params`). Defaults to the family's base type so `ctor(vals...)` rebuilds it; a
+# reparameterised leaf whose type-stripped wrapper cannot carry its family/names
+# overrides this to a closure capturing them. Used by both the core `update`
+# path (`_update_leaf`) and the extension's AD reconstruction.
+_leaf_ctor(inner) = Base.typename(typeof(inner)).wrapper
+
+# A `MomentParams` keeps its family `D` and alternative names in its type, which
+# the base wrapper strips, so reconstruction routes through the registered map.
+function _leaf_ctor(::MomentParams{D, names}) where {D, names}
+    return MomentParamsCtor{D, names}()
+end
+
+# A callable rebuilding a `MomentParams{D, names}` from a value tuple. A concrete
+# type (not a closure) so `_ctor_has_check_args` reflection sees its `check_args`
+# method on the AD path.
+struct MomentParamsCtor{D, names} end
+
+function (::MomentParamsCtor{D, names})(vals...;
+        check_args::Bool = true) where {D, names}
+    return _moment_params(D, names, vals; check_args = check_args)
+end
+
 # --- parameter-name introspection for leaves -------------------------------
 
 # Best-effort scalar parameter NAMES for a leaf distribution, matched
@@ -339,9 +362,10 @@ end
 _param_names(::Distributions.Normal) = (:mu, :sigma)
 _param_names(::Distributions.LogNormal) = (:mu, :sigma)
 _param_names(::Distributions.Gamma) = (:shape, :scale)
-# The reparameterised Gamma leaf's free parameters are its mean and shape (the
-# scale is derived), so a prior on the mean couples correctly.
-_param_names(::MeanGamma) = (:mean, :shape)
+# A moment-parameterised leaf surfaces its registered alternative names (e.g.
+# `(:mean, :shape)`), read generically from the type, so a prior on a derived
+# quantity couples correctly.
+_param_names(d::MomentParams) = _moment_names(d)
 _param_names(::Distributions.Weibull) = (:shape, :scale)
 _param_names(::Distributions.Exponential) = (:scale,)
 _param_names(::Distributions.Uniform) = (:lower, :upper)
@@ -626,7 +650,7 @@ _join_path(path::Tuple) = Symbol(join(string.(path), "."))
 # `_set_thin_factor`.
 function _update_leaf(leaf, vals::Tuple)
     inner = free_leaf(leaf)
-    ctor = Base.typename(typeof(inner)).wrapper
+    ctor = _leaf_ctor(inner)
     if _thin_factor(leaf) === nothing
         return rewrap_leaf(leaf, ctor(vals...))
     end
@@ -855,13 +879,13 @@ end
 
 # Scale/shape/rate-type parameters are positive by construction (the `sigma` of a
 # `Normal`/`LogNormal`, the `shape`/`scale` of a `Gamma`/`Weibull`, the `scale`
-# of an `Exponential`, the reparameterised `mean` of a `MeanGamma`, and the
-# common positive parameter names of related families), so they get a
-# positive-truncated default regardless of the leaf's variate support.
+# of an `Exponential`, a moment-parameterised `mean`/`sd`, and the common
+# positive parameter names of related families), so they get a positive-truncated
+# default regardless of the leaf's variate support.
 function _is_positive_param(p::Symbol)
     p === :sigma || p === :scale || p === :rate || p === :shape ||
         p === :alpha || p === :beta || p === :theta || p === :nu ||
-        p === :k || p === :df || p === :mean
+        p === :k || p === :df || p === :mean || p === :sd
 end
 
 @doc "
