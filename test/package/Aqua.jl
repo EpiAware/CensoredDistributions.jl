@@ -1,40 +1,9 @@
-
-@testitem "Aqua.jl - Unbound args" tags=[:quality] begin
-    using Aqua
-    Aqua.test_unbound_args(CensoredDistributions)
-end
-
-@testitem "Aqua.jl - Undefined exports" tags=[:quality] begin
-    using Aqua
-    Aqua.test_undefined_exports(CensoredDistributions)
-end
-
-@testitem "Aqua.jl - Project extras" tags=[:quality] begin
-    using Aqua
-    Aqua.test_project_extras(CensoredDistributions)
-end
-
-@testitem "Aqua.jl - State deps" tags=[:quality] begin
-    using Aqua
-    Aqua.test_stale_deps(CensoredDistributions)
-end
-
-@testitem "Aqua.jl - Deps compat" tags=[:quality] begin
-    using Aqua
-    Aqua.test_deps_compat(CensoredDistributions)
-end
-
-@testitem "Aqua.jl - Undocumented names" tags=[:quality] begin
-    using Aqua
-    Aqua.test_undocumented_names(CensoredDistributions)
-end
-
-@testitem "Aqua.jl - Piracies" tags=[:quality] begin
-    using Aqua
-    Aqua.test_piracies(CensoredDistributions)
-end
-
-@testitem "Aqua.jl - Ambiguities" tags=[:quality] begin
-    using Aqua
-    Aqua.test_ambiguities(CensoredDistributions)
+@testitem "Aqua.jl" tags=[:quality] begin
+    using EpiAwareTestUtils: test_aqua
+    # The full standard Aqua suite (unbound args, undefined exports, project
+    # extras, stale deps, deps compat, undocumented names, piracies,
+    # ambiguities) over CensoredDistributions. The per-check wiring lives in
+    # `EpiAwareTestUtils.test_aqua`; nothing here is CD-specific, so CD just
+    # calls it.
+    test_aqua(CensoredDistributions)
 end

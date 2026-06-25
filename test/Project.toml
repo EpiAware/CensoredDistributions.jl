@@ -8,6 +8,7 @@ Coverage = "a2441757-f6aa-5fb2-8edb-039e3f45d037"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 DynamicPPL = "366bfd00-2699-11ea-058f-f148b4cae6d8"
+EpiAwareTestUtils = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 FlexiChains = "4a37a8b9-6e57-4b92-8664-298d46e639f7"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
@@ -55,3 +56,7 @@ Turing = "0.42, 0.43, 0.44, 0.45"
 
 [sources]
 CensoredDistributions = {path = ".."}
+# Interim git pin for the unregistered shared test-utility package (#731
+# tracks General registration, after which this entry is replaced by a
+# `[compat]` bound). Pinned to a resolvable commit on EpiAwareTestUtils main.
+EpiAwareTestUtils = {url = "https://github.com/EpiAware/EpiAwareTestUtils.jl.git", rev = "afa7f00c17184077f5625bf79229e19404d1184b"}
