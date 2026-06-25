@@ -35,8 +35,8 @@ and the [`latent`](@ref) wrapper.
 ## Packages used
 
 We use Turing for probabilistic programming, Distributions for the delay
-distribution, Random for reproducibility, FlexiChains for the chain output, and
-Integrals for the quadrature in the equivalence check.
+distribution, Random for reproducibility, and Integrals for the quadrature in
+the equivalence check.
 """
 
 using CensoredDistributions
@@ -44,7 +44,6 @@ using Distributions
 using Turing
 using ADTypes: AutoForwardDiff
 using DynamicPPL: prefix, @varname, predict
-using FlexiChains: Parameter
 using Integrals
 using Random
 using Statistics
@@ -93,9 +92,9 @@ md"""
 The posterior concentrates near the true parameters.
 """
 
-mu_post = vec(chain[Parameter(@varname(mu))]);
+mu_post = vec(chain[@varname(mu)]);
 
-sigma_post = vec(chain[Parameter(@varname(sigma))]);
+sigma_post = vec(chain[@varname(sigma)]);
 
 # The posterior means sit close to the simulating truth.
 recovery = [
@@ -262,7 +261,7 @@ the window `[0, 1]` and reproduce the observed delay gap as a positive value
 recovered_in_window = trues(n)
 recovered_positive_gap = trues(n)
 for i in 1:n
-    p_i = vec(events[Parameter(@varname($(Symbol("rec", i)).p))])
+    p_i = vec(events[@varname($(Symbol("rec", i)).p)])
     recovered_in_window[i] = all(0 .<= p_i .<= 1)
     recovered_positive_gap[i] = all(observed[i] .- p_i .> 0)
 end
