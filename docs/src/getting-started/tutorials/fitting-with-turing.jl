@@ -484,6 +484,61 @@ mu_samples = full_fit[@varname(delays.onset_report.mu)]
 size(mu_samples)
 
 md"""
+## Fit without Turing
+
+The whole log-density is already Turing-free: the same `params_table` /
+`build_priors` / `update` toolchain and the per-record scalars assemble a
+standard
+[`LogDensityProblems`](https://github.com/tpapp/LogDensityProblems.jl) problem
+over the flat parameter vector, so a composed model can be sampled by
+AdvancedHMC / DynamicHMC / Pathfinder directly, with the DynamicPPL extension
+demoted to one consumer among several.
+
+[`as_logdensity`](@ref)`(template, priors, data)` builds the spec; the
+[`flatten`](@ref) / [`unflatten`](@ref) codec (ordered by the
+[`params_table`](@ref) row walk)
+moves between the flat vector and the named, `update`-able `NamedTuple`, and the
+`Bijectors` extension derives the unconstrained transform from the priors. The
+flat layout and names match the `VarName`-keyed chain above, so a posterior is
+interchangeable across backends. Loading `LogDensityProblems`, `Bijectors` and
+an AD backend gives a standalone fit:
+
+```julia
+using CensoredDistributions, Distributions, Tables
+using Bijectors, LogDensityProblems, LogDensityProblemsAD
+using ADTypes: AutoForwardDiff
+using AdvancedHMC
+
+## `data` is a vector of event-vector records (one `[onset, report]` per row,
+## as the composed `logpdf` scores); build it from the simulated records.
+prob = as_logdensity(full_template, full_priors, data)
+adprob = ADgradient(AutoForwardDiff(), prob)
+D = LogDensityProblems.dimension(prob)
+
+## Start from the template values pushed onto the unconstrained scale.
+xc0 = collect(Tables.getcolumn(params_table(full_template), :value))
+flatp = CensoredDistributions.flat_priors(prob)
+z0 = [bijector(flatp[i])(xc0[i]) for i in eachindex(xc0)]
+
+metric = DiagEuclideanMetric(D)
+ham = Hamiltonian(metric, adprob)
+integrator = Leapfrog(find_good_stepsize(ham, z0))
+kernel = HMCKernel(Trajectory{MultinomialTS}(integrator, GeneralisedNoUTurn()))
+adaptor = StanHMCAdaptor(MassMatrixAdaptor(metric),
+    StepSizeAdaptor(0.8, integrator))
+samples, _ = sample(ham, kernel, z0, 1000, adaptor, 500)
+
+## Map unconstrained draws back to named, constrained parameters via the codec.
+post = [first(CensoredDistributions.to_constrained(prob, z))
+        for z in samples[501:end]]
+fitted = update(full_template, unflatten(full_template, mean(post)))
+```
+
+This path is covered end-to-end in the test suite (the LogDensityProblems
+log-density equals the Turing log-joint on the same parameters, and an
+AdvancedHMC fit recovers known parameters with no Turing in the path). A
+runnable standalone-fit tutorial is tracked as follow-up.
+
 ## Summary
 
 - One composed [`Sequential`](@ref) delay describes each record; the censored
@@ -503,4 +558,9 @@ md"""
   [`mean`](@ref CensoredDistributions.mean) read
   the fitted delay back onto the composed object with no manual chain indexing,
   while the FlexiChains output exposes the raw `VarName`-keyed samples.
+- The same model fits without Turing: [`as_logdensity`](@ref) assembles a
+  `LogDensityProblems` problem over the flat parameter vector (the
+  [`flatten`](@ref) / [`unflatten`](@ref) codec + a prior-driven `Bijectors`
+  transform), sampled directly by AdvancedHMC / DynamicHMC, with a posterior
+  interchangeable with the Turing chain above.
 """
