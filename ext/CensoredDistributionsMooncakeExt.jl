@@ -4,7 +4,8 @@ using CensoredDistributions: _gamma_cdf, _split_edge_name,
                              _is_positional_edge_name, _next_event_name,
                              _all_positional_event_names, _split_edge,
                              _ctor_has_check_args, _window_quantile,
-                             _premodified_rate_primal, Modified
+                             _premodified_rate_primal, Modified,
+                             _collect_unique_boundaries, IntervalCensored
 using Distributions: UnivariateDistribution
 using Mooncake: Mooncake
 
@@ -115,5 +116,15 @@ Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
 # rule above (the same primal-strip-not-lifted-by-Mooncake problem).
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_premodified_rate_primal), Modified, Real}
+
+# `_collect_unique_boundaries(d, x)` returns the batched-pdf boundaries:
+# functions of the (constant) lags `x` and interval spec, NOT the AD
+# parameters, so they carry no tangent. Without a rule Mooncake traces the
+# `unique`/sort internals (a `Dict` seen-set and a `Float64`->`UInt64` bitcast
+# it refuses, #699). `@zero_derivative` (both modes) runs the primal and
+# returns a zero tangent; the parameter gradient flows through the CDF
+# evaluation in `_compute_boundary_cdfs`, not here (#701).
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
+    typeof(_collect_unique_boundaries), IntervalCensored, AbstractVector}
 
 end

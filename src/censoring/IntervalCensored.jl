@@ -245,88 +245,33 @@ end
 Collect all unique interval boundaries needed for vectorised PDF computation.
 
 Returns a sorted vector of unique boundaries with appropriate type promotion.
+The boundaries are functions of the (constant) lags and the interval spec, not
+the distribution's AD parameters, so AD rules mark this non-differentiable (the
+`unique`/sort internals are never traced); see the AD extensions (#699, #701).
 """
 function _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector{<:Real})
-    # Determine promoted type for type stability
     T = promote_type(eltype(x), eltype(d.boundaries))
 
-    # Collect all unique boundaries needed using functional approach
-    boundary_pairs = if is_regular_intervals(d)
+    # Push into a concretely-typed `T[]` buffer (rather than a `vcat`-splat of
+    # per-lag tuples, which infers `Vector{Any}` and makes the downstream
+    # boundary-CDF `map` a `Union`-typed Generator that Enzyme rejects, #720).
+    boundaries = T[]
+    if is_regular_intervals(d)
         interval = interval_width(d)
-        map(x) do xi
+        for xi in x
             lower = floor_to_interval(xi, interval)
-            upper = lower + interval
-            (T(lower), T(upper))
+            push!(boundaries, T(lower), T(lower + interval))
         end
     else
-        # For arbitrary intervals, collect all boundaries that could be needed
-        boundary_pairs = map(x) do xi
+        for xi in x
             lower, upper = get_interval_bounds(d, xi)
             if !isnan(lower) && !isnan(upper)
-                (T(lower), T(upper))
-            else
-                ()  # Empty tuple for invalid bounds
+                push!(boundaries, T(lower), T(upper))
             end
         end
-        # Filter out empty tuples
-        filter(!isempty, boundary_pairs)
     end
 
-    # Flatten pairs to boundaries (single vcat operation)
-    boundaries = isempty(boundary_pairs) ? T[] :
-                 vcat([collect(pair) for pair in boundary_pairs]...)
-
-    # Return sorted unique boundaries without mutation. Sort first, then drop
-    # adjacent duplicates, rather than `unique` (which builds an internal
-    # `Dict` seen-set → a `DynamicDerivedRule{Dict{Any,Any}}` and a bitcast
-    # Mooncake reverse-mode refuses to differentiate, #699). The boundaries
-    # are functions of the (constant) lags, not the AD parameters, so this
-    # only affects which CDF evaluations happen, never their tangents.
-    return _sorted_unique(boundaries)
-end
-
-"""
-    _sorted_unique(v)
-
-Return the sorted unique elements of `v`. Equivalent to `sort(unique(v))`
-but implemented with a self-contained insertion sort and an adjacent-dedup
-pass, avoiding two things that break Mooncake reverse-mode (#699):
-
-  - the `Dict`-backed `unique` (a `DynamicDerivedRule{Dict{Any,Any}}`), and
-  - `Base`'s float sort, which reinterprets `Float64` as `UInt64` (the
-    IEEE-float radix optimisation, a bitcast Mooncake refuses).
-
-The boundaries are functions of the (constant) lags and carry no
-meaningful tangent, so insertion sort is purely to dodge the bitcast. The
-boundary count is `O(nlags)` (a few dozen here), so `O(n²)` is fine.
-"""
-function _sorted_unique(v::AbstractVector{T}) where {T}
-    n = length(v)
-    n == 0 && return T[]
-    # Insertion sort into a pre-sized buffer (no `reinterpret`/bitcast, no
-    # `push!`-driven array growth — the latter introduces `Union`-typed
-    # branches that break Enzyme's strict type analysis).
-    s = collect(T, v)
-    @inbounds for i in 2:n
-        x = s[i]
-        j = i - 1
-        while j >= 1 && isless(x, s[j])
-            s[j + 1] = s[j]
-            j -= 1
-        end
-        s[j + 1] = x
-    end
-    # Drop adjacent duplicates into a pre-sized buffer, then trim.
-    out = Vector{T}(undef, n)
-    out[1] = s[1]
-    m = 1
-    @inbounds for i in 2:n
-        if s[i] != s[i - 1]
-            m += 1
-            out[m] = s[i]
-        end
-    end
-    return out[1:m]
+    return sort(unique(boundaries))
 end
 
 """

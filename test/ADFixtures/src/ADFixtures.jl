@@ -254,21 +254,13 @@ function backend_broken_scenarios()
     vectorised_select = "Vectorised Choose per-record kind logpdf"
     compiled_broken = Set{String}(
         [vectorised_seq, vectorised_bdbv, vectorised_select])
-    # The batched `pdf(::IntervalCensored, ::AbstractVector)` path collects
-    # interval boundaries through dynamically-grown / sliced arrays
-    # (`_collect_unique_boundaries`, `_sorted_unique`). Enzyme's strict type
-    # analysis rejects the resulting `Union`-typed temporaries with
-    # `IllegalTypeAnalysisException` (both modes). This predates #699 (the
-    # batched path always allocated this way) and is orthogonal to it: the
-    # #699 fix made the path Mooncake-reverse / ReverseDiff differentiable,
-    # which it now is. Enzyme on the batched vector path is tracked separately
-    # in #701 (on `main`). The scalar `IntervalCensored` scenarios still work
-    # under Enzyme.
-    batched_interval = Set{String}([
-        "IntervalCensored LogNormal regular batched pdf",
-        "IntervalCensored LogNormal regular batched logpdf",
-        "DoubleIntervalCensored LogNormal batched pdf"
-    ])
+    # The batched `pdf(::IntervalCensored, ::AbstractVector)` boundary
+    # collection is now marked non-differentiable per backend (Mooncake
+    # `@zero_derivative`, Enzyme `inactive`, ChainRules `@non_differentiable`),
+    # so neither Mooncake nor Enzyme traces the `unique`/sort internals. The
+    # boundaries are functions of the constant lags, not the AD parameters, so
+    # the zero-tangent rule is exact; all backends now differentiate the path
+    # (#699, #701).
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
@@ -283,14 +275,14 @@ function backend_broken_scenarios()
             Set{String}(
                 [nested_comp, nested_hazard, nonterminal_comp, dic_seq_total,
                 whole_compose_trunc]),
-            compiled_broken, batched_interval),
+            compiled_broken),
         # Enzyme FORWARD: only the non-terminal Resolve remains broken; the
         # plain nested tree, the Resolve/hazard trees, and
         # `double_interval_censored(Sequential)` are now fixed on forward;
         # reverse stays broken, see above.
         "Enzyme forward" => union(
             Set{String}([nonterminal_comp]),
-            compiled_broken, batched_interval)
+            compiled_broken)
     )
 end
 

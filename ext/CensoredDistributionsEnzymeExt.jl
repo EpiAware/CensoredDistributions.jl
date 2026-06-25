@@ -1,7 +1,8 @@
 module CensoredDistributionsEnzymeExt
 
 using CensoredDistributions: _gamma_cdf, _gamma_cdf_value_and_partials,
-                             _window_quantile, _subevent_slice
+                             _window_quantile, _subevent_slice,
+                             _collect_unique_boundaries
 using Distributions: UnivariateDistribution
 using Enzyme: Enzyme
 using Enzyme.EnzymeRules: EnzymeRules
@@ -43,6 +44,14 @@ EnzymeRules.inactive(::typeof(_subevent_slice), args...) = nothing
 # the value (not just the params) inactive is correct: the endpoint is a fixed
 # quadrature hyperparameter that carries no gradient.
 EnzymeRules.inactive(::typeof(_window_quantile), args...) = nothing
+
+# `_collect_unique_boundaries(d, x)` returns the batched-pdf boundaries:
+# functions of the (constant) lags and interval spec, NOT the AD parameters,
+# so they carry no tangent. Enzyme's strict type analysis otherwise rejects
+# the `unique`/sort `Union`-typed temporaries (`IllegalTypeAnalysisException`,
+# #701). `inactive` runs the primal unchanged; the parameter gradient flows
+# through the CDF evaluation in `_compute_boundary_cdfs`, not here.
+EnzymeRules.inactive(::typeof(_collect_unique_boundaries), args...) = nothing
 
 # `EnzymeRules.@easy_rule` expands into both the reverse-mode
 # (`augmented_primal` / `reverse`) and forward-mode (`forward`) rules

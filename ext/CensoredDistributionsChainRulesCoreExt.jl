@@ -2,7 +2,8 @@ module CensoredDistributionsChainRulesCoreExt
 
 using CensoredDistributions: _gamma_cdf, _gamma_cdf_value_and_partials,
                              _primal, _window_quantile,
-                             _premodified_rate_primal
+                             _premodified_rate_primal,
+                             _collect_unique_boundaries
 using ChainRulesCore: ChainRulesCore, NoTangent
 
 # The quadrature-window endpoint is a non-differentiable hyperparameter
@@ -23,6 +24,14 @@ ChainRulesCore.@non_differentiable _window_quantile(::Any, ::Any)
 # ChainRules-based reverse mode) off it; Mooncake needs its own explicit
 # `@zero_derivative` (it does not lift this mark), declared in the Mooncake ext.
 ChainRulesCore.@non_differentiable _premodified_rate_primal(::Any, ::Any)
+
+# `_collect_unique_boundaries(d, x)` returns the batched-pdf boundaries:
+# functions of the (constant) lags and interval spec, not the AD parameters,
+# so they carry no tangent. `@non_differentiable` covers reverse-mode AD
+# (ReverseDiff) without tracing the `unique`/sort internals; the parameter
+# gradient flows through the CDF evaluation in `_compute_boundary_cdfs`
+# (#699, #701).
+ChainRulesCore.@non_differentiable _collect_unique_boundaries(::Any, ::Any)
 
 # Reverse- and forward-mode rules for `_gamma_cdf(k, θ, x) = P(k, x/θ)`.
 # The analytical partials live in `_gamma_cdf_value_and_partials` (in

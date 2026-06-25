@@ -45,6 +45,8 @@
         # - _ctor_has_check_args: internal leaf-reconstruction reflection helper
         #   the Mooncake extension imports to register a `@zero_adjoint` so its
         #   `hasmethod` foreigncall is not traced on Julia LTS.
+        # - _collect_unique_boundaries: internal boundary builder the AD
+        #   extensions import to mark non-differentiable (zero-tangent rule).
         ignore = (
             :Censored, :_in_closed_interval, :_gamma_cdf, :_grad_p_a_series,
             :_gamma_cdf_value_and_partials,
@@ -53,7 +55,8 @@
             :_primal, :_window_quantile, :_premodified_rate_primal,
             :_cdf_ad_safe, :_ccdf_ad_safe, :_logcdf_ad_safe, :_logccdf_ad_safe,
             :_split_edge_name, :_is_positional_edge_name, :_next_event_name,
-            :_all_positional_event_names, :_split_edge, :_ctor_has_check_args
+            :_all_positional_event_names, :_split_edge, :_ctor_has_check_args,
+            :_collect_unique_boundaries
         )
     ) === nothing
 
