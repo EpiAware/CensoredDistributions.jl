@@ -110,8 +110,10 @@ end
             delay; primary_event = pe, upper = 10, interval = 1),
         double_interval_censored(delay; primary_event = pe, upper = 10)
     ]
-    for marg in margs, y in [1.0, 3.0, 6.0, 9.0]
-        @test isapprox(integrate_joint(marg, y), pdf(marg, y); atol = 5e-4)
+    for marg in margs
+        for y in [1.0, 3.0, 6.0, 9.0]
+            @test isapprox(integrate_joint(marg, y), pdf(marg, y); atol = 5e-4)
+        end
     end
 end
 
