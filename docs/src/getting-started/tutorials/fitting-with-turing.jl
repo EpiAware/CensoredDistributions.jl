@@ -550,16 +550,58 @@ Every fit so far has been marginal, with the primary event integrated out inside
 the leaf `logpdf`.
 The same composed object also has a latent form, reached by wrapping it in
 [`latent`](@ref).
-The latent form samples the event times rather than integrating them out, so an
-unobserved intermediate event becomes an explicitly sampled latent variable that
+The latent form samples the event times rather than integrating them out, so the
+primary event of each record becomes an explicitly sampled latent variable that
 appears in the posterior chain.
 
-The single onset-to-report edge has no intermediate event to sample, so wrapping
-a single censored leaf in `latent` collapses to the marginal.
-The only latent there is the leaf's own primary, which the marginal already
-integrates out, which is why the section above used the marginal form.
-To show a genuinely sampled latent we add an intermediate event, an exposure
-between onset and report, and leave it unobserved.
+We can fit the full double-censored model from above in latent form on the same
+data by wrapping the leaf in [`latent`](@ref).
+The record model is otherwise identical; it dispatches on the wrapped type.
+"""
+
+latent_leaf_template = full_leaf(meanlog, sdlog)
+
+latent_leaf_priors = build_priors(params_table(
+    delay_template(latent_leaf_template)))
+
+md"""
+The data is the same `report` column, scored as single-event records (the leaf
+is one censored delay, not a chain).
+"""
+
+latent_leaf_data = [(report = r,) for r in simulated_data.report]
+
+@model function latent_leaf_model(leaf, priors, data)
+    delay ~ to_submodel(composed_parameters_model(
+        delay_template(leaf), priors))
+    obs ~ to_submodel(composed_distribution_model(
+        latent(event(delay, :onset_report)), data))
+end
+
+latent_leaf_fit = sample(Xoshiro(1),
+    latent_leaf_model(latent_leaf_template, latent_leaf_priors,
+        latent_leaf_data),
+    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 300, 2;
+    chain_type = VNChain, progress = false)
+
+md"""
+The chain carries the delay parameters and one sampled primary event time per
+record, keyed `obs.recN.p`.
+The primary is realised as a latent, not analytically marginalised, and the
+secondary interval censoring is kept on its conditional.
+"""
+
+latent_leaf_parameters = parameters(latent_leaf_fit)
+
+md"""
+### A genuinely unobserved intermediate
+
+The leaf above samples the primary, the only latent a single censored delay
+carries.
+A composed chain with an intermediate event sampled per record needs that
+intermediate left unobserved.
+We add an exposure event between onset and report and drop its column, so the
+chain samples the exposure time for every record.
 The leaf type and the record model are otherwise unchanged.
 """
 
@@ -638,9 +680,9 @@ md"""
 - The naive model is misspecified; adding interval censoring and truncation
   improves it, and the full double-censored model recovers the truth.
 - Wrapping the same composed object in [`latent`](@ref) switches from the
-  marginal form to the latent form; an unobserved intermediate event is then a
-  sampled latent (`obs.recN.e[2]`) in the posterior, while a single censored
-  leaf collapses to the marginal.
+  marginal form to the latent form; a single censored leaf samples its primary
+  event (`obs.recN.p`), and a chain with an unobserved intermediate also samples
+  that intermediate (`obs.recN.e[2]`), all explicit latents in the posterior.
 - [`update`](@ref)`(template, chain)`, [`event`](@ref), and
   [`mean`](@ref CensoredDistributions.mean) read
   the fitted delay back onto the composed object with no manual chain indexing,

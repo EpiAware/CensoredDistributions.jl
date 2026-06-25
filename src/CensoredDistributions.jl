@@ -324,6 +324,9 @@ include("distributions/Modified.jl")
 # and simulation files that use them (their order between each other is free,
 # they only define methods over the already-defined helpers).
 include("composers/censored_specialisations.jl")
+# The interval/truncation-aware secondary conditional of `PrimaryConditional`
+# needs the pipeline node types and `_origin_primary_event` from above.
+include("censoring/secondary_conditional.jl")
 include("composers/censored_scoring_tree.jl")
 include("composers/censored_one_of.jl")
 include("composers/censored_scoring_flat.jl")

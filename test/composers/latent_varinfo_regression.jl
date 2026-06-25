@@ -67,3 +67,55 @@ end
     names = string.(parameters(chn))
     @test count(n -> occursin("e[2]", n), names) == length(rows)
 end
+
+@testitem "single-leaf latent(double_interval_censored) samples the primary" begin
+    using Distributions
+    using DynamicPPL: VarInfo, @varname
+    using CensoredDistributions: composed_distribution_model, latent,
+                                 PrimaryConditional, get_primary_event
+
+    # The genuine single-leaf latent (#723): `latent(double_interval_censored)`
+    # must SAMPLE the primary event (not analytically marginalise it), so a single
+    # record realises the primary `p` in the VarInfo, and the joint is the primary
+    # prior plus the interval-censored, truncated conditional secondary -- NOT the
+    # bare-delay shift (stripping the interval was the bug).
+    delay = LogNormal(1.5, 0.75)
+    pe = Uniform(0, 1)
+    leaf = double_interval_censored(delay; primary_event = pe, interval = 1.0)
+    ld = latent(leaf)
+
+    # Single-record VarInfo carries the sampled primary `p`.
+    vi = VarInfo(composed_distribution_model(ld, (report = 4.0,)))
+    @test @varname(p) in keys(vi)
+
+    # Joint = primary prior + conditional secondary, and the conditional keeps the
+    # interval (so it differs from the bare-delay shift).
+    p, y = 0.4, 4.0
+    cond = PrimaryConditional(ld, p)
+    @test logpdf(ld, [p, y]) ≈ logpdf(get_primary_event(ld), p) + logpdf(cond, y)
+    @test logpdf(cond, y) != logpdf(delay, y - p)
+end
+
+@testitem "single-leaf latent fit realises the primary in the chain" begin
+    using Distributions, Turing
+    using DynamicPPL: to_submodel
+    using FlexiChains: VNChain, parameters
+    using CensoredDistributions: composed_distribution_model, latent
+
+    # A short fit of `latent(double_interval_censored)` over single-event records
+    # must put one sampled primary per record in the chain (`obs.recN.p`), the
+    # evidence that the primary is a sampled latent, not marginalised.
+    delay = LogNormal(1.5, 0.75)
+    leaf = double_interval_censored(delay; primary_event = Uniform(0, 1),
+        interval = 1.0)
+    rows = [(report = Float64(r),) for r in (3, 5, 7)]
+
+    @model function fit(d, rows)
+        obs ~ to_submodel(composed_distribution_model(d, rows))
+    end
+
+    chn = sample(fit(latent(leaf), rows), NUTS(), 20;
+        chain_type = VNChain, progress = false)
+    names = string.(parameters(chn))
+    @test count(n -> occursin(".p", n), names) == length(rows)
+end

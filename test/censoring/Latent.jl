@@ -189,43 +189,81 @@ end
     using Distributions
 
     # The censoring wrappers must work for both forms. The latent form samples
-    # the primary, so its conditional scores the bare continuous delay (the
-    # sampled-origin rule); integrating the augmented joint over the primary
-    # therefore reproduces the analytic continuous primary-censored marginal,
-    # not the interval-censored node. So the analytic target for a latent
-    # double_interval_censored leaf is `primary_censored(delay, pe)`.
+    # the primary and keeps the secondary interval (and truncation) on the
+    # conditional: the primary is realised, not marginalised, and the modifiers
+    # stay on the total `p + delay` (#723). So the conditional is NOT the bare
+    # delay, and integrating the joint over the primary reproduces the analytic
+    # `double_interval_censored` marginal (the interval-censored node), not the
+    # continuous primary-censored one.
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0, 1)
-    target = primary_censored(delay, pe)
 
     dm = double_interval_censored(delay; primary_event = pe, interval = 1)
     ld = latent(dm)
 
     @test marginal(ld) === dm
     for (p, y) in [(0.3, 2.7), (0.1, 1.0), (0.9, 5.4)]
-        @test logpdf(ld, [p, y]) ≈ logpdf(pe, p) + logpdf(delay, y - p)
-        @test logpdf(ld, [p, y]) ≈ logpdf(latent(target), [p, y])
+        # The conditional keeps the secondary interval, so it differs from the
+        # bare-delay shift (the #723 fix; stripping the interval was the bug).
+        @test logpdf(ld, [p, y]) != logpdf(pe, p) + logpdf(delay, y - p)
+        cond = CensoredDistributions.PrimaryConditional(dm, p)
+        @test logpdf(ld, [p, y]) ≈ logpdf(pe, p) + logpdf(cond, y)
     end
 
-    # Truncated + interval-censored double form scores the same bare continuous
-    # conditional under the latent (sampled-origin) rule.
+    # Truncated + interval-censored double form keeps both modifiers.
     dtic = double_interval_censored(
         delay; primary_event = pe, upper = 10, interval = 1)
     ltic = latent(dtic)
     @test marginal(ltic) === dtic
     for (p, y) in [(0.2, 3.0), (0.5, 6.0)]
-        @test logpdf(ltic, [p, y]) ≈ logpdf(pe, p) + logpdf(delay, y - p)
+        cond = CensoredDistributions.PrimaryConditional(dtic, p)
+        @test logpdf(ltic, [p, y]) ≈ logpdf(pe, p) + logpdf(cond, y)
+    end
+end
+
+@testitem "latent pipeline joint integrates to the analytic marginal" begin
+    using Distributions
+    using CensoredDistributions: PrimaryConditional, get_primary_event
+
+    # The latent `double_interval_censored` joint, integrated over the primary,
+    # must reproduce the analytic interval-censored (and truncated) marginal: the
+    # primary is sampled and the secondary modifiers kept, so the latent and
+    # marginal describe one process. Covers interval-only, interval+upper, and
+    # interval+lower+upper.
+    delay = LogNormal(1.5, 0.75)
+    pe = Uniform(0, 1)
+
+    function integrate_joint(marg, y; n = 200_000)
+        ld = latent(marg)
+        ps = range(0.0, 1.0; length = n)
+        vals = map(ps) do p
+            pdf(pe, p) * exp(logpdf(PrimaryConditional(ld, p), y))
+        end
+        return sum((vals[1:(end - 1)] .+ vals[2:end]) ./ 2) * step(ps)
+    end
+
+    margs = [
+        double_interval_censored(delay; primary_event = pe, interval = 1),
+        double_interval_censored(
+            delay; primary_event = pe, upper = 10, interval = 1),
+        double_interval_censored(
+            delay; primary_event = pe, lower = 0.5, upper = 12, interval = 1)
+    ]
+    for marg in margs
+        for y in [0.0, 1.0, 3.0, 6.0, 9.0]
+            @test isapprox(integrate_joint(marg, y), pdf(marg, y); atol = 5e-4)
+        end
     end
 end
 
 @testitem "latent reaches through interval/truncation wrappers" begin
     using Distributions
-    using CensoredDistributions: get_primary_event, get_dist
+    using CensoredDistributions: get_primary_event, get_dist, PrimaryConditional
 
     # A bare double_interval_censored node wraps its PrimaryCensored node in an
     # IntervalCensored (and a Truncated when bounds are given). latent over such
-    # a node must build, sample and score, reaching the primary event and the
-    # bare continuous delay through the wrappers.
+    # a node must build, sample and score, reaching the primary event through the
+    # wrappers while keeping the secondary interval on the conditional.
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0, 1)
 
@@ -234,18 +272,17 @@ end
     @test dic isa CensoredDistributions.IntervalCensored
     lic = latent(dic)
     @test get_primary_event(lic) === pe
-    # The latent conditional scores the bare continuous delay (the sampled-origin
-    # rule): no secondary interval reapplied. So it equals the latent
-    # primary-censored node carrying the same primary and continuous delay.
+    # The latent conditional keeps the secondary interval, so it differs from the
+    # bare-delay shift (the separable `primary_censored` leaf still scores bare).
     lpc = latent(primary_censored(delay, pe))
     for (p, y) in [(0.3, 2.7), (0.1, 1.0), (0.9, 5.4)]
-        @test logpdf(lic, [p, y]) ≈ logpdf(lpc, [p, y])
-        @test logpdf(lic, [p, y]) ≈ logpdf(pe, p) + logpdf(delay, y - p)
+        @test logpdf(lic, [p, y]) != logpdf(lpc, [p, y])
+        cond = PrimaryConditional(dic, p)
+        @test logpdf(lic, [p, y]) ≈ logpdf(pe, p) + logpdf(cond, y)
     end
     # `rand` runs (no MethodError) and is in support.
     r = rand(lic)
-    @test r.observed > r.primary
-    @test get_dist(lic) === delay
+    @test r.observed >= 0
     @test marginal(lic) == dic
 
     # Truncated + interval-censored node: get_primary_event reaches through both.
@@ -253,8 +290,8 @@ end
         delay; primary_event = pe, upper = 10, interval = 1)
     ltic = latent(dtic)
     @test get_primary_event(ltic) === pe
-    @test get_dist(ltic) === delay
-    @test logpdf(ltic, [0.3, 2.7]) ≈ logpdf(pe, 0.3) + logpdf(delay, 2.7 - 0.3)
+    cond = PrimaryConditional(dtic, 0.3)
+    @test logpdf(ltic, [0.3, 2.7]) ≈ logpdf(pe, 0.3) + logpdf(cond, 2.7)
 end
 
 @testitem "latent joint logpdf is ForwardDiff-safe in the parameters" begin

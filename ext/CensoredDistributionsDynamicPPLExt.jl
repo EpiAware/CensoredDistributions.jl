@@ -14,7 +14,7 @@ import CensoredDistributions: primary_censored_model, interval_censored_model,
                               composed_parameters_model, renewal_model,
                               recurrent_states_model
 using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
-using Distributions: Distributions, UnivariateDistribution, logpdf,
+using Distributions: Distributions, UnivariateDistribution, Truncated, logpdf,
                      product_distribution
 using Random: AbstractRNG
 import Tables
@@ -139,6 +139,40 @@ end
 # primary-SAMPLING leaf model rather than the marginal fallback.
 function composed_distribution_model(
         d::Latent{<:PrimaryCensored}, row::NamedTuple; weight = nothing)
+    _reject_latent_horizon(row)
+    return primary_censored_model(
+        d, _leaf_value(row); weight = _leaf_weight(row, weight))
+end
+
+# A `latent`-wrapped `double_interval_censored` pipeline leaf
+# (`Latent{<:IntervalCensored}` or `Latent{<:Truncated}` over a primary-censored
+# node) samples the primary and scores the interval-censored, truncated secondary
+# conditional on it (#723). This is the genuine single-leaf latent: the primary
+# event is realised, not analytically marginalised, and `PrimaryConditional`
+# keeps the secondary interval and truncation on the total `p + delay` (the joint
+# integrates over `p` to the analytic marginal). A pipeline with no primary event
+# (a bare interval-censored / truncated delay) has nothing to sample, so it
+# collapses to the marginal leaf instead (`_latent_pipeline_model`).
+function composed_distribution_model(
+        d::Latent{<:Union{IntervalCensored, Truncated}}, row; weight = nothing)
+    return _latent_pipeline_model(d, row, weight)
+end
+function composed_distribution_model(
+        d::Latent{<:Union{IntervalCensored, Truncated}}, row::NamedTuple;
+        weight = nothing)
+    return _latent_pipeline_model(d, row, weight)
+end
+
+# Route a latent pipeline leaf: sample the primary when the pipeline carries one,
+# else collapse to the marginal leaf. Dispatch on whether a primary event exists
+# is a runtime check on the node, so the two paths return different model types;
+# both are returned (not run) here, so the caller's `~ to_submodel(...)` scores
+# the chosen one.
+function _latent_pipeline_model(d::Latent, row, weight)
+    if CensoredDistributions._origin_primary_event(d.dist) === nothing
+        return composed_distribution_model(
+            d.dist, row; weight = weight)
+    end
     _reject_latent_horizon(row)
     return primary_censored_model(
         d, _leaf_value(row); weight = _leaf_weight(row, weight))
@@ -1140,23 +1174,20 @@ end
     return obs
 end
 
-# Single-leaf `latent` collapses to the marginal (documented behaviour, #723).
-# A `latent`-wrapped plain leaf that is not a separable primary-censored node
-# (an `IntervalCensored`, a `double_interval_censored` pipeline, a `Truncated`, a
-# bare delay, ...) has no compositional latent to sample on its own: its marginal
-# already integrates any internal primary analytically, so there is no
-# intermediate event time to realise at leaf level. `latent(leaf)` over such a
-# leaf is therefore density-identical to the marginal leaf, and we delegate to
-# the marginal leaf model unwrapped. The latent value of a single censored leaf
-# is realised at composer level: wrap a chain (`latent(sequential(...))`) and
-# leave an intermediate event unobserved to get a sampled latent. The more
-# specific `Latent{<:PrimaryCensored}` method above keeps its primary-sampling
-# (the genuine separable leaf latent); the composer methods
+# A `latent`-wrapped leaf with no primary event to sample (a bare delay, a
+# `Convolved` sum, a plain `Truncated`/`Weighted` over a primary-free delay, ...)
+# has nothing to realise: there is no primary event distribution, so the latent
+# form is density-identical to the marginal leaf, and we delegate to the marginal
+# leaf model unwrapped. The leaves that DO carry a primary have their own
+# primary-sampling methods above: `Latent{<:PrimaryCensored}` (the separable
+# leaf) and `Latent{<:Union{IntervalCensored, Truncated}}` (the
+# `double_interval_censored` pipeline, which samples the primary and scores the
+# interval-censored, truncated secondary, #723). The composer methods
 # (`Latent{<:Sequential/Parallel/Choose/AbstractOneOf}`) are more specific in `d`
 # and dispatch ahead of this. This is also what lets a top-level `Choose` route
-# to a plain-leaf alternative's latent form (`latent(chosen)`) without a missing
-# method: the leaf alternative scores its marginal, the andv/bdbv invariant
-# unchanged.
+# to a primary-free leaf alternative's latent form (`latent(chosen)`) without a
+# missing method: the leaf alternative scores its marginal, the andv/bdbv
+# invariant unchanged.
 @model function composed_distribution_model(
         d::Latent{<:UnivariateDistribution}, row::NamedTuple; weight = nothing)
     obs ~ DynamicPPL.to_submodel(
@@ -1202,6 +1233,16 @@ end
 # batch; the per-record loop then routes each row to the single-record method.
 function composed_distribution_model(
         d::Latent{<:PrimaryCensored}, rows::AbstractVector; weight = nothing)
+    return _latent_batch_model(d, _latent_batch_rows(rows); weight = weight)
+end
+
+# Same disambiguation for a `latent(double_interval_censored(...))` pipeline leaf
+# over a vector of rows: the single-record pipeline method
+# (`Latent{<:Union{IntervalCensored, Truncated}}`) and the batch method each
+# dominate on a different argument, so pin the batch interpretation here.
+function composed_distribution_model(
+        d::Latent{<:Union{IntervalCensored, Truncated}}, rows::AbstractVector;
+        weight = nothing)
     return _latent_batch_model(d, _latent_batch_rows(rows); weight = weight)
 end
 
