@@ -76,7 +76,7 @@ mean(latent(seq))         # the per-event mean Vector
 - [`var`](@ref), [`std`](@ref): the matching overall variance / std
 - [`latent`](@ref): the per-event view
 - [`event_names`](@ref): the flat per-event labels
-- [`endpoint`](@ref): collapse a chain to its terminal scalar
+- [`observed_distribution`](@ref): collapse a chain to its terminal scalar
 "
 mean(d::Sequential) = _overall_moment(d, _leaf_mean)
 
@@ -412,31 +412,3 @@ function _one_of_mix_var(c::Resolve)
     second = sum(c.branch_probs .* (scalar_vars .+ scalar_means .^ 2))
     return second - mix_mean^2
 end
-
-# --- endpoint: the terminal scalar of a chain -------------------------------
-
-@doc "
-
-Collapse a composed chain to its terminal scalar distribution.
-
-`endpoint(d)` is an alias for [`observed_distribution`](@ref): it lowers a
-composed distribution to the single univariate quantity a censoring wrapper would
-observe (a [`Sequential`](@ref) chain's total elapsed time, a univariate node
-itself). `mean(endpoint(seq))` gives the endpoint (total-delay) mean, the same
-value [`mean`](@ref)`(seq)` returns; use [`latent`](@ref) for the per-event
-breakdown.
-
-# Examples
-```@example
-using CensoredDistributions, Distributions
-
-seq = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
-mean(endpoint(seq))
-```
-
-# See also
-- [`observed_distribution`](@ref): the underlying lowering
-- [`mean`](@ref): the overall (scalar / per-endpoint) moment
-- [`latent`](@ref): the per-event moment Vector
-"
-endpoint(d) = observed_distribution(d)

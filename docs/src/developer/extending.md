@@ -315,9 +315,6 @@ reported = splice(base, :admit_death;
 (event_names(base), event_names(event(reported, :admit_death)))
 ```
 
-`intervene`, `swap_child`, and `cut_branch` are deprecated aliases of `update`
-and `prune`, kept during the deprecation window.
-
 ## Verifying conformance
 
 The package ships its interface checklist as the public

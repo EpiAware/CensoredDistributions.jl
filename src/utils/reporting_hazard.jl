@@ -21,7 +21,7 @@
 # already produces: `_delay_pmf(delay, maxlag, interval)` discretises a
 # (primary-/double-censored) delay to interval masses on `0:maxlag`. This file
 # only reshapes that PMF through the hazard, so a primary_censored /
-# double_censored baseline flows straight in.
+# double_interval_censored baseline flows straight in.
 #
 # Why not a forward-transform op. The `Transformed`/`thin`/`cumulative` protocol
 # (`forward_transform.jl`) applies a deterministic map to the 1-D count series
@@ -68,7 +68,7 @@ AD.
 
 # Arguments
 - `pmf`: the delay PMF over the grid `0:D` (e.g. from `_delay_pmf` or a
-  discretised [`double_censored`](@ref) delay).
+  discretised [`double_interval_censored`](@ref) delay).
 
 # Examples
 ```@example

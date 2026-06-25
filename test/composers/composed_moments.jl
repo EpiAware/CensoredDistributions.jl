@@ -170,13 +170,12 @@ end
     @test wm.admit ≈ 7.0
 end
 
-@testitem "endpoint collapses a chain to its terminal scalar" begin
+@testitem "observed_distribution collapses a chain to its terminal scalar" begin
     using CensoredDistributions, Distributions
 
     seq = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
-    # endpoint is an alias for observed_distribution.
-    @test endpoint(seq) == observed_distribution(seq)
-    @test mean(endpoint(seq)) ≈ mean(observed_distribution(seq))
-    # mean(seq) IS the endpoint mean now (the overall scalar).
-    @test mean(seq) ≈ mean(endpoint(seq))
+    obs = observed_distribution(seq)
+    @test obs isa UnivariateDistribution
+    # mean(seq) IS the terminal scalar mean (the overall scalar).
+    @test mean(seq) ≈ mean(obs)
 end
