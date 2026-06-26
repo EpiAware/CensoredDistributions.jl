@@ -54,7 +54,6 @@ using Turing
 using ADTypes: AutoForwardDiff
 using DynamicPPL: to_submodel
 using Random
-using Statistics
 
 md"""
 ## A single-type branching process
@@ -207,40 +206,55 @@ Monte Carlo error, which shrinks as the line list grows.
 md"""
 ## Score back: recover the racing-hazard delays with Turing
 
-With the same object we score the line list and recover the severity delays in a
-small Turing model. We rebuild the natural-history object from sampled
-parameters and score the *whole* line list in one `~` through the batch
-[`composed_distribution_model`](@ref), passing the vector of records, and the
-disjunction node self-dispatches per record on which outcome slot is observed
-(and handles the optional report and the missing slots internally), with no
-manual per-record loop. The records are anchored at zero here (the infection time is
-the known anchor), so we re-centre each record on its own infection time.
+The same `natural_history` object is the template for the fit. We do not
+hand-build a parameter block: [`build_priors`](@ref) reads the template's
+parameter inventory and gives every leaf parameter a support-derived default,
+and [`update`](@ref) recentres only the two racing-hazard shapes on their
+truncated-Normal priors, addressing each by its name path under `severity`. The
+other delays (the incubation and report leaves, the two racing scales) keep
+their support-derived defaults, so the fit is weakly informed about them and the
+data dominate.
+"""
+
+priors = update(build_priors(natural_history),
+    (:severity, :death) => (shape = truncated(Normal(2.0, 0.5); lower = 0.2),),
+    (:severity, :recover) => (
+        shape = truncated(Normal(3.0, 0.5); lower = 0.2),));
+
+md"""
+The model samples the delay parameters once through
+[`composed_parameters_model`](@ref), then scores the *whole* line list in one
+`~` through the batch [`composed_distribution_model`](@ref), passing the vector
+of records. The disjunction node self-dispatches per record on which outcome
+slot is observed (and handles the optional report and the missing slots
+internally), with no manual per-record loop. The records are anchored at zero
+here (the infection time is the known anchor), so we re-centre each record on
+its own infection time.
 """
 
 records = [map(v -> v === missing ? missing : v - t, r)
            for (r, t) in zip(linelist, infection_times)]
 
-@model function fit_severity(records)
-    death_shape ~ truncated(Normal(2.0, 0.5); lower = 0.2)
-    recover_shape ~ truncated(Normal(3.0, 0.5); lower = 0.2)
-    severity = compete(:death => Gamma(death_shape, 3.0),
-        :recover => Gamma(recover_shape, 2.0))
-    history = compose((onset = incubation,
-        reporting = report,
-        severity = severity))
-    obs ~ to_submodel(composed_distribution_model(history, records))
+@model function fit_severity(template, priors, records)
+    delays ~ to_submodel(composed_parameters_model(template, priors))
+    obs ~ to_submodel(composed_distribution_model(delays, records))
 end
 
-chain = sample(rng, fit_severity(records),
+chain = sample(rng, fit_severity(natural_history, priors, records),
     NUTS(; adtype = AutoForwardDiff()), 200; progress = false)
 
 md"""
-The posterior means concentrate near the true racing-hazard shapes (`2.0` for
-death, `3.0` for recover) within Monte Carlo error.
+The fitted parameters are read back onto the composed object with
+[`update`](@ref), passing the chain directly, so the recovered delays come from
+the composer rather than from manual chain indexing. The posterior racing-hazard
+shapes concentrate near the true values (`2.0` for death, `3.0` for recover)
+within Monte Carlo error.
 """
 
-(; death_shape = mean(chain[:death_shape]),
-    recover_shape = mean(chain[:recover_shape]))
+fit = update(natural_history, chain; prefix = :delays)
+
+(; death_shape = params(event(fit, :severity, :death))[1],
+    recover_shape = params(event(fit, :severity, :recover))[1])
 
 md"""
 ## Outcomes that continue into a further chain
@@ -336,9 +350,15 @@ The framing has honest limits.
 - No cycles or recurrence: each composed path runs forward through its states
   once and never returns, so recurrent-event and back-and-forth transitions are
   out of scope.
-- No calendar-time intensities: every clock is a sojourn time measured from state
-  entry, not a transition intensity indexed by calendar time, so time-varying
-  transition rates are not represented here.
+- Limited calendar-time variation: calendar anchoring is supported, since
+  [`affine`](@ref)'s `shift` places a sojourn clock at its calendar entry time
+  and its `scale` gives a constant proportional change to the rate.
+  Piecewise-constant calendar variation is supported through the grouped
+  interface, by binning records by calendar period of entry and fitting
+  per-stratum parameters, a step-function approximation of a time-varying rate.
+  What is not represented is a continuous, within-sojourn intensity that varies
+  with calendar time, which would need a monotone time-change (operational-time)
+  operator; [`affine`](@ref) is its linear special case.
 - Exact-but-censored transition times: the line list records each transition
   time, censored to the day, rather than the panel-observed state at fixed visit
   times that a panel multi-state fit marginalises over.
