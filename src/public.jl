@@ -23,6 +23,13 @@ public ChainStage
 # and reuses across a vector of reference dates / records (the nowcasting path).
 public DelayPMF, discretise_pmf
 
+# Renewal recurrence (public but not exported): the renewal scan `renewal` and
+# its composable force modulators. `NoModulation` (identity, the default) and
+# `susceptibility_depletion` (the SIR-style depleting-susceptible factor)
+# combine with `combine_modulators`. DESIGN/PROTOTYPE for #611 — kept off
+# `export` while the renewal-process scope is settled with the maintainer.
+public renewal, NoModulation, susceptibility_depletion, combine_modulators
+
 # Primary censoring solver supertype (public but not exported).
 # `AnalyticalSolver` and `NumericSolver` are exported in the main module.
 public AbstractSolverMethod

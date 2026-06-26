@@ -268,6 +268,12 @@ include("utils/forward_transform.jl")
 # tree_events (`_flat_event_names`).
 include("utils/convolve_with_vector.jl")
 
+# Renewal recurrence: the renewal step `I[t] = R_t m(t) Σ_s g_s I[t-s]` as a
+# composable forward scan, reusing the causal-convolution arithmetic one output
+# step at a time (the output feeds back as input). After convolve_with_vector,
+# whose `DelayPMF` generation interval it consumes.
+include("utils/renewal.jl")
+
 # Discrete-time reporting-hazard layer (epinowcast): reshape a delay PMF by
 # logit-scale reference + report effects and form the per-(reference, report)
 # expected-count matrix. After convolve_with_vector, whose `_delay_pmf` it

@@ -281,9 +281,15 @@ function backend_skip_scenarios()
     # Enzyme (both modes) aborts uncatchably on that reconstruction. Skip it for
     # Enzyme entirely; ForwardDiff / ReverseDiff / Mooncake verify its gradient.
     bdbv = "Vectorised nested Resolve per-record branch_probs logpdf"
+    # The renewal scenario (#611) closes over its `(obs, gi)` data in a
+    # `Constant` context and runs the renewal scan; Enzyme (both modes) aborts
+    # UNCATCHABLY (signal 6) without `function_annotation = Duplicated` on the
+    # active-tuple closure. Skip it for Enzyme entirely; ForwardDiff, ReverseDiff
+    # and Mooncake reverse verify the gradient against the reference.
+    renewal_modulated = "renewal susceptibility-depletion Poisson loglik"
     return Dict{String, Set{String}}(
-        "Enzyme reverse" => Set{String}([bdbv]),
-        "Enzyme forward" => Set{String}([bdbv])
+        "Enzyme reverse" => Set{String}([bdbv, renewal_modulated]),
+        "Enzyme forward" => Set{String}([bdbv, renewal_modulated])
     )
 end
 
@@ -1435,6 +1441,41 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
                     Parallel(Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])), 1.0),
                 x),
             [2.0, 1.0, 1.0, 0.5], (Constant([2.0, 3.0]),))
+    end
+
+    # === renewal recurrence (#611, DESIGN/PROTOTYPE) ===
+    # A scored renewal: a Poisson log-likelihood of observed counts as a
+    # function of the Rt level, the seed I0 and log N (the
+    # susceptibility-depletion population). The renewal SCAN sits on the
+    # differentiated path — the generation-weighted force, the Rt scaling and
+    # the depleting-susceptible modulator — so this stresses the recurrence and
+    # the modulator through every backend, not just ForwardDiff. The
+    # generation-interval PMF is a fixed `Constant` context: its parameter-AD
+    # (the gamma-CDF route) is already covered by `convolve_with_vector_ad.jl`,
+    # so this scenario isolates the renewal-specific arithmetic. All-continuous
+    # with no missing-marginalisation, so it differentiates on every working
+    # backend (no broken/skip entries). Guarded on `renewal` existing so the
+    # AirspeedVelocity baseline (which lacks it) skips the scenario.
+    if isdefined(CensoredDistributions, :renewal)
+        renewal_obs = [2.0, 5.0, 9.0, 14.0, 20.0, 26.0, 30.0, 28.0, 22.0, 15.0]
+        renewal_gi = pdf(
+            interval_censored(
+                truncated(Gamma(2.5, 1.3); lower = 1.0, upper = 8.0), 1.0),
+            1:8)
+        _push!("renewal susceptibility-depletion Poisson loglik",
+            (θ,
+                data) -> begin
+                obs, gi = data
+                n = length(obs)
+                inf = CensoredDistributions.renewal(
+                    fill(θ[1], n), gi, θ[2];
+                    modulator = CensoredDistributions.susceptibility_depletion(
+                        exp(θ[3])),
+                    seed_days = 3)
+                -sum(o * log(i + 1e-6) - (i + 1e-6)
+                for (o, i) in zip(obs, inf))
+            end,
+            [1.4, 1.0, log(1.0e4)], (Constant((renewal_obs, renewal_gi)),))
     end
 
     return out

@@ -37,6 +37,7 @@ dev_pages = [
     "Overview" => "developer/index.md",
     "Contributing" => "developer/contributing.md",
     "Extending the composer toolkit" => "developer/extending.md",
+    "Composable renewal step (design)" => "developer/renewal-step-611.md",
     "Developer FAQ" => "developer/faq.md",
     "Release process" => "developer/release-process.md"
 ]
