@@ -126,21 +126,33 @@ end
 
 # Rebuild a composer node by applying `wrap_leaf` to each LEAF core, preserving
 # the tree shape and the step/branch/alternative names. A leaf is first reduced
-# to its continuous core (`_marginal_core`) so re-wrapping an already-censored
-# leaf re-resolves it rather than stacking censoring layers; a nested composer
-# recurses, keeping the structure unchanged.
-_distribute_into_leaves(d::UnivariateDistribution, wrap_leaf) = wrap_leaf(_marginal_core(d))
-function _distribute_into_leaves(d::Sequential, wrap_leaf)
+# to a core by `leaf_core` (default `_marginal_core`, every censoring layer
+# stripped) so a censoring modifier re-resolves it rather than stacking layers; a
+# nested composer recurses, keeping the structure unchanged. The fixed-bound
+# `truncated` modifier passes `_truncatable_core` instead, which peels only outer
+# truncation layers and KEEPS an inner primary/interval censoring, so a truncated
+# primary-censored leaf stays `Truncated{PrimaryCensored}` and record-scoreable.
+function _distribute_into_leaves(
+        d::UnivariateDistribution, wrap_leaf, leaf_core = _marginal_core)
+    return wrap_leaf(leaf_core(d))
+end
+function _distribute_into_leaves(
+        d::Sequential, wrap_leaf, leaf_core = _marginal_core)
     return Sequential(
-        map(c -> _distribute_into_leaves(c, wrap_leaf), d.components), d.names)
+        map(c -> _distribute_into_leaves(c, wrap_leaf, leaf_core), d.components),
+        d.names)
 end
-function _distribute_into_leaves(d::Parallel, wrap_leaf)
+function _distribute_into_leaves(
+        d::Parallel, wrap_leaf, leaf_core = _marginal_core)
     return Parallel(
-        map(c -> _distribute_into_leaves(c, wrap_leaf), d.components), d.names)
+        map(c -> _distribute_into_leaves(c, wrap_leaf, leaf_core), d.components),
+        d.names)
 end
-function _distribute_into_leaves(d::Choose, wrap_leaf)
+function _distribute_into_leaves(
+        d::Choose, wrap_leaf, leaf_core = _marginal_core)
     return Choose(d.names,
-        map(a -> _distribute_into_leaves(a, wrap_leaf), d.alternatives),
+        map(a -> _distribute_into_leaves(a, wrap_leaf, leaf_core),
+            d.alternatives),
         d.selector)
 end
 
@@ -154,9 +166,11 @@ end
 # branch carries no delay (its mass is a survival/residual term) and is left
 # untouched. `_rebuild_one_of` keeps the node type: a `Resolve` retains its
 # `branch_probs`, a `Compete` its derived-hazard form.
-function _distribute_into_leaves(d::AbstractOneOf, wrap_leaf)
+function _distribute_into_leaves(
+        d::AbstractOneOf, wrap_leaf, leaf_core = _marginal_core)
     wrapped = map(d.delays) do delay
-        _is_no_event(delay) ? delay : _distribute_into_leaves(delay, wrap_leaf)
+        _is_no_event(delay) ? delay :
+        _distribute_into_leaves(delay, wrap_leaf, leaf_core)
     end
     return _rebuild_one_of(d, wrapped)
 end
@@ -546,15 +560,29 @@ end
 # The composed verb nodes a fixed-bound `truncated` distributes into.
 const _TruncatableNode = Union{Sequential, Parallel, Choose, AbstractOneOf}
 
+# The core a fixed-bound `truncated` distributes onto: peel only outer
+# truncation layers so re-truncating an already-truncated node re-truncates the
+# inner core rather than nesting `Truncated{Truncated{...}}`, while KEEPING any
+# primary/interval censoring underneath. This is the truncation analogue of
+# `_marginal_core` but censoring-preserving: a `truncated(primary_censored(...);
+# lower)` leaf stays `Truncated{PrimaryCensored}`, so its origin primary survives
+# and a primary-censored `Parallel` under a node-level truncation is still
+# record-assemblable. A `Convolved` (the observed sum of a censored chain) is a
+# continuous core and stops the peel, matching `_marginal_core`.
+_truncatable_core(d::UnivariateDistribution) = d
+_truncatable_core(d::Truncated) = _truncatable_core(d.untruncated)
+
 # Distribute one fixed `(lower, upper)` bound into every leaf core, truncating
-# each at the SHARED bound. A leaf is reduced to its continuous core first so a
-# fixed-bound truncation over an ALREADY-truncated node re-truncates the core
-# rather than nesting `Truncated{Truncated{...}}`. `(nothing, nothing)` is a
-# no-op truncation, so the node is returned unchanged.
+# each at the SHARED bound. A leaf keeps any primary/interval censoring (only an
+# outer truncation layer is peeled, via `_truncatable_core`), so the truncated
+# leaf re-truncates rather than nesting `Truncated{Truncated{...}}` yet stays
+# record-scoreable. `(nothing, nothing)` is a no-op truncation, so the node is
+# returned unchanged.
 function _truncate_into_leaves(d::_TruncatableNode, lower, upper)
     lower === nothing && upper === nothing && return d
     return _distribute_into_leaves(
-        d, leaf -> truncated(leaf; lower = lower, upper = upper))
+        d, leaf -> truncated(leaf; lower = lower, upper = upper),
+        _truncatable_core)
 end
 
 @doc "

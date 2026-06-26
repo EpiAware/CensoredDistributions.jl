@@ -112,6 +112,47 @@ end
     @test vec_total(par, rows) ≈ ref_loop(par, rows)
 end
 
+@testitem "node-level truncation over a primary-censored Parallel assembles" begin
+    using Distributions
+
+    # Regression for #741: a node-level `truncated(node; lower)` over a Parallel
+    # of primary-censored branches must keep the censored leaves
+    # record-assemblable. Before the fix the truncation distribute stripped each
+    # branch to its continuous core, so the shared primary was lost and
+    # `record_distributions` rejected the (now plain-branch) Parallel.
+    shared = Uniform(0, 1)
+    par = compose((
+        a = primary_censored(Gamma(2.0, 1.0), shared),
+        b = primary_censored(LogNormal(0.5, 0.4), shared)))
+
+    trunc = truncated(par; lower = 0.5)
+    # The branches keep their primary censoring through the truncation layer.
+    @test trunc isa CensoredDistributions.Parallel
+    for c in trunc.components
+        @test c isa Truncated
+        @test c.untruncated isa CensoredDistributions.PrimaryCensored
+        @test CensoredDistributions._origin_primary_event(c) == shared
+    end
+
+    rows = [(origin = 0.0, a = 2.0, b = 3.0),
+        (origin = 0.5, a = missing, b = 4.0)]
+    recs = CensoredDistributions.record_distributions(trunc, rows)
+    @test length(recs) == 2
+
+    # Density-identical to the canonical per-leaf construction
+    # `compose((a = truncated(primary_censored(...); lower), ...))`.
+    canon = compose((
+        a = truncated(primary_censored(Gamma(2.0, 1.0), shared); lower = 0.5),
+        b = truncated(
+            primary_censored(LogNormal(0.5, 0.4), shared); lower = 0.5)))
+    recs_canon = CensoredDistributions.record_distributions(canon, rows)
+    for i in eachindex(rows)
+        ev = CensoredDistributions._row_event_vector(trunc, rows[i])
+        x = [e === missing ? 0.0 : e for e in ev]
+        @test logpdf(recs[i], x) ≈ logpdf(recs_canon[i], x)
+    end
+end
+
 @testitem "vectorised Parallel with horizon equals per-record loop" begin
     using Distributions
 

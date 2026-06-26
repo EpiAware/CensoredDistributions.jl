@@ -1,8 +1,10 @@
 module CensoredDistributionsForwardDiffExt
 
 import CensoredDistributions: _gamma_cdf, _primal
-using CensoredDistributions: _gamma_cdf_value_and_partials
+using CensoredDistributions: _gamma_cdf_value_and_partials,
+                             _logcdf_ad_safe, _logccdf_ad_safe
 using ForwardDiff: ForwardDiff, Dual, value, partials
+using Distributions: Distributions, Gamma, logcdf, logccdf
 
 # Strip a ForwardDiff `Dual` to its primal `Float64` for the
 # non-differentiable quadrature-window quantile (`_finite_window` in
@@ -100,5 +102,23 @@ end
 function _gamma_cdf(k::Real, θ::Real, x::Dual)
     return _dual_impl(k, θ, x)
 end
+
+# AD-safe `logcdf`/`logccdf` for a Gamma differentiated through its shape/scale
+# (or evaluation point). The stock `Distributions.logcdf(::Gamma)` routes through
+# `StatsFuns._gammalogcdf`, which has no `Dual` method, so a `truncated(Gamma;
+# lower)` normaliser (built eagerly at construction) breaks under ForwardDiff
+# when the Gamma params carry `Dual`s. Routing through `_logcdf_ad_safe` /
+# `_logccdf_ad_safe` (which evaluate `_gamma_cdf`, carrying the analytical
+# shape/scale partials) closes that gap. Methods are added only for `Dual` args
+# StatsFuns cannot handle, so the float path is untouched; the
+# `Gamma{<:Dual}` method catches `Dual` PARAMS with a constant evaluation point
+# (the truncation lower bound), the `::Dual` evaluation-point method catches a
+# `Dual` bound, and the both-`Dual` method resolves their overlap.
+Distributions.logcdf(d::Gamma{<:Dual}, x::Real) = _logcdf_ad_safe(d, x)
+Distributions.logcdf(d::Gamma, x::Dual) = _logcdf_ad_safe(d, x)
+Distributions.logcdf(d::Gamma{<:Dual}, x::Dual) = _logcdf_ad_safe(d, x)
+Distributions.logccdf(d::Gamma{<:Dual}, x::Real) = _logccdf_ad_safe(d, x)
+Distributions.logccdf(d::Gamma, x::Dual) = _logccdf_ad_safe(d, x)
+Distributions.logccdf(d::Gamma{<:Dual}, x::Dual) = _logccdf_ad_safe(d, x)
 
 end

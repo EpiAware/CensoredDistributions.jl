@@ -717,6 +717,32 @@ end
     @test agg isa Truncated
 end
 
+@testitem "truncated over a node keeps leaf primary censoring (#741)" begin
+    using Distributions
+
+    # A node-level fixed-bound truncation peels only an OUTER truncation layer
+    # (so re-truncating does not nest), but KEEPS an inner primary censoring, so
+    # the truncated leaves stay record-scoreable.
+    par = compose((a = primary_censored(Gamma(2.0, 1.0), Uniform(0, 1)),
+        b = primary_censored(LogNormal(0.5, 0.4), Uniform(0, 1))))
+
+    t = truncated(par; lower = 0.5)
+    for c in t.components
+        @test c isa Truncated
+        @test c.untruncated isa CensoredDistributions.PrimaryCensored
+    end
+
+    # Re-truncating peels the outer Truncated but leaves the primary intact (no
+    # `Truncated{Truncated{...}}`), keeping the latest bound.
+    t2 = truncated(t; lower = 1.0)
+    for c in t2.components
+        @test c isa Truncated
+        @test !(c.untruncated isa Truncated)
+        @test c.untruncated isa CensoredDistributions.PrimaryCensored
+        @test c.lower == 1.0
+    end
+end
+
 @testitem "node-level wrap over a Resolve nested as a Sequential step" begin
     using Distributions
 
