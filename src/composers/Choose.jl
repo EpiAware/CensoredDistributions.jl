@@ -145,10 +145,13 @@ function choose(alternatives::Pair...; selector::Symbol = :kind)
     length(alternatives) >= 2 ||
         throw(ArgumentError(
             "choose needs at least two alternatives"))
-    names = Tuple(a.first for a in alternatives)
+    # `map`, not `Tuple(gen)`: keeps the alternatives tuple off the
+    # `collect_to!` `Array` temporary Enzyme cannot type-analyse (see the
+    # `Resolve` constructor).
+    names = map(a -> a.first, alternatives)
     all(n -> n isa Symbol, names) ||
         throw(ArgumentError("each choose alternative name must be a Symbol"))
-    dists = Tuple(a.second for a in alternatives)
+    dists = map(a -> a.second, alternatives)
     return Choose(names, dists, selector)
 end
 

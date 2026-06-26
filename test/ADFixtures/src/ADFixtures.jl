@@ -189,50 +189,34 @@ function backend_broken_scenarios()
     # modes (#506): collapsing the chain to a CONCRETE component tuple in
     # `wrap.jl`/`_sequential_segment` keeps the `Convolved`'s component types
     # concrete, so Enzyme's activity analysis no longer mixes the differentiable
-    # leaf params with the constant quadrature nodes. The Resolve / hazard trees
-    # differentiate on Enzyme FORWARD. The residual reverse-only and non-terminal
-    # gaps below are SEPARATE, deeper Enzyme limitations (documented per
-    # scenario). ForwardDiff / ReverseDiff / Mooncake differentiate every one of
+    # leaf params with the constant quadrature nodes. The nested Resolve,
+    # nested racing-hazard and non-terminal Resolve trees now ALSO
+    # differentiate on both Enzyme modes after the one_of/Choose constructors
+    # stopped collecting their outcome tuples through a `Tuple(generator)` (see
+    # below). ForwardDiff / ReverseDiff / Mooncake differentiate every one of
     # these correctly.
 
-    # The nested-Resolve tree and the nested racing-hazard tree
-    # recurse through the heterogeneous censored-edge walk plus a one_of /
-    # racing branch. With the `_subevent_slice` shield they now differentiate on
-    # Enzyme FORWARD (verified against the ForwardDiff reference). Enzyme REVERSE
-    # still fails with `EnzymeNoShadowError`: building the reverse shadow for the
-    # `MixtureModel` / `Compete` branch struct nested inside the
-    # `Parallel{Tuple{Sequential{...}, PrimaryCensored{...}}}` tree hits Enzyme's
-    # mixed-activity shadow construction (the upstream struct-shadow gap),
-    # which is upstream and not reachable from a value-level rule. Registered
-    # broken for Enzyme REVERSE only.
-    nested_comp = "Nested Resolve tree conditioned logpdf"
-    nested_hazard = "Nested racing-hazard tree conditioned logpdf"
-    # The external censoring wrapper over a `Sequential`. Now differentiates
-    # on BOTH Enzyme modes (verified against the ForwardDiff reference). The
-    # earlier reverse failure came from `observed_distribution(::Sequential)`
-    # collapsing the chain through a `Vector{UnivariateDistribution}` (abstract
-    # eltype): the `Convolved` then carried an abstractly-typed component tuple,
-    # and Enzyme's activity analysis mixed the differentiable leaf params with
-    # the constant quadrature nodes (`EnzymeRuntimeActivityError`, formerly seen
-    # upstream as the `EnzymeNoShadowError` of #506). Flattening the chain to a
-    # CONCRETE component tuple (`Tuple{Gamma, LogNormal}`) in `wrap.jl` fixes it
-    # on both modes; no value-level rule needed. Fixes #506.
-    # The whole-compose conv-to-last-observed right-truncation denominator builds
-    # a freshly allocated `Convolved` observed total and routes the
+    # The nested-Resolve, nested racing-hazard and non-terminal Resolve trees
+    # build a `Resolve`/`Compete` node FROM the differentiated params inside
+    # the scored closure. The `name => (delay, prob)` outcome constructors
+    # collected the outcome/payload tuples with `Tuple(o.second for o in
+    # outcomes)`, which lowers to `collect_to!` building an intermediate
+    # `Array`. On a heterogeneous tree (a `Sequential` subtree outcome beside a
+    # `Gamma` leaf outcome) that `Array` has a non-concrete element type
+    # (`Tuple{Sequential,Float64}` vs `Tuple{Gamma,Float64}`), which Enzyme
+    # could not type-analyse: reverse failed with `EnzymeNoShadowError` (no
+    # shadow for the abstractly-typed branch struct) and the non-terminal case
+    # with `IllegalTypeAnalysisException` on `collect_to!`. Switching those
+    # constructors to `map` over the outcome tuple (type-stable, returns a
+    # `Tuple` with no `Array` temporary) fixes all three on BOTH Enzyme modes,
+    # verified against the ForwardDiff reference. No value-level rule needed.
+    # Now hard-checked, not registered broken.
+    # The whole-compose conv-to-last-observed right-truncation denominator
+    # builds a freshly allocated `Convolved` observed total and routes the
     # `Vector{Union{Missing, Float64}}` event handling through
     # `_seq_event_logpdf_h`. With the concrete `Convolved` build and the
-    # `_subevent_slice` shield it now differentiates on Enzyme REVERSE too,
-    # matching the ForwardDiff reference (verified), so it is no longer
-    # registered broken for any backend.
-    # The non-terminal whole-tree Resolve scores a
-    # composer-VALUED one_of outcome's subtree through the nested `_tree_score`,
-    # AND carries a differentiated branch probability `θ[7]` whose complement
-    # `1 - θ[7]` feeds the racing/one_of weighting. It still fails on BOTH
-    # Enzyme modes with `IllegalTypeAnalysisException` -- a deeper upstream Enzyme
-    # type-analysis gap on this combined composer-subtree-plus-active-branch-prob
-    # path, distinct from the `_subevent_slice` allocation fixed earlier.
-    # Registered broken for both Enzyme modes.
-    nonterminal_comp = "Non-terminal Resolve whole-tree conditioned logpdf"
+    # `_subevent_slice` shield it differentiates on both Enzyme modes
+    # (verified), so it is no longer registered broken for any backend.
     # The vectorised path runs an AD-FREE pre-pass that collects the table rows
     # (`Tables.rows` iteration, vector building, validation `throw`s) before the
     # AD-traced build/evaluate. ForwardDiff and ReverseDiff trace straight through
@@ -268,20 +252,16 @@ function backend_broken_scenarios()
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => copy(compiled_broken),
         "Mooncake forward" => copy(compiled_broken),
-        # Enzyme REVERSE: the Resolve/hazard trees (reverse shadow construction)
-        # and the non-terminal Resolve (`IllegalTypeAnalysisException`) remain
-        # broken; `double_interval_censored(Sequential)` (#506), the plain nested
-        # tree, and the whole-compose conv-to-last-observed truncation are fixed.
-        "Enzyme reverse" => union(
-            Set{String}([nested_comp, nested_hazard, nonterminal_comp]),
-            compiled_broken),
-        # Enzyme FORWARD: only the non-terminal Resolve remains broken; the
-        # plain nested tree, the Resolve/hazard trees, and
-        # `double_interval_censored(Sequential)` are now fixed on forward;
-        # reverse stays broken, see above.
-        "Enzyme forward" => union(
-            Set{String}([nonterminal_comp]),
-            compiled_broken)
+        # Enzyme REVERSE: only the vectorised pre-pass scenarios remain broken
+        # (`compiled_broken`). The nested Resolve, nested racing-hazard,
+        # non-terminal Resolve, whole-compose truncation,
+        # `double_interval_censored(Sequential)` (#506) and plain nested tree
+        # all now differentiate (the one_of/Choose constructors no longer
+        # collect their outcome tuples through a non-concrete `Tuple(gen)`).
+        "Enzyme reverse" => copy(compiled_broken),
+        # Enzyme FORWARD: only the vectorised pre-pass scenarios remain broken;
+        # the nested Resolve / racing-hazard / non-terminal trees are now fixed.
+        "Enzyme forward" => copy(compiled_broken)
     )
 end
 

@@ -219,12 +219,19 @@ mean(node)
 function Resolve(outcomes::Pair...)
     length(outcomes) >= 2 ||
         throw(ArgumentError("Resolve needs at least two outcomes"))
-    names = Tuple(o.first for o in outcomes)
-    payloads = Tuple(o.second for o in outcomes)
+    # `map` over the outcome tuple, NOT `Tuple(gen)`: a generator-collect
+    # lowers to `collect_to!` building an intermediate `Vector` whose element
+    # type is the (possibly heterogeneous, e.g. `Tuple{Sequential, Float64}`
+    # vs `Tuple{Gamma, Float64}`) payload union. Enzyme's type analysis rejects
+    # that non-concrete `Array` allocation inside a differentiated `Resolve`
+    # build (`IllegalTypeAnalysisException` on `collect_to!`). `map` over a
+    # tuple stays type-stable and returns a `Tuple` with no `Array` temporary.
+    names = map(o -> o.first, outcomes)
+    payloads = map(o -> o.second, outcomes)
     all(n -> n isa Symbol, names) ||
         throw(ArgumentError("each one_of outcome name must be a Symbol"))
-    delays = Tuple(_one_of_delay(p) for p in payloads)
-    branch_probs = Tuple(_one_of_prob(p) for p in payloads)
+    delays = map(_one_of_delay, payloads)
+    branch_probs = map(_one_of_prob, payloads)
     # The inner constructor validates the bounds and structure; the user-facing
     # constructor additionally requires the probabilities to sum to one.
     _validate_branch_probs_sum(branch_probs)
@@ -297,7 +304,10 @@ mean(node)
 function resolve(outcomes::Pair...)
     length(outcomes) >= 2 ||
         throw(ArgumentError("resolve needs at least two outcomes"))
-    payloads = Tuple(o.second for o in outcomes)
+    # `map`, not `Tuple(gen)`, to keep the payload tuple type-stable and off
+    # the `collect_to!` `Array` temporary Enzyme cannot type-analyse (see the
+    # `Resolve` constructor).
+    payloads = map(o -> o.second, outcomes)
     # `resolve` builds the fixed-probability MIXTURE `Resolve` (cause and timing
     # independent): every outcome carries a `(delay, branch_prob)` pair, OR every
     # outcome but the LAST does and the last is a bare delay taking the residual
@@ -364,7 +374,9 @@ node == compete(:death => Gamma(2.0, 3.0), :recover => Gamma(3.0, 2.0))
 function compete(outcomes::Pair...)
     length(outcomes) >= 2 ||
         throw(ArgumentError("compete needs at least two outcomes"))
-    payloads = Tuple(o.second for o in outcomes)
+    # `map`, not `Tuple(gen)`, to keep the payload tuple off the `collect_to!`
+    # `Array` temporary Enzyme cannot type-analyse (see `Resolve`).
+    payloads = map(o -> o.second, outcomes)
     # `compete` builds the racing-hazard `Compete`: every outcome is a
     # BARE delay (no branch probability), the winning probability being derived
     # from the hazards. A `(delay, prob)` pair anywhere is the fixed-probability
@@ -408,7 +420,7 @@ function _fill_residual_outcome(outcomes::Tuple)
     n = length(outcomes)
     leading = Base.front(outcomes)
     last_pair = outcomes[n]
-    leading_probs = Tuple(_one_of_prob(o.second) for o in leading)
+    leading_probs = map(o -> _one_of_prob(o.second), leading)
     _validate_branch_prob_bounds(leading_probs)
     total = sum(leading_probs)
     (total <= 1 + 1e-6) || throw(ArgumentError(
