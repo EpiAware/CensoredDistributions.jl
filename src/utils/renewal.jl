@@ -96,6 +96,17 @@ available to infect at `t`); the carry-state is the post-step `S[t]`. Pass it to
 - `S0`: the initial susceptible pool (default `N`); the seed infections are
   removed from it by `renewal` before the recurrence starts.
 
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+gi = pdf(interval_censored(truncated(Gamma(2.5, 1.3); lower = 1.0,
+    upper = 12.0), 1.0), 1:12)
+Rt = fill(1.5, 60)
+infections = renewal(Rt, gi, 10.0;
+    modulator = susceptibility_depletion(1.0e5))
+```
+
 # See also
 - [`renewal`](@ref): the renewal scan.
 - [`NoModulation`](@ref): the identity modulator.
@@ -137,6 +148,22 @@ Compose two renewal modulators into one.
 the two factors and whose carry-state threads both, so transmissibility /
 susceptibility / immunity terms STACK rather than living in one monolithic
 recurrence. Composition nests, so any number of modulators combine.
+
+# Arguments
+- `a`: the first modulator.
+- `b`: the second modulator; its factor multiplies `a`'s.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+gi = pdf(interval_censored(truncated(Gamma(2.5, 1.3); lower = 1.0,
+    upper = 12.0), 1.0), 1:12)
+Rt = fill(1.3, 40)
+# Susceptibility depletion stacked with the identity equals depletion alone.
+m = combine_modulators(susceptibility_depletion(1.0e5), NoModulation())
+infections = renewal(Rt, gi, 10.0; modulator = m)
+```
 
 # See also
 - [`renewal`](@ref): the renewal scan.
