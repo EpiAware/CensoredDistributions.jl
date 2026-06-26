@@ -24,4 +24,4 @@ ADFixtures = {path = "../ADFixtures"}
 CensoredDistributions = {path = "../.."}
 # Interim git pin for the unregistered shared test-utility package; see
 # `test/Project.toml` for why this is held until General registration.
-EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl.git", rev = "deed3f6f9a7539280adfc5a1e836ce10fb6f0b99"}
+EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl.git", rev = "58836568831baead0fe95e63ce1c681249768562"}

@@ -28,10 +28,13 @@ CensoredDistributions = {path = ".."}
 # replaced by an ordinary `[compat]` bound once EpiAwarePackageTools is
 # registered in General; until then `downgrade-compat` rejects this git
 # `[sources]` entry, so that job stays red and this PR is held on
-# registration. Pinned to the kit commit that (a) makes the AD-registry
-# broken/skip accessors optional, which CD `main`'s `ADFixtures` needs (it
-# has no `backend_skip_scenarios`), (b) gives `test_formatting` a subprocess
-# `env` path so the formatter check stays isolated from JET, and (c) reads
-# `DocStringExtensions.@template` docstrings correctly (CD templates all its
-# docstrings) (EpiAware/EpiAwarePackageTools.jl#11).
-EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl.git", rev = "deed3f6f9a7539280adfc5a1e836ce10fb6f0b99"}
+# registration. Pinned to a kit commit on top of kit `main` that carries the
+# three fixes CD `main`'s adoption required: (a) optional AD-registry
+# broken/skip accessors, which CD `main`'s `ADFixtures` needs (it has no
+# `backend_skip_scenarios`) — merged in EpiAware/EpiAwarePackageTools.jl#11;
+# (b) a `test_formatting` subprocess `env` path so the formatter check stays
+# isolated from JET; and (c) reading `DocStringExtensions.@template`
+# docstrings correctly (CD templates all its docstrings) — (b) and (c) in
+# EpiAware/EpiAwarePackageTools.jl#12. Re-point to a registered `[compat]`
+# bound once the kit (with #12 merged) is in General.
+EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl.git", rev = "58836568831baead0fe95e63ce1c681249768562"}
