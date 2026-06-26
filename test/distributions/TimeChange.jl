@@ -1,34 +1,39 @@
 @testitem "TimeChange constructor and validation" begin
     using Distributions
 
-    d = timechange(LogNormal(1.5, 0.5); scale = 2.0, rate = 0.1)
+    d = CensoredDistributions.timechange(
+        LogNormal(1.5, 0.5); scale = 2.0, rate = 0.1)
     @test d isa CensoredDistributions.TimeChange
     @test d.scale == 2.0
     @test d.rate == 0.1
 
     # Defaults: identity warp (operational time equals calendar time).
-    d0 = timechange(Normal(0.0, 1.0))
+    d0 = CensoredDistributions.timechange(Normal(0.0, 1.0))
     @test d0.scale == 1.0
     @test d0.rate == 0.0
 
     # Promotion of mixed scale/rate types.
-    dm = timechange(Gamma(2.0, 1.0); scale = 2, rate = 1//10)
+    dm = CensoredDistributions.timechange(
+        Gamma(2.0, 1.0); scale = 2, rate = 1 // 10)
     @test dm.scale isa Float64
     @test dm.rate isa Float64
 
     # scale must be positive.
-    @test_throws ArgumentError timechange(Normal(0.0, 1.0); scale = 0.0)
-    @test_throws ArgumentError timechange(Normal(0.0, 1.0); scale = -1.0)
+    @test_throws ArgumentError CensoredDistributions.timechange(
+        Normal(0.0, 1.0); scale = 0.0)
+    @test_throws ArgumentError CensoredDistributions.timechange(
+        Normal(0.0, 1.0); scale = -1.0)
 end
 
 @testitem "TimeChange recovers affine scaling at rate zero" begin
     using Distributions
 
-    # With rate = 0 the warp is linear, Λ(y) = y / scale, so the time-change
-    # node reduces to a pure affine rescale (shift = 0).
+    # With rate = 0 the warp is linear, Λ(y) = scale * y, so the time-change
+    # node reduces to the affine rescale `affine(X; scale = 1 / scale)`
+    # (a clock running `scale` times faster, no shift).
     inner = LogNormal(1.5, 0.5)
-    tc = timechange(inner; scale = 2.0, rate = 0.0)
-    aff = affine(inner; scale = 2.0)
+    tc = CensoredDistributions.timechange(inner; scale = 2.0, rate = 0.0)
+    aff = affine(inner; scale = 1 / 2.0)
     for y in [1.0, 2.5, 4.0, 7.0]
         @test logpdf(tc, y) ≈ logpdf(aff, y)
         @test cdf(tc, y) ≈ cdf(aff, y)
@@ -41,7 +46,8 @@ end
 
     inner = LogNormal(1.0, 0.4)
     scale, rate = 1.5, 0.2
-    d = timechange(inner; scale = scale, rate = rate)
+    d = CensoredDistributions.timechange(
+        inner; scale = scale, rate = rate)
 
     # Operational-time warp and its derivative (the calendar intensity λ(t)).
     Λ(y) = scale * (exp(rate * y) - 1) / rate
@@ -58,7 +64,8 @@ end
 @testitem "TimeChange pdf integrates to one and matches cdf derivative" begin
     using Distributions
 
-    d = timechange(LogNormal(1.0, 0.4); scale = 1.2, rate = 0.15)
+    d = CensoredDistributions.timechange(
+        LogNormal(1.0, 0.4); scale = 1.2, rate = 0.15)
 
     ts = range(0.0, 60.0; length = 200_000)
     h = step(ts)
@@ -75,7 +82,7 @@ end
     using Distributions
 
     inner = Gamma(2.0, 1.5)
-    d = timechange(inner; scale = 1.3, rate = 0.1)
+    d = CensoredDistributions.timechange(inner; scale = 1.3, rate = 0.1)
     for p in [0.1, 0.4, 0.9]
         q = quantile(d, p)
         @test cdf(d, q) ≈ p
@@ -86,7 +93,8 @@ end
     using Distributions, Random, Statistics
 
     rng = MersenneTwister(42)
-    d = timechange(LogNormal(0.8, 0.4); scale = 1.4, rate = 0.12)
+    d = CensoredDistributions.timechange(
+        LogNormal(0.8, 0.4); scale = 1.4, rate = 0.12)
     xs = rand(rng, d, 50_000)
     # Empirical cdf at a few points matches the analytic cdf.
     for q in [1.0, 2.0, 4.0]
@@ -98,7 +106,7 @@ end
     using Distributions
 
     inner = Gamma(2.0, 1.5)
-    d = timechange(inner; scale = 1.3, rate = 0.2)
+    d = CensoredDistributions.timechange(inner; scale = 1.3, rate = 0.2)
 
     @test minimum(d) ≈ 0.0
     @test maximum(d) == Inf
@@ -112,7 +120,8 @@ end
     using Distributions
 
     tree = compose((
-        a = timechange(Gamma(2.0, 1.0); scale = 1.5, rate = 0.1),
+        a = CensoredDistributions.timechange(
+            Gamma(2.0, 1.0); scale = 1.5, rate = 0.1),
         b = LogNormal(1.0, 0.4)))
 
     @test isfinite(logpdf(tree, [1.0, 2.0]))
@@ -126,7 +135,8 @@ end
 @testitem "TimeChange round-trips through update" begin
     using Distributions
 
-    tree = compose((a = timechange(Gamma(2.0, 1.0); scale = 1.5, rate = 0.1),))
+    tree = compose((a = CensoredDistributions.timechange(
+        Gamma(2.0, 1.0); scale = 1.5, rate = 0.1),))
     upd = update(tree, (a = (shape = 3.0, scale = 2.0),))
 
     leaf = event(upd, :a)

@@ -232,6 +232,9 @@ include("composers/bridges/reaction_compartments.jl")
 # Affine transform leaf: after introspection so it can extend
 # `free_leaf`/`rewrap_leaf` for transparent inner-delay introspection.
 include("distributions/Affine.jl")
+# Monotone operational-time warp leaf (the continuous generalisation of
+# `affine`). After Affine so they sit together; same leaf introspection hooks.
+include("distributions/TimeChange.jl")
 # Structural edits on a composed tree (`update` node replace / `prune` /
 # `splice`): after introspection so it reuses `_rebuild`, `component_names`,
 # `_split_edge` and the `update` value method.

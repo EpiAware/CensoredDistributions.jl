@@ -7,6 +7,13 @@ public IntervalCensored
 public Weighted
 public Convolved
 
+# Monotone operational-time warp leaf and its constructor (public but not
+# exported): the continuous generalisation of the exported `affine`, giving a
+# calendar-time-varying intensity. `TimeChange` is the type, `timechange` the
+# constructor. Kept off `export` per the sparse-surface precedent (#739/#717),
+# as the exported `affine` covers the common linear case.
+public TimeChange, timechange
+
 # Linear chain trick per-step record (public but not exported): the (rate,
 # stages) Erlang-stage struct `linear_chain_stages` returns.
 public ChainStage
