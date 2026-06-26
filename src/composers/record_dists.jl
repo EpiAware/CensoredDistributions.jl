@@ -682,14 +682,24 @@ function _alternative_record(d::Latent, row::NamedTuple)
     return _alternative_record(d.dist, row)
 end
 
-# A univariate-leaf Choose alternative as a one-event record: the single observed
-# value, the reserved weight / horizon baked in, scored through the shared
+# A univariate leaf as a one-event record: the single observed value, the
+# reserved weight / horizon baked in, scored through the shared
 # `event_logpdf(::UnivariateDistribution, x; horizon)` so the value equals the
-# per-record leaf model.
+# per-record leaf model. Shared by the bare-leaf table path and a leaf `Choose`
+# alternative, so a row carrying more than one non-reserved field (an extra data
+# column that is not a reserved `obs_time`/`weight`/... field) is named in the
+# error rather than miscounted as a second event.
 function _leaf_record(d::UnivariateDistribution, row::NamedTuple)
     ev = _row_event_vector(row)
-    length(ev) == 1 || throw(ArgumentError(
-        "a leaf Choose alternative takes one event value; got $(length(ev))"))
+    if length(ev) != 1
+        extra = filter(k -> !(k in _RESERVED_ROW_FIELDS), keys(row))
+        throw(ArgumentError(
+            "a leaf record takes one event value; got $(length(ev)) from " *
+            "fields $(collect(extra)). A bare leaf scores a single observed " *
+            "delay, so each row needs exactly one non-reserved field (plus " *
+            "optional reserved fields such as `obs_time`/`weight`); drop the " *
+            "extra column(s)."))
+    end
     w = _row_weight_field(row, nothing)
     h = _row_horizon_field(row)
     E = _data_value_type(eltype(ev))

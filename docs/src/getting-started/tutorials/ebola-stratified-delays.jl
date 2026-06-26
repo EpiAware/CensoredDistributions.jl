@@ -347,7 +347,7 @@ sim_stratum_index = Dict(s => i for (i, s) in enumerate(sim_strata))
 sim_group = [sim_stratum_index[k] for k in sim_setup.keys];
 
 sim_records = map(sim_setup.rows) do r
-    merge(r, (obs_time = r.D,))
+    (delay = r.delay, obs_time = r.D)
 end;
 
 (n = length(sim_records), districts = n_district, strata = length(sim_strata))
