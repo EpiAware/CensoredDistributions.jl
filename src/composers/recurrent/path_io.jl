@@ -57,7 +57,26 @@ function StatePath(start::Symbol, jumps, elapsed::T, stop::Symbol;
         start, jumps, elapsed, stop, censored_state, T(censored_for))
 end
 
-# The sequence of states visited, including the start and any censored tail.
+@doc """
+
+The sequence of states a [`StatePath`](@ref) visits, in order: the start state
+then each jump's destination. A repeated state marks a cycle.
+
+# Arguments
+- `p`: the [`StatePath`](@ref) to read.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, Random
+
+m = recur(:well => (:ill => Gamma(2.0, 5.0)),
+    :ill => (:well => Gamma(2.0, 3.0),))
+path = rand(MersenneTwister(1), m; horizon = 30.0)
+CensoredDistributions.visited_states(path)
+```
+
+See also: [`StatePath`](@ref), [`RecurrentStates`](@ref)
+"""
 function visited_states(p::StatePath)
     states = Symbol[p.start]
     for j in p.jumps

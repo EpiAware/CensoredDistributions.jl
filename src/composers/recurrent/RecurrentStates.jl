@@ -222,6 +222,18 @@ end
 The states of a [`RecurrentStates`](@ref) model that have outgoing edges
 (the non-absorbing states), as a sorted vector.
 
+# Arguments
+- `m`: the [`RecurrentStates`](@ref) model to read.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+m = recur(:well => (:ill => Gamma(2.0, 5.0)),
+    :ill => (:dead => Gamma(2.0, 3.0),))
+CensoredDistributions.transient_states(m)
+```
+
 See also: [`absorbing_states`](@ref)
 """
 transient_states(m::RecurrentStates) = sort!(collect(keys(m.nodes)))
@@ -231,6 +243,18 @@ transient_states(m::RecurrentStates) = sort!(collect(keys(m.nodes)))
 The absorbing states of a [`RecurrentStates`](@ref) model (edge destinations
 with no outgoing edges of their own), as a sorted vector. A path ends on
 reaching one.
+
+# Arguments
+- `m`: the [`RecurrentStates`](@ref) model to read.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+m = recur(:well => (:ill => Gamma(2.0, 5.0)),
+    :ill => (:dead => Gamma(2.0, 3.0),))
+CensoredDistributions.absorbing_states(m)
+```
 
 See also: [`transient_states`](@ref)
 """
@@ -244,7 +268,26 @@ function absorbing_states(m::RecurrentStates)
     return sort!(collect(dests))
 end
 
-# Whether `state` is absorbing (has no outgoing edges).
+@doc """
+
+Whether `state` is absorbing in a [`RecurrentStates`](@ref) model: it has no
+outgoing edges, so a path that reaches it ends.
+
+# Arguments
+- `m`: the [`RecurrentStates`](@ref) model.
+- `state`: the state to test.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+m = recur(:well => (:ill => Gamma(2.0, 5.0)),
+    :ill => (:dead => Gamma(2.0, 3.0),))
+CensoredDistributions.is_absorbing(m, :dead)
+```
+
+See also: [`absorbing_states`](@ref), [`transient_states`](@ref)
+"""
 is_absorbing(m::RecurrentStates, state::Symbol) = !haskey(m.nodes, state)
 
 function Base.show(io::IO, m::RecurrentStates)
