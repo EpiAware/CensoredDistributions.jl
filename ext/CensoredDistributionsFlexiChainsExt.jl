@@ -45,6 +45,22 @@ function _value_lookup(chain, draw, draws, summary)
     for vn in vns)
 end
 
+# Add the fixed (pinned) parameters to the value lookup at their dotted chain
+# keys, so the template walk reads them back like a sampled value even though
+# they were never in the chain. `fix` is the prior NamedTuple (or a `fix`
+# NamedTuple) whose non-distribution leaves are the pinned constants; only those
+# are injected. The dotted key matches a sampled parameter's name
+# (`prefix.edge.param`).
+function _inject_fixed!(lookup, fix::NamedTuple, prefix::Symbol)
+    for (path, param) in CensoredDistributions._fix_paths(fix)
+        v = foldl(getindex, (path..., param); init = fix)
+        CensoredDistributions._is_sampled_prior(v) && continue
+        lookup[_dotted(prefix, (path..., param))] = v
+    end
+    return lookup
+end
+_inject_fixed!(lookup, ::Nothing, prefix::Symbol) = lookup
+
 # The iteration indices a `draws` selector picks out. `nothing` is every
 # iteration; a predicate filters the index range; anything else (a range / index
 # vector) is taken as the indices directly.
@@ -166,8 +182,9 @@ function _shared_params(template, lookup, prefix)
 end
 
 function chain_to_params(template, chain; prefix::Symbol = :d, draw = nothing,
-        draws = nothing, summary = mean)
+        draws = nothing, summary = mean, fix = nothing)
     lookup = _value_lookup(chain, draw, draws, summary)
+    _inject_fixed!(lookup, fix, prefix)
     tree = _node_params(template, lookup, prefix, ())
     # A shared-tagged leaf is sampled once under its tag, so add a top-level
     # `tag` entry for each shared group; the core `update` reads each
@@ -192,10 +209,11 @@ end
 # `chain_to_params(...; draw = i)` per index, so each entry matches the existing
 # single-draw read exactly. Post-fit and AD-irrelevant.
 function param_draws(template, chain::FlexiChains.FlexiChain;
-        prefix::Symbol = :d, draws = nothing)
+        prefix::Symbol = :d, draws = nothing, fix = nothing)
     sel = _draw_indices(chain, draws)
     idx = sel isa Colon ? (1:_n_draws(chain)) : sel
-    return [chain_to_params(template, chain; prefix = prefix, draw = i)
+    return [chain_to_params(template, chain; prefix = prefix, draw = i,
+                fix = fix)
             for i in idx]
 end
 
@@ -232,15 +250,19 @@ loaded.
 - `draws`: a subset of iterations to reduce over (a range / index vector, or a
   predicate over the iteration index); `nothing` uses every draw.
 - `draw`: a single iteration index to read (overrides `summary`/`draws`).
+- `fix`: the prior NamedTuple (or a `fix` NamedTuple) whose plain-value entries
+  were held fixed; their pinned constants are absent from the chain, so passing
+  it here fills them into the reconstructed distribution (default `nothing`).
 
 # See also
 - [`chain_to_params`](@ref): the nested NamedTuple this reads.
 - [`update`](@ref): the NamedTuple-keyed reconstruction this delegates to.
 "
 function update(template, chain::FlexiChains.FlexiChain;
-        prefix::Symbol = :d, draw = nothing, draws = nothing, summary = mean)
+        prefix::Symbol = :d, draw = nothing, draws = nothing, summary = mean,
+        fix = nothing)
     params = chain_to_params(template, chain; prefix = prefix, draw = draw,
-        draws = draws, summary = summary)
+        draws = draws, summary = summary, fix = fix)
     return update(template, params)
 end
 

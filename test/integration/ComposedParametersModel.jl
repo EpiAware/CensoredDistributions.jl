@@ -1442,8 +1442,9 @@ end
     d = m()
 
     # The reconstructed leaf carries the fixed scale and a sampled shape.
-    @test event(d, :onset_admit) isa Gamma
-    @test params(d).onset_admit.scale == 1.5
+    g = event(d, :onset_admit)
+    @test g isa Gamma
+    @test scale(g) == 1.5
 
     # The fixed parameter never enters the sampler.
     vns = Set(string.(collect(keys(VarInfo(m)))))
@@ -1454,7 +1455,7 @@ end
 @testitem "fixed leaf parameter: update from chain keeps the pin" tags=[
     :turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
-    using FlexiChains: VNChain
+    using FlexiChains: VNChain, parameters
     import Statistics
 
     # A real fit recovers the free shape with the scale pinned; the pinned value
@@ -1478,12 +1479,13 @@ end
     chain = sample(fit(template, priors, ys), NUTS(), 300;
         chain_type = VNChain, progress = false)
 
-    chain_names = Set(string.(collect(FlexiChains.parameters(chain))))
+    chain_names = Set(string.(collect(parameters(chain))))
     @test "d.onset_admit.shape" in chain_names
     @test !("d.onset_admit.scale" in chain_names)
 
     ready = update(template, chain; fix = priors)
-    @test params(ready).onset_admit.scale == 1.5
+    g = event(ready, :onset_admit)
+    @test scale(g) == 1.5
     # The free shape is recovered within tolerance of the truth.
-    @test isapprox(params(ready).onset_admit.shape, 3.0; atol = 0.6)
+    @test isapprox(shape(g), 3.0; atol = 0.6)
 end

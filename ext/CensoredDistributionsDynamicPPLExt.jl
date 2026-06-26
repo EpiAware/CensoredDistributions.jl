@@ -1439,9 +1439,13 @@ end
     ctx = __model__.context
     vals = ntuple(length(pnames)) do i
         p = pnames[i]
+        prior = priors[p]
+        # A fixed parameter sits as a plain value: substitute it directly, no
+        # tilde, so it never enters the sampler.
+        CensoredDistributions._is_sampled_prior(prior) || return prior
         v,
         __varinfo__ = DynamicPPL.tilde_assume!!(
-            ctx, priors[p], VarName{p}(), nothing, __varinfo__)
+            ctx, prior, VarName{p}(), nothing, __varinfo__)
         v
     end
     return _reconstruct_leaf(leaf, vals)
@@ -1563,9 +1567,11 @@ end
     ctx = __model__.context
     probs = ntuple(length(c.names)) do i
         name = c.names[i]
+        prior = priors[name]
+        CensoredDistributions._is_sampled_prior(prior) || return prior
         v,
         __varinfo__ = DynamicPPL.tilde_assume!!(
-            ctx, priors[name], VarName{name}(), nothing, __varinfo__)
+            ctx, prior, VarName{name}(), nothing, __varinfo__)
         v
     end
     return probs
@@ -1645,9 +1651,11 @@ const _rebuild = CensoredDistributions._rebuild
     ctx = __model__.context
     vals = ntuple(length(pnames)) do i
         p = pnames[i]
+        prior = priors[p]
+        CensoredDistributions._is_sampled_prior(prior) || return prior
         v,
         __varinfo__ = DynamicPPL.tilde_assume!!(
-            ctx, priors[p], VarName{p}(), nothing, __varinfo__)
+            ctx, prior, VarName{p}(), nothing, __varinfo__)
         v
     end
     return vals

@@ -962,9 +962,20 @@ for the override workflow where the user inspects or edits the table first. Both
 forms share the same keyword surface and assembly rule.
 
 For each row the prior is chosen in order:
-1. a user `priors` override for that `(edge, param)`, if present, else
-2. `default(row)`, the per-row default (support-derived [`default_prior`](@ref)
+1. a `fix` value for that `(edge, param)`, if present (a plain constant, not a
+   distribution; the parameter is then held fixed and never sampled), else
+2. a user `priors` override for that `(edge, param)`, if present, else
+3. `default(row)`, the per-row default (support-derived [`default_prior`](@ref)
    unless a different `default` function is given).
+
+A `fix` entry pins a leaf parameter to a constant: it sits in the prior
+NamedTuple as a plain value (not a distribution), so
+[`composed_parameters_model`](@ref) substitutes it directly and never samples it
+(no tilde, no point mass), while the other parameters are fitted as usual. Read
+the fitted chain back with the same `fix` (`update(template, chain; fix =
+priors)`) so the pinned value reappears in the reconstructed distribution. A
+fixed value can equally be set by editing a built prior with
+[`update`](@ref)`(priors, path => (param = value,))`.
 
 By default every row gets a sensible support-derived prior, so
 `build_priors(params_table(tree))` alone yields a complete prior NamedTuple. To
@@ -988,6 +999,10 @@ for that row), so a custom `default` can pick a prior from the parameter's
   (`(onset_admit = (shape = prior,),)`); only the listed parameters are
   overridden (default: empty). Prefer editing the assembled table with
   [`update`](@ref).
+- `fix`: parameters to hold fixed, a nested `NamedTuple` keyed like the tree
+  whose leaf values are plain constants (`(onset_admit = (scale = 1.5,),)`);
+  each named parameter is pinned to its value and never sampled (default:
+  empty).
 - `default`: a function `row -> prior` for rows not overridden (default:
   [`default_prior`](@ref), deriving the prior family from the parameter's
   support).
@@ -1012,17 +1027,21 @@ nested.onset_admit.shape
 - [`composed_parameters_model`](@ref), [`update`](@ref): consume the result.
 "
 function build_priors(table; priors = Dict{Tuple{Symbol, Symbol}, Any}(),
-        default = default_prior)
+        fix = NamedTuple(), default = default_prior)
     edges = Tables.getcolumn(table, :edge)
     params_col = Tables.getcolumn(table, :param)
     values = Tables.getcolumn(table, :value)
     supports = Tables.getcolumn(table, :support)
+    _check_fix_keys(fix, edges, params_col)
     tree = Dict{Symbol, Any}()
     for i in eachindex(edges)
         edge = edges[i]
         param = params_col[i]
-        ovr = _prior_override(priors, edge, param)
-        prior = if ovr !== nothing
+        fixed = _prior_override(fix, edge, param)
+        ovr = fixed !== nothing ? nothing : _prior_override(priors, edge, param)
+        prior = if fixed !== nothing
+            fixed
+        elseif ovr !== nothing
             ovr
         elseif default !== nothing
             row = (; edge = edge, param = param,
@@ -1084,6 +1103,43 @@ priors.onset_admit.shape
 "
 function param_priors(tree; kwargs...)
     return build_priors(tree; kwargs...)
+end
+
+# Whether a prior-slot entry is a distribution to SAMPLE (`true`) rather than a
+# plain constant to substitute (`false`). A fixed parameter sits in the prior
+# NamedTuple as a non-distribution value, so the sampling models pin it with no
+# tilde and the read-back fills it from the same NamedTuple.
+_is_sampled_prior(p) = p isa Distributions.Distribution
+
+# Flatten a nested `fix` NamedTuple into its `(edge, param)` paths, so each
+# fixed value can be checked against the parameter inventory. A nested group
+# recurses under the edge path; a leaf entry yields one `(path, param)` pair.
+function _fix_paths(fix::NamedTuple, path::Tuple = ())
+    paths = Tuple{Tuple, Symbol}[]
+    for name in keys(fix)
+        child = fix[name]
+        if child isa NamedTuple
+            append!(paths, _fix_paths(child, (path..., name)))
+        else
+            push!(paths, (path, name))
+        end
+    end
+    return paths
+end
+
+# Validate that every `(edge, param)` named in `fix` is a real free parameter in
+# the table, so a typo pins nothing silently; `fix` is keyed like the tree (the
+# same nesting `build_priors`/`update` use), values are the plain constants.
+function _check_fix_keys(fix::NamedTuple, edges, params_col)
+    isempty(keys(fix)) && return nothing
+    rows = Set((_edge_path(edges[i]), params_col[i])
+    for i in eachindex(edges))
+    for (path, param) in _fix_paths(fix)
+        (path, param) in rows || throw(ArgumentError(
+            "fix names $(repr(param)) at path $(path) but no such free " *
+            "parameter is in the inventory"))
+    end
+    return nothing
 end
 
 # A user override for `(edge, param)`, or `nothing` if none. Accepts a mapping

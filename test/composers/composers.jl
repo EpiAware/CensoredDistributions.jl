@@ -700,6 +700,36 @@ end
     @test over.cases.thin == Beta(2, 5)
 end
 
+@testitem "build_priors fix pins a parameter as a constant (#752)" begin
+    using CensoredDistributions, Distributions
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+
+    # `fix` places a plain value in the prior slot: it is a constant, not a
+    # distribution, so `composed_parameters_model` substitutes it directly.
+    priors = build_priors(tree; fix = (onset_admit = (scale = 1.5,),))
+    @test priors.onset_admit.scale == 1.5
+    @test !(priors.onset_admit.scale isa Distribution)
+    # Every other parameter still gets its support-derived prior.
+    @test priors.onset_admit.shape isa Distribution
+    @test priors.admit_death.mu isa Distribution
+
+    # `fix` takes precedence over a `priors` override for the same parameter.
+    both = build_priors(tree; fix = (onset_admit = (scale = 1.5,),),
+        priors = (onset_admit = (scale = Normal(1, 1),),))
+    @test both.onset_admit.scale == 1.5
+
+    # The same pin is equally reachable by editing a built prior via `update`,
+    # so `fix` composes with the override mechanism rather than forking it.
+    edited = update(build_priors(tree), :onset_admit => (scale = 1.5,))
+    @test edited.onset_admit.scale == 1.5
+
+    # A `fix` naming a parameter not in the inventory errors clearly.
+    @test_throws ArgumentError build_priors(tree;
+        fix = (onset_admit = (nonsuch = 1.0,),))
+end
+
 @testitem "update round-trips a thin weight (#642b)" begin
     using Distributions
 
