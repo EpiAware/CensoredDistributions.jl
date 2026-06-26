@@ -40,6 +40,7 @@ dev_pages = [
     "Contributing" => "developer/contributing.md",
     "Extending the composer toolkit" => "developer/extending.md",
     "Composable renewal step (design)" => "developer/renewal-step-611.md",
+    "Recurrent multi-state design" => "developer/recurrent-multistate-545.md",
     "Developer FAQ" => "developer/faq.md",
     "Release process" => "developer/release-process.md"
 ]

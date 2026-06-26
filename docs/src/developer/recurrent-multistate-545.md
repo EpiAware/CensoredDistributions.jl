@@ -1,7 +1,9 @@
-# Recurrent / cyclic multi-state transitions (design, #545)
+# Recurrent / cyclic multi-state transitions (#545)
 
-Status: design proposal + prototype, for maintainer decision.
-Not yet a production feature.
+Status: implemented.
+The maintainer approved approach B (renewal over states) as the default with
+approach A (CTMC) as a memoryless fast path; both are built.
+This page keeps the design comparison as the rationale and records what shipped.
 
 ## The gap
 
@@ -94,38 +96,44 @@ imposes is exactly the restriction the package exists to avoid.
 A CTMC fast path for the memoryless special case can be added later behind the
 same state-graph front-end if panel data becomes a priority.
 
-## What the prototype demonstrates
+## What shipped
 
-`prototypes/recurrent_states_545.jl` (a self-contained script, no new exports)
-shows the renewal-over-states approach end to end on a waning-immunity /
-reinfection cycle `susceptible -> infected -> recovered -> susceptible`:
+The renewal-over-states default lives in `src/composers/recurrent/`:
 
-- construct a state graph with a back edge (the cycle today's grammar cannot
-  build);
-- simulate a full cyclic path (`rand_path`) of (from, to, dwell) jumps, with an
-  absorbing `dead` state ending the path;
-- score that path (`logpdf_path`) by summing the per-sojourn competing-risks
-  log sub-densities, reusing the `Compete` cause-resolved term;
-- fit the sojourn scales on synthetic paths by maximum likelihood, recovering
-  the data-generating values (infect 4.0, recover 3.0, wane 30.0 recovered as
-  ~4.0 / ~3.0 / ~29).
+- `recur(...)` builds a `RecurrentStates` model: each state owns a `Compete` /
+  `Resolve` / lone-edge transition node, and a back edge gives a cycle. Any
+  `UnivariateDistribution` (plain, censored or composed) is a valid edge
+  sojourn.
+- `rand` simulates a `StatePath` of `(from, to, dwell)` jumps to absorption or a
+  horizon; `logpdf` scores a path by reusing the `Compete` cause-resolved
+  sub-density, and adds the survival term of a horizon-censored final sojourn
+  (right-censoring).
+- `ctmc(...)` builds the memoryless `CTMCStates` fast path: a generator matrix
+  with closed-form `transition_probability` `P(t) = exp(Q t)`, a `panel_logpdf`
+  for state-at-visit data, and the exponential-sojourn jump-chain `logpdf`. The
+  matrix exponential is AD-safe.
+- `recurrent_states_model(template, priors)` (DynamicPPL extension) samples each
+  state's edge priors through the shared `_params_submodel` and rebuilds the
+  model, so a cyclic model fits with `@addlogprob! logpdf(m, path)` like the
+  rest of the stack.
 
-## Decision needed from the maintainer
+Tests cover construction / validation, cyclic simulation, scoring, censoring,
+the CTMC panel likelihood, a ForwardDiff AD pass on the path and panel
+likelihoods, and a Turing fit that recovers the sojourn scales. The
+[Recurrent multi-state transitions](@ref recurrent-multistate) tutorial works a
+reinfection cycle end to end.
 
-1. Is cyclic multi-state IN SCOPE for CensoredDistributions, or does it belong
-   in a downstream multi-state / CTMC package consuming this package's leaves?
-   (The north-star scope boundary lists #545 as a heavier weak-dependency
-   piece, leaning in-scope but deferred.)
-2. If in scope, confirm approach B (renewal over states) over A (CTMC), or ask
-   for both with B as the default and A as a memoryless fast path.
-3. Production scope to schedule (deferred in the prototype):
-   - censored / interval-observed sojourns scored through the event-vector
-     path;
-   - right-censoring of the final, still-running sojourn;
-   - panel observation (state-at-visit) via a transition-probability recursion;
-   - calendar-time-varying (piecewise-constant) edge intensities;
-   - a first-class verb (`recur` / `states(...)`) and event-record schema so a
-     cyclic model composes with the existing verbs and reads back through
-     `event_names` / `params_table` / `update(d, chain)`;
-   - Turing glue (`composed_parameters_model` / priors front-door) for the path
-     likelihood.
+The self-contained design `prototypes/recurrent_states_545.jl` is kept as the
+original proof of concept.
+
+## Deferred production scope
+
+These extend the shipped feature and are not yet implemented:
+
+- panel observation for the SEMI-Markov (non-exponential) path: it needs a
+  transition-probability recursion the exponential CTMC gets free via `exp(Qt)`;
+- calendar-time-varying (piecewise-constant) edge intensities;
+- a richer event-record schema so a cyclic model reads back through
+  `event_names` / `params_table` / `update(d, chain)` the way the acyclic tree
+  does (the per-state priors front-door is in via `recurrent_states_model`);
+- ODE lowering of these representations (tracked separately in #758).
