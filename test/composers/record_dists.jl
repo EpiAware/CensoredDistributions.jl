@@ -639,6 +639,44 @@ end
         leaf, NamedTuple[])
 end
 
+@testitem "bare-leaf record rejects an extra non-reserved field" begin
+    using CensoredDistributions, Distributions
+
+    # A bare leaf scores ONE observed delay per row. A row that carries a second
+    # non-reserved data column (e.g. a stray `D` left alongside the reserved
+    # `obs_time` horizon) would otherwise be miscounted as a two-event record;
+    # the leaf path rejects it with a message naming the offending fields, and
+    # the same path serves both a bare leaf and a leaf `Choose` alternative so
+    # the message must not be Choose-specific.
+    leaf = primary_censored(LogNormal(1.2, 0.5), Uniform(0, 1))
+    ds = [leaf, primary_censored(Gamma(2.0, 1.5), Uniform(0, 1))]
+    rows = [(delay = 2.0, D = 10.0, obs_time = 10.0),
+        (delay = 3.0, D = 12.0, obs_time = 12.0)]
+    group = [1, 2]
+
+    err = try
+        CensoredDistributions.record_distributions(ds, rows; group = group)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("one event value", err.msg)
+    @test occursin("delay", err.msg)
+    @test occursin("D", err.msg)
+    @test !occursin("Choose", err.msg)
+
+    # Dropping the stray `D` (keeping only the event and the reserved horizon)
+    # scores cleanly, matching the per-record loop.
+    ok = [(delay = 2.0, obs_time = 10.0), (delay = 3.0, obs_time = 12.0)]
+    recs = CensoredDistributions.record_distributions(ds, ok; group = group)
+    loop = sum(logpdf(
+                   CensoredDistributions.truncate_to_horizon(ds[group[i]],
+                       ok[i].obs_time), ok[i].delay)
+    for i in eachindex(ok))
+    @test sum(logpdf(recs[i], [ok[i].delay]) for i in eachindex(recs)) ≈ loop
+end
+
 @testitem "bare-leaf grouped == wrapped == per-stratum loop" begin
     using CensoredDistributions, Distributions
 
