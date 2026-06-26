@@ -111,6 +111,20 @@ function _moment_stage(d)
     return (rate = k / m, stages = k)
 end
 
+_is_erlang_shape(::Exponential) = true
+_is_erlang_shape(d::Gamma) = isapprox(shape(d), round(shape(d)); atol = 1e-8)
+_is_erlang_shape(_) = false
+
+# Pick the `(rate, stages)` for one free leaf. The exact Exp/Erlang fast path is
+# always tried first, so `moment_match` only changes behaviour for delays the
+# exact lowering would reject; an Erlang lowers identically either way.
+function _stage(d, moment_match::Bool)
+    moment_match || return _leaf_stage(d)
+    (d isa Exponential || d isa Gamma) && _is_erlang_shape(d) &&
+        return _leaf_stage(d)
+    return _moment_stage(d)
+end
+
 @doc raw"
 Extract the linear-chain (Erlang-stage) representation of an Exp/Erlang delay.
 
@@ -180,20 +194,6 @@ linear_chain_stages(LogNormal(1.0, 0.5); moment_match = true)
 - [`ChainStage`](@ref): the per-step record
 - [`Sequential`](@ref): the chain composer this reads
 "
-# Pick the `(rate, stages)` for one free leaf. The exact Exp/Erlang fast path is
-# always tried first, so `moment_match` only changes behaviour for delays the
-# exact lowering would reject; an Erlang lowers identically either way.
-function _stage(d, moment_match::Bool)
-    moment_match || return _leaf_stage(d)
-    (d isa Exponential || d isa Gamma) && _is_erlang_shape(d) &&
-        return _leaf_stage(d)
-    return _moment_stage(d)
-end
-
-_is_erlang_shape(::Exponential) = true
-_is_erlang_shape(d::Gamma) = isapprox(shape(d), round(shape(d)); atol = 1e-8)
-_is_erlang_shape(_) = false
-
 function linear_chain_stages(
         d::Distribution; name::Symbol = :delay, moment_match::Bool = false)
     inner = free_leaf(d)
