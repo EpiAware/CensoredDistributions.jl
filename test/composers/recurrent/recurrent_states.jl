@@ -30,6 +30,37 @@ end
     @test collect(probs(m.nodes[:ill])) == [0.7, 0.3]
 end
 
+@testitem "recur accepts a NamedTuple transition spelling" begin
+    using CensoredDistributions, Distributions
+
+    # A NamedTuple of edges is the positional spelling of the Pairs form and
+    # builds the same racing-hazard node.
+    nt = recur(:ill => (recover = Gamma(2.0, 3.0), die = Gamma(3.0, 2.0)),
+        :recover => (:ill => Gamma(2.0, 10.0)))
+    pr = recur(:ill => (:recover => Gamma(2.0, 3.0), :die => Gamma(3.0, 2.0)),
+        :recover => (:ill => Gamma(2.0, 10.0)))
+    @test CensoredDistributions.component_names(nt.nodes[:ill]) ==
+          CensoredDistributions.component_names(pr.nodes[:ill])
+    @test nt.nodes[:ill] isa Compete
+end
+
+@testitem "Resolve fixed-split step samples and scores consistently" begin
+    using CensoredDistributions, Distributions, Random
+    const CD = CensoredDistributions
+
+    # A fixed-probability split state: rand draws a path and logpdf scores it
+    # through the Resolve conditioned term (cause independent of timing).
+    m = recur(
+        :ill => (:recovered => (Gamma(2.0, 3.0), 0.7),
+            :dead => (Gamma(2.0, 8.0), 0.3)),
+        :recovered => (:ill => Gamma(2.0, 20.0)))
+    path = rand(MersenneTwister(9), m; horizon = 60.0)
+    @test isfinite(logpdf(m, path))
+    # A single ill -> recovered jump scores log(0.7) + logpdf(Gamma, t).
+    one_jump = [(from = :ill, to = :recovered, dwell = 4.0)]
+    @test logpdf(m, one_jump) ≈ log(0.7) + logpdf(Gamma(2.0, 3.0), 4.0)
+end
+
 @testitem "recur rejects malformed graphs" begin
     using CensoredDistributions, Distributions
 
