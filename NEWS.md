@@ -149,6 +149,13 @@
 
 ### Breaking
 
+- The deprecated composer verbs `intervene`, `swap_child` and `cut_branch` are
+  removed. Use `update` for node replacement (`intervene`, and `swap_child` via
+  the full child path) and `prune` to drop a branch (`cut_branch`).
+- The alias `double_censored` is removed; use the canonical
+  `double_interval_censored`.
+- The alias `endpoint` is removed; use the canonical `observed_distribution`,
+  which it pointed at.
 - Multivariate composed `rand`/`mean`/`var`/`std` now return a `NamedTuple`
   instead of a bare `Vector` (see the Features note). Code that indexed the old
   Vector positionally (`r[1]`) still works via NamedTuple integer indexing, but

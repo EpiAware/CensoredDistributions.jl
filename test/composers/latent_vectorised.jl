@@ -206,7 +206,8 @@ end
                                  latent_observed_logpdf
 
     # A SINGLE-edge chain whose edge carries SECONDARY interval censoring
-    # (double_censored). The origin is the latent primary; the terminal is
+    # (double interval censored). The origin is the latent primary; the
+    # terminal is
     # observed. The per-record path floors the sampled origin to the edge's
     # interval; the vectorised path used to reconstruct from the CONTINUOUS
     # origin without flooring, diverging for an interval edge. Floored and

@@ -181,7 +181,7 @@ end
 # tag consumer (`params_table`, `build_priors`, `update`,
 # `composed_parameters_model`, the compute-reuse) reads the tag, not how it was
 # placed, so a `tie`d tree and a hand-`shared`d tree are identical. The walk
-# reuses `_edit_at` (the `intervene`/`update` path machinery); paths take the
+# reuses `_edit_at` (the `update` path machinery); paths take the
 # SAME forms `event`/`update` accept (a bare `Symbol`, a dotted-path `Symbol`
 # like `:"sourced.inc"`, or a tuple of edge names).
 

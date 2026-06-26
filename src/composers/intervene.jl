@@ -1,10 +1,10 @@
 # ============================================================================
-# Intervention: structural edits on a composed distribution tree
+# Structural edits on a composed distribution tree
 # ============================================================================
 #
-# `update` rebuilds a tree's LEAVES with new parameter values; intervention is
-# the same recursive reconstruction with a node EDIT instead of a param update:
-# replace a named node's distribution, swap a child, cut a branch (a `Resolve`
+# `update` rebuilds a tree's LEAVES with new parameter values; a structural edit
+# is the same recursive reconstruction with a node EDIT instead of a param
+# update: replace a named node's distribution, prune a branch (a `Resolve`
 # arm or a `Choose` alternative, renormalising probs), or splice a before/after
 # change at a named node. Each op walks the tree by name path and rebuilds only
 # the touched spine, so the result is a fresh, valid composed distribution that
@@ -134,66 +134,6 @@ function update(d::Union{Sequential, Parallel, Resolve, Choose},
     return out
 end
 
-# `intervene` was the node-replace verb; it is now the `update(d, ::Pair...)`
-# method. `swap_child` was sugar (parent path + child name); rebuild the full
-# path and call `update`.
-@deprecate intervene(d::Union{Sequential, Parallel, Resolve, Choose},
-    edits::Pair...) update(d, edits...)
-
-@doc "
-    intervene(d, edits...)
-
-Deprecated alias of [`update`](@ref)`(d, edits...)`. Use `update` instead.
-
-# Arguments
-- `d`: the composed distribution to edit.
-- `edits`: one or more `path => new_node` pairs.
-
-# Examples
-```@example
-using CensoredDistributions, Distributions
-
-tree = compose((onset_admit = Gamma(2.0, 1.0),
-    admit_death = LogNormal(0.5, 0.4)))
-update(tree, :admit_death => Gamma(3.0, 1.5))
-```
-
-# See also
-- [`update`](@ref): the current verb.
-" intervene
-
-@doc "
-    swap_child(d, parent_path, edit)
-
-Deprecated alias for replacing a child by parent path. Use
-[`update`](@ref)`(d, (parent_path..., name) => new)` instead.
-
-# Arguments
-- `d`: the composed distribution to edit.
-- `parent_path`: the path to the parent node.
-- `edit`: a `name => new_node` pair naming the child to replace.
-
-# Examples
-```@example
-using CensoredDistributions, Distributions
-
-tree = compose((resolution = compose((death = Gamma(1.5, 1.0),)),))
-update(tree, (:resolution, :death) => Gamma(3.0, 1.5))
-```
-
-# See also
-- [`update`](@ref): the current verb.
-"
-function swap_child(d::Union{Sequential, Parallel, Resolve, Choose},
-        parent_path, edit::Pair)
-    Base.depwarn(
-        "`swap_child(d, parent_path, name => new)` is deprecated; use " *
-        "`update(d, (parent_path..., name) => new)`.", :swap_child)
-    name, new_node = edit
-    full = (_as_path(parent_path)..., name)
-    return update(d, full => new_node)
-end
-
 # --- prune: drop a Resolve arm / Choose alternative / step ----------------
 
 @doc "
@@ -254,35 +194,6 @@ function _prune_path(d, p::Tuple)
     name = p[end]
     return _edit_at(d, parent_path, parent -> _drop_child(parent, name))
 end
-
-# `cut_branch` was the drop-a-branch verb; it is now `prune`.
-@deprecate cut_branch(d::Union{Sequential, Parallel, Resolve, Choose}, path) prune(
-    d, path)
-
-@doc "
-    cut_branch(d, path)
-
-Deprecated alias of [`prune`](@ref)`(d, path)`. Use `prune` instead.
-
-# Arguments
-- `d`: the composed distribution to edit.
-- `path`: the branch to drop, as a `Symbol`, dotted `Symbol`, or tuple of edge
-  names.
-
-# Examples
-```@example
-using CensoredDistributions, Distributions
-
-node = resolve(:death => (Gamma(1.5, 1.0), 0.3),
-    :disch => (Gamma(2.0, 1.5), 0.5),
-    :transfer => (Gamma(1.0, 1.0), 0.2))
-tree = compose((resolution = node, onset = Gamma(1.0, 1.0)))
-prune(tree, :resolution, :transfer)
-```
-
-# See also
-- [`prune`](@ref): the current verb.
-" cut_branch
 
 # Remove the child `name` from a composer, rebuilding the node without it.
 function _drop_child(d::Union{Sequential, Parallel}, name::Symbol)

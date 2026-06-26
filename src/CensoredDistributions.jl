@@ -34,11 +34,8 @@ using Optimization: OptimizationFunction, OptimizationProblem, solve, ReturnCode
 
 using OptimizationOptimJL: NelderMead
 
-# Exported censoring functions. `double_censored` is a short, clear alias for
-# `double_interval_censored` (NOT `dic`, which clashes with the Deviance
-# Information Criterion).
-export primary_censored, interval_censored, double_interval_censored,
-       double_censored
+# Exported censoring functions.
+export primary_censored, interval_censored, double_interval_censored
 
 # Exported latent representation and its inverse
 export latent, marginal, PrimaryConditional
@@ -109,16 +106,8 @@ export params_table, event_names, event_tree, event, update, build_priors,
 # method, sharing the verb with the value-update NamedTuple method) replaces a
 # named node, KEEPING the tree shape. `prune` drops a branch (renormalising a
 # Resolve arm) and `splice` inserts a before/after step; these two are the
-# TOPOLOGY edits (they change the shape). `intervene` / `swap_child` /
-# `cut_branch` are deprecated aliases kept during the deprecation window.
-export prune, splice, intervene, swap_child, cut_branch
-
-# Per-event moments come through the standard `Distributions.mean`/`var`/`std`
-# interface on the composed tree (a Multivariate distribution), returning a
-# Vector in the same per-event layout as `rand(d)` (label with `event_names(d)`).
-# `endpoint` collapses a chain to its terminal scalar (an alias for
-# `observed_distribution`).
-export endpoint
+# TOPOLOGY edits (they change the shape).
+export prune, splice
 
 # Exported chain reader: read a fitted Turing chain into the
 # nested NamedTuple `update` consumes. No method until DynamicPPL (or Turing) is

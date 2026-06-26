@@ -1,8 +1,7 @@
 # Structural edits on a composed tree: `update` (node replace), `prune`,
 # `splice`. Tested on the bdbv (nested Resolve) and andv (Choose) trees plus
 # plain composers, checking the edits produce a valid composed distribution that
-# scores and `rand`s. The deprecated `intervene` / `swap_child` / `cut_branch`
-# aliases are checked to still call through.
+# scores and `rand`s.
 
 @testsnippet InterveneTrees begin
     using CensoredDistributions, Distributions
@@ -217,22 +216,4 @@ end
     # A vector of steps/branches matches the vector struct constructor.
     sv = sequential([Gamma(2.0, 1.0), LogNormal(0.5, 0.4)])
     @test sv == Sequential([Gamma(2.0, 1.0), LogNormal(0.5, 0.4)])
-end
-
-@testitem "deprecated intervene / swap_child / cut_branch call through" setup=[InterveneTrees] begin
-    tree = compose((onset_admit = Gamma(2.0, 1.0),
-        admit_death = LogNormal(0.5, 0.4)))
-    # `intervene` -> `update` node-replace.
-    @test intervene(tree, :admit_death => Gamma(3.0, 1.5)) ==
-          update(tree, :admit_death => Gamma(3.0, 1.5))
-    # `swap_child` -> `update` with the full path.
-    @test swap_child(tree, (), :onset_admit => Gamma(4.0, 1.0)) ==
-          update(tree, (:onset_admit,) => Gamma(4.0, 1.0))
-    # `cut_branch` -> `prune`.
-    node = resolve(:death => (Gamma(1.5, 1.0), 0.3),
-        :disch => (Gamma(2.0, 1.5), 0.5),
-        :transfer => (Gamma(1.0, 1.0), 0.2))
-    tt = compose((resolution = node, onset = Gamma(1.0, 1.0)))
-    @test cut_branch(tt, (:resolution, :transfer)) ==
-          prune(tt, (:resolution, :transfer))
 end

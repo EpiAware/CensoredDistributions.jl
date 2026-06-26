@@ -46,7 +46,7 @@ using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
                                Convolved, Difference, ExponentiallyTilted,
                                PrimaryCensored, IntervalCensored,
                                event, event_names, event_tree, params_table,
-                               observed_distribution, endpoint,
+                               observed_distribution,
                                child_nleaves, child_logpdf, child_rand!
 
 export test_interface, example_fixtures, test_rejects_invalid,
@@ -146,7 +146,7 @@ The checklist asserts, where applicable to the node's shape:
   (`Tables.istable(params_table(d))`);
 - `event_names` (flat) and `event_tree` agree in leaf count;
 - `event(d, path...)` round-trips the supplied known path;
-- `observed_distribution` / `endpoint` collapses a chain to a univariate scalar.
+- `observed_distribution` collapses a chain to a univariate scalar.
 
 Pass the fixture metadata (an `example_fixtures` entry, or the keyword
 arguments directly) so the harness knows the in-support `draw`, a known `event`
@@ -528,17 +528,16 @@ function _check_event_path(d, fix)
     return nothing
 end
 
-# `observed_distribution` / `endpoint` collapses a chain to a univariate scalar.
-# A node with several independent endpoints (a `Parallel`, a nested tree rooted
-# in one) has no single observed scalar, so the check is skipped for it (both via
-# the `has_endpoint` fixture flag and a `hasmethod` guard for the keyword entry).
+# `observed_distribution` collapses a chain to a univariate scalar. A node with
+# several independent endpoints (a `Parallel`, a nested tree rooted in one) has
+# no single observed scalar, so the check is skipped for it (both via the
+# `has_endpoint` fixture flag and a `hasmethod` guard for the keyword entry).
 function _check_endpoint(d, fix)
     fix.has_endpoint || return nothing
     hasmethod(observed_distribution, Tuple{typeof(d)}) || return nothing
-    @testset "observed_distribution / endpoint collapses a chain" begin
+    @testset "observed_distribution collapses a chain" begin
         obs = observed_distribution(d)
         @test obs isa UnivariateDistribution
-        @test endpoint(d) === obs || endpoint(d) == obs
     end
     return nothing
 end
