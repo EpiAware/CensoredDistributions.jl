@@ -167,6 +167,9 @@ end
 end
 
 @testitem "path logpdf differentiates through edge parameters" begin
+    # A fast ForwardDiff smoke check run in the main suite. The full per-backend
+    # AD matrix (ForwardDiff, ReverseDiff, Mooncake, Enzyme) lives in the
+    # ADFixtures `:recurrent` scenario group (test/ADFixtures, test/ad).
     using CensoredDistributions, Distributions, Random
     using ForwardDiff
 

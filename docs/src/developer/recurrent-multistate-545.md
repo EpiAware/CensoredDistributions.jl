@@ -118,8 +118,14 @@ The renewal-over-states default lives in `src/composers/recurrent/`:
   rest of the stack.
 
 Tests cover construction / validation, cyclic simulation, scoring, censoring,
-the CTMC panel likelihood, a ForwardDiff AD pass on the path and panel
-likelihoods, and a Turing fit that recovers the sojourn scales. The
+the CTMC panel likelihood, and a Turing fit that recovers the sojourn scales.
+The four AD-relevant paths (the reinfection path, a horizon-censored path, the
+CTMC jump-chain and the CTMC panel `exp(Qt)`) are in the ADFixtures
+`:recurrent` scenario group, so the full per-backend matrix (ForwardDiff,
+ReverseDiff, Mooncake forward+reverse, Enzyme forward+reverse) exercises them,
+with the genuine compiled-backend gaps registered broken (Mooncake reverse on
+the `Compete`-node path; Enzyme reverse on the `Dict`-backed rebuild; Enzyme
+forward on the matrix exponential). The
 [Recurrent multi-state transitions](@ref recurrent-multistate) tutorial works a
 reinfection cycle end to end.
 

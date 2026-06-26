@@ -97,6 +97,9 @@ end
 end
 
 @testitem "ctmc panel_logpdf differentiates through rates" begin
+    # A fast ForwardDiff smoke check run in the main suite. The full per-backend
+    # AD matrix (including the Enzyme-forward exp(Qt) gap) lives in the
+    # ADFixtures `:recurrent` scenario group (test/ADFixtures, test/ad).
     using CensoredDistributions
     using ForwardDiff
     const CD = CensoredDistributions
