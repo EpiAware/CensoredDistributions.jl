@@ -73,7 +73,9 @@
 
 using CSV, DataFramesMeta, Dates
 using CensoredDistributions, Distributions
-using CensoredDistributions: latent, shared
+# `log_thin_by_completeness` is public but not exported, so it is imported
+# explicitly alongside the other qualified helpers.
+using CensoredDistributions: latent, shared, log_thin_by_completeness
 using Turing, Random, Statistics
 using DynamicPPL: to_submodel, prefix, InitFromPrior
 using ADTypes: AutoMooncake
@@ -551,17 +553,26 @@ presymptomatic_summary = (mean = round(mean(presymptomatic); digits = 2),
 # superspreading: a few sources drive most onward infections.
 #
 # `R(t)` follows a weekly non-centred random walk on the log scale, and the
-# dispersion uses the `1/sqrt(k)` parameterisation. The upstream re-analysis
-# fits this offspring layer jointly with the delays so the delay parameters
-# carry the real-time completeness of each source's offspring chain. We score it
-# here as a separate fit instead: expressing the joint coupling through the
-# package's [`thin_by_completeness`](@ref) on the per-draw convolved delay is
-# correct on paper but is currently both too slow for the doc build and
-# numerically unstable under Mooncake reverse (the completeness CDF can drive the
-# negative-binomial success probability to `NaN`); see
-# [#643](https://github.com/EpiAware/CensoredDistributions.jl/issues/643). So
-# this section fits the offspring layer on its own, then reads the completeness
-# off the fitted delays below.
+# dispersion is a log-normal on `k`. The upstream re-analysis fits this offspring
+# layer jointly with the delays, so each source's expected offspring count is
+# thinned by the completeness of its own delay chain: the fraction of a source's
+# secondaries that have shown symptoms by the analysis date. The completeness is
+# the CDF of the convolved delay `delta + inc` at the time available since the
+# source's onset, the same convolution the sourced truncation uses.
+#
+# That coupling is expressible with the composed tooling and is numerically
+# stable: the thinning is done in log space with
+# [`log_thin_by_completeness`](@ref), so a source seen recently (whose
+# completeness underflows toward zero) gives a large negative log rate rather
+# than a rate of exactly zero that would collapse the negative-binomial mean to a
+# degenerate point mass and a `NaN` reverse-mode gradient. The remaining barrier
+# is cost, not stability: the convolved-delay completeness is a Gauss-Legendre
+# quadrature differentiated at every leapfrog step, which makes a full joint NUTS
+# fit far slower than the doc build allows. So this section fits the offspring
+# layer on its own at the delay posterior, then reads the log-space completeness
+# thinning off the fitted delays below; see
+# [#643](https://github.com/EpiAware/CensoredDistributions.jl/issues/643) for the
+# joint-fit performance work.
 
 # Per-source onset day (in days from the first onset) and offspring count.
 Z = Int.(ll.Z)
@@ -583,27 +594,36 @@ function log_R_at(t, ks, log_R)
     return (1 - w) * log_R[b] + w * log_R[b + 1]
 end
 
-# `NegativeBinomial(k, k / (k + R))` is the mean-`R`, dispersion-`k` offspring
-# law; the lower clamp on the success probability keeps the gradient finite when
-# an extreme proposal drives `R` so high the probability would underflow.
-safe_nb(k, R) = NegativeBinomial(k, max(k / (k + R), eps(typeof(k))))
+# The offspring mean-`R`, dispersion-`k` negative binomial built from a log mean
+# and log dispersion: the success probability is `k / (k + exp(log_mu))`,
+# computed as `inv(1 + exp(log_mu - log_k))` so it never evaluates `0/0` or
+# `Inf/Inf`. The `log_mu - log_k` gap is clamped to a wide finite range so an
+# extreme proposal cannot underflow the probability to exactly `0` (which a
+# negative binomial rejects); the clamp bounds are far outside any supported
+# region, so they never bite the posterior. This is the same form the joint
+# coupling needs, where `log_mu` is the log-space completeness-thinned rate.
+function nb_logmean(log_k, log_mu)
+    k = exp(log_k)
+    p = inv(1 + exp(clamp(log_mu - log_k, -30.0, 30.0)))
+    return NegativeBinomial(k, p)
+end
 
 # The offspring model: a weekly non-centred random walk on `log R(t)`, a
-# `1/sqrt(k)` dispersion prior, and one negative binomial offspring likelihood
-# per source indexed at its onset day. The walk and dispersion are returned so
-# `generated_quantities` reads `log_R` and `k` back off the posterior draws.
+# log-normal dispersion prior (`k = exp(log_k)`), and one negative binomial
+# offspring likelihood per source indexed at its onset day. The walk and
+# dispersion are returned so `generated_quantities` reads `log_R` and `k` back
+# off the posterior draws.
 @model function offspring(Z, source_onset_day, knots)
-    phi ~ truncated(Normal(0.0, 1.0); lower = 0)
-    k = 1.0 / phi^2
+    log_k ~ Normal(log(0.5), 0.7)
     sigma_rw ~ truncated(Normal(0.0, 0.2); lower = 0)
     log_R_init ~ Normal(log(1.5), 1.0)
     eps ~ filldist(Normal(0.0, 1.0), n_knots - 1)
     log_R = vcat(log_R_init, log_R_init .+ accumulate(+, sigma_rw .* eps))
     for i in eachindex(Z)
-        R_i = exp(log_R_at(source_onset_day[i], knots, log_R))
-        Z[i] ~ safe_nb(k, max(R_i, 1e-10))
+        log_mu = log_R_at(source_onset_day[i], knots, log_R)
+        Z[i] ~ nb_logmean(log_k, log_mu)
     end
-    return (; log_R, k)
+    return (; log_R, k = exp(log_k))
 end
 
 # Two chains in parallel; the offspring layer carries no latent delays, so it
@@ -616,8 +636,8 @@ rt_chain = sample(rt_model,
     initial_params = fill(InitFromPrior(), 2), progress = false)
 nothing #hide
 
-# The dispersion `k` and its credible interval, read off the `1/sqrt(k)` draws.
-k_draws = 1 ./ vec(rt_chain[:phi]) .^ 2
+# The dispersion `k` and its credible interval, read off the `log_k` draws.
+k_draws = exp.(vec(rt_chain[:log_k]))
 k_summary = (mean = mean(k_draws),
     lower = quantile(k_draws, 0.025), upper = quantile(k_draws, 0.975))
 
@@ -687,8 +707,11 @@ rt_compare = DataFrame(
 # `R(t)` interpolated at its onset day. This is the completeness coupling the
 # joint upstream fit applies to every offspring term, read here off the fitted
 # delays with the package's
-# [`completeness_probability`](@ref) (the fraction `p`) and
-# [`thin_by_completeness`](@ref) (the thinned `R_eff = R * p`):
+# [`completeness_probability`](@ref) (the fraction `p`) and the log-space
+# [`log_thin_by_completeness`](@ref) (the thinned `log R_eff = log R + log p`,
+# exponentiated to `R_eff`). The log-space thinning is the same operation the
+# joint offspring likelihood applies, and it stays finite for a recently seen
+# source whose completeness underflows toward zero.
 inc_post = LogNormal(here.mu_inc.mean, here.sigma_inc.mean)
 delta_post = Normal(here.mu_delta.mean, here.sigma_delta.mean)
 completion_chain = convolve_distributions(delta_post, inc_post)
@@ -696,11 +719,10 @@ R_week1 = rt_summary.R_mean[1]
 realtime = map(eachindex(Z)) do i
     window = horizon - source_onset_day[i]
     p = completeness_probability(completion_chain, window)
+    log_R_eff = log_thin_by_completeness(log(R_week1), completion_chain, window)
     (source_onset_day = Int(source_onset_day[i]),
         completeness = round(p; digits = 3),
-        R_eff_week1 = round(
-            thin_by_completeness(R_week1, completion_chain,
-                window); digits = 2))
+        R_eff_week1 = round(exp(log_R_eff); digits = 2))
 end
 realtime_thinning = DataFrame(realtime)
 first(realtime_thinning, 6)
@@ -727,12 +749,16 @@ first(realtime_thinning, 6)
 #   the upstream finding that transmission clusters around source onset.
 # - The offspring branching process shows a descending weekly reproduction
 #   number and a superspreading dispersion. The upstream re-analysis fits it
-#   jointly with the delays; expressing that coupling here through the package's
-#   [`thin_by_completeness`](@ref) on the per-draw convolved delay is correct on
-#   paper but currently too slow for the doc build and numerically unstable under
-#   Mooncake reverse (the completeness CDF can drive the negative-binomial
-#   success probability to `NaN`; see
-#   [#643](https://github.com/EpiAware/CensoredDistributions.jl/issues/643)), so
-#   it is fitted on its own and the completeness thinning is read off the fitted
-#   delays afterwards. The upstream model also runs counterfactual outbreak
-#   projections from these same posteriors, which are left to that analysis.
+#   jointly with the delays, thinning each source's expected offspring count by
+#   the completeness of its delay chain. That coupling is expressible and stable
+#   with the package's log-space [`log_thin_by_completeness`](@ref), which keeps
+#   the thinned rate strictly positive when completeness underflows, so the
+#   negative-binomial mean never collapses to a degenerate point mass. The
+#   remaining barrier to fitting it jointly in this doc is cost: the
+#   convolved-delay completeness is a quadrature differentiated at every leapfrog
+#   step, which makes a full joint NUTS fit far slower than the doc build allows
+#   (see [#643](https://github.com/EpiAware/CensoredDistributions.jl/issues/643)).
+#   So the offspring layer is fitted on its own at the delay posterior and the
+#   completeness thinning is read off the fitted delays afterwards. The upstream
+#   model also runs counterfactual outbreak projections from these same
+#   posteriors, which are left to that analysis.

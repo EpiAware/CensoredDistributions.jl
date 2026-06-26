@@ -146,7 +146,10 @@ export truncate_to_horizon, truncate_to_window, truncate_chain
 export weight, get_dist, get_dist_recursive, get_primary_event
 
 # Exported thinning helpers: completeness / ascertainment thinning,
-# Turing-free and distributions-led.
+# Turing-free and distributions-led. The log-space companions
+# `log_completeness_probability` / `log_thin_by_completeness` are `public` (not
+# exported) so they stay reachable by their qualified name without expanding the
+# top-level namespace; see `src/public.jl`.
 export completeness_probability, thin_by_completeness
 
 # Exported discrete-time reporting-hazard helpers: the epinowcast hazard layer
