@@ -1,0 +1,39 @@
+name: Downstream
+
+# Opt-in reverse-dependency tests: checks that this PR's version of
+# CensoredDistributions.jl does not break packages that depend on it.
+# This is expensive, so it does not run on every push. Trigger it by
+# adding the `downstream` (or `reverse-deps`) label to a PR, or by
+# running it manually from the Actions tab (workflow_dispatch).
+#
+# The downstream list below starts empty because no released package
+# depends on CensoredDistributions.jl yet. Add entries as packages are
+# spun out of this repo and start depending on it (see the commented
+# example), then label a PR to exercise them.
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  downstream:
+    # Only the label that opts in; manual dispatch always runs.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.label.name == 'downstream' ||
+      github.event.label.name == 'reverse-deps'
+    uses: EpiAware/.github/.github/workflows/downstream.yml@main
+    secrets: inherit  # pragma: allowlist secret
+    with:
+      # JSON list of downstreams. Each entry needs `repo` (owner/name)
+      # and may set `group` (GROUP env for the downstream suite) and
+      # `allow_fail` (true keeps a failure from reding the run).
+      # Empty for now: nothing released depends on this package yet.
+      # Once EpiAwareTestUtils.jl (or a spin-out) depends on it, add:
+      #   [{"repo":"EpiAware/EpiAwareTestUtils.jl","group":"All"}]
+      downstreams: '[]'
