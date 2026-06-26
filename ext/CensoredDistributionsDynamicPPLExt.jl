@@ -412,6 +412,32 @@ function composed_distribution_model(
     return _vectorised_records_model(recs, _record_obs_matrix(recs))
 end
 
+# A node with per-record `:field` modifier parameters resolves each row's bound
+# fields into a concrete modified node, then scores through the same vectorised
+# record path as the bare node. A vector of rows and a Tables.jl table both flow
+# through `record_distributions`, which dispatches the field resolution.
+function composed_distribution_model(
+        d::CensoredDistributions._DeferredFields, rows::AbstractVector;
+        weight = nothing)
+    weight === nothing || throw(ArgumentError(
+        "the vectorised composed model takes per-row weights via a reserved " *
+        "`weight`/`count` row field, not the `weight` keyword"))
+    recs = CensoredDistributions.record_distributions(d, rows)
+    return _vectorised_records_model(recs, _record_obs_matrix(recs))
+end
+
+function composed_distribution_model(
+        d::CensoredDistributions._DeferredFields, table; weight = nothing)
+    Tables.istable(table) || throw(ArgumentError(
+        "composed_distribution_model(d, table) takes a vector of rows or a " *
+        "Tables.jl table; got $(typeof(table))"))
+    weight === nothing || throw(ArgumentError(
+        "the vectorised composed model takes per-row weights via a reserved " *
+        "`weight`/`count` row field, not the `weight` keyword"))
+    recs = CensoredDistributions.record_distributions(d, table)
+    return _vectorised_records_model(recs, _record_obs_matrix(recs))
+end
+
 # The inner vectorised submodel: `obs` is a MODEL ARGUMENT, so a supplied matrix
 # is observed (scores) and `missing` is sampled (generates the full event paths).
 @model function _vectorised_records_model(recs, obs)

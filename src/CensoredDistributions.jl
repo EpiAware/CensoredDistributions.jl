@@ -237,6 +237,9 @@ include("composers/intervene.jl")
 # `free_leaf`/`rewrap_leaf`, and before tree_events/wrap which traverse leaves.
 include("composers/Shared.jl")
 include("composers/tree_events.jl")
+# Per-record `:field` modifier carrier type + resolver helpers: before wrap.jl,
+# which builds the carrier from `:field` modifier keywords.
+include("composers/per_record_fields.jl")
 include("composers/wrap.jl")
 
 include("utils/Weighted.jl")
@@ -311,6 +314,11 @@ include("composers/latent_tree.jl")
 # since it reuses `_narrow`, and after record_dists.jl's single-`d`
 # `record_distributions` which it dispatches each stratum through.
 include("composers/record_grouped.jl")
+# Per-record `:field` modifier resolution + scoring: after record_grouped.jl
+# (reuses `batched_event_logpdf` / `_batched_records_logpdf` and the table
+# front-door) and the per-record `record_distributions` it resolves each row
+# through.
+include("composers/per_record_fields_scoring.jl")
 # Batched record-aware `rand`: the forward-simulation dual to the scoring path.
 # After record_dists.jl (the per-record `record_distributions` it draws from) and
 # named_outputs.jl (the `_as_named` / `_output_names` labelling it reuses).
