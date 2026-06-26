@@ -31,7 +31,7 @@ module TestUtils
 using Random: Random, AbstractRNG, Xoshiro
 using Test: Test, @testset, @test, @test_nowarn, @test_throws
 using Distributions: Distributions, mean, var, std, logpdf, cdf, params,
-                     UnivariateDistribution
+                     truncated, UnivariateDistribution
 import Tables
 
 using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
