@@ -21,13 +21,12 @@
 #
 # Each backend item compares against the ForwardDiff reference. The continuous
 # paths and every leaf-in-composer path differentiate on all six backends. The
-# DISCRETE per-bin path differentiates on ForwardDiff / ReverseDiff / Mooncake
-# (both modes) but NOT on Enzyme (either mode): `_apply_hazard_link` builds the
-# modified hazard with an in-place `Vector{T}(undef, n)` mutating loop and
-# reconstructs the PMF, which Enzyme's type analysis cannot trace
-# (`EnzymeMutabilityException` / `EnzymeNoDerivativeError`). That is an upstream
-# Enzyme limitation on the mutating array-build reconstruction, not a `modify`
-# bug, so the discrete Enzyme items are `@test_broken` (see the per-item notes).
+# DISCRETE per-bin path now also differentiates on Enzyme (both modes): its
+# interval grid was a float-stepped range whose `StepRangeLen`/`TwicePrecision`
+# `floatrange` bit-twiddling Enzyme could not trace (`EnzymeNoDerivativeError`,
+# #728). Rebuilding the grid as an explicit comprehension in `_discrete_grid`
+# removes that construction; the grid is a function of the fixed interval width
+# and bin count, not the AD params, so the values are unchanged.
 
 # ============================================================================
 # Shared scoring functions, defined once and reused per backend item.
@@ -208,8 +207,8 @@ end
 end
 
 # ============================================================================
-# Enzyme reverse: continuous + leaf-in-composer paths pass; the discrete
-# per-bin path is a known Enzyme limitation, marked `@test_broken`.
+# Enzyme reverse: every path, hard against the reference. The discrete per-bin
+# path differentiates once the float-stepped grid is rebuilt (#728).
 # ============================================================================
 
 @testitem "modify gradient: Enzyme reverse" tags=[
@@ -218,31 +217,14 @@ end
     using Enzyme: Enzyme
 
     backend=AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Reverse))
-    for (name, f, θ) in CONTINUOUS_CASES
+    for (name, f, θ) in vcat(CONTINUOUS_CASES, DISCRETE_CASES)
         check_matches_reference(f, θ, backend)
-    end
-
-    # DISCRETE per-bin path: `_apply_hazard_link` builds the modified hazard in an
-    # in-place `Vector{T}(undef, n)` mutating loop and reconstructs the PMF, which
-    # Enzyme reverse cannot trace (`EnzymeMutabilityException` /
-    # `EnzymeNoDerivativeError`). This is an upstream Enzyme limitation on the
-    # mutating array-build reconstruction, not a `modify` bug: ForwardDiff,
-    # ReverseDiff and Mooncake (both modes) all differentiate it correctly.
-    using DifferentiationInterface: gradient
-    for (name, f, θ) in DISCRETE_CASES
-        ok=try
-            g=gradient(f, backend, θ)
-            g isa AbstractVector&&all(isfinite, g)
-        catch
-            false
-        end
-        @test_broken ok
     end
 end
 
 # ============================================================================
-# Enzyme forward: continuous + leaf-in-composer paths pass; the discrete
-# per-bin path is the same known Enzyme limitation, marked `@test_broken`.
+# Enzyme forward: every path, hard against the reference. The discrete per-bin
+# path differentiates once the float-stepped grid is rebuilt (#728).
 # ============================================================================
 
 @testitem "modify gradient: Enzyme forward" tags=[
@@ -251,22 +233,7 @@ end
     using Enzyme: Enzyme
 
     backend=AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Forward))
-    for (name, f, θ) in CONTINUOUS_CASES
+    for (name, f, θ) in vcat(CONTINUOUS_CASES, DISCRETE_CASES)
         check_matches_reference(f, θ, backend)
-    end
-
-    # DISCRETE per-bin path: same upstream Enzyme limitation as the reverse item
-    # above (the `_apply_hazard_link` mutating array-build reconstruction). Marked
-    # `@test_broken`; the gradient correctness is covered by ForwardDiff /
-    # ReverseDiff / Mooncake.
-    using DifferentiationInterface: gradient
-    for (name, f, θ) in DISCRETE_CASES
-        ok=try
-            g=gradient(f, backend, θ)
-            g isa AbstractVector&&all(isfinite, g)
-        catch
-            false
-        end
-        @test_broken ok
     end
 end
