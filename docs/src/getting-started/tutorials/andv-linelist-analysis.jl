@@ -714,7 +714,7 @@ rt_compare = DataFrame(
 # source whose completeness underflows toward zero.
 inc_post = LogNormal(here.mu_inc.mean, here.sigma_inc.mean)
 delta_post = Normal(here.mu_delta.mean, here.sigma_delta.mean)
-completion_chain = convolve_distributions(delta_post, inc_post)
+completion_chain = convolved(delta_post, inc_post)
 R_week1 = rt_summary.R_mean[1]
 realtime = map(eachindex(Z)) do i
     window = horizon - source_onset_day[i]

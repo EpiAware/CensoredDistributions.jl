@@ -222,7 +222,7 @@ end
     # (sub-stochastic, NOT renormalised). Unit impulse, long horizon.
     series = zeros(80)
     series[1] = 1.0
-    fwd = convolve_distributions(haz, series; events = (:death, :recover))
+    fwd = convolved(haz, series; events = (:death, :recover))
     @test sum(fwd.death) ≈ wp.death atol = 1e-3
     @test sum(fwd.recover) ≈ wp.recover atol = 1e-3
 
@@ -330,10 +330,10 @@ end
     ne = resolve(:report => (Gamma(2.0, 1.5), ρ), :none => (NoEvent(), 1 - ρ))
     series = zeros(60)
     series[1] = 1.0
-    fwd = convolve_distributions(ne, series; events = (:report,))
+    fwd = convolved(ne, series; events = (:report,))
     @test sum(fwd.report)≈ρ atol = 1e-6
     # The `none` branch is not a producible event (it has no series).
-    @test_throws ArgumentError convolve_distributions(ne, series; events = (:none,))
+    @test_throws ArgumentError convolved(ne, series; events = (:none,))
 end
 
 @testitem "racing-hazard: SurvivalDistributions leaves race" begin
@@ -554,7 +554,7 @@ end
 
     series = zeros(120)
     series[1] = 1.0
-    fwd = convolve_distributions(ne, series; events = (:burial, :recover))
+    fwd = convolved(ne, series; events = (:burial, :recover))
     # burial is the death subtree endpoint -> mass p_death; recover -> p_recover.
     @test sum(fwd.burial) ≈ pd atol = 1e-3
     @test sum(fwd.recover) ≈ pr atol = 1e-3
@@ -659,7 +659,7 @@ end
     evr = Vector{Union{Missing, Float64}}(missing, length(enames))
     evr[i[:event_1]] = o
     evr[i[:recover]] = o + 5.0
-    death_marginal = convolve_distributions((Gamma(2.0, 1.0), Gamma(1.5, 1.0)))
+    death_marginal = convolved((Gamma(2.0, 1.0), Gamma(1.5, 1.0)))
     expected_r = logpdf(recover, 5.0) + logccdf(death_marginal, 5.0)
     @test logpdf(d, evr) ≈ expected_r
 end
@@ -678,7 +678,7 @@ end
 
     # The death subtree resolves at the SUM of its two delays (its marginal
     # racing-time distribution).
-    death_T = convolve_distributions((Gamma(2.0, 1.0), Gamma(1.5, 1.0)))
+    death_T = convolved((Gamma(2.0, 1.0), Gamma(1.5, 1.0)))
 
     # Dual A (derived winning prob): P(j wins) = ∫ f_j(t) ∏_{k≠j} S_k(t) dt over a
     # fine grid, independent of any internal quadrature node set.
@@ -779,7 +779,7 @@ end
     @test event_names(d) == (:event_1, :event_2, :admit, :burial, :recover)
 
     # The death subtree resolves at the SUM of its two (zero-origin) delays.
-    death_T = convolve_distributions((Gamma(2.0, 1.0), Gamma(1.5, 1.0)))
+    death_T = convolved((Gamma(2.0, 1.0), Gamma(1.5, 1.0)))
 
     # Reference conditional resolution-time distribution on a fine grid:
     # f_death(t) * S_recover(t), normalised over the death-win mass.

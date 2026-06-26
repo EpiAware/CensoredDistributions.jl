@@ -1,10 +1,10 @@
-# AD coverage for the `convolve_distributions(stack, series)` renewal method.
+# AD coverage for the `convolved(stack, series)` renewal method.
 # The vector convolution is linear and the delay PMF depends differentiably on
 # the delay parameters, so the gradient of a scalar summary of the output
 # w.r.t. the delay params must flow under ForwardDiff and ReverseDiff and match
 # a finite-difference reference.
 
-@testitem "convolve_distributions(stack, series) gradient flows" tags=[
+@testitem "convolved(stack, series) gradient flows" tags=[
     :ad, :forwarddiff] begin
     using CensoredDistributions, Distributions
     using ForwardDiff
@@ -20,7 +20,7 @@
     function objective(theta)
         seq = Sequential(
             Gamma(theta[1], theta[2]), LogNormal(theta[3], theta[4]))
-        return sum(convolve_distributions(seq, series))
+        return sum(convolved(seq, series))
     end
 
     theta = [2.0, 1.0, 0.5, 0.4]
@@ -34,7 +34,7 @@
     @test any(!iszero, g_fwd)
 end
 
-@testitem "convolve_distributions interim gradient flows (ReverseDiff)" tags=[
+@testitem "convolved interim gradient flows (ReverseDiff)" tags=[
     :ad, :reversediff] begin
     using CensoredDistributions, Distributions
     using ReverseDiff
@@ -50,7 +50,7 @@ end
         seq = Sequential(
             (Gamma(theta[1], theta[2]), LogNormal(theta[3], theta[4])),
             (:onset_admit, :admit_death))
-        return sum(convolve_distributions(seq, series; events = :admit))
+        return sum(convolved(seq, series; events = :admit))
     end
 
     theta = [2.0, 1.0, 0.5, 0.4]
@@ -85,17 +85,17 @@ end
 
     # Build the PMF ONCE inside the objective, then convolve the series.
     function objective_build_once(theta)
-        delay = convolve_distributions(
+        delay = convolved(
             Gamma(theta[1], theta[2]), LogNormal(theta[3], theta[4]))
         pmf = CensoredDistributions.discretise_pmf(delay, length(series) - 1)
-        return sum(convolve_distributions(pmf, series))
+        return sum(convolved(pmf, series))
     end
 
     # The rebuild-every-time path for the same delay.
     function objective_rebuild(theta)
-        delay = convolve_distributions(
+        delay = convolved(
             Gamma(theta[1], theta[2]), LogNormal(theta[3], theta[4]))
-        return sum(convolve_distributions(delay, series))
+        return sum(convolved(delay, series))
     end
 
     theta = [2.0, 1.0, 0.5, 0.4]
@@ -122,10 +122,10 @@ end
     fd = AutoFiniteDifferences(; fdm = central_fdm(5, 1))
 
     function objective(theta)
-        delay = convolve_distributions(
+        delay = convolved(
             Gamma(theta[1], theta[2]), LogNormal(theta[3], theta[4]))
         pmf = CensoredDistributions.discretise_pmf(delay, length(series) - 1)
-        return sum(convolve_distributions(pmf, series))
+        return sum(convolved(pmf, series))
     end
 
     theta = [2.0, 1.0, 0.5, 0.4]
@@ -141,7 +141,7 @@ end
     :ad, :mooncake, :mooncake_reverse] begin
     # The Rt tutorial's shape: a shared incubation step that fans out into a
     # thinned `cases` branch and a thinned `deaths` branch, pushed through
-    # `convolve_distributions(stack, infections; events = (:cases, :deaths))`.
+    # `convolved(stack, infections; events = (:cases, :deaths))`.
     # Deriving the requested event names runs string ops Mooncake reverse
     # cannot trace; the zero-adjoint primitives in the Mooncake extension let
     # the gradient flow without a per-model overlay. The names are constant
@@ -161,7 +161,7 @@ end
         stack = compose(incub;
             cases = thin(Gamma(theta[3], theta[4]), theta[5]),
             deaths = thin(Gamma(theta[6], theta[7]), theta[8]))
-        streams = convolve_distributions(stack, infections;
+        streams = convolved(stack, infections;
             events = (:cases, :deaths))
         return sum(streams.cases) + sum(streams.deaths)
     end

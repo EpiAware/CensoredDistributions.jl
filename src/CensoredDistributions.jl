@@ -69,7 +69,7 @@ export MomentParams, from_moments, register_moment_params
 export modify, Modified, LogLink, IdentityLink, LogitLink, hazard_link
 
 # Exported difference constructor: the distribution of Z = X - Y for two
-# independent components, the dual of the sum `convolve_distributions` builds.
+# independent components, the dual of the sum `convolved` builds.
 # Z has two-sided (possibly negative) support, so it is a derived observation,
 # not a non-negative delay leaf. `Difference` is the type; `difference` the
 # friendly constructor.
@@ -82,7 +82,7 @@ export Affine, affine
 # Exported convolution constructor. A method on a numeric-vector second argument
 # also provides the renewal layer (convolve a timeseries through a composed delay
 # stack to selected event series), so it needs no separate export.
-export convolve_distributions
+export convolved
 
 # Exported renewal recurrence: the renewal scan and its composable force
 # modulators. `renewal` runs `I[t] = R_t m(t) Σ_s g_s I[t-s]` as a forward scan;
@@ -174,7 +174,7 @@ export delay_hazard, hazard_to_pmf, apply_hazard_effects,
        reference_report_matrix
 
 # Exported forward-transform leaves: a deterministic op applied to the count
-# series `convolve_distributions` produces (transparent to `logpdf`). `transform`
+# series `convolved` produces (transparent to `logpdf`). `transform`
 # is the generic verb; `thin` (scale by a probability) and `cumulative`
 # (accumulate) are specialised constructors. `Transformed` is the type.
 export Transformed, transform, thin, cumulative
@@ -230,7 +230,7 @@ include("distributions/Convolved.jl")
 # reuses `_window_quantile` / `_CONVOLVED_TAIL` for the quadrature window clamp.
 include("distributions/Difference.jl")
 
-# Right-truncation helpers: depend on Convolved / convolve_distributions.
+# Right-truncation helpers: depend on Convolved / convolved.
 include("censoring/truncation.jl")
 
 include("composers/Sequential.jl")

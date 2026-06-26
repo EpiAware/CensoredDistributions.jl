@@ -141,5 +141,5 @@ function _collapse_to_observation(segments::Tuple, observed::Tuple)
         observed[i] && (start = i + 1)
     end
     run = segments[start:end]
-    return length(run) == 1 ? run[1] : convolve_distributions(run)
+    return length(run) == 1 ? run[1] : convolved(run)
 end

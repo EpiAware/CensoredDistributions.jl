@@ -208,7 +208,7 @@ function _sequential_segment(components, a, b, primary)
     # `Convolved` keeps a concrete component tuple; an abstract-eltype vector
     # defeats Enzyme's activity analysis on the reverse pass (the same defect
     # fixed for `observed_distribution(::Sequential)`).
-    core = convolve_distributions(map(_marginal_core, run))
+    core = convolved(map(_marginal_core, run))
     primary === nothing && return core
     return primary_censored(core, primary)
 end

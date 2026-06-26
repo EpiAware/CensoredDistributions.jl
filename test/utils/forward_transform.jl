@@ -90,7 +90,7 @@ end
 @testitem "thin convolution equals the resolve + NoEvent count scaling" begin
     using CensoredDistributions, Distributions
 
-    # The convolution-marginal equivalence: under `convolve_distributions` the
+    # The convolution-marginal equivalence: under `convolved` the
     # new thin STILL scales the branch's count series by p (epinowcast's
     # aggregate-count ascertainment is unchanged), and equals the resolve +
     # NoEvent node's `:event`-branch series.
@@ -98,12 +98,12 @@ end
     p = 0.3
     series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
 
-    plain = convolve_distributions(inner, series)
-    thinned = convolve_distributions(thin(inner, p), series)
+    plain = convolved(inner, series)
+    thinned = convolved(thin(inner, p), series)
     @test thinned ≈ p .* plain
 
     r = resolve(:event => (inner, p), :none => (NoEvent(), 1 - p))
-    @test thinned ≈ convolve_distributions(r, series; events = :event)
+    @test thinned ≈ convolved(r, series; events = :event)
 end
 
 @testitem "forward transforms peel via free_leaf and rewrap" begin

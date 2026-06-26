@@ -17,7 +17,7 @@
 #     adjacent delay is an independent factor at the observed gap;
 #   - an UNOBSERVED intermediate -> MARGINALISE by CONVOLVING the adjacent
 #     delays and DROPPING that intermediate's censoring (the latent is a
-#     continuous time, not a windowed observation), via `convolve_distributions`
+#     continuous time, not a windowed observation), via `convolved`
 #     over the continuous cores recovered with `get_dist_recursive`.
 # For `Parallel` with censored branches the shared origin couples the branches:
 # a missing origin entry is marginalised by one 1-D origin integral, a present
@@ -181,7 +181,7 @@ _any_nested_composer(components::Tuple) = any(_is_nested_composer, components)
 # flat scoring become separate dispatched methods. A plain `if _any_nested_...`
 # branch leaves BOTH branches in one method body, and the compiled AD backends
 # (Mooncake) build a rule for every reachable branch -- including the flat
-# `convolve_distributions` marginalisation path that hard-crashes them
+# `convolved` marginalisation path that hard-crashes them
 # uncatchably. Splitting by dispatch keeps the flat path out of the nested
 # method entirely, so a nested tree differentiates without dragging in the
 # crashing convolution code.

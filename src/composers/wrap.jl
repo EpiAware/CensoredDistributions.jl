@@ -32,7 +32,7 @@
 # `UnivariateDistribution` wrapper methods accept it directly, and the SCALAR
 # combine-then-censor lowering of a chain total or a one_of marginal
 # time-to-resolution stays available EXPLICITLY through
-# `modifier(observed_distribution(seq))` / `modifier(convolve_distributions(...))`
+# `modifier(observed_distribution(seq))` / `modifier(convolved(...))`
 # — that is the dual, scalar direction, distinct from the node-level wrap here.
 # Dispatch on the composer type — no runtime predicate, no new hierarchy.
 
@@ -67,7 +67,7 @@ observed_distribution(seq)
 ```
 
 # See also
-- [`convolve_distributions`](@ref): the chain-step convolution
+- [`convolved`](@ref): the chain-step convolution
 - [`as_mixture`](@ref): the one_of marginal time-to-resolution
 "
 observed_distribution(d::UnivariateDistribution) = d
@@ -84,7 +84,7 @@ observed_distribution(d::AbstractOneOf) = _one_of_marginal(d)
 function observed_distribution(d::Sequential)
     leaves = _observed_leaves(d.components)
     return length(leaves) == 1 ? only(leaves) :
-           convolve_distributions(leaves)
+           convolved(leaves)
 end
 
 # Flatten a composer's components to the univariate leaves whose sum is the
@@ -250,21 +250,19 @@ function double_interval_censored(
         primary_event::UnivariateDistribution = Uniform(0, 1),
         lower::_MaybeField = nothing, upper::_MaybeField = nothing,
         interval::_MaybeField = nothing,
-        method::Union{AbstractSolverMethod, Nothing} = nothing,
-        force_numeric = nothing)
+        method::Union{AbstractSolverMethod, Nothing} = nothing)
     (_is_field(lower) || _is_field(upper) || _is_field(interval)) ||
         return _distribute_into_leaves(d,
             leaf -> double_interval_censored(leaf;
                 primary_event = primary_event, lower = lower, upper = upper,
-                interval = interval, method = method,
-                force_numeric = force_numeric))
+                interval = interval, method = method))
     fields = _field_names(lower, upper, interval)
     build = row -> double_interval_censored(d;
         primary_event = primary_event,
         lower = _resolve_field(lower, row),
         upper = _resolve_field(upper, row),
         interval = _resolve_field(interval, row),
-        method = method, force_numeric = force_numeric)
+        method = method)
     return _DeferredFields(d, build, fields)
 end
 
@@ -453,12 +451,11 @@ function double_interval_censored(
         lower::Union{Real, Nothing} = nothing,
         upper::Union{Real, Nothing} = nothing,
         interval::Union{Real, Nothing} = nothing,
-        method::Union{AbstractSolverMethod, Nothing} = nothing,
-        force_numeric = nothing)
+        method::Union{AbstractSolverMethod, Nothing} = nothing)
     return _distribute_into_leaves(d,
         leaf -> double_interval_censored(leaf;
             primary_event = primary_event, lower = lower, upper = upper,
-            interval = interval, method = method, force_numeric = force_numeric))
+            interval = interval, method = method))
 end
 
 # ---------------------------------------------------------------------------

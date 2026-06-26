@@ -2,7 +2,7 @@
 # Forward-transform leaves: a generic transform with thin / cumulative
 # ============================================================================
 #
-# A forward transform carries an OP that `convolve_distributions(stack, series)`
+# A forward transform carries an OP that `convolved(stack, series)`
 # applies to the branch's output count series, materialising only when a stack is
 # convolved through a timeseries.
 #
@@ -16,7 +16,7 @@
 # is NOT logpdf-transparent — it enters the per-record likelihood (the honest
 # generative model): `logpdf(thin(d, p), x) == log(p) + logpdf(d, x)` (the
 # defective density of an event observed at `x`), and `rand` returns a time with
-# probability `p`, else `missing`. Under `convolve_distributions(stack, series)`
+# probability `p`, else `missing`. Under `convolved(stack, series)`
 # this STILL reduces to the same `p`-scaling of the branch's count series (the
 # `(1 - p)` no-event mass leaves the observed stream), so the aggregate-count
 # convolution is unchanged: the convolution-marginal equivalence. `thin` carries
@@ -54,8 +54,8 @@ _op_params(op) = ()
 
 @doc "
 
-A delay carrying a forward-transform op, applied by
-[`convolve_distributions`](@ref) to the branch's output count series, and
+A delay `dist` carrying a forward-transform `op`, applied by
+[`convolved`](@ref) to the branch's output count series, and
 transparent to introspection (`free_leaf` peels to the inner delay). Construct
 with the generic [`transform`](@ref) or the specialised [`thin`](@ref) /
 [`cumulative`](@ref).
@@ -82,7 +82,7 @@ end
 Apply a forward-transform op to a delay's convolved count series.
 
 `transform(d, op)` carries `op` (a [`thin`](@ref)/[`cumulative`](@ref) op or any
-callable `series -> series`) that [`convolve_distributions`](@ref) applies to the
+callable `series -> series`) that [`convolved`](@ref) applies to the
 branch's output series. Transparent to `logpdf`. Prefer [`thin`](@ref) /
 [`cumulative`](@ref) for the common cases; use `transform` for an arbitrary
 deterministic series map.
@@ -121,7 +121,7 @@ composable op, not a convolve-only forward scaler:
   observed at `x`, integrating to `p`), and `rand` returns a time with
   probability `p`, else `missing`. So thinning ENTERS the per-record likelihood;
   it is NOT logpdf-transparent.
-- Under [`convolve_distributions`](@ref)`(stack, series)` it STILL scales the
+- Under [`convolved`](@ref)`(stack, series)` it STILL scales the
   branch's expected-count series by `p` (e.g. ascertainment of cases, the
   infection fatality ratio for deaths): the `(1 - p)` no-event mass leaves the
   observed stream. So the aggregate-count convolution is unchanged from the
@@ -160,7 +160,7 @@ thin(dist::UnivariateDistribution, ::Nothing) = dist
 Accumulate a delay's forward count series.
 
 `cumulative(d)` is [`transform`](@ref) with a running-sum op that
-[`convolve_distributions`](@ref) applies to the branch's count series, giving
+[`convolved`](@ref) applies to the branch's count series, giving
 cumulative counts (cumulative incidence, cumulative deaths). Transparent to
 `logpdf`.
 

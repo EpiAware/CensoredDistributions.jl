@@ -138,7 +138,7 @@ distribution.
   [`primary_censored_model`](@ref), an [`interval_censored`](@ref) to
   [`interval_censored_model`](@ref), and any other univariate (a
   [`double_interval_censored`](@ref) pipeline, a `Truncated`, a
-  [`convolve_distributions`](@ref) result) to
+  [`convolved`](@ref) result) to
   [`double_interval_censored_model`](@ref).
 - A composed distribution ([`Sequential`](@ref), [`Parallel`](@ref),
   [`Resolve`](@ref), or their [`latent`](@ref) wrappers) recurses through the

@@ -153,10 +153,10 @@ end
     # Same length, finite, and equal to the underlying convolution.
     @test length(cases) == length(infections)
     @test all(isfinite, cases)
-    @test cases ≈ convolve_distributions(delay, infections)
+    @test cases ≈ convolved(delay, infections)
     # A precomputed DelayPMF reports identically.
     pmf = CensoredDistributions.discretise_pmf(
         interval_censored(Gamma(1.8, 1.4), 1.0), length(infections) - 1)
-    @test observe_renewal(infections, pmf) ≈ convolve_distributions(pmf,
+    @test observe_renewal(infections, pmf) ≈ convolved(pmf,
         infections)
 end

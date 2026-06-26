@@ -25,7 +25,7 @@
 #
 # Why not a forward-transform op. The `Transformed`/`thin`/`cumulative` protocol
 # (`forward_transform.jl`) applies a deterministic map to the 1-D count series
-# AFTER `convolve_distributions(stack, series)` has collapsed the delay into a
+# AFTER `convolved(stack, series)` has collapsed the delay into a
 # single, time-INVARIANT PMF convolved across all times. The nowcasting hazard is
 # time-VARYING by construction: a reference-date effect gives each reference date
 # its OWN delay PMF, so the result is a reference-by-report MATRIX, not a series a
@@ -290,7 +290,7 @@ M = CensoredDistributions.reference_report_matrix(expected, pmf;
 
 # See also
 - [`apply_hazard_effects`](@ref): the per-reference-date hazard modification
-- [`convolve_distributions`](@ref): the renewal observation layer
+- [`convolved`](@ref): the renewal observation layer
 "
 function reference_report_matrix(expected::AbstractVector,
         pmf::AbstractVector;
@@ -342,7 +342,7 @@ end
 Expected counts by reference date and report delay from a delay DISTRIBUTION.
 
 This method takes the baseline delay as a `UnivariateDistribution` (typically a
-composed [`compose`](@ref) / [`convolve_distributions`](@ref) stack) rather than a
+composed [`compose`](@ref) / [`convolved`](@ref) stack) rather than a
 pre-extracted PMF vector, so the reporting hazard modifies the composed
 distribution itself. For each reference date the delay is discretised to a daily
 PMF over `0:maxlag` and reshaped through a [`modify`](@ref)`(...; link = :logit)`
@@ -366,7 +366,7 @@ hazard modification, exactly the per-reference-date [`Modified`](@ref) leaf;
 using CensoredDistributions, Distributions
 
 expected = fill(100.0, 14)
-delay = convolve_distributions(
+delay = convolved(
     double_interval_censored(Gamma(1.8, 1.4); upper = 20.0, interval = 1.0),
     double_interval_censored(Gamma(1.5, 1.2); upper = 20.0, interval = 1.0))
 M = CensoredDistributions.reference_report_matrix(expected, delay;

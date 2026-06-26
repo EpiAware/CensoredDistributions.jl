@@ -62,7 +62,7 @@
                 θ -> sum(
                     x -> logpdf(
                         thin(
-                            convolve_distributions(
+                            convolved(
                                 Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), θ[3]),
                         x), obs),
                 [2.0, 1.0, 0.4], (3, n_obs)),
@@ -74,7 +74,7 @@
                 θ -> sum(
                     x -> logpdf(
                         thin(
-                            convolve_distributions(
+                            convolved(
                                 Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])), 0.3),
                         x), obs),
                 [2.0, 1.0, 0.5, 0.4], nothing),
@@ -105,7 +105,7 @@
             ("Convolved Gamma+LogNormal logpdf wrt components",
                 θ -> sum(
                     x -> logpdf(
-                        convolve_distributions(
+                        convolved(
                             Gamma(θ[1], θ[2]), LogNormal(θ[3], θ[4])), x), obs),
                 [2.0, 1.0, 0.5, 0.4], nothing),
             # Numeric cross-correlation difference density: gradient through the
@@ -135,7 +135,7 @@
             ("Sequential[Convolved, LogNormal] tree logpdf",
                 θ -> logpdf(
                     Sequential(
-                        convolve_distributions(
+                        convolved(
                             Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)),
                         LogNormal(θ[3], θ[4])), [3.0, 2.0]),
                 [2.0, 1.0, 0.5, 0.4], nothing),

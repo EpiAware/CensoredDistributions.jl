@@ -134,7 +134,7 @@ end
     end
 end
 
-@testitem "SurvivalDistributions convolve_distributions constructs and scores" begin
+@testitem "SurvivalDistributions convolved constructs and scores" begin
     using CensoredDistributions
     import SurvivalDistributions as SD
     using Distributions: cdf, LogNormal
@@ -142,7 +142,7 @@ end
     # A convolution of a SurvivalDistributions leaf with a stock leaf: the sum
     # of two independent delays. The numeric convolution quadrature uses the
     # leaves' minimum/maximum, so this exercises the leaf-support contract.
-    conv = convolve_distributions(
+    conv = convolved(
         SD.GeneralizedGamma(1.0, 1.5, 2.0), LogNormal(0.5, 0.4))
     cs = [cdf(conv, x) for x in range(0.0, 10.0; length = 11)]
     @test issorted(cs)
@@ -315,7 +315,7 @@ end
     # primary-censored leaf. Each scores finitely (no ambiguity throws).
     seq = Sequential((gg, ll))
     @test isfinite(logpdf(seq, [2.0, 3.0]))
-    cv = convolve_distributions(gg, Gamma(2.0, 1.0))
+    cv = convolved(gg, Gamma(2.0, 1.0))
     @test 0.0 <= cdf(cv, 3.0) <= 1.0
     pc = primary_censored(gg, Uniform(0, 1))
     @test isfinite(logpdf(pc, 3.0))
@@ -429,7 +429,7 @@ end
 
     # A tree of SD leaves: the chain's marginal hazard is the convolution's.
     sdseq = sequential(SD.GeneralizedGamma(1.0, 1.5, 2.0), Gamma(1.5, 1.0))
-    conv = convolve_distributions(
+    conv = convolved(
         SD.GeneralizedGamma(1.0, 1.5, 2.0), Gamma(1.5, 1.0))
     for t in (1.0, 3.0)
         @test CD.hazard(sdseq, t) ≈ pdf(conv, t) / ccdf(conv, t) rtol=1e-5

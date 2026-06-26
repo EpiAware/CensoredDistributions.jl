@@ -1,4 +1,4 @@
-# Tests for the `convolve_distributions(stack, series)` renewal method: push a
+# Tests for the `convolved(stack, series)` renewal method: push a
 # timeseries through a composed delay stack to selected event count series.
 
 @testsnippet ConvolveVectorRef begin
@@ -32,12 +32,12 @@ end
     # Sequential stack: endpoint uses the total (collapsed) delay.
     seq = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     total = observed_distribution(seq)
-    @test convolve_distributions(seq, series) ≈
+    @test convolved(seq, series) ≈
           reference_convolution(total, series)
 
     # Single-leaf stack: the leaf is its own delay.
     leaf = Gamma(2.0, 1.0)
-    @test convolve_distributions(leaf, series) ≈
+    @test convolved(leaf, series) ≈
           reference_convolution(leaf, series)
 end
 
@@ -57,14 +57,14 @@ end
           (:onset, :admit, :death)
 
     # The interim :admit series uses ONLY the first leaf (prefix-1 delay).
-    interim = convolve_distributions(seq, series; events = :admit)
+    interim = convolved(seq, series; events = :admit)
     @test interim ≈ reference_convolution(g, series)
 
     # The :death series is the endpoint: the full (two-leaf) convolution.
-    endpoint = convolve_distributions(seq, series; events = :death)
-    @test endpoint ≈ convolve_distributions(seq, series)
+    endpoint = convolved(seq, series; events = :death)
+    @test endpoint ≈ convolved(seq, series)
     @test endpoint ≈
-          reference_convolution(convolve_distributions(g, ln), series)
+          reference_convolution(convolved(g, ln), series)
 end
 
 @testitem "events selector: single name vs tuple vs default" setup=[
@@ -75,27 +75,27 @@ end
         (:onset_admit, :admit_death))
 
     # Default produces the endpoint as a bare vector.
-    default = convolve_distributions(seq, series)
+    default = convolved(seq, series)
     @test default isa AbstractVector
-    @test default ≈ convolve_distributions(seq, series; events = :death)
+    @test default ≈ convolved(seq, series; events = :death)
 
     # A single name produces just that bare series.
-    one = convolve_distributions(seq, series; events = :admit)
+    one = convolved(seq, series; events = :admit)
     @test one isa AbstractVector
 
     # A tuple produces a NamedTuple keyed by the requested events only.
-    nt = convolve_distributions(seq, series; events = (:admit, :death))
+    nt = convolved(seq, series; events = (:admit, :death))
     @test nt isa NamedTuple
     @test keys(nt) == (:admit, :death)
     @test nt.admit ≈ one
     @test nt.death ≈ default
 
     # Requesting a single event in a tuple returns exactly that series.
-    @test convolve_distributions(seq, series; events = (:death,)).death ≈
+    @test convolved(seq, series; events = (:death,)).death ≈
           default
 
     # An unknown event errors clearly.
-    @test_throws ArgumentError convolve_distributions(
+    @test_throws ArgumentError convolved(
         seq, series; events = :nope)
 end
 
@@ -104,20 +104,20 @@ end
 
     # The numeric-vector second argument selects the renewal method.
     series = [0.0, 1.0, 2.0, 3.0]
-    @test convolve_distributions(Gamma(2.0, 1.0), series) isa AbstractVector
+    @test convolved(Gamma(2.0, 1.0), series) isa AbstractVector
 
     # The distribution-args forms still build a Convolved unambiguously.
-    two = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    two = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     @test two isa CensoredDistributions.Convolved
 
-    three = convolve_distributions(
+    three = convolved(
         Gamma(2.0, 1.0), LogNormal(0.5, 0.4), Normal(0.0, 1.0))
     @test three isa CensoredDistributions.Convolved
 
-    vec = convolve_distributions([Gamma(2.0, 1.0), LogNormal(0.5, 0.4)])
+    vec = convolved([Gamma(2.0, 1.0), LogNormal(0.5, 0.4)])
     @test vec isa CensoredDistributions.Convolved
 
-    tup = convolve_distributions((Gamma(2.0, 1.0), LogNormal(0.5, 0.4)))
+    tup = convolved((Gamma(2.0, 1.0), LogNormal(0.5, 0.4)))
     @test tup isa CensoredDistributions.Convolved
 end
 
@@ -133,19 +133,19 @@ end
 
     # Choosing that endpoint by name must match the default (endpoint) and the
     # reference, not error as if no events were available.
-    @test convolve_distributions(leaf, series; events = :event_1) ≈
-          convolve_distributions(leaf, series)
-    @test convolve_distributions(leaf, series; events = :event_1) ≈
+    @test convolved(leaf, series; events = :event_1) ≈
+          convolved(leaf, series)
+    @test convolved(leaf, series; events = :event_1) ≈
           reference_convolution(leaf, series)
 
     # A tuple choose the endpoint yields a NamedTuple keyed by it.
-    nt = convolve_distributions(leaf, series; events = (:event_1,))
+    nt = convolved(leaf, series; events = (:event_1,))
     @test nt isa NamedTuple
     @test keys(nt) == (:event_1,)
-    @test nt.event_1 ≈ convolve_distributions(leaf, series)
+    @test nt.event_1 ≈ convolved(leaf, series)
 
     # An unknown name on a bare leaf still errors clearly.
-    @test_throws ArgumentError convolve_distributions(
+    @test_throws ArgumentError convolved(
         leaf, series; events = :nope)
 end
 
@@ -157,14 +157,14 @@ end
     # The causal convolution shifts by integer SERIES steps (unit-spaced), so a
     # PMF grid step other than 1 conflates the discretisation width with the
     # series time-step. Reject it rather than silently mis-aligning.
-    @test_throws ArgumentError convolve_distributions(leaf, series;
+    @test_throws ArgumentError convolved(leaf, series;
         interval = 0.5)
-    @test_throws ArgumentError convolve_distributions(leaf, series;
+    @test_throws ArgumentError convolved(leaf, series;
         interval = 2.0)
 
     # The unit-spaced default is unchanged.
-    @test convolve_distributions(leaf, series; interval = 1.0) ≈
-          convolve_distributions(leaf, series)
+    @test convolved(leaf, series; interval = 1.0) ≈
+          convolved(leaf, series)
 end
 
 @testitem "forward thin/cumulative apply on the convolved series" setup=[
@@ -174,12 +174,12 @@ end
     g = Gamma(2.0, 1.0)
 
     # thin scales the endpoint series by the factor.
-    plain = convolve_distributions(g, series)
-    thinned = convolve_distributions(thin(g, 0.3), series)
+    plain = convolved(g, series)
+    thinned = convolved(thin(g, 0.3), series)
     @test thinned ≈ 0.3 .* plain
 
     # cumulative accumulates the endpoint series.
-    cumd = convolve_distributions(cumulative(g), series)
+    cumd = convolved(cumulative(g), series)
     @test cumd ≈ cumsum(plain)
 end
 
@@ -192,7 +192,7 @@ end
 
     # Two independent thinned streams sharing the renewal origin.
     p = compose((cases = thin(dc, 0.3), deaths = thin(dd, 0.012)))
-    out = convolve_distributions(p, series; events = (:cases, :deaths))
+    out = convolved(p, series; events = (:cases, :deaths))
     @test out isa NamedTuple
     @test keys(out) == (:cases, :deaths)
     @test out.cases ≈ 0.3 .* reference_convolution(dc, series)
@@ -211,15 +211,15 @@ end
     stack = Sequential((incub,
         Parallel((thin(onset_report, 0.3), thin(onset_death, 0.012)),
             (:cases, :deaths))))
-    out = convolve_distributions(stack, series; events = (:cases, :deaths))
+    out = convolved(stack, series; events = (:cases, :deaths))
 
     # Each branch's delay is incubation convolved with the branch tail.
     @test out.cases ≈
           0.3 .* reference_convolution(
-        convolve_distributions(incub, onset_report), series)
+        convolved(incub, onset_report), series)
     @test out.deaths ≈
           0.012 .* reference_convolution(
-        convolve_distributions(incub, onset_death), series)
+        convolved(incub, onset_death), series)
 end
 
 @testitem "Resolve reduces to per-outcome thinning under convolve" setup=[
@@ -231,12 +231,12 @@ end
 
     # A real partition: death vs discharge, branch probs sum to one.
     c = resolve(:death => (d_death, 0.7), :discharge => (d_disch, 0.3))
-    out = convolve_distributions(c, series; events = (:death, :discharge))
+    out = convolved(c, series; events = (:death, :discharge))
     @test out.death ≈ 0.7 .* reference_convolution(d_death, series)
     @test out.discharge ≈ 0.3 .* reference_convolution(d_disch, series)
 
     # Partial observation: request only the observed endpoint.
-    just_death = convolve_distributions(c, series; events = :death)
+    just_death = convolved(c, series; events = :death)
     @test just_death ≈ 0.7 .* reference_convolution(d_death, series)
 end
 
@@ -244,7 +244,7 @@ end
 
 @testitem "DelayPMF masses match the rebuild-every-time delay PMF" begin
     using CensoredDistributions, Distributions
-    delay = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    delay = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     maxlag = 12
 
     pmf = CensoredDistributions.discretise_pmf(delay, maxlag)
@@ -256,18 +256,18 @@ end
     @test pmf.masses == rebuilt
 end
 
-@testitem "convolve_distributions(pmf, series) == rebuild-every-time path" setup=[
+@testitem "convolved(pmf, series) == rebuild-every-time path" setup=[
     ConvolveVectorRef] begin
     using CensoredDistributions, Distributions
     series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
-    delay = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    delay = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
 
     # The PMF needs at least `length(series) - 1` lags to cover the window; the
     # rebuild path uses exactly `length(series) - 1`.
     pmf = CensoredDistributions.discretise_pmf(delay, length(series) - 1)
 
-    built_once = convolve_distributions(pmf, series)
-    rebuilt_each = convolve_distributions(delay, series)
+    built_once = convolved(pmf, series)
+    rebuilt_each = convolved(delay, series)
 
     # Numerically IDENTICAL to the rebuild-every-time path, not just ≈.
     @test built_once == rebuilt_each
@@ -277,7 +277,7 @@ end
 @testitem "one DelayPMF reused across many series (nowcasting shape)" setup=[
     ConvolveVectorRef] begin
     using CensoredDistributions, Distributions
-    delay = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    delay = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
 
     # A vector of reference-date series; build the PMF ONCE, reuse across all.
     reference_series = [
@@ -291,7 +291,7 @@ end
     for s in reference_series
         # Each reuse equals rediscretising for that series (identical masses up
         # to the shared maxlag), so it matches the rebuild-every-time path.
-        @test convolve_distributions(pmf, s) == convolve_distributions(delay, s)
+        @test convolved(pmf, s) == convolved(delay, s)
     end
 end
 
@@ -325,5 +325,5 @@ end
 
     # A non-unit PMF cannot drive the unit-step causal convolution.
     pmf = CensoredDistributions.discretise_pmf(delay, 5; interval = 0.5)
-    @test_throws ArgumentError convolve_distributions(pmf, [0.0, 1.0, 2.0])
+    @test_throws ArgumentError convolved(pmf, [0.0, 1.0, 2.0])
 end

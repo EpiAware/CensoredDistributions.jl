@@ -670,7 +670,7 @@ convolve their inner delays, with no re-fitting.
 
 onset_to_death = let
     inner(leaf) = CensoredDistributions.free_leaf(leaf)
-    convolve_distributions(
+    convolved(
         inner(event(real_fit, :admit_path, :onset_admit)),
         inner(event(real_fit, :admit_path, :admit_resolution, :death)))
 end

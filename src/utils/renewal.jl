@@ -2,7 +2,7 @@
 # renewal(Rt, gi, I0; modulator): the renewal recurrence as a composable scan
 # ============================================================================
 #
-# `convolve_distributions(stack, series)` pushes a fixed series through a delay
+# `convolved(stack, series)` pushes a fixed series through a delay
 # stack. The renewal recurrence feeds its own output back as input:
 #
 #   I[t] = R_t * m(t) * Σ_s g_s I[t-s]
@@ -417,7 +417,7 @@ Push a renewal infection series through an observation delay to reported counts.
 `observe_renewal(infections, delay; events)` convolves the renewal output
 through a delay (a leaf, a composed [`Sequential`](@ref) stack or a precomputed
 [`DelayPMF`](@ref)) with the causal renewal convolution, returning the expected
-reported series. It is `convolve_distributions(delay, infections)` named for the
+reported series. It is `convolved(delay, infections)` named for the
 renewal pipeline: [`renewal`](@ref) produces infections, this reports them, so
 the susceptibility-modulated incidence flows through to observed cases in one
 step.
@@ -429,7 +429,7 @@ step.
 
 # Keyword Arguments
 - `events`: which event series to return for a branched stack (passed to
-  [`convolve_distributions`](@ref)); ignored for a leaf or a `DelayPMF`.
+  [`convolved`](@ref)); ignored for a leaf or a `DelayPMF`.
 
 # Examples
 ```@example
@@ -448,13 +448,13 @@ cases = observe_renewal(infections, delay)
 
 # See also
 - [`renewal`](@ref): the infection series this reports.
-- [`convolve_distributions`](@ref): the underlying convolution.
+- [`convolved`](@ref): the underlying convolution.
 "
 function observe_renewal(infections::AbstractVector, delay::DelayPMF;
         events = nothing)
-    return convolve_distributions(delay, infections)
+    return convolved(delay, infections)
 end
 
 function observe_renewal(infections::AbstractVector, delay; events = nothing)
-    return convolve_distributions(delay, infections; events = events)
+    return convolved(delay, infections; events = events)
 end

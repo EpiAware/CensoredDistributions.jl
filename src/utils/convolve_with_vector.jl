@@ -1,8 +1,8 @@
 # ============================================================================
-# convolve_distributions(stack, series): push a timeseries through a stack
+# convolved(stack, series): push a timeseries through a stack
 # ============================================================================
 #
-# A `convolve_distributions` method whose second argument is a numeric
+# A `convolved` method whose second argument is a numeric
 # timeseries vector convolves that series THROUGH a composed delay stack (the
 # delay chain) to event counts at the same times. With `series` the expected
 # events at times `0..t` (e.g. infections), the result is the expected event
@@ -10,7 +10,7 @@
 # falls out of the composed delay stack automatically.
 #
 # This reuses the existing distribution-level
-# `convolve_distributions(dists...)`: the second positional argument is
+# `convolved(dists...)`: the second positional argument is
 # `AbstractVector{<:Real}` (a numeric series), distinct from the
 # `AbstractVector{<:UnivariateDistribution}` / two-distribution forms, so the
 # renewal method and the distribution-args forms never collide.
@@ -75,7 +75,7 @@ end
 # all its leaves (their total delay). A single leaf is itself. Composed at the
 # distribution level only; no vector work here.
 function _cumulative_delay(leaves::Tuple)
-    return length(leaves) == 1 ? leaves[1] : convolve_distributions(leaves)
+    return length(leaves) == 1 ? leaves[1] : convolved(leaves)
 end
 
 # --- event specs: (name, cumulative-delay leaves, forward ops) --------------
@@ -231,13 +231,13 @@ function _find_spec(specs, name::Symbol)
     return specs[idx]
 end
 
-# --- public API: a convolve_distributions renewal method -------------------
+# --- public API: a convolved renewal method -------------------
 
 @doc "
 
 Convolve a timeseries through a composed delay stack to event counts.
 
-`convolve_distributions(stack, series)`, where `series` is a numeric timeseries
+`convolved(stack, series)`, where `series` is a numeric timeseries
 vector, discretises the stack's delay to a PMF over the unit grid and returns
 the causal discrete convolution of `series` with that PMF, truncated to the
 `series` window. With `series` the expected events at times `0, 1, ..., t` (e.g.
@@ -257,13 +257,13 @@ Only the requested events are discretised and convolved, so an unobserved prefix
 costs nothing.
 
 This method does a DIFFERENT operation from the distribution-level
-`convolve_distributions(dists...)`. That form convolves DISTRIBUTIONS together
+`convolved(dists...)`. That form convolves DISTRIBUTIONS together
 to produce a single `Convolved` distribution (the sum of independent delays).
 This form convolves a NUMERIC SERIES through a delay PMF to produce a count
 series (or a `NamedTuple` of them). They share the name but never collide: the
 numeric-vector second argument (`AbstractVector{<:Real}`) selects this renewal
 method, distinct from the `AbstractVector{<:UnivariateDistribution}` / tuple /
-two-distribution forms, so the `convolve_distributions(dists...)` forms are
+two-distribution forms, so the `convolved(dists...)` forms are
 unaffected.
 
 The stack convolution is composed at the distribution level once per requested
@@ -290,14 +290,14 @@ using CensoredDistributions, Distributions
 
 stack = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
 series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0]
-endpoint = convolve_distributions(stack, series)
+endpoint = convolved(stack, series)
 ```
 
 # See also
-- [`convolve_distributions`](@ref): the distribution-level convolution
+- [`convolved`](@ref): the distribution-level convolution
 - `_flat_event_names`: the named events a chain can produce
 "
-function convolve_distributions(stack, series::AbstractVector{<:Real};
+function convolved(stack, series::AbstractVector{<:Real};
         events = nothing, interval = 1.0)
     # The causal convolution shifts the series by integer SERIES steps, so the
     # PMF bin width must equal the series time-step. `series` is unit-spaced
@@ -372,7 +372,7 @@ nowcasting build-once optimisation: discretise the delay once, then convolve or
 look it up across the whole reference-date vector.
 
 Build it with [`discretise_pmf`](@ref); apply it with
-`convolve_distributions(pmf, series)` (the causal renewal convolution) or look up
+`convolved(pmf, series)` (the causal renewal convolution) or look up
 masses at integer lags with `pdf(pmf, lags)`. The object is immutable and carries
 no mutable cache: the masses keep the delay's parameter type, so the build and
 every reuse differentiate cleanly, and a parameter change is handled by building
@@ -384,7 +384,7 @@ a fresh object (never a stale memo).
 
 # See also
 - [`discretise_pmf`](@ref): the build-once constructor.
-- [`convolve_distributions`](@ref): apply the PMF across a series.
+- [`convolved`](@ref): apply the PMF across a series.
 "
 struct DelayPMF{V <: AbstractVector, I <: Real}
     "The discretised interval masses over the grid `0..maxlag`."
@@ -415,12 +415,12 @@ vector of evaluation points.
 [`interval_censored`](@ref) interval masses of `delay` on the grid
 ``[0, 1), \dots, [\text{maxlag}, \text{maxlag} + 1)`` (scaled by `interval`),
 returning a precomputed [`DelayPMF`](@ref) the caller passes into
-`convolve_distributions(pmf, series)` or `pdf(pmf, lags)`. Building it once and
+`convolved(pmf, series)` or `pdf(pmf, lags)`. Building it once and
 reusing it avoids rediscretising the delay per reference date / per record — the
 nowcasting build-once optimisation.
 
 The masses are EXACTLY those the rebuild-every-time
-`convolve_distributions(delay, series)` path computes (raw interval
+`convolved(delay, series)` path computes (raw interval
 probabilities, no renormalise, no interpolation), so a prebuilt PMF gives
 numerically identical results. The masses keep the delay's parameter type, so the
 discretisation differentiates w.r.t. the delay parameters; a parameter change is
@@ -439,18 +439,18 @@ handled by calling `discretise_pmf` again (there is no stale cache).
 ```@example
 using CensoredDistributions, Distributions
 
-delay = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+delay = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
 # Build the delay PMF ONCE for a 30-day reference window.
 pmf = CensoredDistributions.discretise_pmf(delay, 30)
 
 # Reuse it across many reference-date series without rediscretising.
 infections = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
-counts = convolve_distributions(pmf, infections)
+counts = convolved(pmf, infections)
 ```
 
 # See also
 - [`DelayPMF`](@ref): the precomputed-PMF object.
-- [`convolve_distributions`](@ref): apply the PMF across a series.
+- [`convolved`](@ref): apply the PMF across a series.
 "
 function discretise_pmf(delay::UnivariateDistribution, maxlag::Integer;
         interval::Real = 1.0)
@@ -463,8 +463,8 @@ end
 Apply a precomputed [`DelayPMF`](@ref) across a timeseries with the causal
 renewal convolution, reusing the build-once PMF.
 
-`convolve_distributions(pmf, series)` is the same causal, window-truncated
-convolution as `convolve_distributions(delay, series)` but takes a PMF that was
+`convolved(pmf, series)` is the same causal, window-truncated
+convolution as `convolved(delay, series)` but takes a PMF that was
 discretised ONCE (via [`discretise_pmf`](@ref)) instead of rebuilding it. The
 result is numerically identical to the rebuild-every-time path when the PMF was
 built from the same `delay`. This is the nowcasting build-once path: discretise
@@ -478,9 +478,9 @@ the delay once, then push every reference-date series through the same PMF.
 - [`discretise_pmf`](@ref): build the PMF once.
 - [`DelayPMF`](@ref): the precomputed-PMF object.
 "
-function convolve_distributions(pmf::DelayPMF, series::AbstractVector{<:Real})
+function convolved(pmf::DelayPMF, series::AbstractVector{<:Real})
     isone(pmf.interval) || throw(ArgumentError(
-        "convolve_distributions(pmf, series) needs a unit-spaced PMF: the " *
+        "convolved(pmf, series) needs a unit-spaced PMF: the " *
         "causal convolution shifts by integer series steps, so a PMF grid " *
         "width other than 1 conflates the discretisation width with the " *
         "series time-step. Got interval = $(pmf.interval)."))

@@ -79,7 +79,7 @@ end
 Create the distribution of a difference of two independent variables.
 
 Returns a [`Difference`](@ref) representing ``Z = X - Y``. This is the dual
-of [`convolve_distributions`](@ref): a convolution forms the sum of two
+of [`convolved`](@ref): a convolution forms the sum of two
 delays, a difference the signed gap between two events. The support of `Z`
 can be negative, so `Z` is an observation or derived quantity rather than a
 non-negative delay leaf (see [`Difference`](@ref) for why the delay
@@ -96,7 +96,7 @@ censoring wrappers do not apply).
 # Keyword Arguments
 - `method`: The solver method, an [`AnalyticalSolver`](@ref) (the default)
   or [`NumericSolver`](@ref). `NumericSolver` forces numeric quadrature
-  even for a `Normal`-`Normal` pair, mirroring `convolve_distributions`.
+  even for a `Normal`-`Normal` pair, mirroring `convolved`.
 
 # Examples
 ```@example
@@ -109,7 +109,7 @@ mean(d)
 
 # See also
 - [`Difference`](@ref): The distribution type
-- [`convolve_distributions`](@ref): The dual sum ``X + Y``
+- [`convolved`](@ref): The dual sum ``X + Y``
 "
 function difference(x::UnivariateDistribution, y::UnivariateDistribution;
         method::AbstractSolverMethod = AnalyticalSolver())

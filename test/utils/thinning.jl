@@ -7,7 +7,7 @@
     end
 
     # Works on a Convolved chain too.
-    chain = convolve_distributions(Gamma(2.0, 1.0), LogNormal(1.0, 0.4))
+    chain = convolved(Gamma(2.0, 1.0), LogNormal(1.0, 0.4))
     for w in (5.0, 14.0, 30.0)
         @test completeness_probability(chain, w) == cdf(chain, w)
     end
@@ -22,8 +22,8 @@ end
         @test thin_by_completeness(R, d, w) == R * cdf(d, w)
     end
 
-    # Convolved chain: R * cdf(convolve_distributions(...), window).
-    chain = convolve_distributions(Gamma(2.0, 1.0), LogNormal(1.0, 0.4))
+    # Convolved chain: R * cdf(convolved(...), window).
+    chain = convolved(Gamma(2.0, 1.0), LogNormal(1.0, 0.4))
     @test thin_by_completeness(R, chain, 14.0) == R * cdf(chain, 14.0)
 
     # Thinning by a complete (large) horizon leaves R essentially unchanged.
@@ -43,7 +43,7 @@ end
 
     # Works on a Convolved chain, and stays finite where the linear-space
     # completeness underflows to zero.
-    chain = convolve_distributions(Normal(0.0, 1.0), LogNormal(3.0, 0.3))
+    chain = convolved(Normal(0.0, 1.0), LogNormal(3.0, 0.3))
     for w in (5.0, 14.0, 30.0)
         @test log_completeness_probability(chain, w) == logcdf(chain, w)
     end
@@ -70,7 +70,7 @@ end
 
     # The log-space form keeps the thinned rate strictly positive even when the
     # completeness underflows, where the linear form collapses to exactly zero.
-    chain = convolve_distributions(Normal(0.0, 1.0), LogNormal(3.5, 0.3))
+    chain = convolved(Normal(0.0, 1.0), LogNormal(3.5, 0.3))
     lr = log_thin_by_completeness(log(2.3), chain, 3.0)
     @test isfinite(lr)
     @test exp(lr) > 0
@@ -90,7 +90,7 @@ end
     #      p = cdf(inc ⊕ delta, window).
     inc = LogNormal(3.06, 0.32)
     delta = Normal(0.17, 0.62)
-    chain = convolve_distributions(delta, inc)
+    chain = convolved(delta, inc)
 
     R = 2.3
     for window in (37.0, 63.0, 102.0)
@@ -100,7 +100,7 @@ end
         @test index_norm ≈ -logcdf(inc, window) atol=1e-10
 
         # Sourced convolved-chain denominator: the tutorial scores
-        # -log(completeness_probability(convolve_distributions(delta, inc), w)).
+        # -log(completeness_probability(convolved(delta, inc), w)).
         sourced_norm = -log(completeness_probability(chain, window))
         @test completeness_probability(chain, window) == cdf(chain, window)
         @test sourced_norm ≈ -logcdf(chain, window) atol=1e-8

@@ -452,9 +452,8 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
     # and math are unchanged.
     #
     # Numeric scenarios use the type-stable `method = NumericSolver()`
-    # route: the deprecated `force_numeric` flag returns a `Union`-typed
-    # solver here, which breaks Enzyme forward. `NumericSolver` is
-    # qualified because these fixtures are also staged against the `main`
+    # route, which keeps the solver field concretely typed. `NumericSolver`
+    # is qualified because these fixtures are also staged against the `main`
     # baseline during benchmarking; `benchmark/src/ad_gradients.jl` guards
     # scenario construction so that baseline (which lacks the `method`
     # keyword) skips the AD suite instead of aborting.
@@ -911,18 +910,18 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
     # AD-safe numeric quadrature path (the same fixed-domain Gauss-Legendre
     # construction as PrimaryCensored). Literal constructors keep Enzyme
     # forward working.
-    # Guarded on `convolve_distributions` existing: AirspeedVelocity benchmarks
+    # Guarded on `convolved` existing: AirspeedVelocity benchmarks
     # the PR against the `main` baseline, building the baseline package
     # while still loading this (PR-tree) fixtures module. Referencing
-    # `convolve_distributions` unconditionally would throw `UndefVarError` on the
+    # `convolved` unconditionally would throw `UndefVarError` on the
     # baseline, where it does not yet exist. The guard lets the baseline
     # skip these scenarios and the PR include them.
-    if isdefined(CensoredDistributions, :convolve_distributions)
+    if isdefined(CensoredDistributions, :convolved)
         _push!("Convolved Normal+Normal analytical",
             (θ,
                 obs) -> sum(
                 x -> logpdf(
-                    CensoredDistributions.convolve_distributions(
+                    CensoredDistributions.convolved(
                         Normal(θ[1], θ[2]), Normal(0.0, 1.0)), x),
                 obs),
             [1.0, 2.0], (Constant(obs),))
@@ -930,7 +929,7 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
             (θ,
                 obs) -> sum(
                 x -> logpdf(
-                    CensoredDistributions.convolve_distributions(
+                    CensoredDistributions.convolved(
                         Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), x),
                 obs),
             [2.0, 1.0], (Constant(obs),))
@@ -947,7 +946,7 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
             (θ,
                 obs) -> sum(
                 x -> logpdf(
-                    CensoredDistributions.convolve_distributions(
+                    CensoredDistributions.convolved(
                         LogNormal(0.5, 0.4), Gamma(θ[1], θ[2])), x),
                 obs),
             [2.0, 1.0], (Constant(obs),))
@@ -959,7 +958,7 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
         # covers each moment path.
         _push!("Convolved Gamma+Normal mean+var moments",
             (θ,
-                _obs) -> let d = CensoredDistributions.convolve_distributions(
+                _obs) -> let d = CensoredDistributions.convolved(
                     Gamma(θ[1], θ[2]), Normal(θ[3], θ[4]))
                 mean(d) + var(d)
             end,
@@ -1031,12 +1030,12 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
                 _obs) -> CensoredDistributions.thin_by_completeness(
                 θ[1], LogNormal(θ[2], θ[3]), 7.0),
             [1.5, 1.5, 0.5], (Constant(obs),))
-        if isdefined(CensoredDistributions, :convolve_distributions)
+        if isdefined(CensoredDistributions, :convolved)
             _push!("thin_by_completeness Convolved chain",
                 (θ,
                     _obs) -> CensoredDistributions.thin_by_completeness(
                     θ[1],
-                    CensoredDistributions.convolve_distributions(
+                    CensoredDistributions.convolved(
                         Gamma(θ[2], θ[3]), LogNormal(0.5, 0.4)),
                     14.0),
                 [1.5, 2.0, 1.0], (Constant(obs),))
@@ -1061,14 +1060,14 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
     # infinite upper endpoint with a quantile of the LAST component, so a
     # trailing LogNormal keeps Enzyme off `gamma_inc_inv_qsmall` (a known
     # Enzyme illegal-type-analysis failure on Gamma quantile inversion).
-    # Guarded on `convolve_distributions` for the AirspeedVelocity baseline.
-    if isdefined(CensoredDistributions, :convolve_distributions)
+    # Guarded on `convolved` for the AirspeedVelocity baseline.
+    if isdefined(CensoredDistributions, :convolved)
         _push!("Truncated Convolved chain right-truncation",
             (θ,
                 obs) -> sum(
                 x -> logpdf(
                     truncated(
-                        CensoredDistributions.convolve_distributions(
+                        CensoredDistributions.convolved(
                             Gamma(2.0, 1.0), LogNormal(θ[1], θ[2]));
                         upper = 8.0), x),
                 obs),

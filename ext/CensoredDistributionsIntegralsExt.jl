@@ -4,7 +4,7 @@ module CensoredDistributionsIntegralsExt
 #
 # Loading Integrals.jl adds an `integrate` method for any Integrals.jl
 # algorithm, so a user can pass e.g. `QuadGKJL()` or `HCubatureJL()` as the
-# `solver` to `primary_censored`/`convolve_distributions` and have that
+# `solver` to `primary_censored`/`convolved` and have that
 # integral routed through an `IntegralProblem`/`solve`. Without this
 # extension the package uses its lightweight default `GaussLegendre`
 # solver and never touches Integrals.jl.

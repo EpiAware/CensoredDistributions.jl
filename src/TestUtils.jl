@@ -40,7 +40,7 @@ using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
                                double_interval_censored, primary_censored,
                                interval_censored, resolve, compete,
                                affine, modify, weight, thin, difference,
-                               convolve_distributions,
+                               convolved,
                                from_moments, MomentParams,
                                Affine, Modified, Weighted, Transformed,
                                Convolved, Difference, ExponentiallyTilted,
@@ -716,10 +716,10 @@ function example_fixtures()
         [1.5, 0.5])
     # Convolved: the sum of two independent delays, a univariate leaf with a
     # closed-form (additive) mean.
-    conv = convolve_distributions(G(2.0, 1.0), LN(0.5, 0.4))
+    conv = convolved(G(2.0, 1.0), LN(0.5, 0.4))
     conv_ad = (
         θ -> Distributions.logpdf(
-            convolve_distributions(G(θ[1], θ[2]), LN(0.5, 0.4)), 3.0),
+            convolved(G(θ[1], θ[2]), LN(0.5, 0.4)), 3.0),
         [2.0, 1.0])
     # Difference: Z = X - Y, two-sided (possibly negative) support, a derived
     # observation rather than a delay leaf. Its mean is the difference of means.
@@ -774,7 +774,7 @@ function example_fixtures()
     # and a delay. The plain second component keeps the convolution CDF
     # analytic / monotone (a double-censored second component adds quadrature
     # noise in the saturated tail — exercised by the dic fixtures already).
-    conv_composed = convolve_distributions(
+    conv_composed = convolved(
         affine(G(1.5, 2.0); shift = 0.5), LN(0.5, 0.4))
     # Right-truncation of a composed chain's observed TOTAL: the chain is
     # collapsed to its scalar combine-then-censor total via
