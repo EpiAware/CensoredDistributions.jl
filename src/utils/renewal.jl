@@ -2,33 +2,34 @@
 # renewal(Rt, gi, I0; modulator): the renewal recurrence as a composable scan
 # ============================================================================
 #
-# `convolve_distributions(stack, series)` pushes a FIXED series through a delay
-# stack. The renewal RECURRENCE feeds its own output back as input:
+# `convolve_distributions(stack, series)` pushes a fixed series through a delay
+# stack. The renewal recurrence feeds its own output back as input:
 #
 #   I[t] = R_t * m(t) * Σ_s g_s I[t-s]
 #
 # so it cannot be a single convolution call. This is a small forward scan that
-# reuses the same causal-convolution arithmetic ONE OUTPUT STEP AT A TIME: the
+# reuses the same causal-convolution arithmetic one output step at a time: the
 # generation-weighted sum `Σ_s g_s I[t-s]` is `_renewal_force`, the per-step
 # analogue of `_causal_convolve`, evaluated against the infections built so far.
 #
-# The force of infection is then scaled by a composable MODULATOR. A modulator
+# The force of infection is then scaled by a composable modulator. A modulator
 # is any callable `m(state, t, force) -> (factor, state')`: it returns the
 # multiplicative factor at time `t` and an updated carry-state for the next
 # step. The default carries nothing and returns `1` (a bare renewal). The
-# susceptibility-depletion modulator carries the remaining susceptible pool and
-# returns `S[t]/N`, giving the SIR-style renewal `I[t] = R_t (S[t]/N) Σ g_s I`.
-# Modulators COMPOSE: `combine_modulators(a, b)` multiplies their factors and
-# threads both carry-states, so transmissibility / susceptibility / immunity
-# terms stack rather than living in one monolithic recurrence.
+# shipped modulators are susceptibility depletion (a depleting susceptible
+# pool), transmissibility (a per-step deterministic factor) and immunity waning
+# (an immune pool that grows with infections and decays). Modulators compose:
+# `combine_modulators(a, b)` multiplies their factors and threads both
+# carry-states, so transmissibility, susceptibility and immunity terms stack
+# rather than living in one monolithic recurrence.
 #
 # AD-safety. The scan is linear in the infection history and the modulator
 # factors, and `gi` enters as a plain PMF vector (built by `interval_censored`
 # / `discretise_pmf`, the AD-safe discretisation), so gradients flow w.r.t. Rt,
-# the generation-interval parameters and the modulator parameters (N, etc.)
-# under ForwardDiff / ReverseDiff / Mooncake. The accumulator element type is
-# promoted across Rt, the PMF, the seed and the modulator state so Dual /
-# tracked numbers propagate.
+# the generation-interval parameters and the modulator parameters under
+# ForwardDiff / ReverseDiff / Mooncake. The accumulator element type is promoted
+# across Rt, the PMF, the seed and the modulator state so Dual / tracked numbers
+# propagate.
 
 # --- the per-step force of infection Σ_s g_s I[t-s] ------------------------
 
@@ -55,17 +56,26 @@ _gi_weights(g::DelayPMF) = @view g.masses[2:end]
 # --- modulators: composable per-step force multipliers ----------------------
 
 @doc raw"
-A renewal modulator that scales the force of infection by a constant factor.
+The identity renewal modulator: leave the force of infection unscaled.
 
 `renewal` modulators are callables `m(state, t, force) -> (factor, state')`
-returning the multiplicative factor at time `t` and a carry-state for the next
-step. `NoModulation()` is the identity: factor `1`, no carry. It is the default,
-giving the bare renewal `I[t] = R_t Σ_s g_s I[t-s]`.
+returning the multiplicative factor at step `t` and a carry-state for the next
+step. `NoModulation()` returns factor `1` and carries nothing, giving the bare
+renewal `I[t] = R_t \sum_s g_s I[t-s]`. It is the default modulator.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+gi = pdf(interval_censored(truncated(Gamma(2.5, 1.3); lower = 1.0,
+    upper = 12.0), 1.0), 1:12)
+infections = renewal(fill(1.3, 40), gi, 10.0; modulator = NoModulation())
+```
 
 # See also
 - [`renewal`](@ref): the renewal scan.
-- [`susceptibility_depletion`](@ref): the SIR-style depleting-susceptible
-  modulator.
+- [`susceptibility_depletion`](@ref): a depleting-susceptible modulator.
+- [`combine_modulators`](@ref): stack several modulators.
 "
 struct NoModulation end
 
@@ -84,33 +94,31 @@ I[t] = R_t \, \frac{S[t-1]}{N} \, \sum_s g_s I[t-s], \qquad
 S[t] = S[t-1] - I[t].
 ```
 
-The factor uses `S` BEFORE the current step's infections are removed (the pool
+The factor uses `S` before the current step's infections are removed (the pool
 available to infect at `t`); the carry-state is the post-step `S[t]`. Pass it to
 [`renewal`](@ref) as the `modulator` keyword.
 
 # Arguments
-- `N`: the population size; the initial susceptible pool is `N - I0` unless an
-  explicit `S0` is given.
+- `N`: the population size; the susceptible fraction is `S/N`.
 
 # Keyword Arguments
-- `S0`: the initial susceptible pool (default `N`); the seed infections are
-  removed from it by `renewal` before the recurrence starts.
+- `S0`: the initial susceptible pool (default `N`); `renewal` removes the seed
+  infections from it before the recurrence starts.
 
 # Examples
 ```@example
 using CensoredDistributions, Distributions
-using CensoredDistributions: renewal, susceptibility_depletion
 
 gi = pdf(interval_censored(truncated(Gamma(2.5, 1.3); lower = 1.0,
     upper = 12.0), 1.0), 1:12)
-Rt = fill(1.5, 60)
-infections = renewal(Rt, gi, 10.0;
+infections = renewal(fill(1.5, 60), gi, 10.0;
     modulator = susceptibility_depletion(1.0e5))
 ```
 
 # See also
 - [`renewal`](@ref): the renewal scan.
-- [`NoModulation`](@ref): the identity modulator.
+- [`immunity_waning`](@ref): a depleting pool that recovers over time.
+- [`combine_modulators`](@ref): stack several modulators.
 "
 struct SusceptibilityDepletion{T <: Real}
     N::T
@@ -123,15 +131,119 @@ function susceptibility_depletion(N::Real; S0::Real = N)
 end
 
 # The carry-state is the running susceptible pool. The factor is the fraction
-# susceptible BEFORE this step infects; the pool then loses this step's
+# susceptible before this step infects; the pool then loses this step's
 # infections. `force` is the generation-weighted sum already scaled by R_t, i.e.
-# this step's new infections.
+# this step's new infections. The fraction is floored at zero so a depleted pool
+# never drives the force negative (the pool cannot go below zero), keeping the
+# expected counts non-negative under sampling.
 function (m::SusceptibilityDepletion)(S, t, force)
-    factor = S / m.N
+    factor = max(S / m.N, zero(S))
     return factor, S - factor * force
 end
 
 _modulator_init(m::SusceptibilityDepletion) = m.S0
+
+@doc raw"
+A renewal modulator that scales the force of infection by a per-step factor.
+
+Multiplies the force at step `t` by a deterministic transmissibility `β[t]`,
+the channel for seasonal forcing, interventions or a contact-rate path. The
+factor carries no state, so it composes cleanly with the depleting / waning
+modulators.
+
+# Arguments
+- `beta`: the transmissibility factor — a scalar applied at every step, or a
+  per-step vector read at index `t` (which must cover the horizon).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+gi = pdf(interval_censored(truncated(Gamma(2.5, 1.3); lower = 1.0,
+    upper = 12.0), 1.0), 1:12)
+season = 1.0 .+ 0.3 .* sinpi.((1:60) ./ 30)
+infections = renewal(fill(1.4, 60), gi, 10.0;
+    modulator = transmissibility(season))
+```
+
+# See also
+- [`renewal`](@ref): the renewal scan.
+- [`combine_modulators`](@ref): stack with susceptibility / immunity.
+"
+struct Transmissibility{B}
+    beta::B
+end
+
+transmissibility(beta) = Transmissibility(beta)
+
+# A scalar factor applies at every step; a vector is read at step `t`.
+_beta_at(beta::Real, t) = beta
+_beta_at(beta::AbstractVector, t) = @inbounds beta[t]
+
+(m::Transmissibility)(state, t, force) = (_beta_at(m.beta, t), state)
+_modulator_init(::Transmissibility) = nothing
+
+@doc raw"
+A renewal modulator that builds an immune pool which grows and wanes (SIRS).
+
+Scales the force of infection by the susceptible fraction `1 - Z[t-1]/N`, where
+`Z` is an immune pool that grows by each step's infections and decays
+geometrically at rate `omega` (waning immunity):
+
+```math
+I[t] = R_t \, \Bigl(1 - \frac{Z[t-1]}{N}\Bigr) \sum_s g_s I[t-s], \qquad
+Z[t] = (1 - \omega)\,Z[t-1] + I[t].
+```
+
+With `omega = 0` no immunity is lost and this matches permanent depletion
+([`susceptibility_depletion`](@ref) with `S0 = N`); with `omega > 0` recovered
+individuals return to the susceptible pool over time.
+
+# Arguments
+- `N`: the population size; the susceptible fraction is `1 - Z/N`.
+- `omega`: the per-step waning rate in `[0, 1]` (`0` no waning, `1` immediate
+  loss of immunity).
+
+# Keyword Arguments
+- `Z0`: the initial immune pool (default `0`).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+gi = pdf(interval_censored(truncated(Gamma(2.5, 1.3); lower = 1.0,
+    upper = 12.0), 1.0), 1:12)
+infections = renewal(fill(1.6, 120), gi, 10.0;
+    modulator = immunity_waning(1.0e5, 0.02))
+```
+
+# See also
+- [`renewal`](@ref): the renewal scan.
+- [`susceptibility_depletion`](@ref): the no-waning (permanent) limit.
+- [`combine_modulators`](@ref): stack several modulators.
+"
+struct ImmunityWaning{T <: Real}
+    N::T
+    omega::T
+    Z0::T
+end
+
+function immunity_waning(N::Real, omega::Real; Z0::Real = zero(N))
+    T = promote_type(typeof(N), typeof(omega), typeof(Z0))
+    return ImmunityWaning{T}(T(N), T(omega), T(Z0))
+end
+
+# The carry-state is the immune pool. The factor is the susceptible fraction
+# before this step infects; the pool then wanes and gains this step's
+# infections. The fraction is floored at zero so a saturated immune pool never
+# drives the force negative.
+function (m::ImmunityWaning)(Z, t, force)
+    factor = max(1 - Z / m.N, zero(Z))
+    infections = factor * force
+    return factor, (1 - m.omega) * Z + infections
+end
+
+_modulator_init(m::ImmunityWaning) = m.Z0
 
 # --- composing modulators ---------------------------------------------------
 
@@ -146,9 +258,13 @@ end
 Compose two renewal modulators into one.
 
 `combine_modulators(a, b)` returns a modulator whose factor is the product of
-the two factors and whose carry-state threads both, so transmissibility /
-susceptibility / immunity terms STACK rather than living in one monolithic
+the two factors and whose carry-state threads both, so transmissibility,
+susceptibility and immunity terms stack rather than living in one monolithic
 recurrence. Composition nests, so any number of modulators combine.
+
+The factors multiply and each modulator keeps its own carry-state, so the result
+does not depend on the pairing order (the product is commutative and the states
+are independent).
 
 # Arguments
 - `a`: the first modulator.
@@ -157,20 +273,20 @@ recurrence. Composition nests, so any number of modulators combine.
 # Examples
 ```@example
 using CensoredDistributions, Distributions
-using CensoredDistributions: renewal, susceptibility_depletion,
-                             combine_modulators, NoModulation
 
 gi = pdf(interval_censored(truncated(Gamma(2.5, 1.3); lower = 1.0,
     upper = 12.0), 1.0), 1:12)
-Rt = fill(1.3, 40)
-# Susceptibility depletion stacked with the identity equals depletion alone.
-m = combine_modulators(susceptibility_depletion(1.0e5), NoModulation())
-infections = renewal(Rt, gi, 10.0; modulator = m)
+season = 1.0 .+ 0.2 .* sinpi.((1:80) ./ 40)
+# Transmissibility forcing stacked with a depleting susceptible pool.
+m = combine_modulators(transmissibility(season),
+    susceptibility_depletion(1.0e5))
+infections = renewal(fill(1.5, 80), gi, 10.0; modulator = m)
 ```
 
 # See also
 - [`renewal`](@ref): the renewal scan.
-- [`susceptibility_depletion`](@ref): a depleting-susceptible modulator.
+- [`susceptibility_depletion`](@ref), [`transmissibility`](@ref),
+  [`immunity_waning`](@ref): the shipped modulators.
 "
 combine_modulators(a, b) = ComposedModulator(a, b)
 
@@ -202,10 +318,11 @@ fixed to the seed `I0` to give the recurrence history to build on; the
 recurrence then runs from `seed_days + 1`.
 
 The `modulator` is a composable per-step force multiplier (see
-[`NoModulation`](@ref), the default). [`susceptibility_depletion`](@ref) gives
-the SIR-style renewal; [`combine_modulators`](@ref) stacks several. This is the
-recurrence the rt-renewal tutorial hand-rolls; with the default modulator the
-two agree exactly.
+[`NoModulation`](@ref), the default). [`susceptibility_depletion`](@ref),
+[`transmissibility`](@ref) and [`immunity_waning`](@ref) are the shipped
+modulators; [`combine_modulators`](@ref) stacks several. Feed the infection
+series through an observation delay with [`observe_renewal`](@ref) to score
+reported counts.
 
 # Arguments
 - `Rt`: the per-step reproduction number (length sets the horizon).
@@ -215,12 +332,12 @@ two agree exactly.
 
 # Keyword Arguments
 - `modulator`: a per-step force modulator (default [`NoModulation`](@ref)).
-- `seed_days`: the number of seeded steps (default `length(gi_weights)`).
+- `seed_days`: the number of seeded steps (default the generation-interval
+  length).
 
 # Examples
 ```@example
 using CensoredDistributions, Distributions
-using CensoredDistributions: renewal, susceptibility_depletion
 
 gi = pdf(interval_censored(truncated(Gamma(2.5, 1.3); lower = 1.0,
     upper = 12.0), 1.0), 1:12)
@@ -232,9 +349,10 @@ sir = renewal(Rt, gi, 10.0; modulator = susceptibility_depletion(1.0e5))
 ```
 
 # See also
-- [`susceptibility_depletion`](@ref): the depleting-susceptible modulator.
+- [`susceptibility_depletion`](@ref), [`transmissibility`](@ref),
+  [`immunity_waning`](@ref): the shipped modulators.
 - [`combine_modulators`](@ref): stack several modulators.
-- [`convolve_distributions`](@ref): the fixed-series convolution layer.
+- [`observe_renewal`](@ref): push infections through an observation delay.
 "
 function renewal(Rt::AbstractVector, gi, I0::Real;
         modulator = NoModulation(),
@@ -268,9 +386,9 @@ _state_eltype(::Nothing) = Bool
 _state_eltype(x::Real) = typeof(x)
 _state_eltype(x::Tuple) = promote_type(map(_state_eltype, x)...)
 
-# Remove the seed infections from a depleting modulator's pool before the
-# recurrence starts, so `S` enters step `seed + 1` already net of the seed. A
-# modulator with no depletion (no carry) is unchanged.
+# Update a depleting / waning modulator's pool for the seed infections before
+# the recurrence starts, so the carry-state enters step `seed + 1` already net
+# of the seed. A stateless modulator (no carry) is unchanged.
 _seed_modulator(::Any, ::Nothing, I, seed) = nothing
 function _seed_modulator(m::SusceptibilityDepletion, S0, I, seed)
     s = S0
@@ -279,7 +397,64 @@ function _seed_modulator(m::SusceptibilityDepletion, S0, I, seed)
     end
     return s
 end
+function _seed_modulator(m::ImmunityWaning, Z0, I, seed)
+    z = Z0
+    @inbounds for t in 1:seed
+        z = (1 - m.omega) * z + I[t]
+    end
+    return z
+end
 function _seed_modulator(m::ComposedModulator, state, I, seed)
     return (_seed_modulator(m.a, state[1], I, seed),
         _seed_modulator(m.b, state[2], I, seed))
+end
+
+# --- the renewal -> observation bridge --------------------------------------
+
+@doc raw"
+Push a renewal infection series through an observation delay to reported counts.
+
+`observe_renewal(infections, delay; events)` convolves the renewal output
+through a delay (a leaf, a composed [`Sequential`](@ref) stack or a precomputed
+[`DelayPMF`](@ref)) with the causal renewal convolution, returning the expected
+reported series. It is `convolve_distributions(delay, infections)` named for the
+renewal pipeline: [`renewal`](@ref) produces infections, this reports them, so
+the susceptibility-modulated incidence flows through to observed cases in one
+step.
+
+# Arguments
+- `infections`: the renewal infection series (the [`renewal`](@ref) output).
+- `delay`: the observation delay — a univariate leaf, a composed delay stack, or
+  a precomputed [`DelayPMF`](@ref).
+
+# Keyword Arguments
+- `events`: which event series to return for a branched stack (passed to
+  [`convolve_distributions`](@ref)); ignored for a leaf or a `DelayPMF`.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+gi = pdf(interval_censored(truncated(Gamma(2.5, 1.3); lower = 1.0,
+    upper = 12.0), 1.0), 1:12)
+infections = renewal(fill(1.4, 60), gi, 10.0;
+    modulator = susceptibility_depletion(1.0e5))
+
+# Report through an incubation-to-onset delay, thinned by ascertainment.
+delay = thin(double_interval_censored(Gamma(1.8, 1.4); upper = 20.0,
+    interval = 1.0), 0.4)
+cases = observe_renewal(infections, delay)
+```
+
+# See also
+- [`renewal`](@ref): the infection series this reports.
+- [`convolve_distributions`](@ref): the underlying convolution.
+"
+function observe_renewal(infections::AbstractVector, delay::DelayPMF;
+        events = nothing)
+    return convolve_distributions(delay, infections)
+end
+
+function observe_renewal(infections::AbstractVector, delay; events = nothing)
+    return convolve_distributions(delay, infections; events = events)
 end

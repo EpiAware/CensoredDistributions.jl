@@ -20,6 +20,7 @@ getting_started_pages = Any[
             "Branching-process competing outcomes" => "getting-started/tutorials/branching-competing.md",
             "Pairwise survival of transmission" => "getting-started/tutorials/pairwise-survival-transmission.md",
             "Rt renewal with delay convolution" => "getting-started/tutorials/rt-renewal-convolution.md",
+            "Susceptibility-depleting renewal" => "getting-started/tutorials/renewal-susceptibility.md",
             "Epinowcast-style hazard nowcasting" => "getting-started/tutorials/epinowcast-nowcasting.md",
             "Composed delays as compartments" => "getting-started/tutorials/linear-chain-sir.md"
         ]

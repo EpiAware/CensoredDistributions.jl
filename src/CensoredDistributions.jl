@@ -84,6 +84,14 @@ export Affine, affine
 # stack to selected event series), so it needs no separate export.
 export convolve_distributions
 
+# Exported renewal recurrence: the renewal scan and its composable force
+# modulators. `renewal` runs `I[t] = R_t m(t) Σ_s g_s I[t-s]` as a forward scan;
+# the modulators (`NoModulation`, `susceptibility_depletion`, `transmissibility`,
+# `immunity_waning`) compose via `combine_modulators`; `observe_renewal` reports
+# the infections through an observation delay.
+export renewal, NoModulation, susceptibility_depletion, transmissibility,
+       immunity_waning, combine_modulators, observe_renewal
+
 # Exported generic composers and front-end constructors. `resolve(...)` builds
 # the fixed-probability mixture `Resolve` (a branch probability per outcome);
 # `compete(...)` builds the racing-hazard `Compete` (bare delays). `NoEvent`
@@ -169,7 +177,7 @@ export Transformed, transform, thin, cumulative
 # the core stays Turing-free.
 export primary_censored_model, interval_censored_model,
        double_interval_censored_model, composed_distribution_model,
-       composed_parameters_model
+       composed_parameters_model, renewal_model
 
 # Exported linear chain trick lowering: read the (rate, stages) Erlang-stage
 # compartment structure off an Exponential/Erlang delay or Sequential chain, the

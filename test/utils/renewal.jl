@@ -5,10 +5,6 @@
 
 @testsnippet RenewalRef begin
     using CensoredDistributions, Distributions
-    # The renewal surface is public but unexported (pending the #611 scope
-    # decision), so bring the names in explicitly.
-    using CensoredDistributions: renewal, susceptibility_depletion,
-                                 combine_modulators, NoModulation
 
     # The rt-renewal tutorial's hand-rolled loop, verbatim. The bare renewal
     # scan must reproduce it bit for bit.
@@ -102,4 +98,65 @@ end
     @test all(out[1:5] .== I0)
     # A shorter seed than the generation interval still runs (history fills in).
     @test length(renewal(Rt, gi, I0; seed_days = 3)) == length(Rt)
+end
+
+@testitem "transmissibility scales the force" setup=[RenewalRef] begin
+    # A constant transmissibility c is exactly scaling Rt by c.
+    c = 0.8
+    out = renewal(Rt, gi, I0; modulator = transmissibility(c))
+    @test out ≈ renewal(c .* Rt, gi, I0)
+    # A per-step vector reads at each step.
+    beta = range(0.5, 1.5; length = length(Rt))
+    vec_out = renewal(Rt, gi, I0; modulator = transmissibility(collect(beta)))
+    @test vec_out ≈ renewal(collect(beta) .* Rt, gi, I0)
+end
+
+@testitem "immunity waning at omega=0 equals permanent depletion" setup=[
+    RenewalRef] begin
+    N = 1.0e5
+    waning0 = renewal(Rt, gi, I0; modulator = immunity_waning(N, 0.0))
+    depletion = renewal(Rt, gi, I0; modulator = susceptibility_depletion(N))
+    @test waning0 ≈ depletion
+    # With omega > 0 immunity is lost, so the series differs.
+    waning = renewal(Rt, gi, I0; modulator = immunity_waning(N, 0.05))
+    @test !(waning ≈ depletion)
+    @test all(isfinite, waning)
+end
+
+@testitem "modulators stack and the pairing order does not matter" setup=[
+    RenewalRef] begin
+    # Transmissibility x susceptibility x immunity all compose, and because the
+    # factors multiply and the carry-states are independent the result is
+    # invariant to the pairing order.
+    N = 5.0e4
+    season = 1.0 .+ 0.2 .* sinpi.((1:length(Rt)) ./ 20)
+    tm = transmissibility(collect(season))
+    sd = susceptibility_depletion(N)
+    iw = immunity_waning(N, 0.03)
+
+    left = combine_modulators(combine_modulators(tm, sd), iw)
+    right = combine_modulators(tm, combine_modulators(sd, iw))
+    swapped = combine_modulators(combine_modulators(sd, tm), iw)
+
+    a = renewal(Rt, gi, I0; modulator = left)
+    @test renewal(Rt, gi, I0; modulator = right) ≈ a
+    @test renewal(Rt, gi, I0; modulator = swapped) ≈ a
+end
+
+@testitem "observe_renewal reports infections through a delay" setup=[
+    RenewalRef] begin
+    infections = renewal(Rt, gi, I0; modulator = susceptibility_depletion(1.0e5))
+    delay = thin(
+        double_interval_censored(Gamma(1.8, 1.4); upper = 20.0, interval = 1.0),
+        0.4)
+    cases = observe_renewal(infections, delay)
+    # Same length, finite, and equal to the underlying convolution.
+    @test length(cases) == length(infections)
+    @test all(isfinite, cases)
+    @test cases ≈ convolve_distributions(delay, infections)
+    # A precomputed DelayPMF reports identically.
+    pmf = CensoredDistributions.discretise_pmf(
+        interval_censored(Gamma(1.8, 1.4), 1.0), length(infections) - 1)
+    @test observe_renewal(infections, pmf) ≈ convolve_distributions(pmf,
+        infections)
 end
