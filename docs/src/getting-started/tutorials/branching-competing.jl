@@ -350,15 +350,16 @@ The framing has honest limits.
 - No cycles or recurrence: each composed path runs forward through its states
   once and never returns, so recurrent-event and back-and-forth transitions are
   out of scope.
-- Limited calendar-time variation: calendar anchoring is supported, since
+- Calendar-time variation: calendar anchoring is supported, since
   [`affine`](@ref)'s `shift` places a sojourn clock at its calendar entry time
   and its `scale` gives a constant proportional change to the rate.
   Piecewise-constant calendar variation is supported through the grouped
   interface, by binning records by calendar period of entry and fitting
   per-stratum parameters, a step-function approximation of a time-varying rate.
-  What is not represented is a continuous, within-sojourn intensity that varies
-  with calendar time, which would need a monotone time-change (operational-time)
-  operator; [`affine`](@ref) is its linear special case.
+  A continuous, within-sojourn intensity that varies with calendar time is
+  given by `timechange`, a monotone time-change (operational-time) operator;
+  [`affine`](@ref) is its linear special case. This first form uses a log-linear
+  intensity, covering a monotone trend or a seasonal limb.
 - Exact-but-censored transition times: the line list records each transition
   time, censored to the day, rather than the panel-observed state at fixed visit
   times that a panel multi-state fit marginalises over.

@@ -788,6 +788,25 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
             [1.0, 0.5, 2.0, 1.0], (Constant(obs_aff),))
     end
 
+    # TimeChange operational-time warp. The change-of-variables logpdf is
+    # `logpdf(inner, Λ(y)) + log λ(y)` with `Λ(y) = scale·expm1(rate·y)/rate`
+    # and `λ(y) = scale·exp(rate·y)`, so the gradient flows through the inner
+    # delay parameters (θ[1], θ[2]), the base clock speed (θ[3]) and the
+    # log-linear rate (θ[4]). Guarded on `timechange` existing for the
+    # AirspeedVelocity baseline build, as with the other PR-tree scenarios.
+    if isdefined(CensoredDistributions, :timechange)
+        obs_tc = [1.0, 2.5, 4.0, 6.0]
+        _push!("TimeChange LogNormal logpdf",
+            (θ,
+                obs) -> sum(
+                x -> logpdf(
+                    CensoredDistributions.timechange(
+                        LogNormal(θ[1], θ[2]); scale = θ[3], rate = θ[4]),
+                    x),
+                obs),
+            [1.0, 0.5, 1.2, 0.15], (Constant(obs_tc),))
+    end
+
     # IntervalCensored with regular intervals for Gamma and Weibull (only
     # LogNormal covered).
     _push!("IntervalCensored Gamma regular",
