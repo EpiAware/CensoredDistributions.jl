@@ -1419,3 +1419,73 @@ end
     @test "onset_admit.shape" in names
     @test !("d.onset_admit.shape" in names)
 end
+
+@testitem "fixed leaf parameter: held constant, absent from VarInfo" tags=[
+    :turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Random
+
+    # A plain value (not a distribution) in a prior slot pins that parameter: it
+    # is substituted as a constant and never sampled. Here the Gamma scale is
+    # fixed while its shape is fitted from a prior.
+    template = compose((onset_admit = Gamma(2.0, 1.0),))
+    priors = build_priors(template;
+        fix = (onset_admit = (scale = 1.5,),))
+    @test priors.onset_admit.scale == 1.5
+
+    @model function pm(t, p)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        return d
+    end
+
+    Random.seed!(752)
+    m = pm(template, priors)
+    d = m()
+
+    # The reconstructed leaf carries the fixed scale and a sampled shape.
+    g = event(d, :onset_admit)
+    @test g isa Gamma
+    @test scale(g) == 1.5
+
+    # The fixed parameter never enters the sampler.
+    vns = Set(string.(collect(keys(VarInfo(m)))))
+    @test "d.onset_admit.shape" in vns
+    @test !("d.onset_admit.scale" in vns)
+end
+
+@testitem "fixed leaf parameter: update from chain keeps the pin" tags=[
+    :turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+    using FlexiChains: VNChain, parameters
+    import Statistics
+
+    # A real fit recovers the free shape with the scale pinned; the pinned value
+    # is absent from the chain yet reappears in the `update`d distribution.
+    truth = Gamma(3.0, 1.5)
+    template = compose((onset_admit = Gamma(2.0, 1.0),))
+    priors = build_priors(template;
+        fix = (onset_admit = (scale = 1.5,),),
+        default = row -> truncated(Normal(row.value, 1); lower = 0))
+
+    @model function fit(t, p, ys)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        for y in ys
+            DynamicPPL.@addlogprob! logpdf(event(d, :onset_admit), y)
+        end
+        return d
+    end
+
+    Random.seed!(752)
+    ys = rand(truth, 200)
+    chain = sample(fit(template, priors, ys), NUTS(), 300;
+        chain_type = VNChain, progress = false)
+
+    chain_names = Set(string.(collect(parameters(chain))))
+    @test "d.onset_admit.shape" in chain_names
+    @test !("d.onset_admit.scale" in chain_names)
+
+    ready = update(template, chain; fix = priors)
+    g = event(ready, :onset_admit)
+    @test scale(g) == 1.5
+    # The free shape is recovered within tolerance of the truth.
+    @test isapprox(shape(g), 3.0; atol = 0.6)
+end
