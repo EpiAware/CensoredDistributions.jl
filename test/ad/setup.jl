@@ -6,7 +6,7 @@
 # reference stored in each scenario's `res1` field.
 #
 # The generic run logic (working/partial backends, broken bookkeeping) lives
-# in `EpiAwareTestUtils`; `ADFixtures` is the package-specific registry it
+# in `EpiAwarePackageTools`; `ADFixtures` is the package-specific registry it
 # drives (it satisfies the `ADRegistry` contract: `scenarios`, `backends`,
 # `broken_scenario_names`, `backend_broken_scenarios`,
 # `backend_skip_scenarios`). The thin wrappers below pin the CD-specific
@@ -20,7 +20,7 @@
     import DifferentiationInterfaceTest as DIT
     using ADFixtures
     using ForwardDiff, ReverseDiff, Enzyme, Mooncake
-    using EpiAwareTestUtils: EpiAwareTestUtils
+    using EpiAwarePackageTools: EpiAwarePackageTools
 
     # CD's reference tolerance, shared by the working and partial paths.
     const AD_RTOL = 5e-2
@@ -41,7 +41,7 @@
     # gradients themselves are correct; only the intactness check trips, so it
     # is disabled. Other scenarios are unaffected.
     function test_working_backend(name; category::Symbol = :marginal)
-        EpiAwareTestUtils.test_working_backend(
+        EpiAwarePackageTools.test_working_backend(
             ADFixtures, name;
             rtol = AD_RTOL, atol = AD_ATOL,
             scenario_intact = false,
@@ -52,7 +52,7 @@
     # `check_broken`, so the supported subset passes and the rest are marked
     # broken.
     function test_partial_backend(name)
-        EpiAwareTestUtils.test_partial_backend(
+        EpiAwarePackageTools.test_partial_backend(
             ADFixtures, name; rtol = AD_RTOL, atol = AD_ATOL)
     end
 end

@@ -7,7 +7,7 @@ DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
 DifferentiationInterfaceTest = "a82114a7-5aa3-49a8-9643-716bb13727a3"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
-EpiAwareTestUtils = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
+EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 Integrals = "de52edbc-65ea-441a-8357-d3a637375a31"
@@ -25,4 +25,4 @@ ADFixtures = {path = "../ADFixtures"}
 CensoredDistributions = {path = "../.."}
 # Interim git pin for the unregistered shared test-utility package; see #731
 # (General registration) and the matching entry in `test/Project.toml`.
-EpiAwareTestUtils = {url = "https://github.com/EpiAware/EpiAwareTestUtils.jl.git", rev = "afa7f00c17184077f5625bf79229e19404d1184b"}
+EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl.git", rev = "eb89a05a2579643910bed5d58491d15f45d29a58"}

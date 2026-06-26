@@ -1,9 +1,9 @@
 @testitem "ExplicitImports analysis" tags=[:quality] begin
-    using EpiAwareTestUtils: test_explicit_imports
+    using EpiAwarePackageTools: test_explicit_imports
 
     # The four ExplicitImports conformance checks (no stale explicit imports,
     # no implicit imports, all explicit imports public, all via owners) run via
-    # `EpiAwareTestUtils.test_explicit_imports`. The only CD-specific input is
+    # `EpiAwarePackageTools.test_explicit_imports`. The only CD-specific input is
     # the `ignore` tuple of internal/non-public names CD legitimately imports;
     # it stays here as a package fixture.
     #
