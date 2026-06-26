@@ -115,3 +115,11 @@ public log_completeness_probability, log_thin_by_completeness
 # the weakdep extensions import them from a public name.
 public flatten, unflatten, flat_dimension, as_logdensity, ComposedLogDensity
 public logdensity, to_constrained
+
+# Recurrent / cyclic multi-state accessors (public but not exported). The state-
+# graph readers (`transient_states`, `absorbing_states`, `is_absorbing`) and the
+# path reader (`visited_states`) inspect a `RecurrentStates` model and its
+# `StatePath` realisations; `transition_probability` is the CTMC `exp(Q t)`
+# kernel and `panel_logpdf` the CTMC panel-data (state-at-visit) likelihood.
+public transient_states, absorbing_states, is_absorbing, visited_states,
+       transition_probability, panel_logpdf

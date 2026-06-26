@@ -18,6 +18,7 @@ getting_started_pages = Any[
             "Real-time Andes virus delays" => "getting-started/tutorials/andv-linelist-analysis.md",
             "Stratified Sierra Leone Ebola delays" => "getting-started/tutorials/ebola-stratified-delays.md",
             "Branching-process competing outcomes" => "getting-started/tutorials/branching-competing.md",
+            "Recurrent multi-state transitions" => "getting-started/tutorials/recurrent-multistate.md",
             "Pairwise survival of transmission" => "getting-started/tutorials/pairwise-survival-transmission.md",
             "Rt renewal with delay convolution" => "getting-started/tutorials/rt-renewal-convolution.md",
             "Susceptibility-depleting renewal" => "getting-started/tutorials/renewal-susceptibility.md",

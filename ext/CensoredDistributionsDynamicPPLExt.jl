@@ -6,12 +6,13 @@ module CensoredDistributionsDynamicPPLExt
 
 using CensoredDistributions: CensoredDistributions, PrimaryCensored, Latent,
                              IntervalCensored, PrimaryConditional, Sequential,
-                             Parallel, Resolve, Choose, latent,
-                             get_primary_event, component_names
+                             Parallel, Resolve, Compete, Choose, latent,
+                             RecurrentStates, get_primary_event, component_names
 import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model,
                               composed_distribution_model,
-                              composed_parameters_model, renewal_model
+                              composed_parameters_model, renewal_model,
+                              recurrent_states_model
 using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
 using Distributions: Distributions, UnivariateDistribution, logpdf,
                      product_distribution
@@ -1775,6 +1776,57 @@ end
 @model function _scalar_prior_model(prior)
     x ~ prior
     return x
+end
+
+# ---------------------------------------------------------------------------
+# recurrent_states_model: per-state node priors -> rebuilt cyclic model
+# ---------------------------------------------------------------------------
+#
+# The cyclic analogue of `composed_parameters_model`. Each state's transition
+# node (a `Compete` / `Resolve` / leaf edge) is reconstructed from its per-state
+# priors through the SAME `_params_submodel` the acyclic builder uses, prefixed
+# by the state name so the chain reads `infected.recovered.shape`, etc. A lone
+# `dest => dist` edge rebuilds the leaf and re-pairs it with its destination.
+# The rebuilt nodes reassemble into a fresh `RecurrentStates`; the user scores
+# paths with `@addlogprob! logpdf(model, path)`.
+@model function recurrent_states_model(
+        template::RecurrentStates, priors::NamedTuple)
+    states = sort!(collect(keys(template.nodes)))
+    Set(keys(priors)) == Set(states) || throw(ArgumentError(
+        "recurrent_states_model priors must name exactly the transient " *
+        "states $(states); got $(collect(keys(priors)))"))
+    nodes = Dict{Symbol, Any}()
+    for state in states
+        node = template.nodes[state]
+        sub = DynamicPPL.prefix(
+            _state_node_model(node, priors[state]), Val(state))
+        rebuilt ~ to_submodel(sub, false)
+        nodes[state] = rebuilt
+    end
+    return RecurrentStates(nodes, template.start)
+end
+
+# Rebuild one state's transition node from its priors. A one_of node routes to
+# the shared `_params_submodel`; a lone `dest => dist` edge rebuilds the leaf
+# and re-pairs it with the destination so the edge keeps its target.
+@model function _state_node_model(node::Union{Resolve, Compete},
+        priors::NamedTuple)
+    rebuilt ~ to_submodel(_params_submodel(node, priors, NamedTuple()), false)
+    return rebuilt
+end
+
+# A lone `dest => dist` edge: its priors are nested under the destination name
+# (mirroring the per-edge keying of a one_of node), so unwrap `priors.<dest>`
+# before sampling the leaf and re-pair the rebuilt leaf with its destination.
+@model function _state_node_model(edge::Pair, priors::NamedTuple)
+    haskey(priors, edge.first) || throw(ArgumentError(
+        "a lone edge to $(edge.first) needs its leaf priors nested under " *
+        "`$(edge.first)`; got keys $(collect(keys(priors)))"))
+    sub = DynamicPPL.prefix(
+        _params_submodel(edge.second, priors[edge.first], NamedTuple()),
+        Val(edge.first))
+    leaf ~ to_submodel(sub, false)
+    return edge.first => leaf
 end
 
 end

@@ -47,7 +47,8 @@ if !skip_notebooks
         "epinowcast-nowcasting.jl",
         "linear-chain-sir.jl",
         "branching-competing.jl",
-        "pairwise-survival-transmission.jl"
+        "pairwise-survival-transmission.jl",
+        "recurrent-multistate.jl"
     ]
 
     println(
