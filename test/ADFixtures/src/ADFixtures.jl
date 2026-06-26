@@ -33,7 +33,7 @@ import ForwardDiff, ReverseDiff, Mooncake, Enzyme
 import DifferentiationInterfaceTest as DIT
 import SurvivalDistributions as SD
 
-export scenarios, marginal_scenarios, latent_scenarios,
+export scenarios, marginal_scenarios, latent_scenarios, recurrent_scenarios,
        backends, working_backends, broken_backends,
        broken_scenario_names, backend_broken_scenarios,
        backend_skip_scenarios
@@ -247,21 +247,61 @@ function backend_broken_scenarios()
     # boundaries are functions of the constant lags, not the AD parameters, so
     # the zero-tangent rule is exact; all backends now differentiate the path
     # (#699, #701).
+
+    # === recurrent / cyclic multi-state per-backend gaps (#545) ===
+    # The differentiated function REBUILDS a `RecurrentStates` / `CTMCStates`
+    # model from `θ` inside the call (the verbs allocate a `Dict{Symbol, Any}` of
+    # transition nodes and the `Compete` / generator structs). The analytic
+    # backends (ForwardDiff, ReverseDiff) and Mooncake FORWARD trace this
+    # straight through and match the reference on all four scenarios; the gaps
+    # below are genuine compiled-backend limitations, verified against the
+    # ForwardDiff reference.
+    recur_path = "RecurrentStates reinfection path logpdf"
+    recur_censored = "RecurrentStates horizon-censored path logpdf"
+    ctmc_jump = "CTMC jump-chain logpdf"
+    ctmc_panel = "CTMC panel-data exp(Qt) logpdf"
+    # Mooncake REVERSE: only the multi-edge reinfection path fails. Reverse-mode
+    # cannot build the cotangent for the heterogeneous `Compete` node's tuple of
+    # delay RData against the lone-edge `Pair` RData of the single-edge states
+    # (`MethodError: increment!!` on the mismatched `Compete` vs `Pair` RData
+    # shapes). The single-edge censored path (no `Compete` node), the CTMC
+    # jump-chain and the CTMC panel all differentiate on Mooncake reverse.
+    mooncake_reverse_recurrent = Set{String}([recur_path])
+    # Enzyme REVERSE fails ALL four. The model rebuild allocates a
+    # `Dict{Symbol, Any}` of transition nodes whose reverse shadow Enzyme cannot
+    # construct (`EnzymeNoShadowError`) for the `RecurrentStates` paths, and the
+    # `Dict`-backed generator assembly trips `EnzymeNoTypeError` for the CTMC
+    # scenarios (it cannot statically prove the rebuilt `Q` element type through
+    # the `Dict` lookups). Both are upstream Enzyme-reverse limitations on the
+    # heterogeneous `Dict`/struct rebuild, not reachable from a value-level rule.
+    enzyme_reverse_recurrent = Set{String}(
+        [recur_path, recur_censored, ctmc_jump, ctmc_panel])
+    # Enzyme FORWARD: the two `RecurrentStates` paths and the CTMC jump-chain
+    # differentiate correctly, but the CTMC panel scenario returns a WRONG
+    # (finite but incorrect) gradient through the scaling-and-squaring matrix
+    # exponential `exp(Q Δt)` — Enzyme forward mis-differentiates the repeated
+    # `E = E * E` squaring loop (it also drops to fallback BLAS). The wrong
+    # answer is caught by the reference comparison and registered broken rather
+    # than trusted; ForwardDiff / ReverseDiff / Mooncake compute it correctly.
+    enzyme_forward_recurrent = Set{String}([ctmc_panel])
+
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
-        "Mooncake reverse" => copy(compiled_broken),
+        "Mooncake reverse" => union(
+            copy(compiled_broken), mooncake_reverse_recurrent),
         "Mooncake forward" => copy(compiled_broken),
-        # Enzyme REVERSE: only the vectorised pre-pass scenarios remain broken
-        # (`compiled_broken`). The nested Resolve, nested racing-hazard,
-        # non-terminal Resolve, whole-compose truncation,
-        # `double_interval_censored(Sequential)` (#506) and plain nested tree
-        # all now differentiate (the one_of/Choose constructors no longer
-        # collect their outcome tuples through a non-concrete `Tuple(gen)`).
-        "Enzyme reverse" => copy(compiled_broken),
-        # Enzyme FORWARD: only the vectorised pre-pass scenarios remain broken;
-        # the nested Resolve / racing-hazard / non-terminal trees are now fixed.
-        "Enzyme forward" => copy(compiled_broken)
+        # Enzyme REVERSE: the marginal/latent trees are all fixed now (the
+        # one_of/Choose constructors build concrete tuples, #760), so only the
+        # vectorised pre-pass scenarios (`compiled_broken`) plus the recurrent
+        # `Dict`-rebuild shadow/type gaps above remain broken.
+        "Enzyme reverse" => union(
+            copy(compiled_broken), enzyme_reverse_recurrent),
+        # Enzyme FORWARD: the marginal/latent trees are all fixed now; only the
+        # vectorised pre-pass scenarios plus the recurrent CTMC panel matrix
+        # exponential remain broken.
+        "Enzyme forward" => union(
+            copy(compiled_broken), enzyme_forward_recurrent)
     )
 end
 
@@ -322,6 +362,18 @@ function latent_scenarios(; with_reference::Bool = false)
 end
 
 """
+    recurrent_scenarios(; with_reference::Bool = false)
+
+The recurrent / cyclic multi-state AD scenarios (the `RecurrentStates` path
+likelihood and the `CTMCStates` jump-chain / panel likelihoods), differentiated
+w.r.t. the edge sojourn params / generator rates. Equivalent to
+`scenarios(; category = :recurrent)`. Consumed by the recurrent AD test sweep.
+"""
+function recurrent_scenarios(; with_reference::Bool = false)
+    return scenarios(; with_reference = with_reference, category = :recurrent)
+end
+
+"""
     scenarios(; with_reference::Bool = false, category::Symbol = :all)
 
 Return a `Vector{DIT.Scenario{:gradient, :out}}`. When
@@ -347,8 +399,9 @@ the latent path. See [`marginal_scenarios`](@ref) and
 [`latent_scenarios`](@ref) for the per-group entry points.
 """
 function scenarios(; with_reference::Bool = false, category::Symbol = :all)
-    category in (:all, :marginal, :latent) ||
-        throw(ArgumentError("category must be :all, :marginal or :latent"))
+    category in (:all, :marginal, :latent, :recurrent) ||
+        throw(ArgumentError(
+            "category must be :all, :marginal, :latent or :recurrent"))
     obs = [0.5, 1.2, 2.5, 3.8, 5.1]
     obs_int = [0.0, 1.0, 2.0, 3.0, 4.0]
     boundaries = [0.0, 1.5, 3.0, 5.0, 10.0]
@@ -1498,6 +1551,79 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
             end,
             [1.4, 0.9, 0.02], (Constant((renewal_obs, renewal_gi)),))
     end
+
+    # === RECURRENT / cyclic multi-state scenarios (category = :recurrent) ===
+    # The renewal-over-states path likelihood and the CTMC fast path, scored as
+    # `logpdf(model, path)` / `panel_logpdf` and differentiated w.r.t. the edge
+    # sojourn params / generator rates. Each function REBUILDS the model from `θ`
+    # with literal constructors (the captured-`Type` Enzyme limitation, as for the
+    # other groups); the observed path / panel travels as a `Constant` context.
+
+    # A cyclic S->I->R->S->I->dead reinfection path (revisits :susceptible, so it
+    # is a genuine cycle the acyclic grammar cannot express), absorbed at :dead.
+    # Inlined as literal jumps so the fixture carries no RNG. Differentiated
+    # w.r.t. the four edge Gamma `(shape, scale)` pairs; the path score sums the
+    # `Compete` cause-resolved sub-density of each jump.
+    recur_jumps = [
+        (from = :susceptible, to = :infected, dwell = 3.5064),
+        (from = :infected, to = :recovered, dwell = 5.5792),
+        (from = :recovered, to = :susceptible, dwell = 22.8328),
+        (from = :susceptible, to = :infected, dwell = 2.2329),
+        (from = :infected, to = :dead, dwell = 9.7391)
+    ]
+    _push!("RecurrentStates reinfection path logpdf",
+        (θ,
+            jumps) -> logpdf(
+            recur(:susceptible => (:infected => Gamma(θ[1], θ[2])),
+                :infected => (:recovered => Gamma(θ[3], θ[4]),
+                    :dead => Gamma(θ[5], θ[6])),
+                :recovered => (:susceptible => Gamma(θ[7], θ[8]))),
+            jumps),
+        [2.0, 4.0, 2.0, 3.0, 2.0, 8.0, 2.0, 30.0],
+        (Constant(recur_jumps),); cat = :recurrent)
+
+    # A horizon-CENSORED path: the final sojourn is still running, so the score
+    # adds the survival term of the unfinished state (right-censoring). Built as
+    # a `StatePath` constant; differentiated w.r.t. the two edge Gamma pairs.
+    cens_jumps = [(from = :well, to = :ill, dwell = 2.1)]
+    cens_path = StatePath(:well, cens_jumps, 2.1, :censored;
+        censored_state = :ill, censored_for = 1.4)
+    _push!("RecurrentStates horizon-censored path logpdf",
+        (θ,
+            p) -> logpdf(
+            recur(:well => (:ill => Gamma(θ[1], θ[2])),
+                :ill => (:well => Gamma(θ[3], θ[4]),)),
+            p),
+        [2.0, 5.0, 2.0, 3.0], (Constant(cens_path),); cat = :recurrent)
+
+    # The CTMC jump-chain logpdf (transition times known): each step contributes
+    # `log q_{from,to} - q_from * dwell`. Differentiated w.r.t. the three rates.
+    ctmc_jumps = [
+        (from = :well, to = :ill, dwell = 4.2),
+        (from = :ill, to = :well, dwell = 2.7),
+        (from = :ill, to = :dead, dwell = 6.1)
+    ]
+    _push!("CTMC jump-chain logpdf",
+        (θ,
+            jumps) -> logpdf(
+            ctmc(:well => (:ill => θ[1]),
+                :ill => (:well => θ[2], :dead => θ[3])),
+            jumps),
+        [0.2, 0.3, 0.1], (Constant(ctmc_jumps),); cat = :recurrent)
+
+    # The CTMC panel-data logpdf (transition times UNKNOWN): the matrix
+    # exponential `P(Δt) = exp(Q Δt)` marginalises the hidden jumps in each
+    # gap. This stresses the AD backends through the scaling-and-squaring matrix
+    # exponential. Differentiated w.r.t. the three generator rates.
+    ctmc_panel = [(0.0, :well), (3.0, :ill), (7.0, :well), (10.0, :ill),
+        (15.0, :dead)]
+    _push!("CTMC panel-data exp(Qt) logpdf",
+        (θ,
+            panel) -> CensoredDistributions.panel_logpdf(
+            ctmc(:well => (:ill => θ[1]),
+                :ill => (:well => θ[2], :dead => θ[3])),
+            panel),
+        [0.2, 0.3, 0.1], (Constant(ctmc_panel),); cat = :recurrent)
 
     return out
 end
