@@ -217,18 +217,13 @@ function backend_broken_scenarios()
     # upstream as the `EnzymeNoShadowError` of #506). Flattening the chain to a
     # CONCRETE component tuple (`Tuple{Gamma, LogNormal}`) in `wrap.jl` fixes it
     # on both modes; no value-level rule needed. Fixes #506.
-    # The whole-compose conv-to-last-observed right-truncation denominator:
-    # its single `-logcdf(conv-to-last-observed, window)` builds a freshly
-    # allocated `Convolved` observed total. The `Convolved` build is now
-    # concretely typed (`_sequential_segment` maps over the component tuple, not
-    # a collected vector), but this scenario STILL fails on Enzyme REVERSE for a
-    # separate reason: an `EnzymeInternalError` inside `_seq_event_logpdf_h`'s
-    # `Vector{Union{Missing, Float64}}` non-bits-union event-vector handling
-    # (the same non-bits-union class as the `_subevent_slice` gap, not the
-    # Convolved build of #506). Enzyme FORWARD differentiates it (verified), and
-    # so do ReverseDiff and Mooncake reverse/forward; registered broken for
-    # Enzyme REVERSE only.
-    whole_compose_trunc = "Whole-compose conv-to-last-observed truncation logpdf"
+    # The whole-compose conv-to-last-observed right-truncation denominator builds
+    # a freshly allocated `Convolved` observed total and routes the
+    # `Vector{Union{Missing, Float64}}` event handling through
+    # `_seq_event_logpdf_h`. With the concrete `Convolved` build and the
+    # `_subevent_slice` shield it now differentiates on Enzyme REVERSE too,
+    # matching the ForwardDiff reference (verified), so it is no longer
+    # registered broken for any backend.
     # The non-terminal whole-tree Resolve scores a
     # composer-VALUED one_of outcome's subtree through the nested `_tree_score`,
     # AND carries a differentiated branch probability `θ[7]` whose complement
@@ -273,15 +268,12 @@ function backend_broken_scenarios()
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => copy(compiled_broken),
         "Mooncake forward" => copy(compiled_broken),
-        # Enzyme REVERSE: the Resolve/hazard trees (reverse shadow construction),
-        # the non-terminal Resolve, and the whole-compose conv-to-last-observed
-        # truncation (non-bits-union event-vector `EnzymeInternalError`) remain
-        # broken; `double_interval_censored(Sequential)` (#506) and the plain
-        # nested tree are fixed.
+        # Enzyme REVERSE: the Resolve/hazard trees (reverse shadow construction)
+        # and the non-terminal Resolve (`IllegalTypeAnalysisException`) remain
+        # broken; `double_interval_censored(Sequential)` (#506), the plain nested
+        # tree, and the whole-compose conv-to-last-observed truncation are fixed.
         "Enzyme reverse" => union(
-            Set{String}(
-                [nested_comp, nested_hazard, nonterminal_comp,
-                whole_compose_trunc]),
+            Set{String}([nested_comp, nested_hazard, nonterminal_comp]),
             compiled_broken),
         # Enzyme FORWARD: only the non-terminal Resolve remains broken; the
         # plain nested tree, the Resolve/hazard trees, and

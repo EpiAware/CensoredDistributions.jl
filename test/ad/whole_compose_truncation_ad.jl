@@ -44,6 +44,49 @@
     @test all(!=(0), g)
 end
 
+@testitem "whole-compose truncation gradient: Enzyme reverse" tags=[
+    :ad, :enzyme, :enzyme_reverse] begin
+    using CensoredDistributions, Distributions
+    using ADTypes: AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient, Constant
+    using Enzyme: Enzyme
+    using ForwardDiff: ForwardDiff
+
+    # The same conv-to-last-observed truncation path as the ForwardDiff item,
+    # pinned on Enzyme reverse. This routes the `Vector{Union{Missing,
+    # Float64}}` event handling through `_seq_event_logpdf_h` and builds a
+    # freshly-allocated `Convolved` observed total for the denominator. The
+    # missing-intermediate record travels as an inactive Constant context; the
+    # per-record horizons are constants. Earlier registered broken on Enzyme
+    # reverse, now a hard check.
+    evs = [Vector{Union{Missing, Float64}}([0.0, 2.0, 5.0]),
+        Vector{Union{Missing, Float64}}([0.5, missing, 7.0])]
+
+    function f(θ, evs)
+        inc = primary_censored(LogNormal(θ[1], θ[2]), Uniform(0.0, 1.0))
+        delta = primary_censored(LogNormal(θ[3], θ[4]), Uniform(0.0, 1.0))
+        seq = Sequential((inc, delta), (:onset_mid, :mid_obs))
+        hs = (8.0, 9.0)
+        total = CensoredDistributions.event_logpdf(
+            seq, evs[1]; horizon = hs[1])
+        for i in 2:length(evs)
+            total += CensoredDistributions.event_logpdf(
+                seq, evs[i]; horizon = hs[i])
+        end
+        return total
+    end
+
+    θ = [1.0, 0.5, 0.5, 0.4]
+    ctx = Constant(evs)
+    rev = AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Reverse))
+
+    ref = gradient(f, AutoForwardDiff(), θ, ctx)
+    @test all(isfinite, ref)
+    g = gradient(f, rev, θ, ctx)
+    @test g isa AbstractVector && length(g) == 4 && all(isfinite, g)
+    @test isapprox(g, ref; rtol = 5e-2, atol = 1e-6)
+end
+
 @testitem "δ-bounded truncation gradient: ForwardDiff" tags=[
     :ad, :forwarddiff] begin
     using CensoredDistributions, Distributions
