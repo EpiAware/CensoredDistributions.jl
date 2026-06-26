@@ -103,8 +103,13 @@ probs(node)
 function Compete(outcomes::Pair...)
     length(outcomes) >= 2 ||
         throw(ArgumentError("Compete needs at least two outcomes"))
-    names = Tuple(o.first for o in outcomes)
-    delays = Tuple(o.second for o in outcomes)
+    # `map`, not `Tuple(gen)`: a generator-collect over a heterogeneous
+    # outcome tuple lowers to `collect_to!` building a non-concrete `Array`
+    # temporary Enzyme's type analysis rejects inside a differentiated build.
+    # `map` over a tuple stays type-stable, returns a `Tuple` with no `Array`
+    # temporary (see `Resolve`).
+    names = map(o -> o.first, outcomes)
+    delays = map(o -> o.second, outcomes)
     all(_is_one_of_branch, delays) || throw(ArgumentError(
         "each racing-hazard outcome payload must be a bare delay distribution " *
         "or composer subtree (no branch probability); got a `(delay, prob)` " *
