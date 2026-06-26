@@ -6,7 +6,15 @@ on:
     branches: [main]
   merge_group:
 
+# Cancel a superseded pre-commit run on a new push so a rapid series of
+# pushes leaves only the latest formatting check running, freeing the
+# runner immediately. This is the cheapest check and the one most worth
+# cancelling early; the other callers already do this.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pre-commit:
-    uses: EpiAware/.github/.github/workflows/format-check.yml@dc919e0d1674c16d1518df07eda5ee0be09b47e2
+    uses: EpiAware/.github/.github/workflows/format-check.yml@9692b37b9127099d9c1a51db5034a084edaeb56e
     secrets: inherit  # pragma: allowlist secret
