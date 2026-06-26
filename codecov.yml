@@ -6,6 +6,36 @@
 # does not re-upload it: the `unit` job (codecoverage.yaml) and the six AD
 # jobs (ad-*.yaml) run and upload independently, so without carryforward a
 # run that posts only some flags would blank the others.
+
+# The seven flag uploads (unit + six AD backends) arrive from separate
+# workflows that finish minutes apart. Codecov recomputes the patch/project
+# status on every upload, so without a gate it posts an early FAILURE from a
+# partial session set (a line only exercised by an AD backend reads as a
+# patch miss until that backend's upload lands). `after_n_builds: 7` holds the
+# status notification until all seven uploads are in, and `wait_for_ci` keeps
+# Codecov from finalising before CI itself reports. The patch/project targets
+# use `auto` (compare against the parent commit) with a small threshold so the
+# whole-stack integration diff is judged on its true coverage rather than a
+# transient under-count.
+codecov:
+  notify:
+    after_n_builds: 7
+    wait_for_ci: true
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: auto
+        threshold: 1%
+
+comment:
+  after_n_builds: 7
+
 flags:
   unit:
     paths:
