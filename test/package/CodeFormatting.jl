@@ -1,27 +1,10 @@
 @testitem "Code formatting" tags=[:quality] begin
-    using Pkg
-    # Run JuliaFormatter in a separate environment to isolate its dependencies
-    # This prevents JuliaSyntax version conflicts with JET
-    formatter_env = joinpath(@__DIR__, "..", "formatter")
-    if isdir(formatter_env) && isfile(joinpath(formatter_env, "Project.toml"))
-        # Instantiate the formatter environment
-        Pkg.activate(formatter_env)
-        Pkg.instantiate()
-        Pkg.activate()  # Return to original environment
-
-        # Run formatter check in the isolated environment
-        # Pipe output to show formatting results in test logs
-        result = run(
-            pipeline(
-                `julia --project=$formatter_env $(joinpath(formatter_env, "runtests.jl"))`,
-                stdout = stdout,
-                stderr = stderr
-            );
-            wait = true
-        )
-        @test result.exitcode == 0
-    else
-        @warn "Formatter test environment not found at $formatter_env"
-        @test_skip "Formatter environment not found"
-    end
+    using EpiAwarePackageTools: test_formatting
+    # JuliaFormatter check via the shared kit wrapper. The check runs in the
+    # isolated `test/formatter` environment (its `runtests.jl` is executed in
+    # a subprocess and the test passes when it exits zero) so JuliaFormatter's
+    # JuliaSyntax pin stays out of the main test env, where it would clash
+    # with JET. The formatter env owns the directory list and style config.
+    test_formatting(CensoredDistributions;
+        env = joinpath(@__DIR__, "..", "formatter"))
 end

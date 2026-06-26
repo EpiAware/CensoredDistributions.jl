@@ -6,6 +6,7 @@ Coverage = "a2441757-f6aa-5fb2-8edb-039e3f45d037"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 DynamicPPL = "366bfd00-2699-11ea-058f-f148b4cae6d8"
+EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 FlexiChains = "4a37a8b9-6e57-4b92-8664-298d46e639f7"
 HypothesisTests = "09f84164-cd44-5f33-b23f-e6b0d136a0d5"
@@ -23,3 +24,14 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [sources]
 CensoredDistributions = {path = ".."}
+# Interim git pin for the unregistered shared test-utility package. This is
+# replaced by an ordinary `[compat]` bound once EpiAwarePackageTools is
+# registered in General; until then `downgrade-compat` rejects this git
+# `[sources]` entry, so that job stays red and this PR is held on
+# registration. Pinned to the kit commit that (a) makes the AD-registry
+# broken/skip accessors optional, which CD `main`'s `ADFixtures` needs (it
+# has no `backend_skip_scenarios`), (b) gives `test_formatting` a subprocess
+# `env` path so the formatter check stays isolated from JET, and (c) reads
+# `DocStringExtensions.@template` docstrings correctly (CD templates all its
+# docstrings) (EpiAware/EpiAwarePackageTools.jl#11).
+EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl.git", rev = "deed3f6f9a7539280adfc5a1e836ce10fb6f0b99"}

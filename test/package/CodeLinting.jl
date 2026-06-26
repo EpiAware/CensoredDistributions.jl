@@ -1,35 +1,11 @@
 @testitem "Code linting" tags=[:quality] begin
-    using Pkg
-    # Skip on experimental/pre-release Julia where JET may not be compatible
-    if VERSION >= v"1.10" && get(ENV, "JULIA_CI_EXPERIMENTAL", "false") != "true"
-        # Run JET in a separate environment to isolate its dependencies
-        # This prevents JET version conflicts from breaking package resolution
-        jet_env = joinpath(@__DIR__, "..", "jet")
-        if isdir(jet_env) && isfile(joinpath(jet_env, "Project.toml"))
-            # Instantiate the JET environment
-            Pkg.activate(jet_env)
-            Pkg.instantiate()
-            Pkg.activate()  # Return to original environment
-
-            # Run JET tests in the isolated environment
-            # Pipe output to show JET results in test logs
-            result = run(
-                pipeline(
-                    `julia --project=$jet_env $(joinpath(jet_env, "runtests.jl"))`,
-                    stdout = stdout,
-                    stderr = stderr
-                );
-                wait = true
-            )
-            @test result.exitcode == 0
-        else
-            @warn "JET test environment not found at $jet_env"
-            @test_skip "JET environment not found"
-        end
-    else
-        @info "Skipping JET tests" VERSION experimental = get(
-            ENV, "JULIA_CI_EXPERIMENTAL", "false"
-        )
-        @test_skip "JET skipped on experimental Julia"
-    end
+    using EpiAwarePackageTools: test_linting
+    # JET static analysis via the shared kit wrapper. JET runs in the
+    # isolated `test/jet` environment (its `runtests.jl` is executed in a
+    # subprocess and the test passes when it exits zero) to keep JET's
+    # JuliaSyntax pin from clashing with the rest of the test environment.
+    # The kit skips JET on experimental / pre-release Julia and when
+    # `JULIA_CI_EXPERIMENTAL=true`, matching CD's previous guard.
+    test_linting(CensoredDistributions;
+        env = joinpath(@__DIR__, "..", "jet"))
 end
