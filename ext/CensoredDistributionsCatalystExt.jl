@@ -21,8 +21,8 @@ using Catalyst: Catalyst, Reaction, @species, default_t
 # stage, with the per-stage exit rate aligned to each. The dwell time across the
 # whole chain matches the composed delay exactly (the linear chain trick).
 # Returns `(species, rates)` in chain order.
-function _chain_species(delay::Distribution, prefix::Symbol)
-    stages = linear_chain_stages(delay)
+function _chain_species(delay::Distribution, prefix::Symbol, moment_match::Bool)
+    stages = linear_chain_stages(delay; moment_match)
     t = default_t()
     species = Any[]
     rates = Float64[]
@@ -55,8 +55,9 @@ function _chain_reactions(from, from_rate, species, rates, to)
 end
 
 function linear_chain_reactions(
-        delay::Distribution, from, to; prefix::Symbol = :stage)
-    species, rates = _chain_species(delay, prefix)
+        delay::Distribution, from, to;
+        prefix::Symbol = :stage, moment_match::Bool = false)
+    species, rates = _chain_species(delay, prefix, moment_match)
     rxs = _chain_reactions(from, rates[1], species, rates, to)
     return (species = species, reactions = rxs)
 end
