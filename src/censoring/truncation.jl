@@ -13,178 +13,17 @@
 # convolved-chain denominator. It is pure Distributions.jl: the returned
 # object is an ordinary `truncated` distribution whose log-normaliser is the
 # right-truncation term `-logcdf(dist, window)`.
-
-@doc "
-
-Build the right-truncated delay for one observation, dispatching the
-single-delay denominator against the convolved-chain denominator.
-
-Right-truncation differs by what is observed. With the intermediate
-splitting event **observed**, the recorded delay is a single segment and the
-truncation denominator is `cdf(delay, window)` for that segment. With the
-intermediate event **unobserved**, only the total delay across the chain is
-seen and the denominator must be `cdf(convolution, window)` over the
-convolution of the unobserved segments. `window` is the time still available
-before the observation horizon, `horizon - anchor`, where `anchor` is the
-time of the event the delay is measured from.
-
-The returned object is `truncated(dist; upper = window)`: its log-normaliser
-is exactly the andv right-truncation term `-logcdf(dist, window)`, so a
-likelihood built from `logpdf` of this object reproduces the per-record
-truncation correction without any PPL dependency. Pass a single delay for the
-single-delay denominator; pass a [`Convolved`](@ref) (from
-[`convolve_distributions`](@ref)) for the convolved-chain denominator. The
-[`truncate_chain`](@ref) helper picks between the two from a chain of
-segments and an observation mask.
-
-This is the upper-only observation-horizon form of right-truncation. The
-δ-bounded variant [`truncate_to_window`](@ref) adds a finite lower edge, so
-the observation window is `[upper - δ, upper]` rather than `(-∞, upper]`; the
-upper-only form here is the special case `δ → window` (lower edge 0).
-
-# Arguments
-- `delay`: the delay distribution to right-truncate. A single delay gives the
-  single-delay denominator; a [`Convolved`](@ref) gives the convolved-chain
-  denominator.
-- `window`: the remaining observation window `horizon - anchor` the delay is
-  right-truncated to. A non-positive window truncates to an empty support.
-
-# Examples
-```@example
-using CensoredDistributions, Distributions
-
-# Single observed delay: denominator is cdf(inc_dist, window).
-inc_dist = LogNormal(1.5, 0.5)
-single = truncate_to_horizon(inc_dist, 6.0)
-log_norm_single = logcdf(inc_dist, 6.0)
-
-# Unobserved intermediate event: denominator is cdf(convolution, window).
-delta_dist = Gamma(2.0, 1.0)
-conv = convolve_distributions(inc_dist, delta_dist)
-chain = truncate_to_horizon(conv, 6.0)
-log_norm_chain = logcdf(conv, 6.0)
-```
-
-# See also
-- [`truncate_to_window`](@ref): the δ-bounded variant (finite lower edge)
-- [`truncate_chain`](@ref): pick single vs convolved from a chain mask
-- [`convolve_distributions`](@ref): builds the convolved-chain delay
-- [`Convolved`](@ref): the convolution distribution
-"
-function truncate_to_horizon(delay::UnivariateDistribution, window::Real)
-    return _truncate_window(delay, window)
-end
-
-@doc "
-
-Build the δ-bounded right-truncated delay for one observation: the finite
-observation window `[upper - δ, upper]`.
-
-This is the δ-bounded variant of [`truncate_to_horizon`](@ref). The upper-only
-horizon form conditions on the event falling at or before the remaining window
-`upper` (normalised by `cdf(delay, upper)`). The δ-bounded form additionally
-adds a LOWER edge a width `δ` below the upper edge, so the event is observed
-only within the finite window `[upper - δ, upper]`, normalised by
-`cdf(delay, upper) - cdf(delay, upper - δ)`.
-
-The lower edge is anchored at the upper edge (`upper - δ`), so the window has
-a fixed width `δ` ending at the same remaining-window upper bound the
-upper-only form uses. This composes consistently with the upper-only form: it
-is the special case `δ === nothing` (or any `δ >= upper`, i.e. `δ → upper`),
-which clamps the lower edge to the distribution's minimum and reproduces
-[`truncate_to_horizon`](@ref)`(delay, upper)` byte-identically.
-
-# Arguments
-- `delay`: the delay distribution to right-truncate. A single delay gives the
-  single-delay denominator; a [`Convolved`](@ref) gives the convolved-chain
-  denominator.
-- `upper`: the remaining observation window `horizon - anchor` (the upper edge,
-  as in [`truncate_to_horizon`](@ref)). A non-positive upper edge truncates to
-  an empty support.
-- `δ`: the observation-window width. `nothing` (or `δ >= upper`) drops the
-  lower edge and reproduces the upper-only form. A non-positive `δ` is an empty
-  window and errors.
-
-# Examples
-```@example
-using CensoredDistributions, Distributions
-
-delay = LogNormal(1.5, 0.5)
-# Finite window [6 - 4, 6] = [2, 6]: normaliser cdf(6) - cdf(2).
-windowed = truncate_to_window(delay, 6.0, 4.0)
-log_norm = log(cdf(delay, 6.0) - cdf(delay, 2.0))
-
-# δ = nothing reproduces the upper-only truncate_to_horizon.
-upper_only = truncate_to_window(delay, 6.0, nothing)
-```
-
-# See also
-- [`truncate_to_horizon`](@ref): the upper-only form (the `δ → upper` case)
-- [`Convolved`](@ref): the convolution distribution
-"
-function truncate_to_window(
-        delay::UnivariateDistribution, upper::Real, δ::Union{Real, Nothing})
-    return _truncate_window(delay, upper, δ)
-end
-
-@doc "
-
-Build the right-truncated delay for one observation from a chain of segments
-and a mask of which intermediate splitting events are observed.
-
-The chain is the ordered sequence of delay segments between the anchor event
-and the observation. `observed` marks, for each *internal* boundary between
-consecutive segments, whether that splitting event was recorded; it has one
-fewer entry than `segments`. Consecutive unobserved segments are collapsed
-into a single [`Convolved`](@ref) (their splitting event is not seen, so only
-their sum is observed), while an observed boundary keeps the segments on
-either side separate. The truncation denominator for the observation is then
-`cdf(dist, window)` of the delay reaching the observation, with `dist` the
-single segment when its boundaries are observed and the convolution of a run
-of unobserved segments otherwise.
-
-This reduces to the andv split. Index cases observe a single delay, so their
-record is one segment with no internal boundary, giving the single-delay
-denominator. Sourced cases observe the total over two segments whose
-splitting event is not recorded, `observed = (false,)`, giving the convolved
-denominator. A `true` boundary closes the run before it, so the truncation
-distribution is the convolution of the trailing unobserved segments reaching
-the observation.
-
-# Arguments
-- `segments`: ordered tuple or vector of delay distributions for the chain.
-- `observed`: tuple or vector of `Bool`, one per internal boundary
-  (`length(segments) - 1` entries), `true` where the splitting event is
-  recorded.
-- `window`: the remaining observation window `horizon - anchor` for the
-  delay reaching the observation.
-
-# Examples
-```@example
-using CensoredDistributions, Distributions
-
-inc_dist = LogNormal(1.5, 0.5)
-delta_dist = Gamma(2.0, 1.0)
-
-# Index cases: single observed delay -> single-delay denominator.
-index = truncate_chain((inc_dist,), (), 6.0)
-
-# Sourced cases: intermediate event unobserved -> convolved denominator.
-sourced = truncate_chain((inc_dist, delta_dist), (false,), 6.0)
-```
-
-# See also
-- [`truncate_to_horizon`](@ref): the single/convolved dispatch primitive
-- [`convolve_distributions`](@ref): builds the convolved-chain delay
-"
-function truncate_chain(segments, observed, window::Real)
-    length(segments) >= 1 ||
-        throw(ArgumentError("truncate_chain needs at least one segment"))
-    length(observed) == length(segments) - 1 || throw(ArgumentError(
-        "observed must have one fewer entry than segments"))
-    dist = _collapse_to_observation(Tuple(segments), Tuple(observed))
-    return _truncate_window(dist, window)
-end
+#
+# There is ONE truncation verb, `truncated`. The single-delay and
+# convolved-chain right-truncations are both `truncated(dist; upper = window)`,
+# the dispatch picked by passing the single delay or the `Convolved` chain
+# total. The δ-bounded finite observation window is `truncated(dist; upper,
+# lower = upper - δ)`. The composed-node directions live in `composers/wrap.jl`
+# (`truncated(node; lower, upper)` distributes into the node's leaf cores). The
+# helpers below are the internal primitives the per-record scorers thread the
+# observation horizon through (`_truncate_window`, `_truncate_horizon`,
+# `_truncation_lognorm`); they add the AD-safe empty-support clamp and the
+# δ-bounded normaliser the bare `truncated` does not.
 
 # Right-truncate `dist` at `window`. Upper-only: no lower bound is added, so
 # the log-normaliser is exactly the right-truncation term `-logcdf(dist,
@@ -250,10 +89,10 @@ _horizon_delta(h::WindowedHorizon) = h.δ
 
 # Right-truncate `delay` to the per-record observation `window` (= `horizon -
 # anchor`), honouring the threaded horizon's δ. A plain-`Real` horizon (or a δ of
-# `nothing`) gives the upper-only `truncate_to_horizon` byte-identically; a
-# `WindowedHorizon` δ-bounds the truncation to `[window - δ, window]`. `horizon`
-# is the threaded carrier (so the δ rides along) and `window` is the already
-# anchor-shifted upper edge the caller computed with `_horizon_time`.
+# `nothing`) gives the upper-only right-truncation; a `WindowedHorizon` δ-bounds
+# the truncation to `[window - δ, window]`. `horizon` is the threaded carrier (so
+# the δ rides along) and `window` is the already anchor-shifted upper edge the
+# caller computed with `_horizon_time`.
 function _truncate_horizon(delay, window::Real, horizon)
     _truncate_window(delay, window, _horizon_delta(horizon))
 end
@@ -262,10 +101,9 @@ end
 # the same way `_truncate_horizon` is. Used where the scorer subtracts a single
 # right-truncation denominator from a factorised numerator (the flat
 # whole-compose chain truncation), rather than building a truncated object. The
-# upper-only form is exactly `logcdf(dist, window)`, kept byte-identical so a
-# plain horizon reproduces today's `total - logcdf(seg, window)`. The δ-bounded
-# form is `log(cdf(dist, upper) - cdf(dist, lower))` with `lower = window - δ`
-# clamped up to the distribution's minimum, the log of the finite-window mass.
+# upper-only form is exactly `logcdf(dist, window)`. The δ-bounded form is
+# `log(cdf(dist, upper) - cdf(dist, lower))` with `lower = window - δ` clamped up
+# to the distribution's minimum, the log of the finite-window mass.
 function _truncation_lognorm(dist, window::Real, horizon)
     _truncation_lognorm_δ(dist, window, _horizon_delta(horizon))
 end
@@ -287,8 +125,15 @@ end
 # an observed boundary closes the current run. Only the final run reaches the
 # observation (later segments are separated by observed events and are their
 # own records), so the truncation distribution is the convolution of that
-# trailing unobserved run with the last segment.
+# trailing unobserved run with the last segment. The caller then right-truncates
+# the collapsed distribution with `truncated(...; upper = window)`: a single
+# observed delay gives the single-delay denominator, a `Convolved` chain total
+# the convolved-chain denominator.
 function _collapse_to_observation(segments::Tuple, observed::Tuple)
+    length(segments) >= 1 ||
+        throw(ArgumentError("a delay chain needs at least one segment"))
+    length(observed) == length(segments) - 1 || throw(ArgumentError(
+        "the observed mask must have one fewer entry than segments"))
     # Index of the last observed boundary; segments after it form the run
     # reaching the observation.
     start = 1

@@ -558,8 +558,8 @@ end
 # Right-truncate `dist` at the per-record horizon when one is supplied (the
 # one_of time is measured from the origin, so the window is the horizon
 # itself), else return it unchanged. A δ-bounded horizon (a `WindowedHorizon`)
-# δ-bounds the truncation to `[horizon - δ, horizon]`; a plain horizon is byte-
-# identical to `truncate_to_horizon`.
+# δ-bounds the truncation to `[horizon - δ, horizon]`; a plain horizon is the
+# upper-only `truncated(dist; upper = horizon)`.
 _maybe_truncate(dist, ::Nothing) = dist
 function _maybe_truncate(dist, horizon)
     return CensoredDistributions._truncate_horizon(
@@ -610,8 +610,8 @@ _marginal_logprob(d, x, w) = w * logpdf(d, x)
 # Marginal event-vector log-density of a censored composer, optionally right-
 # truncated at the per-record observation horizon (hanta), scaled by the
 # weight `w`. With `horizon === nothing` this is the untruncated composer logpdf
-# (back-compat); a horizon routes through `event_logpdf`, which wraps each
-# already-factorised observed segment in `truncate_to_horizon`.
+# (back-compat); a horizon routes through `event_logpdf`, which right-truncates
+# each already-factorised observed segment at the remaining window.
 function _marginal_logprob_h(d, events, w, horizon)
     lp = CensoredDistributions.event_logpdf(d, events; horizon = horizon)
     return w === nothing ? lp : w * lp
@@ -831,7 +831,7 @@ end
 # truncated nested-Resolve term is density-identical in both forms. The
 # truncation is applied to the branch core BEFORE the latent shift, so the shifted
 # edge is `truncated(delay; upper = window)` anchored at the (observed/sampled)
-# predecessor, matching the marginal `truncate_to_horizon(delay, horizon - o)`.
+# predecessor, matching the marginal `truncated(delay; upper = horizon - o)`.
 function _latent_one_of_logprob(c::_OneOfPlan, e, sampled, row, w,
         horizon = nothing)
     node = c.node
@@ -862,7 +862,7 @@ end
 # Mirrors the marginal `_one_of_truncate` / `_one_of_window` so the latent
 # conditioned branch matches the marginal one, including a δ-bounded
 # horizon (a `WindowedHorizon`), which δ-bounds the branch to `[window - δ,
-# window]`; a plain horizon is byte-identical to `truncate_to_horizon`.
+# window]`; a plain horizon is the upper-only `truncated(delay; upper = window)`.
 _latent_one_of_branch(delay, ::Nothing, anchor) = delay
 function _latent_one_of_branch(delay, horizon, anchor)
     t = CensoredDistributions._horizon_time(horizon)

@@ -138,10 +138,6 @@ export Shared, shared, tie
 # Exported composer-observed lowering used by the external censoring wrappers
 export observed_distribution
 
-# Exported right-truncation helpers (single-delay vs convolved-chain), plus the
-# δ-bounded variant truncating to a finite observation window.
-export truncate_to_horizon, truncate_to_window, truncate_chain
-
 # Exported utilities
 export weight, get_dist, get_dist_recursive, get_primary_event
 

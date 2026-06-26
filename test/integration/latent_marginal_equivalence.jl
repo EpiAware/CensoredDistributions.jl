@@ -188,7 +188,7 @@ end
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, Resolve,
                                  composed_distribution_model, event_names,
-                                 truncate_to_horizon, _nested_tree_logpdf,
+                                 _truncate_window, _nested_tree_logpdf,
                                  _origin_primary_event, _first_origin_node
     using DynamicPPL: logjoint, @model, to_submodel
     using ForwardDiff: gradient
@@ -247,7 +247,7 @@ end
 
         # The expected truncated term: the onset->admit edge, the branch weight, and
         # the death/discharge branch RIGHT-TRUNCATED at the remaining window.
-        ref_branch = logpdf(truncate_to_horizon(dly, horizon - admit), t - admit)
+        ref_branch = logpdf(_truncate_window(dly, horizon - admit), t - admit)
         ref_trunc = logpdf(e_oa, admit) + log(p) + ref_branch
         @test isapprox(marg_trunc, ref_trunc; atol = 1e-10)
 
@@ -303,7 +303,7 @@ end
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, Resolve,
                                  composed_distribution_model, event_logpdf,
-                                 truncate_to_horizon, _nested_tree_logpdf,
+                                 _truncate_window, _nested_tree_logpdf,
                                  _origin_primary_event, _first_origin_node,
                                  _tree_acc_type
     using DynamicPPL: logjoint, @model, to_submodel
@@ -356,7 +356,7 @@ end
 
         # The expected truncated term: the onset->admit edge, the branch weight, and
         # the death/discharge branch RIGHT-TRUNCATED at the remaining window.
-        ref_branch = logpdf(truncate_to_horizon(dly, horizon - admit), t - admit)
+        ref_branch = logpdf(_truncate_window(dly, horizon - admit), t - admit)
         ref_trunc = logpdf(e_oa, admit) + log(p) + ref_branch
 
         # (a) public marginal == direct scorer == latent == closed-form reference,
@@ -410,7 +410,7 @@ end
 
 @testitem "marginal == latent: δ-bounded leaf right-truncation" begin
     using CensoredDistributions, Distributions
-    using CensoredDistributions: composed_distribution_model, truncate_to_window
+    using CensoredDistributions: composed_distribution_model, _truncate_window
     using DynamicPPL: @model, to_submodel, logjoint, VarInfo
 
     # A δ-bounded leaf record: the reserved `obs_window` δ adds a LOWER edge a
@@ -428,7 +428,7 @@ end
     for (delay, D, δ) in ((5.0, 40.0, 30.0), (12.0, 30.0, 25.0))
         rowδ = (delay = delay, obs_time = D, obs_window = δ)
         lj = logjoint(demo(leaf, rowδ), VarInfo(demo(leaf, rowδ)))
-        ref = logpdf(truncate_to_window(leaf, D, δ), delay)
+        ref = logpdf(_truncate_window(leaf, D, δ), delay)
         @test isapprox(lj, ref; atol = 1e-8)
 
         # The δ-bounded score DIFFERS from the upper-only horizon score (the lower
@@ -438,7 +438,7 @@ end
         @test !isapprox(lj, lj_up)
         # And the upper-only row reproduces the upper-only truncation exactly.
         @test isapprox(lj_up,
-            logpdf(CensoredDistributions.truncate_to_horizon(leaf, D), delay);
+            logpdf(_truncate_window(leaf, D), delay);
             atol = 1e-10)
     end
 end
@@ -447,7 +447,7 @@ end
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, Resolve,
                                  composed_distribution_model,
-                                 truncate_to_window, _nested_tree_logpdf,
+                                 _truncate_window, _nested_tree_logpdf,
                                  _origin_primary_event, _first_origin_node,
                                  WindowedHorizon, event_logpdf, _tree_acc_type
     using DynamicPPL: logjoint, @model, to_submodel
@@ -489,7 +489,7 @@ end
         # Closed-form reference: the onset->admit edge, the branch weight, and the
         # branch δ-bounded to the finite window `[horizon-admit-δ, horizon-admit]`.
         ref_branch = logpdf(
-            truncate_to_window(dly, horizon - admit, δ), t - admit)
+            _truncate_window(dly, horizon - admit, δ), t - admit)
         ref = logpdf(e_oa, admit) + log(p) + ref_branch
 
         row = oc === :death ?
@@ -589,7 +589,7 @@ end
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, convolve_distributions,
                                  composed_distribution_model, completeness_probability,
-                                 _flat_event_names, truncate_to_horizon
+                                 _flat_event_names
     using DynamicPPL: VarInfo, logjoint
 
     # The andv sourced branch at the published posterior means. Source onset is the
@@ -699,7 +699,7 @@ end
 
 @testitem "andv index: declared double-interval-censored leaf (unchanged)" begin
     using CensoredDistributions, Distributions
-    using CensoredDistributions: composed_distribution_model
+    using CensoredDistributions: composed_distribution_model, _truncate_window
     using DynamicPPL: @model, to_submodel, logjoint, VarInfo
 
     # The index branch is observed from the case's own exposure, so it keeps its
@@ -719,7 +719,7 @@ end
         m = demo(leaf, row)
         lj = logjoint(m, VarInfo(m))
         # Equals the declared leaf truncated at the horizon, scored at the delay.
-        ref = logpdf(CensoredDistributions.truncate_to_horizon(leaf, w), delay)
+        ref = logpdf(_truncate_window(leaf, w), delay)
         @test isapprox(lj, ref; atol = 1e-8)
     end
 end

@@ -212,8 +212,8 @@ end
 # Coverage matrix: every composer x every wrapper constructs and gives a
 # finite logpdf. This is the deliverable the maintainer asked for: truncation /
 # censoring / interval-censoring compose over a composed distribution as you'd
-# expect. truncate_to_horizon now joins the censoring wrappers over composers,
-# and Choose distributes a wrapper into its alternatives.
+# expect. `truncated` joins the censoring wrappers over composers, and Choose
+# distributes a wrapper into its alternatives.
 #
 # A node-level wrap keeps the tree shape, so a wrapped Sequential/Parallel is
 # multivariate: it scores an EVENT vector (one slot per event, the latent origin
@@ -278,8 +278,8 @@ end
     )
 
     wrappers = (
-        ("truncate_to_horizon", d -> truncate_to_horizon(d, 10.0)),
-        ("truncated(upper)", d -> truncated(d; upper = 20.0)),
+        ("truncated(upper=10)", d -> truncated(d; upper = 10.0)),
+        ("truncated(upper=20)", d -> truncated(d; upper = 20.0)),
         ("primary_censored", d -> primary_censored(d, Uniform(0, 1))),
         ("interval_censored", d -> interval_censored(d, 1.0)),
         ("double_interval_censored",
@@ -308,7 +308,7 @@ end
 
     for (w,
         lw) in (
-        (d -> truncate_to_horizon(d, 8.0), ld -> truncate_to_horizon(ld, 8.0)),
+        (d -> truncated(d; upper = 8.0), ld -> truncated(ld; upper = 8.0)),
         (d -> primary_censored(d, Uniform(0, 1)),
             ld -> primary_censored(ld, Uniform(0, 1))),
         (d -> interval_censored(d, 1.0), ld -> interval_censored(ld, 1.0)),
@@ -326,38 +326,38 @@ end
     end
 end
 
-@testitem "truncate_to_horizon over Sequential distributes into leaves" begin
+@testitem "truncated over Sequential distributes into leaves" begin
     using Distributions
 
     seq = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
 
-    t_seq = truncate_to_horizon(seq, 8.0)
+    t_seq = truncated(seq; upper = 8.0)
     @test t_seq isa CensoredDistributions.Sequential
     @test all(c -> c isa Truncated, t_seq.components)
     # Each leaf is right-truncated at the shared window.
     for (c, leaf) in zip(t_seq.components, (Gamma(2.0, 1.0), LogNormal(0.5, 0.4)))
-        @test logpdf(c, 3.0) ≈ logpdf(truncate_to_horizon(leaf, 8.0), 3.0)
+        @test logpdf(c, 3.0) ≈ logpdf(truncated(leaf; upper = 8.0), 3.0)
     end
 
     # The scalar combine-then-truncate total stays the explicit form.
     conv = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
-    t_total = truncate_to_horizon(observed_distribution(seq), 8.0)
+    t_total = truncated(observed_distribution(seq); upper = 8.0)
     @test t_total isa Truncated
-    @test logpdf(t_total, 3.0) ≈ logpdf(truncate_to_horizon(conv, 8.0), 3.0)
+    @test logpdf(t_total, 3.0) ≈ logpdf(truncated(conv; upper = 8.0), 3.0)
 end
 
-@testitem "truncate_to_horizon over Parallel distributes into branches" begin
+@testitem "truncated over Parallel distributes into branches" begin
     using Distributions
 
     par = Parallel(Gamma(2.0, 1.0), LogNormal(1.0, 0.5))
-    t = truncate_to_horizon(par, 8.0)
+    t = truncated(par; upper = 8.0)
     @test t isa CensoredDistributions.Parallel
     @test t.components[1] isa Truncated
     @test t.components[2] isa Truncated
     # The distributed truncation scores each branch independently.
     @test logpdf(t, [2.0, 3.0]) ≈
-          logpdf(truncate_to_horizon(Gamma(2.0, 1.0), 8.0), 2.0) +
-          logpdf(truncate_to_horizon(LogNormal(1.0, 0.5), 8.0), 3.0)
+          logpdf(truncated(Gamma(2.0, 1.0); upper = 8.0), 2.0) +
+          logpdf(truncated(LogNormal(1.0, 0.5); upper = 8.0), 3.0)
 end
 
 @testitem "Wrapping a Choose distributes into its alternatives" begin
@@ -373,7 +373,7 @@ end
         (d -> primary_censored(d, Uniform(0, 1)),
             ld -> primary_censored(ld, Uniform(0, 1))),
         (d -> interval_censored(d, 1.0), ld -> interval_censored(ld, 1.0)),
-        (d -> truncate_to_horizon(d, 8.0), ld -> truncate_to_horizon(ld, 8.0)),
+        (d -> truncated(d; upper = 8.0), ld -> truncated(ld; upper = 8.0)),
         (
             d -> double_interval_censored(d; primary_event = Uniform(0, 1),
                 upper = 10.0, interval = 1.0),
@@ -540,15 +540,15 @@ end
     using Distributions
 
     res = resolve(:a => (Gamma(2.0, 1.0), 0.5), :b => (Gamma(1.5, 2.0), 0.5))
-    tr = truncate_to_horizon(res, 10.0)
+    tr = truncated(res; upper = 10.0)
     @test tr isa CensoredDistributions.Resolve
     @test all(d -> d isa Truncated, tr.delays)
     for (d, leaf) in zip(tr.delays, (Gamma(2.0, 1.0), Gamma(1.5, 2.0)))
-        @test logpdf(d, 3.0) ≈ logpdf(truncate_to_horizon(leaf, 10.0), 3.0)
+        @test logpdf(d, 3.0) ≈ logpdf(truncated(leaf; upper = 10.0), 3.0)
     end
 
     cmp = compete(:a => Gamma(2.0, 1.0), :b => Gamma(1.5, 2.0))
-    tc = truncate_to_horizon(cmp, 10.0)
+    tc = truncated(cmp; upper = 10.0)
     @test tc isa CensoredDistributions.Compete
     @test all(d -> d isa Truncated, tc.delays)
 end
@@ -590,11 +590,11 @@ end
 end
 
 # ---------------------------------------------------------------------------
-# Fixed-bound `truncated(node; lower, upper)` over a composed node distributes
-# the SAME fixed bound into the leaf cores (the truncation sibling of the
-# censoring node wraps, #711, tenet 7 truncation half). This is DISTINCT from the
-# per-record `truncate_to_horizon(node, window)` variant: the bound here is fixed
-# at construction. The aggregate chain-total truncation stays explicit via
+# `truncated(node; lower, upper)` over a composed node distributes the bound into
+# the leaf cores (the truncation sibling of the censoring node wraps, #711,
+# tenet 7 truncation half). A constant bound fixes the truncation at construction;
+# a `Symbol` bound (`upper = :obs_time`) reads the per-record horizon at score
+# time. The aggregate chain-total truncation stays explicit via
 # `truncated(observed_distribution(node); ...)`.
 # ---------------------------------------------------------------------------
 

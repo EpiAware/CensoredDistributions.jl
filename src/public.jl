@@ -59,7 +59,7 @@ public child_nleaves, child_logpdf, child_rand!
 # `logpdf(d, rows)` front-door delegate to). It is NOT part of the public surface:
 # `logpdf(d, events)` is the public single-record entry and `logpdf(d, rows)` the
 # public table entry. The horizon-kwarg variant stays internal (reached by the
-# qualified name) pending the `truncated(...)` folding (#637).
+# qualified name); the user-facing right-truncation verb is `truncated`.
 
 # Sample a Resolve outcome and its time as `(name, time)` (public but not
 # exported): the outcome-retaining draw used by full-path tree simulation.

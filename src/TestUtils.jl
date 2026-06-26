@@ -40,7 +40,7 @@ using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
                                double_interval_censored, primary_censored,
                                interval_censored, resolve, compete,
                                affine, modify, weight, thin, difference,
-                               convolve_distributions, truncate_to_horizon,
+                               convolve_distributions,
                                from_moments, MomentParams,
                                Affine, Modified, Weighted, Transformed,
                                Convolved, Difference, ExponentiallyTilted,
@@ -779,10 +779,10 @@ function example_fixtures()
     # Right-truncation of a composed chain's observed TOTAL: the chain is
     # collapsed to its scalar combine-then-censor total via
     # `observed_distribution`, then right-truncated, giving a univariate
-    # `Truncated` leaf. (A bare-node `truncate_to_horizon(seq)` now distributes
+    # `Truncated` leaf. (A bare-node `truncated(seq; upper)` instead distributes
     # the truncation into the leaf cores and stays multivariate, #655; this
     # fixture intends the scalar total, so it uses the explicit collapse form.)
-    trunc_composed = truncate_to_horizon(observed_distribution(seq), 20.0)
+    trunc_composed = truncated(observed_distribution(seq); upper = 20.0)
 
     return InterfaceFixture[
         # A plain leaf has the full univariate interface (scalar moment + cdf),

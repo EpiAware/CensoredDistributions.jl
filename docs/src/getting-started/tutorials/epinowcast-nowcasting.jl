@@ -29,7 +29,7 @@ The model has five parts, each mapped onto a CensoredDistributions tool:
    reported fraction ``\rho`` with [`thin`](@ref).
 5. **Real-time right-truncation**: only cells whose report date ``t + d`` is at
    or before "now" are observed. We also show this truncation acting on the
-   composed two-delay delay itself, with [`truncate_to_horizon`](@ref) and
+   composed two-delay delay itself, with `truncated` and
    [`completeness_probability`](@ref).
 
 We then fit the model in Turing and show that it recovers the expectation path,
@@ -215,21 +215,22 @@ sits past `now` is dropped.
 A complementary truncation acts on the *composed delay itself*.
 The remaining window for reference date `t` is `now - t`, the time left before
 the real-time horizon.
-[`truncate_to_horizon`](@ref) right-truncates the composed two-delay chain to that
+`truncated` right-truncates the composed two-delay chain to that
 window, returning an ordinary `truncated` distribution whose normaliser is the
 right-truncation correction `-logcdf(composed, window)`.
 Because the intermediate onset event is not separately reported, the denominator
 is the cdf of the *convolution* of the two delays, not of either delay alone,
 which is the harder of the two right-truncation cases the package distinguishes.
-The δ-bounded [`truncate_to_window`](@ref) restricts instead to a finite report
+Adding a `lower` edge to `truncated` restricts instead to a finite report
 window `[now - t - δ, now - t]`, the reports that land in the last `δ` days.
 """
 
 recent_window = now - (n_days - 5)
 
-case_recent_trunc = truncate_to_horizon(composed_case, recent_window)
+case_recent_trunc = truncated(composed_case; upper = recent_window)
 
-case_recent_window = truncate_to_window(composed_case, recent_window, 7.0)
+case_recent_window = truncated(
+    composed_case; lower = recent_window - 7.0, upper = recent_window)
 
 md"""
 The completeness probability of the composed two-delay chain is the fraction of a
@@ -630,7 +631,7 @@ md"""
   right-truncated expected-count matrix ``\lambda_t \, p_{t,d}``.
 - Right-truncation is shown two ways: per cell on the count matrix (the `now`
   argument the fit uses) and per record on the composed two-delay delay, where
-  [`truncate_to_horizon`](@ref) and [`completeness_probability`](@ref) act on the
+  `truncated` and [`completeness_probability`](@ref) act on the
   [`convolve_distributions`](@ref) chain of incubation and branch tail. Both
   routes show the same falling truncation pattern, differing in level because the
   matrix PMF is renormalised over the capped delay support.

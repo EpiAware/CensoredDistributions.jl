@@ -62,8 +62,8 @@
 # └─ double_interval_censored  primary + truncation + interval
 #
 # Truncation (drop mass outside an observation horizon)
-# ├─ truncate_to_horizon   upper-only right-truncation at a horizon
-# └─ truncate_to_window    δ-bounded truncation to [h - δ, h]
+# ├─ truncated(d; upper)         upper-only right-truncation at a horizon
+# └─ truncated(d; lower, upper)  truncation to the finite window [lower, upper]
 #
 # Distribution modifiers (adjust one coordinate of a leaf)
 # ├─ affine   value / time axis    (accelerated failure time)
@@ -458,18 +458,17 @@ CensoredDistributions.event_logpdf(obs_chain, ev_mid_missing; horizon = 8.0)
 # Some designs observe events only within a bounded window ending at the
 # horizon, for example a fixed recall period or a study that enrols and follows
 # cases for a set span.
-# `truncate_to_window(d, horizon, δ)` adds a lower edge a width `δ` below the
-# horizon, truncating to the finite window `[horizon - δ, horizon]` normalised
-# by `cdf(d, horizon) - cdf(d, horizon - δ)`.
-# Per record, a reserved `obs_window` row field carries `δ` alongside
+# Adding a `lower` edge to `truncated(d; upper, lower)` truncates to the finite
+# window `[lower, upper]`, normalised by `cdf(d, upper) - cdf(d, lower)`.
+# Per record, a reserved `obs_window` row field carries the width `δ` alongside
 # `obs_time`, so a row `(onset = 0, ..., obs_time = 8, obs_window = 3)` scores
 # the record over the window `[5, 8]`.
-# Leaving `obs_window` out (or `truncate_to_window(d, horizon, nothing)`)
-# reproduces the upper-only horizon exactly.
+# Leaving `obs_window` out (the upper-only `truncated(d; upper = horizon)`)
+# reproduces the unbounded-below horizon exactly.
 
 window_dist = LogNormal(1.5, 0.5);
 
-windowed = CensoredDistributions.truncate_to_window(window_dist, 6.0, 4.0)
+windowed = truncated(window_dist; lower = 2.0, upper = 6.0)
 
 window_lognorm = log(cdf(window_dist, 6.0) - cdf(window_dist, 2.0))
 
@@ -791,8 +790,8 @@ event_names(event(spliced, :admit_death))
 # | `primary_censored(d, pe)` | primary-event censoring leaf | leaf wrap |
 # | `interval_censored(d; interval)` | interval-censoring leaf | leaf wrap |
 # | `double_interval_censored(d; interval)` | primary + truncation + interval leaf | leaf wrap |
-# | `truncate_to_horizon(d, h)` | right-truncate a delay at a horizon | leaf wrap |
-# | `truncate_to_window(d, h, δ)` | δ-bounded right-truncation to `[h - δ, h]` | leaf wrap |
+# | `truncated(d; upper = h)` | right-truncate a delay at a horizon | leaf wrap |
+# | `truncated(d; lower, upper)` | right-truncation to the window `[lower, upper]` | leaf wrap |
 # | `shared(:tag, d)` | tag a leaf as a tied parameter group (leaf-local tie) | leaf wrap |
 # | `tie(d, paths...; name)` | tie leaves at `paths` into one group (tree-level tie) | yes |
 # | `update(d, (a = (shape = 3,),))` | replace free parameter values | yes |
