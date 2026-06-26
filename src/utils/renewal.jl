@@ -99,6 +99,7 @@ available to infect at `t`); the carry-state is the post-step `S[t]`. Pass it to
 # Examples
 ```@example
 using CensoredDistributions, Distributions
+using CensoredDistributions: renewal, susceptibility_depletion
 
 gi = pdf(interval_censored(truncated(Gamma(2.5, 1.3); lower = 1.0,
     upper = 12.0), 1.0), 1:12)
@@ -156,6 +157,8 @@ recurrence. Composition nests, so any number of modulators combine.
 # Examples
 ```@example
 using CensoredDistributions, Distributions
+using CensoredDistributions: renewal, susceptibility_depletion,
+                             combine_modulators, NoModulation
 
 gi = pdf(interval_censored(truncated(Gamma(2.5, 1.3); lower = 1.0,
     upper = 12.0), 1.0), 1:12)
@@ -217,6 +220,7 @@ two agree exactly.
 # Examples
 ```@example
 using CensoredDistributions, Distributions
+using CensoredDistributions: renewal, susceptibility_depletion
 
 gi = pdf(interval_censored(truncated(Gamma(2.5, 1.3); lower = 1.0,
     upper = 12.0), 1.0), 1:12)
