@@ -34,6 +34,6 @@ jobs:
       # and may set `group` (GROUP env for the downstream suite) and
       # `allow_fail` (true keeps a failure from reding the run).
       # Empty for now: nothing released depends on this package yet.
-      # Once EpiAwareTestUtils.jl (or a spin-out) depends on it, add:
-      #   [{"repo":"EpiAware/EpiAwareTestUtils.jl","group":"All"}]
+      # Once EpiAwarePackageTools.jl (or a spin-out) depends on it, add:
+      #   [{"repo":"EpiAware/EpiAwarePackageTools.jl","group":"All"}]
       downstreams: '[]'
