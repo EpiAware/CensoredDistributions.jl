@@ -1489,3 +1489,29 @@ end
     # The free shape is recovered within tolerance of the truth.
     @test isapprox(shape(g), 3.0; atol = 0.6)
 end
+
+@testitem "composed_parameters_model: a Compete node reconstructs" tags=[
+    :turing] begin
+    using CensoredDistributions, Distributions, DynamicPPL, Random
+
+    # A racing-hazard `Compete` node with NO shared tags reconstructs from its
+    # per-outcome priors (regression: the no-shared-tag path previously passed a
+    # Symbol where a String prior-key label was required and threw a
+    # MethodError).
+    template = compete(:recover => Gamma(2.0, 3.0), :die => Gamma(3.0, 2.0))
+    priors = (
+        recover = (shape = truncated(Normal(2, 0.5); lower = 0),
+            scale = truncated(Normal(3, 1); lower = 0)),
+        die = (shape = truncated(Normal(3, 0.5); lower = 0),
+            scale = truncated(Normal(2, 1); lower = 0)))
+
+    @model function pm(t, p)
+        d ~ to_submodel(composed_parameters_model(t, p))
+        return d
+    end
+
+    Random.seed!(202)
+    d = pm(template, priors)()
+    @test d isa Compete
+    @test CensoredDistributions.component_names(d) == (:recover, :die)
+end

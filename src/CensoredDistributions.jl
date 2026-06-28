@@ -186,6 +186,14 @@ export primary_censored_model, interval_censored_model,
        double_interval_censored_model, composed_distribution_model,
        composed_parameters_model, renewal_model
 
+# Exported recurrent / cyclic multi-state model. `recur` builds the renewal-
+# over-states (semi-Markov) default; `ctmc` the memoryless generator-matrix fast
+# path. `RecurrentStates` / `CTMCStates` are the types; `StatePath` the path
+# record `rand` returns and `logpdf` scores. `recurrent_states_model` is the
+# Turing glue stub (no method until DynamicPPL is loaded).
+export recur, ctmc, RecurrentStates, CTMCStates, StatePath,
+       recurrent_states_model
+
 # Exported linear chain trick lowering: read the (rate, stages) Erlang-stage
 # compartment structure off an Exponential/Erlang delay or Sequential chain, the
 # distributions -> compartments bridge an ODE/compartment model consumes.
@@ -364,6 +372,16 @@ include("composers/record_rand.jl")
 # `Convolved` / `Modified`. The SurvivalDistributions extension aligns these with
 # `SurvivalDistributions.hazard` / `cumhazard` / `loghazard`.
 include("utils/hazards.jl")
+
+# Recurrent / cyclic multi-state: the renewal-over-states (semi-Markov) default
+# and the memoryless CTMC fast path. After the one_of composers (`Compete` /
+# `Resolve` / `AbstractOneOf`) whose per-edge scoring it reuses, and after the
+# hazard accessors. The path I/O (simulate / score) follows the type; the CTMC
+# fast path and the Turing glue stub follow it.
+include("composers/recurrent/RecurrentStates.jl")
+include("composers/recurrent/path_io.jl")
+include("composers/recurrent/CTMCStates.jl")
+include("composers/recurrent/turing.jl")
 
 # Turing-free `primary_censored_model` function stub. Has no methods
 # until DynamicPPL is loaded; the methods live in the package extension.

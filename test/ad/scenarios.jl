@@ -67,3 +67,33 @@ end
 @testitem "Enzyme forward gradients (latent)" tags=[:ad, :enzyme, :enzyme_forward] setup=[ADHelpers] begin
     test_working_backend("Enzyme forward"; category = :latent)
 end
+
+# === Recurrent / cyclic multi-state scenario group ===
+# The `RecurrentStates` path likelihood and the `CTMCStates` jump-chain / panel
+# likelihoods, differentiated w.r.t. the edge sojourn params / generator rates.
+# The CTMC panel scenario stresses the backends through the `exp(Qt)` matrix
+# exponential; genuine per-backend limitations are in the broken/skip registries.
+
+@testitem "ForwardDiff gradients (recurrent)" tags=[:ad, :forwarddiff] setup=[ADHelpers] begin
+    test_working_backend("ForwardDiff"; category = :recurrent)
+end
+
+@testitem "ReverseDiff (tape) gradients (recurrent)" tags=[:ad, :reversediff] setup=[ADHelpers] begin
+    test_working_backend("ReverseDiff (tape)"; category = :recurrent)
+end
+
+@testitem "Enzyme reverse gradients (recurrent)" tags=[:ad, :enzyme, :enzyme_reverse] setup=[ADHelpers] begin
+    test_working_backend("Enzyme reverse"; category = :recurrent)
+end
+
+@testitem "Mooncake reverse gradients (recurrent)" tags=[:ad, :mooncake, :mooncake_reverse] setup=[ADHelpers] begin
+    test_working_backend("Mooncake reverse"; category = :recurrent)
+end
+
+@testitem "Mooncake forward gradients (recurrent)" tags=[:ad, :mooncake, :mooncake_forward] setup=[ADHelpers] begin
+    test_working_backend("Mooncake forward"; category = :recurrent)
+end
+
+@testitem "Enzyme forward gradients (recurrent)" tags=[:ad, :enzyme, :enzyme_forward] setup=[ADHelpers] begin
+    test_working_backend("Enzyme forward"; category = :recurrent)
+end
