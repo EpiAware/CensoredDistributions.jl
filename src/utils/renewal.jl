@@ -83,6 +83,11 @@ struct NoModulation end
 (::NoModulation)(state, t, force) = (true, state)
 _modulator_init(::NoModulation) = nothing
 
+struct SusceptibilityDepletion{T <: Real}
+    N::T
+    S0::T
+end
+
 @doc raw"
 A renewal modulator that depletes the susceptible pool (the SIR-style renewal).
 
@@ -120,11 +125,6 @@ infections = renewal(fill(1.5, 60), gi, 10.0;
 - [`immunity_waning`](@ref): a depleting pool that recovers over time.
 - [`combine_modulators`](@ref): stack several modulators.
 "
-struct SusceptibilityDepletion{T <: Real}
-    N::T
-    S0::T
-end
-
 function susceptibility_depletion(N::Real; S0::Real = N)
     T = promote_type(typeof(N), typeof(S0))
     return SusceptibilityDepletion{T}(T(N), T(S0))
@@ -142,6 +142,10 @@ function (m::SusceptibilityDepletion)(S, t, force)
 end
 
 _modulator_init(m::SusceptibilityDepletion) = m.S0
+
+struct Transmissibility{B}
+    beta::B
+end
 
 @doc raw"
 A renewal modulator that scales the force of infection by a per-step factor.
@@ -170,10 +174,6 @@ infections = renewal(fill(1.4, 60), gi, 10.0;
 - [`renewal`](@ref): the renewal scan.
 - [`combine_modulators`](@ref): stack with susceptibility / immunity.
 "
-struct Transmissibility{B}
-    beta::B
-end
-
 transmissibility(beta) = Transmissibility(beta)
 
 # A scalar factor applies at every step; a vector is read at step `t`.
@@ -182,6 +182,12 @@ _beta_at(beta::AbstractVector, t) = @inbounds beta[t]
 
 (m::Transmissibility)(state, t, force) = (_beta_at(m.beta, t), state)
 _modulator_init(::Transmissibility) = nothing
+
+struct ImmunityWaning{T <: Real}
+    N::T
+    omega::T
+    Z0::T
+end
 
 @doc raw"
 A renewal modulator that builds an immune pool which grows and wanes (SIRS).
@@ -222,12 +228,6 @@ infections = renewal(fill(1.6, 120), gi, 10.0;
 - [`susceptibility_depletion`](@ref): the no-waning (permanent) limit.
 - [`combine_modulators`](@ref): stack several modulators.
 "
-struct ImmunityWaning{T <: Real}
-    N::T
-    omega::T
-    Z0::T
-end
-
 function immunity_waning(N::Real, omega::Real; Z0::Real = zero(N))
     T = promote_type(typeof(N), typeof(omega), typeof(Z0))
     return ImmunityWaning{T}(T(N), T(omega), T(Z0))
