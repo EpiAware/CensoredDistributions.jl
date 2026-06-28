@@ -15,6 +15,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Full build + deploy on main / tags / releases. The reusable workflow runs
+  # every Literate tutorial (including the heavy MCMC fits) and deploys the
+  # rendered site. Request four threads so each tutorial subprocess samples its
+  # MCMC chains in parallel rather than serially.
   Documenter:
+    if: >-
+      github.event_name == 'push' || github.event_name == 'release' ||
+      github.event_name == 'workflow_dispatch'
     uses: EpiAware/.github/.github/workflows/documentation.yml@dc919e0d1674c16d1518df07eda5ee0be09b47e2
+    with:
+      julia_num_threads: '4'
     secrets: inherit  # pragma: allowlist secret
+
+  # PR / merge-queue gate: a fast build that SKIPS the heavy Literate
+  # tutorials. The integration stack added ten heavy MCMC/AD tutorials, each
+  # built in its own subprocess; run serially they overran the reusable
+  # workflow's 45-minute cap, so the gating Documenter run was cancelled
+  # (timeout) on every PR. This job builds the docs with `SKIP_NOTEBOOKS=true`
+  # (writing lightweight stubs for the heavy tutorials so the nav and all
+  # `@ref`s still resolve), exercising the full page set, the API generation
+  # and the cross-references without the multi-hour tutorial execution. The
+  # full tutorials are rendered and deployed by the `Documenter` job on main.
+  Documenter-fast:
+    name: Documentation
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - name: Instantiate docs environment
+        run: >-
+          julia --project=docs -e '
+            using Pkg
+            Pkg.develop(PackageSpec(path=pwd()))
+            Pkg.instantiate()'
+      - name: Build docs (skip heavy tutorials)
+        env:
+          SKIP_NOTEBOOKS: 'true'
+        run: julia --project=docs docs/make.jl --skip-notebooks
