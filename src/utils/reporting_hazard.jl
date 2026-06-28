@@ -347,8 +347,7 @@ pre-extracted PMF vector, so the reporting hazard modifies the composed
 distribution itself. For each reference date the delay is discretised to a daily
 PMF over `0:maxlag` and reshaped through a [`modify`](@ref)`(...; link = :logit)`
 hazard modification, exactly the per-reference-date [`Modified`](@ref) leaf;
-[`reference_report_matrix(expected, pmf; ...)`](@ref) is the equivalent
-vector-input form.
+[`reference_report_matrix`](@ref) is the equivalent vector-input form.
 
 # Arguments
 - `expected`: expected final counts ``\lambda_t`` per reference date.

@@ -4,7 +4,7 @@ import CensoredDistributions: _gamma_cdf, _primal
 using CensoredDistributions: _gamma_cdf_value_and_partials,
                              _logcdf_ad_safe, _logccdf_ad_safe
 using ForwardDiff: ForwardDiff, Dual, value, partials
-using Distributions: Distributions, Gamma, logcdf, logccdf
+using Distributions: Distributions, Gamma
 
 # Strip a ForwardDiff `Dual` to its primal `Float64` for the
 # non-differentiable quadrature-window quantile (`_finite_window` in
