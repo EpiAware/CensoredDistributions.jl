@@ -33,7 +33,7 @@ We cover:
 This builds on [Getting Started](@ref getting-started) and the
 [Rt renewal with delay convolution](@ref rt-renewal-convolution) tutorial, which
 introduces the generation interval and the
-[`convolve_distributions`](@ref) observation layer.
+[`convolved`](@ref) observation layer.
 
 The renewal recurrence `I[t] = R_t · (S[t]/N) · Σ_s g_s I[t-s]`,
 `S[t] = S[t-1] − I[t]`, is the [`susceptibility_depletion`](@ref) modulator.

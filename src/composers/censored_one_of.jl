@@ -362,7 +362,7 @@ end
 # cause's survival; the marginal cores carry the leaf params for AD (the
 # convolution CDF is analytic where the cores admit it, else AD-safe numeric).
 function _logccdf_ad_safe(d::Sequential, t::Real)
-    conv = convolve_distributions(map(_branch_marginal, d.components))
+    conv = convolved(map(_branch_marginal, d.components))
     return logccdf(conv, t)
 end
 function _logccdf_ad_safe(d::Parallel, t::Real)
@@ -378,7 +378,7 @@ end
 # rather than scoring a wrong survival.
 _branch_marginal(d::UnivariateDistribution) = _marginal_core(d)
 function _branch_marginal(d::Sequential)
-    return convolve_distributions(map(_branch_marginal, d.components))
+    return convolved(map(_branch_marginal, d.components))
 end
 function _branch_marginal(d::Union{Parallel, AbstractOneOf})
     throw(ArgumentError(

@@ -156,7 +156,7 @@ end
     # A Convolved edge reuses its additive mean (sum of component means). This
     # tree is PLAIN (uncensored), so the latent view is the per-step value
     # NamedTuple keyed by the step names (no censored origin event).
-    conv = convolve_distributions(Gamma(2.0, 1.0), Gamma(3.0, 1.0))
+    conv = convolved(Gamma(2.0, 1.0), Gamma(3.0, 1.0))
     ct = compose((c = conv, n = Gamma(1.0, 1.0)))
     cm = mean(latent(ct))
     @test keys(cm) == keys(rand(latent(ct))) == (:c, :n)

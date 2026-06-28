@@ -72,7 +72,7 @@ end
 
 @testitem "nested composed: Convolved of a composed univariate leaf" begin
     using Distributions, Random
-    using CensoredDistributions: convolve_distributions
+    using CensoredDistributions: convolved
 
     # A `Resolve` is a UNIVARIATE marginal (time-to-resolution), so it can be a
     # `Convolved` component. The convolution sums the Resolve marginal and a
@@ -80,7 +80,7 @@ end
     r = resolve(:death => (Gamma(2.0, 1.0), 0.3),
         :disch => (LogNormal(0.5, 0.4), 0.7))
     g2 = Gamma(3.0, 0.7)
-    cvr = convolve_distributions(r, g2)
+    cvr = convolved(r, g2)
 
     @test isfinite(logpdf(cvr, 5.0))
     @test 0.0 <= cdf(cvr, 5.0) <= 1.0
@@ -104,12 +104,12 @@ end
 
 @testitem "nested composed: truncated / censored over a composed leaf" begin
     using Distributions, QuadGK
-    using CensoredDistributions: convolve_distributions
+    using CensoredDistributions: convolved
 
     # A `Convolved` is a univariate leaf, so it composes under `truncated` and
     # the censoring wrappers. The truncated cdf/logpdf must use the base
     # `Convolved` cdf/quantile and renormalise.
-    cv = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    cv = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     lo, hi = 0.0, 10.0
     tcv = truncated(cv, lo, hi)
 

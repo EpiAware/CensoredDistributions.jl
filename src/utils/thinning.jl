@@ -7,7 +7,7 @@
 # completeness probability is the CDF of the reporting delay evaluated at the
 # observation window: the fraction of events whose delay has elapsed by then.
 # Both helpers accept any `UnivariateDistribution`, including a `Convolved`
-# chain, so a multi-stage delay thins by `cdf(convolve_distributions(...),
+# chain, so a multi-stage delay thins by `cdf(convolved(...),
 # window)` with no special casing.
 
 @doc raw"
@@ -33,7 +33,7 @@ using CensoredDistributions, Distributions
 completeness_probability(LogNormal(1.5, 0.5), 7.0)
 
 # Multi-stage (convolved) delay chain
-chain = convolve_distributions(Gamma(2.0, 1.0), LogNormal(1.0, 0.4))
+chain = convolved(Gamma(2.0, 1.0), LogNormal(1.0, 0.4))
 completeness_probability(chain, 14.0)
 ```
 
@@ -70,7 +70,7 @@ import CensoredDistributions: log_completeness_probability
 
 log_completeness_probability(LogNormal(1.5, 0.5), 7.0)
 
-chain = convolve_distributions(Gamma(2.0, 1.0), LogNormal(1.0, 0.4))
+chain = convolved(Gamma(2.0, 1.0), LogNormal(1.0, 0.4))
 log_completeness_probability(chain, 14.0)
 ```
 
@@ -88,7 +88,7 @@ Thin a rate by the completeness probability at a horizon.
 [`completeness_probability`](@ref) of `delay` at `window`,
 ``R \cdot F_{\text{delay}}(\text{window})``: the expected observed rate once the
 unobserved (not-yet-complete) fraction is removed. Works on a [`Convolved`](@ref)
-chain, so a multi-stage delay thins by `R * cdf(convolve_distributions(...),
+chain, so a multi-stage delay thins by `R * cdf(convolved(...),
 window)`.
 
 # Arguments
@@ -105,7 +105,7 @@ using CensoredDistributions, Distributions
 thin_by_completeness(1.5, LogNormal(1.5, 0.5), 7.0)
 
 # Thin by a convolved delay chain
-chain = convolve_distributions(Gamma(2.0, 1.0), LogNormal(1.0, 0.4))
+chain = convolved(Gamma(2.0, 1.0), LogNormal(1.0, 0.4))
 thin_by_completeness(1.5, chain, 14.0)
 ```
 
@@ -145,7 +145,7 @@ import CensoredDistributions: log_thin_by_completeness
 
 log_thin_by_completeness(log(1.5), LogNormal(1.5, 0.5), 7.0)
 
-chain = convolve_distributions(Gamma(2.0, 1.0), LogNormal(1.0, 0.4))
+chain = convolved(Gamma(2.0, 1.0), LogNormal(1.0, 0.4))
 log_thin_by_completeness(log(1.5), chain, 14.0)
 ```
 

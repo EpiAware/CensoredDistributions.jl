@@ -29,7 +29,7 @@ the `method`:
 
 Passing the solver method as a concrete object keeps the return type concrete
 even when the delay parameters are runtime values (e.g. inside a probabilistic
-model), so it is preferred over the deprecated `force_numeric` flag.
+model).
 
 # Arguments
 - `dist`: The delay distribution from primary event to observation
@@ -42,7 +42,6 @@ model), so it is preferred over the deprecated `force_numeric` flag.
 - `solver`: Quadrature solver used when `method` is not given (default:
   `GaussLegendre(; n = 64)`, AD-friendly; pass `QuadGKJL()` for adaptive
   accuracy).
-- `force_numeric`: Deprecated. Pass `method = NumericSolver()` instead.
 
 This is useful for modeling:
 - Infection-to-symptom onset times when infection time is uncertain
@@ -74,8 +73,8 @@ d_numeric = primary_censored(incubation, infection_window;
 function primary_censored(
         dist::UnivariateDistribution, primary_event::UnivariateDistribution;
         method::Union{AbstractSolverMethod, Nothing} = nothing,
-        solver = GaussLegendre(; n = 64), force_numeric = nothing)
-    resolved = _resolve_solver_method(method, solver, force_numeric)
+        solver = GaussLegendre(; n = 64))
+    resolved = _resolve_solver_method(method, solver)
     return PrimaryCensored(dist, primary_event, resolved)
 end
 
@@ -102,9 +101,9 @@ function primary_censored(
         dist::UnivariateDistribution;
         primary_event::UnivariateDistribution = Uniform(0, 1),
         method::Union{AbstractSolverMethod, Nothing} = nothing,
-        solver = GaussLegendre(; n = 64), force_numeric = nothing)
+        solver = GaussLegendre(; n = 64))
     return primary_censored(dist, primary_event; method = method,
-        solver = solver, force_numeric = force_numeric)
+        solver = solver)
 end
 
 @doc "

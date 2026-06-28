@@ -22,7 +22,7 @@ end
 
     # A convolved input selects the convolved-chain denominator: the
     # log-normaliser equals -logcdf(convolution, window).
-    conv = convolve_distributions(LogNormal(1.5, 0.5), Gamma(2.0, 1.0))
+    conv = convolved(LogNormal(1.5, 0.5), Gamma(2.0, 1.0))
     window = 9.0
     td = truncated(conv; upper = window)
     for x in 1.0:1.5:8.5
@@ -77,7 +77,7 @@ end
     sourced = truncated(
         _collapse_to_observation((inc_dist, delta_dist), (false,));
         upper = window_onset)
-    conv = convolve_distributions(inc_dist, delta_dist)
+    conv = convolved(inc_dist, delta_dist)
     # andv: cdf(ConvolvedDelays(inc_dist, delta_dist), obs_time - T_onset)
     expected_sourced_norm = -logcdf(conv, window_onset)
     for x in 1.0:1.5:window_onset
@@ -104,7 +104,7 @@ end
     # All unobserved -> full convolution.
     full = truncated(
         _collapse_to_observation((a, b, c), (false, false)); upper = window)
-    conv_full = convolve_distributions(a, b, c)
+    conv_full = convolved(a, b, c)
     @test logpdf(full, 4.0) ≈
           logpdf(conv_full, 4.0) - logcdf(conv_full, window) atol=1e-6
 
@@ -115,7 +115,7 @@ end
           logpdf(truncated(c; upper = window), 2.0) atol=1e-10
 
     # First observed -> trailing convolution of b and c.
-    bc = convolve_distributions(b, c)
+    bc = convolved(b, c)
     tail_conv = truncated(
         _collapse_to_observation((a, b, c), (true, false)); upper = window)
     @test logpdf(tail_conv, 3.0) ≈
@@ -160,7 +160,7 @@ end
     # lower edge at the distribution minimum (`cdf(minimum) = 0`), so the density
     # is byte-identical.
     for delay in (LogNormal(1.5, 0.5), Gamma(2.0, 1.0),
-        convolve_distributions(LogNormal(1.2, 0.4), Gamma(2.0, 0.8)))
+        convolved(LogNormal(1.2, 0.4), Gamma(2.0, 0.8)))
         for upper in (3.0, 6.0, 12.0)
             th = truncated(delay; upper = upper)
             wide = truncated(delay; lower = minimum(delay), upper = upper)

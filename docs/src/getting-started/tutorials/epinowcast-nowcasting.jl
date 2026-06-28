@@ -120,7 +120,7 @@ md"""
 The maximum reporting delay caps the number of delay bins we track per reference
 date.
 We keep each branch's total delay as a single [`Convolved`](@ref) chain, the
-incubation chained with the branch tail, with [`convolve_distributions`](@ref).
+incubation chained with the branch tail, with [`convolved`](@ref).
 This composed two-delay distribution is the hazard layer's input directly: the
 reporting hazard modifies the composed delay's hazard per reference date (see
 [The hazard effects](@ref)), so the composition is load-bearing rather than a
@@ -131,9 +131,9 @@ ascertainment acting on the composed stack itself.
 
 max_delay = 14
 
-composed_case = convolve_distributions(incubation, onset_case)
+composed_case = convolved(incubation, onset_case)
 
-composed_death = convolve_distributions(incubation, onset_death)
+composed_death = convolved(incubation, onset_death)
 
 md"""
 ### The expectation process
@@ -179,7 +179,7 @@ after `now`.
 
 The hazard therefore acts on the composed delay distribution itself, not on a
 hand-extracted PMF vector: the composition is load-bearing.
-Unlike the renewal layer's [`convolve_distributions`](@ref), which applies one
+Unlike the renewal layer's [`convolved`](@ref), which applies one
 shared delay across all reference dates, the nowcasting hazard gives each
 reference date its own modified delay (that is the whole point of a
 reference-date effect), so the output is a reference-by-report matrix rather than
@@ -269,7 +269,7 @@ on the observation model.
 [`thin`](@ref) is the package's reporting-probability op: `thin(delay, rho)`
 reports each event with probability `rho` (the one-of `resolve(:event => (delay,
 rho), :none => (NoEvent(), 1 - rho))` under the hood).
-Under [`convolve_distributions`](@ref) this scales the delay's expected-count
+Under [`convolved`](@ref) this scales the delay's expected-count
 series by `rho` (the aggregate-count ascertainment here), the same under-reporting
 EpiNow2 represents with a reporting fraction on the observation model.
 We thin the composed case delay and read the ascertainment factor back out of its
@@ -632,7 +632,7 @@ md"""
 - Right-truncation is shown two ways: per cell on the count matrix (the `now`
   argument the fit uses) and per record on the composed two-delay delay, where
   `truncated` and [`completeness_probability`](@ref) act on the
-  [`convolve_distributions`](@ref) chain of incubation and branch tail. Both
+  [`convolved`](@ref) chain of incubation and branch tail. Both
   routes show the same falling truncation pattern, differing in level because the
   matrix PMF is renormalised over the capped delay support.
 - Cases are under-reported: an ascertainment layer thins the case stream by a

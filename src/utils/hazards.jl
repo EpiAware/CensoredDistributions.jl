@@ -38,7 +38,7 @@
 #   - `Sequential`: the total time E_k - E_0 is the SUM of the (continuous)
 #     step delays, whose marginal is the `Convolved` of the step cores, exactly
 #     the marginal a missing-intermediate run scores against
-#     (`_marginal_core` / `convolve_distributions`), so the tree's hazard is the
+#     (`_marginal_core` / `convolved`), so the tree's hazard is the
 #     hazard of that convolution and the marginal/latent forms agree.
 #   - `Parallel`: the branches share an origin but the joint has NO single
 #     canonical univariate time-to-event (the branches resolve at different,
@@ -191,13 +191,13 @@ _hazard_marginal(d::UnivariateDistribution) = d
 # that helper drops a `Modified` step's hazard modification (and any other
 # wrapper) down to the bare base, which is right for the latent-edge marginal
 # scorer but would SILENTLY ignore the modification in the chain's hazard.
-# `convolve_distributions` consumes a `Modified` / censored step directly, so
+# `convolved` consumes a `Modified` / censored step directly, so
 # the step law flows through intact. A single-step chain is just that step's
 # marginal.
 function _hazard_marginal(d::Sequential)
     marginals = map(_hazard_marginal, d.components)
     length(marginals) == 1 && return marginals[1]
-    return convolve_distributions(collect(marginals))
+    return convolved(collect(marginals))
 end
 
 # A `Parallel` set has no single canonical univariate time-to-event: its

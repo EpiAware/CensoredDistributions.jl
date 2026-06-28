@@ -7,7 +7,7 @@
 #
 # The SCALAR combine-then-censor lowering (observe the chain TOTAL with every
 # intermediate marginalised) stays available EXPLICITLY through
-# `modifier(observed_distribution(seq))` / `modifier(convolve_distributions(...))`;
+# `modifier(observed_distribution(seq))` / `modifier(convolved(...))`;
 # `observed_distribution` is the dual, scalar direction, distinct from the
 # node-level wrap. Convolved/Resolve are already univariate and flow through the
 # existing `UnivariateDistribution` wrapper methods unchanged.
@@ -31,7 +31,7 @@
     # Sequential -> convolution of its steps.
     seq = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     obs = observed_distribution(seq)
-    conv = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    conv = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     @test obs isa CensoredDistributions.Convolved
     @test cdf(obs, 4.0) ≈ cdf(conv, 4.0)
 
@@ -55,7 +55,7 @@ end
 @testitem "Convolved flows through wrappers (already univariate)" begin
     using Distributions
 
-    conv = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    conv = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     dic = double_interval_censored(
         conv; primary_event = Uniform(0, 1), interval = 1.0)
     @test dic isa CensoredDistributions.IntervalCensored
@@ -121,7 +121,7 @@ end
     using Distributions
 
     seq = Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
-    conv = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    conv = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
 
     # The SCALAR combine-then-censor total (intermediate marginalised) is now the
     # EXPLICIT `modifier(observed_distribution(seq))` form and reproduces the old
@@ -195,12 +195,12 @@ end
         3.0)
 end
 
-@testitem "double_interval_censored(convolve_distributions(...), primary)" begin
+@testitem "double_interval_censored(convolved(...), primary)" begin
     using Distributions
 
     # The canonical example: combine first, then censor.
     d = double_interval_censored(
-        convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4));
+        convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4));
         primary_event = Uniform(0, 1), upper = 10.0, interval = 1.0)
     @test d isa CensoredDistributions.IntervalCensored
     @test cdf(d, 5.0) isa Real
@@ -270,7 +270,7 @@ end
             Compete(:a => Gamma(2.0, 1.0),
                 :b => LogNormal(0.5, 0.4))),
         ("Convolved",
-            convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))),
+            convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))),
         ("Seq[leaf,Resolve]",
             Sequential(Gamma(2.0, 1.0),
                 Resolve(:a => (Gamma(1.5, 1.0), 0.5),
@@ -340,7 +340,7 @@ end
     end
 
     # The scalar combine-then-truncate total stays the explicit form.
-    conv = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    conv = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     t_total = truncated(observed_distribution(seq); upper = 8.0)
     @test t_total isa Truncated
     @test logpdf(t_total, 3.0) ≈ logpdf(truncated(conv; upper = 8.0), 3.0)

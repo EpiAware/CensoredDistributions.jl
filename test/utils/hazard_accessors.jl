@@ -31,7 +31,7 @@ end
     seq = sequential(s1, s2)
     # The chain's total-time marginal is the convolution of the steps; its
     # hazard is the convolution's hazard, hand-computed from the same Convolved.
-    conv = convolve_distributions(s1, s2)
+    conv = convolved(s1, s2)
     for t in (1.0, 3.0, 6.0)
         @test CD.hazard(seq, t) ≈ pdf(conv, t) / ccdf(conv, t) rtol=1e-6
         @test CD.cumhazard(seq, t) ≈ -logccdf(conv, t) rtol=1e-6
@@ -48,8 +48,8 @@ end
 
     # A nested chain step contributes its own marginal time-to-event.
     nested = sequential(sequential(s1, Gamma(1.5, 1.0)), s2)
-    cnest = convolve_distributions(
-        convolve_distributions(s1, Gamma(1.5, 1.0)), s2)
+    cnest = convolved(
+        convolved(s1, Gamma(1.5, 1.0)), s2)
     for t in (1.0, 3.0, 6.0)
         @test CD.hazard(nested, t) ≈ pdf(cnest, t) / ccdf(cnest, t) rtol=1e-5
     end
@@ -116,8 +116,8 @@ end
     # hazard is the convolution of the modified step and the other step, NOT the
     # stripped base (which `_marginal_core` would give).
     seq = sequential(mlog, Gamma(1.5, 1.0))
-    conv_mod = convolve_distributions(mlog, Gamma(1.5, 1.0))
-    conv_base = convolve_distributions(base, Gamma(1.5, 1.0))
+    conv_mod = convolved(mlog, Gamma(1.5, 1.0))
+    conv_base = convolved(base, Gamma(1.5, 1.0))
     for t in (1.0, 3.0, 6.0)
         @test CD.hazard(seq, t) ≈ pdf(conv_mod, t) / ccdf(conv_mod, t) rtol=1e-5
         @test !isapprox(CD.hazard(seq, t),

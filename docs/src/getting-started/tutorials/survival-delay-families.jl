@@ -92,12 +92,12 @@ rand(record)
 
 # ## Convolving survival delays
 #
-# [`convolve_distributions`](@ref) forms the distribution of a sum of
+# [`convolved`](@ref) forms the distribution of a sum of
 # independent delays.
 # A survival family convolves with another delay through the numeric quadrature
 # path, which uses the leaves' `[0, Inf)` support.
 
-total = convolve_distributions(
+total = convolved(
     SD.GeneralizedGamma(1.0, 1.5, 2.0), LogNormal(0.5, 0.4))
 
 # The convolution has a monotone CDF over the combined support.

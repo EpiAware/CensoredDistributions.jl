@@ -19,7 +19,7 @@ The renewal recursion itself is user-side; the package's job is the
 *observation layer*.
 We compose one branched delay stack with shared incubation and two reporting
 branches, then push the latent infection series through it with a single
-[`convolve_distributions`](@ref) call that returns both event streams at once,
+[`convolved`](@ref) call that returns both event streams at once,
 each already thinned.
 
 We cover:
@@ -40,11 +40,11 @@ This tutorial builds on [Getting Started with
 CensoredDistributions.jl](@ref getting-started) and the composer reference,
 [Composing censored distributions](@ref composer-toolkit), which introduces
 [`Sequential`](@ref) chains, [`compose`](@ref) and
-[`convolve_distributions`](@ref).
+[`convolved`](@ref).
 We do not re-explain the composer basics here; this page is about using a
 branched, thinned delay stack as a renewal observation layer.
 
-[`convolve_distributions`](@ref) is AD-safe: the discretised delay PMFs depend
+[`convolved`](@ref) is AD-safe: the discretised delay PMFs depend
 differentiably on the delay parameters, the vector convolution is linear, and a
 [`thin`](@ref) factor is carried through as a forward multiplier, so gradients
 flow through the whole stack and it can be called directly inside a `@model`.
@@ -194,7 +194,7 @@ It takes the per-day reproduction number, the ascertainment and the IFR, plus
 the fixed delays, generation interval and seed, runs the renewal recursion,
 rebuilds the branched observation stack with the scales threaded through
 [`thin`](@ref), and pushes the infections through with a single
-[`convolve_distributions`](@ref) call and `events = (:cases, :deaths)`,
+[`convolved`](@ref) call and `events = (:cases, :deaths)`,
 returning a `NamedTuple` of both streams discretised, convolved and thinned in
 one pass.
 Calling the convolution once per stream would rebuild the shared incubation
@@ -207,7 +207,7 @@ function forward_map(Rt, alpha, rho, g, incubation, onset_report, onset_death,
         I0)
     infections = renewal(Rt, g, I0)
     stack = observation_stack(incubation, onset_report, onset_death, alpha, rho)
-    return convolve_distributions(stack, infections;
+    return convolved(stack, infections;
         events = (:cases, :deaths))
 end
 
@@ -240,7 +240,7 @@ infections = renewal(true_Rt, g, I0)
 md"""
 One `forward_map` call returns the expected cases and deaths together, each
 already thinned by its branch scale, from the single
-[`convolve_distributions`](@ref) call inside the map.
+[`convolved`](@ref) call inside the map.
 """
 
 expected = forward_map(true_Rt, true_alpha, true_rho, g, incubation,
@@ -304,7 +304,7 @@ md"""
 The model puts priors on the reproduction number, the ascertainment and the
 IFR, then runs the SAME `forward_map` as the demo with the sampled scales,
 recomputing both expected streams with the single
-[`convolve_distributions`](@ref) call inside the map.
+[`convolved`](@ref) call inside the map.
 The sampled `alpha` and `rho` are AD duals; [`thin`](@ref) carries them as
 forward factors and the convolution stays AD-safe, so nothing special is needed.
 We give Rt a small piecewise level per block, so the parameter count stays low.
@@ -498,7 +498,7 @@ rather than only by parameter recovery.
 
 - The renewal recursion is user-side; the package supplies the observation
   layer as one branched delay stack built with [`compose`](@ref) and pushed
-  through [`convolve_distributions`](@ref) in a single call that returns every
+  through [`convolved`](@ref) in a single call that returns every
   requested event stream.
 - Two streams share one infection series and one incubation period, then branch:
   onset to report for cases and onset to death for deaths, each scaled by a

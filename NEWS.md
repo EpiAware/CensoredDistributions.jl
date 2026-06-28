@@ -128,9 +128,9 @@
   analytic-vs-numeric solver by dispatching on the argument types rather
   than branching on a `Bool` value, so the return type stays concrete
   when the delay parameters are runtime values (e.g. inside a Turing
-  model). Previously the value-level `force_numeric` branch inferred to a
-  `Union` of the `AnalyticalSolver` and `NumericSolver` specialisations
-  at non-constant-folded call sites, which propagated an abstract element
+  model). Previously a value-level `Bool` branch inferred to a `Union` of
+  the `AnalyticalSolver` and `NumericSolver` specialisations at
+  non-constant-folded call sites, which propagated an abstract element
   type into downstream `pdf` loops and poisoned reverse-mode AD. Closes
   [#367](https://github.com/EpiAware/CensoredDistributions.jl/issues/367).
 - Skip the CDF-saturation early-return in the numeric
@@ -150,23 +150,11 @@
   `NumericSolver()`, each optionally given a quadrature solver
   (e.g. `NumericSolver(QuadGKJL())`). `AnalyticalSolver` and
   `NumericSolver` are now exported. Passing a concrete method object is
-  the type-stable way to choose the CDF backend, and is preferred over
-  the deprecated `force_numeric` flag.
-- `convolve_distributions` (and the `Convolved` type) accept the same
-  `method` keyword, `AnalyticalSolver()` (the default) or `NumericSolver()`,
-  to choose between the analytic convolution and forced numeric quadrature.
-  This completes the `force_numeric` -> `method` migration across every
-  censoring/convolution entry point. Closes #515.
-
-### Deprecated
-
-- The `force_numeric` keyword of `primary_censored`,
-  `double_interval_censored` and `convolve_distributions` is deprecated.
-  Pass `method = NumericSolver()` (or `method = AnalyticalSolver()`)
-  instead. `force_numeric` still works but emits a deprecation warning
-  and, being a runtime `Bool`, does not guarantee a concrete return type.
-  The `Convolved` struct now stores a `method` field in place of the old
-  `force_numeric::Bool` field.
+  the type-stable way to choose the CDF backend.
+- `convolved` (and the `Convolved` type) accept the same `method` keyword,
+  `AnalyticalSolver()` (the default) or `NumericSolver()`, to choose
+  between the analytic convolution and forced numeric quadrature. Closes
+  #515.
 
 ### Breaking
 
@@ -179,6 +167,16 @@
   total. Over a composed node `truncated` distributes the bound into the leaf
   cores, keeping the tree shape; a `Symbol` bound (`upper = :obs_time`) reads the
   per-record horizon at scoring time. Closes #746.
+- The sum constructor `convolve_distributions` is renamed `convolved`, the
+  lowercase pair of the `Convolved` type and symmetric with the
+  `Difference`/`difference` dual. `convolve` was not available
+  (Distributions.jl exports it), so the verb is `convolved`. Update call
+  sites to the new name.
+- The deprecated `force_numeric` keyword is removed from `primary_censored`,
+  `double_interval_censored` and `convolved`. Pass `method = NumericSolver()`
+  for forced numeric quadrature or `method = AnalyticalSolver()` for the
+  analytic path; both give the type-stable backend choice `force_numeric`
+  could not.
 - The deprecated composer verbs `intervene`, `swap_child` and `cut_branch` are
   removed. Use `update` for node replacement (`intervene`, and `swap_child` via
   the full child path) and `prune` to drop a branch (`cut_branch`).

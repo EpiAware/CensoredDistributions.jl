@@ -2,7 +2,7 @@
 # Compete: one_of risks by racing hazards (dual to convolve)
 # ============================================================================
 #
-# Where `convolve_distributions` SUMS independent delays (events in series, the
+# Where `convolved` SUMS independent delays (events in series, the
 # total time through a chain), one_of RISKS take the MINIMUM of racing latent
 # delays (events compete, the first wins). `Compete` is that combinator:
 # given cause-specific delays `D_1..D_n` it represents
@@ -21,7 +21,7 @@
 #   - `rand`: draw a latent time per cause, return `(argmin cause, min time)`.
 #   - `logpdf`: the one_of-risks likelihood, marginal `log ∑_j f_j ∏_{k≠j} S_k`
 #     or cause-resolved `log f_j + ∑_{k≠j} log S_k`.
-#   - forward `convolve_distributions(stack, series)`: per-outcome sub-density
+#   - forward `convolved(stack, series)`: per-outcome sub-density
 #     stream `series ⊛ pmf(f_j ∏_{k≠j} S_k)`, sub-stochastic (NOT renormalised).
 #
 # Ships against plain `Distributions.ccdf` / `logccdf` / `logpdf`, so a stock
@@ -31,7 +31,7 @@
 
 @doc "
 
-Resolve risks by racing hazards: the dual of [`convolve_distributions`](@ref)
+Resolve risks by racing hazards: the dual of [`convolved`](@ref)
 under MINIMUM instead of sum.
 
 Given cause-specific delay distributions `D_1, ..., D_n`, `Compete`
@@ -54,7 +54,7 @@ Build it with the [`compete`](@ref) constructor by giving BARE delays
 - [`compete`](@ref): the constructor (bare delays; no branch probabilities).
 - [`Resolve`](@ref): the fixed-probability mixture sibling.
 - `Distributions.probs`: the derived per-cause winning probabilities.
-- [`convolve_distributions`](@ref): the sum dual (events in series).
+- [`convolved`](@ref): the sum dual (events in series).
 "
 struct Compete{C <: Tuple, D <: Tuple} <: AbstractOneOf
     "Tuple of the one_of outcome names (`Symbol`s)."
@@ -263,7 +263,7 @@ Sample a racing-hazard outcome AND its time, returning `(name, time)`: draw a
 latent time per cause and return the `argmin` cause with its `min` time.
 
 This is the generative dual of the [`logpdf`](@ref) (`f_j ∏_{k≠j} S_k`) and of
-the forward `convolve_distributions` stream: the Monte Carlo winning-cause
+the forward `convolved` stream: the Monte Carlo winning-cause
 frequencies match the derived `Distributions.probs` split and the forward
 per-outcome stream masses.
 
@@ -384,7 +384,7 @@ end
 # Cause-resolved sub-density leaf (for the forward convolve stream)
 # ----------------------------------------------------------------------------
 #
-# The forward `convolve_distributions(stack, series)` per-outcome stream of a
+# The forward `convolved(stack, series)` per-outcome stream of a
 # racing-hazard node is `series ⊛ pmf(f_j ∏_{k≠j} S_k)`, sub-stochastic: each
 # outcome's mass equals its DERIVED winning probability, the deficit being the
 # one_of fraction. `_HazardCauseDelay` is the cause-resolved sub-density of one

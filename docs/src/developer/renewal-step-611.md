@@ -12,7 +12,7 @@ This page records the design and the relationships to the other renewal issues.
 ## The gap
 
 The force-of-infection convolution `Σ_s g_s I_{t-s}` is already a single call:
-`convolve_distributions(stack, series)` pushes a fixed series through a delay
+`convolved(stack, series)` pushes a fixed series through a delay
 stack (the EpiNow2-style observation layer).
 The renewal recurrence is not, because the output feeds back as input:
 
@@ -20,7 +20,7 @@ The renewal recurrence is not, because the output feeds back as input:
 I[t] = R_t \, m(t) \, \sum_s g_s \, I[t-s].
 ```
 
-`convolve_distributions` convolves a known series, so the recurrence cannot be a
+`convolved` convolves a known series, so the recurrence cannot be a
 single convolution call.
 The rt-renewal tutorial hand-rolls the loop.
 This is the small composable abstraction that lets it stop.
@@ -78,7 +78,7 @@ recurrence (a test locks the order-invariance).
 
 `observe_renewal(infections, delay; events)` pushes the renewal infection series
 through an observation delay with the causal renewal convolution (it is
-`convolve_distributions(delay, infections)` named for the pipeline). So
+`convolved(delay, infections)` named for the pipeline). So
 susceptibility-modulated incidence flows through to reported cases:
 `renewal |> observe_renewal`.
 

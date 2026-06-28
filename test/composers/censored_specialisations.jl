@@ -31,7 +31,7 @@ end
     # the continuous cores is primary-censored and scored at the observed gap;
     # the intermediate's own censoring is dropped (latent continuous time).
     ev = Vector{Union{Missing, Float64}}([0.0, missing, 4.0])
-    ref = primary_censored(convolve_distributions(d1, d2), pe)
+    ref = primary_censored(convolved(d1, d2), pe)
     @test logpdf(chain, ev) ≈ logpdf(ref, 4.0) rtol=1e-6
 end
 
@@ -123,7 +123,7 @@ end
     # distribution, not a vector. (A bare-node `primary_censored(Sequential)` now
     # distributes into leaves and stays multivariate — see test/composers/wrap.jl.)
     pe = Uniform(0.0, 1.0)
-    coreA = convolve_distributions(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    coreA = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     seqbranch = primary_censored(
         observed_distribution(Sequential(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))),
         pe)
@@ -362,7 +362,7 @@ end
           logpdf(primary_censored(d2, pe), 3.0) rtol=1e-6
     # E1 unobserved: marginalise by convolving the cores, origin primary applied.
     @test lps[2] ≈
-          logpdf(primary_censored(convolve_distributions(d1, d2), pe), 4.0) rtol=1e-6
+          logpdf(primary_censored(convolved(d1, d2), pe), 4.0) rtol=1e-6
     # Shifted origin: gaps are E1-E0 = 2.0 and E2-E1 = 3.0, same as record 1.
     @test lps[3] ≈ lps[1] rtol=1e-6
 end
@@ -427,7 +427,7 @@ end
     # E1 unobserved: convolution of the continuous cores, primary-censored.
     ev = Vector{Union{Missing, Float64}}([0.0, missing, 5.0])
     ref = primary_censored(
-        convolve_distributions(LogNormal(1.0, 0.5), d2), pe)
+        convolved(LogNormal(1.0, 0.5), d2), pe)
     @test logpdf(chain, ev) ≈ logpdf(ref, 5.0) rtol=1e-6
 end
 

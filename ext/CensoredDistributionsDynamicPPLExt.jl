@@ -182,7 +182,7 @@ function composed_distribution_model(
 end
 
 # Any other univariate leaf (a `double_interval_censored` pipeline, a
-# `Truncated`, a `convolve_distributions` result, ...) -> the marginal univariate
+# `Truncated`, a `convolved` result, ...) -> the marginal univariate
 # leaf model. A bare `Latent{<:PrimaryCensored}` is handled above; the composer
 # `Latent{<:Sequential}` / `Latent{<:Parallel}` methods below are multivariate
 # and dispatch ahead of this univariate fallback. A reserved `obs_time` row field

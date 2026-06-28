@@ -18,7 +18,7 @@
 
 @testitem "marginal == latent-integrated: bare two-edge chain" begin
     using CensoredDistributions, Distributions
-    using CensoredDistributions: latent, Sequential, convolve_distributions,
+    using CensoredDistributions: latent, Sequential, convolved,
                                  composed_distribution_model, _flat_event_names
     using DynamicPPL: VarInfo, logjoint
 
@@ -44,7 +44,7 @@
         return log(s)
     end
 
-    conv = convolve_distributions(delta, inc)
+    conv = convolved(delta, inc)
     for onset in (2.0, 4.0, 7.0)
         ev = Vector{Union{Missing, Float64}}([0.0, missing, onset])
         marg = logpdf(seq, ev)
@@ -545,7 +545,7 @@ end
 @testitem "latent Resolve: sampled anchor integrates to bare mixture term" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, Resolve,
-                                 convolve_distributions,
+                                 convolved,
                                  composed_distribution_model, _flat_event_names
     using DynamicPPL: VarInfo, logjoint
 
@@ -565,7 +565,7 @@ end
     seq = Sequential((oa, cmp), (:onset_admit, :admit))
     en = _flat_event_names(seq)                # (:onset, :admit, :death, :discharge)
     chain = latent(seq)
-    conv = convolve_distributions(oa, death_d)
+    conv = convolved(oa, death_d)
 
     function latent_int(tdeath; n = 50_000)
         xs = range(-6.0, tdeath - 1e-4; length = n)
@@ -587,7 +587,7 @@ end
 
 @testitem "andv sourced: latent == marginal == bare convolution (target)" begin
     using CensoredDistributions, Distributions
-    using CensoredDistributions: latent, Sequential, convolve_distributions,
+    using CensoredDistributions: latent, Sequential, convolved,
                                  composed_distribution_model, completeness_probability,
                                  _flat_event_names
     using DynamicPPL: VarInfo, logjoint
@@ -605,7 +605,7 @@ end
     # names), so use the internal flat path for the latent-row construction.
     en = _flat_event_names(seq)
     chain = latent(seq)
-    conv = convolve_distributions(delta, inc)
+    conv = convolved(delta, inc)
 
     function latent_int(onset; n = 60_000)
         xs = range(-30.0, onset - 1e-4; length = n)
@@ -805,7 +805,7 @@ end
     @test tree isa CensoredDistributions.Parallel
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
-    conv = CensoredDistributions.convolve_distributions(oa, death_d)
+    conv = CensoredDistributions.convolved(oa, death_d)
 
     function latent_int(tdeath, tnotif; n = 50_000)
         xs = range(-6.0, tdeath - 1e-4; length = n)

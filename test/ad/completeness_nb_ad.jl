@@ -31,7 +31,7 @@
         mu_inc, log_sig_inc, mu_delta, log_sig_delta, log_k, log_R = θ
         inc = LogNormal(mu_inc, exp(log_sig_inc))
         delta = Normal(mu_delta, exp(log_sig_delta))
-        conv = convolve_distributions(delta, inc)
+        conv = convolved(delta, inc)
         log_mu = log_thin_by_completeness(log_R, conv, recent_window)
         k = exp(log_k)
         p = inv(1 + exp(clamp(log_mu - log_k, -30.0, 30.0)))
@@ -45,7 +45,7 @@
         mu_inc, log_sig_inc, mu_delta, log_sig_delta, log_k, log_R = θ
         inc = LogNormal(mu_inc, exp(log_sig_inc))
         delta = Normal(mu_delta, exp(log_sig_delta))
-        conv = convolve_distributions(delta, inc)
+        conv = convolved(delta, inc)
         R_eff = thin_by_completeness(exp(log_R), conv, recent_window)
         k = exp(log_k)
         return logpdf(NegativeBinomial(k, k / (k + R_eff)), offspring_count)

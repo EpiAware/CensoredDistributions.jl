@@ -29,7 +29,7 @@ Mooncake.@from_chainrules Mooncake.DefaultCtx Tuple{typeof(_gamma_cdf), Real, Re
 # The names are constant with respect to the sampled parameters; only the delay
 # parameters carry gradients. They are reached from `_flat_event_names` /
 # `_row_event_vector` INSIDE the differentiated record `logpdf` (the composed-tree
-# / `convolve_distributions` scoring path in a Turing `@model`), and Mooncake
+# / `convolved` scoring path in a Turing `@model`), and Mooncake
 # reverse cannot trace the underlying string foreigncalls (`startswith` calls
 # `memcmp`), so the path breaks without these rules. Declaring each as a
 # zero-adjoint primitive runs the primal unchanged and returns a zero cotangent,

@@ -31,7 +31,7 @@
     end
 
     # Analytic convolution of the same steps: the total's density.
-    conv = convolve_distributions(s1, s2)
+    conv = convolved(s1, s2)
     for k in (1.0, 2.0, 3.0, 4.0, 5.0)
         mc = mean(k .<= tot .< (k + 1))
         analytic = cdf(conv, k + 1) - cdf(conv, k)

@@ -55,7 +55,7 @@ end
                 2.0), [1.5, 0.5]),
         ("Convolved",
             θ -> logpdf(
-                convolve_distributions(
+                convolved(
                     Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), 3.0), [2.0, 1.0])
     )
     for (nm, f, θ) in probes

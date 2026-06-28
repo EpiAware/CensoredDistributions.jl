@@ -179,7 +179,7 @@ md"""
 ## Forward view: per-outcome expected counts
 
 Pushing an incidence series through the object with
-[`convolve_distributions`](@ref) gives the per-outcome expected-count streams. For
+[`convolved`](@ref) gives the per-outcome expected-count streams. For
 the racing-hazard node each outcome's stream is the cause-resolved sub-density
 `f_j ∏_{k≠j} S_k`, sub-stochastic and not renormalised: its total mass equals the
 derived winning probability. The forward death-fraction agrees with the
@@ -188,7 +188,7 @@ simulation.
 
 series = zeros(80)
 series[1] = 1.0
-fwd = convolve_distributions(severity, series; events = (:death, :recover))
+fwd = convolved(severity, series; events = (:death, :recover))
 
 (; forward_death_mass = sum(fwd.death),
     forward_recover_mass = sum(fwd.recover),
@@ -299,7 +299,7 @@ Each step of this tutorial maps onto a row of the table in the introduction:
 - the racing-hazard `compete` node is the competing-risk severity outcome;
 - a `resolve` outcome holding a subtree is an outcome that opens a further
   event chain (death then burial);
-- `convolve_distributions(object, series)` is the aggregate forward observation
+- `convolved(object, series)` is the aggregate forward observation
   layer.
 
 A branching-process developer can replace a bespoke per-event delay / observation
