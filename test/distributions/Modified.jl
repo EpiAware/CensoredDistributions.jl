@@ -252,7 +252,7 @@ end
     pc = primary_censored(m, Uniform(0, 1))
     @test 0 < cdf(pc, 3.0) < 1
 
-    tm = truncate_to_horizon(m, 10.0)
+    tm = truncated(m; upper = 10.0)
     @test isfinite(logpdf(tm, 2.0))
 
     # Transparent to its inner free delay.

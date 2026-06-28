@@ -669,7 +669,7 @@ end
     hrec = only(CensoredDistributions.record_distributions(
         leaf, [(delay = 2.0, obs_time = 10.0)]))
     @test logpdf(hrec, [2.0]) ≈
-          logpdf(CensoredDistributions.truncate_to_horizon(leaf, 10.0), 2.0)
+          logpdf(CensoredDistributions._truncate_window(leaf, 10.0), 2.0)
 
     wrec = only(CensoredDistributions.record_distributions(
         leaf, [(delay = 2.0, weight = 3.0)]))
@@ -712,7 +712,7 @@ end
     ok = [(delay = 2.0, obs_time = 10.0), (delay = 3.0, obs_time = 12.0)]
     recs = CensoredDistributions.record_distributions(ds, ok; group = group)
     loop = sum(logpdf(
-                   CensoredDistributions.truncate_to_horizon(ds[group[i]],
+                   CensoredDistributions._truncate_window(ds[group[i]],
                        ok[i].obs_time), ok[i].delay)
     for i in eachindex(ok))
     @test sum(logpdf(recs[i], [ok[i].delay]) for i in eachindex(recs)) ≈ loop
@@ -777,9 +777,9 @@ end
     for i in eachindex(y))
     @test isapprox(grouped, upper_baked; atol = 1e-6)
 
-    # Equal to the internal `truncate_to_horizon` primitive (exact).
+    # Equal to the internal `_truncate_window` primitive (exact).
     horizon_baked = sum(
-        logpdf(CensoredDistributions.truncate_to_horizon(ds[group[i]], D[i]),
+        logpdf(CensoredDistributions._truncate_window(ds[group[i]], D[i]),
             y[i])
     for i in eachindex(y))
     @test grouped ≈ horizon_baked

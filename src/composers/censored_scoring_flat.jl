@@ -87,7 +87,7 @@ end
 # shape (a single collapsed total) and the observed-intermediate case (the
 # factorised numerator over the single conv-to-last-observed denominator). With a
 # single observed segment the denominator's `C` IS that segment, so the result
-# reduces to `truncate_to_horizon(seg, window)`. `horizon === nothing` leaves the
+# reduces to `truncated(seg; upper = window)`. `horizon === nothing` leaves the
 # scoring untruncated.
 function _seq_event_logpdf_h(d::Sequential, events, horizon)
     horizon === nothing && return _seq_event_logpdf_untrunc(d, events)
@@ -122,7 +122,7 @@ function _seq_event_logpdf_h(d::Sequential, events, horizon)
     window = _horizon_time(horizon) - obs_val[1]
     # A non-positive window (the horizon already passed the observed origin) is an
     # empty-support truncation: the record cannot have been observed, so the whole
-    # contribution is `-Inf`, matching the `truncate_to_horizon` empty-support
+    # contribution is `-Inf`, matching the `_truncate_window` empty-support
     # guard rather than the `+Inf` a bare `total - logcdf(., minimum)` would give.
     window <= minimum(last_seg) &&
         return convert(typeof(total), -Inf)
@@ -337,10 +337,9 @@ end
 # RECORD rather than baked in. For a `Sequential` the record's observed total
 # (origin -> terminal) is truncated at `horizon - origin` (the endpoint-observed
 # hanta index/sourced shape); for a `Parallel` each branch endpoint is truncated
-# at `horizon - origin` off the shared origin. `truncate_to_horizon` /
-# `_truncate_window` are the implementation primitive (upper-only, AD-safe, with
-# the non-positive-window empty-support guard); they are NOT a user-facing
-# per-segment interface here.
+# at `horizon - origin` off the shared origin. `_truncate_window` is the
+# implementation primitive (upper-only, AD-safe, with the non-positive-window
+# empty-support guard); it is NOT a user-facing per-segment interface here.
 
 @doc raw"
 
@@ -393,7 +392,7 @@ CensoredDistributions.event_logpdf(seq, ev; horizon = 8.0)
 # See also
 - [`double_interval_censored`](@ref): the whole-compose wrap with a baked-in
   bound
-- [`truncate_to_horizon`](@ref): the truncation primitive
+- `truncated`: the truncation verb (`truncated(node; upper)`)
 "
 function event_logpdf(
         d::Sequential, events::AbstractVector{T}; horizon = nothing
@@ -434,8 +433,8 @@ end
 function event_logpdf(d::UnivariateDistribution, x::Real; horizon = nothing)
     horizon === nothing && return logpdf(d, x)
     # The leaf is observed from the (zero) origin, so its window is the horizon
-    # itself; `_truncate_horizon` honours a δ-bounded horizon and is byte-
-    # identical to `truncate_to_horizon` for a plain horizon.
+    # itself; `_truncate_horizon` honours a δ-bounded horizon and is the upper-only
+    # `truncated(d; upper = window)` for a plain horizon.
     return logpdf(_truncate_horizon(d, _horizon_time(horizon), horizon), x)
 end
 

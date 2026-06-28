@@ -987,28 +987,29 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
     # an upper-only `truncated(dist; upper = window)` never differentiates
     # `logcdf(LogNormal, 0) = -Inf`, so the gradient stays finite. The chain
     # term right-truncates a Convolved (unobserved intermediate event), so the
-    # denominator is the convolution CDF. Both guarded on the helper existing
-    # for the AirspeedVelocity baseline (see the Convolved note above).
-    if isdefined(CensoredDistributions, :truncate_to_horizon)
-        _push!("Truncated LogNormal single-delay right-truncation",
-            (θ,
-                obs) -> sum(
-                x -> logpdf(
-                    truncate_to_horizon(LogNormal(θ[1], θ[2]), 6.0), x),
-                obs),
-            [1.0, 0.75], (Constant(obs),))
-        # Component order matches the working "Convolved Gamma+LogNormal
-        # numerical" scenario: the numeric convolution CDF replaces the
-        # infinite upper endpoint with a quantile of the LAST component, so a
-        # trailing LogNormal keeps Enzyme off `gamma_inc_inv_qsmall` (a known
-        # Enzyme illegal-type-analysis failure on Gamma quantile inversion).
+    # denominator is the convolution CDF.
+    _push!("Truncated LogNormal single-delay right-truncation",
+        (θ,
+            obs) -> sum(
+            x -> logpdf(
+                truncated(LogNormal(θ[1], θ[2]); upper = 6.0), x),
+            obs),
+        [1.0, 0.75], (Constant(obs),))
+    # Component order matches the working "Convolved Gamma+LogNormal
+    # numerical" scenario: the numeric convolution CDF replaces the
+    # infinite upper endpoint with a quantile of the LAST component, so a
+    # trailing LogNormal keeps Enzyme off `gamma_inc_inv_qsmall` (a known
+    # Enzyme illegal-type-analysis failure on Gamma quantile inversion).
+    # Guarded on `convolve_distributions` for the AirspeedVelocity baseline.
+    if isdefined(CensoredDistributions, :convolve_distributions)
         _push!("Truncated Convolved chain right-truncation",
             (θ,
                 obs) -> sum(
                 x -> logpdf(
-                    truncate_chain(
-                        (Gamma(2.0, 1.0), LogNormal(θ[1], θ[2])),
-                        (false,), 8.0), x),
+                    truncated(
+                        CensoredDistributions.convolve_distributions(
+                            Gamma(2.0, 1.0), LogNormal(θ[1], θ[2]));
+                        upper = 8.0), x),
                 obs),
             [1.0, 0.75], (Constant(obs),))
     end

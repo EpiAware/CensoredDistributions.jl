@@ -90,7 +90,7 @@ end
 @testitem "δ-bounded truncation gradient: ForwardDiff" tags=[
     :ad, :forwarddiff] begin
     using CensoredDistributions, Distributions
-    using CensoredDistributions: WindowedHorizon, truncate_to_window
+    using CensoredDistributions: WindowedHorizon
     using ADTypes: AutoForwardDiff
     using DifferentiationInterface: gradient
     using ForwardDiff: ForwardDiff
@@ -111,7 +111,8 @@ end
             CensoredDistributions.event_logpdf(seq, evs[i]; horizon = whs[i])
         end
         # The leaf δ-bounded primitive too.
-        leaf = logpdf(truncate_to_window(LogNormal(θ[1], θ[2]), 6.0, 3.0), 4.0)
+        leaf = logpdf(
+            truncated(LogNormal(θ[1], θ[2]); lower = 3.0, upper = 6.0), 4.0)
         return chain + leaf
     end
 
@@ -125,7 +126,7 @@ end
 @testitem "δ-bounded truncation gradient: Mooncake reverse" tags=[
     :ad, :mooncake, :mooncake_reverse] begin
     using CensoredDistributions, Distributions
-    using CensoredDistributions: WindowedHorizon, truncate_to_window
+    using CensoredDistributions: WindowedHorizon
     using ADTypes: AutoMooncake, AutoForwardDiff
     using DifferentiationInterface: gradient
     using ForwardDiff: ForwardDiff
@@ -146,7 +147,8 @@ end
         chain = sum(eachindex(evs)) do i
             CensoredDistributions.event_logpdf(seq, evs[i]; horizon = whs[i])
         end
-        leaf = logpdf(truncate_to_window(LogNormal(θ[1], θ[2]), 6.0, 3.0), 4.0)
+        leaf = logpdf(
+            truncated(LogNormal(θ[1], θ[2]); lower = 3.0, upper = 6.0), 4.0)
         return chain + leaf
     end
 
@@ -175,11 +177,11 @@ end
         b = LogNormal(θ[2], 0.4)
 
         # Sequential, node-level wrap (distributes into leaves, tree shape kept).
-        # truncate_to_horizon adds no origin primary, so the chain scores a
-        # length-2 step-value vector; double_interval_censored adds the origin
-        # primary, so it scores a length-3 event vector [E_0, E_1, E_2].
+        # upper-only `truncated(seq; upper)` adds no origin primary, so the chain
+        # scores a length-2 step-value vector; double_interval_censored adds the
+        # origin primary, so it scores a length-3 event vector [E_0, E_1, E_2].
         seq = Sequential(a, b)
-        s1 = logpdf(truncate_to_horizon(seq, 10.0), [3.0, 5.0])
+        s1 = logpdf(truncated(seq; upper = 10.0), [3.0, 5.0])
         s2 = logpdf(
             double_interval_censored(seq; primary_event = Uniform(0, 1),
                 upper = 12.0, interval = 1.0),
@@ -192,18 +194,19 @@ end
 
         # Parallel: distributed truncation + interval censoring.
         par = Parallel(a, b)
-        s3 = logpdf(truncate_to_horizon(par, 10.0), [2.0, 3.0])
+        s3 = logpdf(truncated(par; upper = 10.0), [2.0, 3.0])
         s4 = logpdf(interval_censored(par, 1.0), [2.0, 3.0])
 
         # Choose: distributed primary censoring, scored per-alternative.
         sel = choose(:index => a, :sourced => b)
         s5 = logpdf(primary_censored(sel, Uniform(0, 1)), 2.0; kind = :index)
-        s6 = logpdf(truncate_to_horizon(sel, 10.0), 3.0; kind = :sourced)
+        s6 = logpdf(truncated(sel; upper = 10.0), 3.0; kind = :sourced)
 
-        # Fixed-bound `truncated(node; ...)` over a node distributes into the
-        # leaf cores too (#711): the per-leaf truncation `logcdf` normaliser must
-        # differentiate w.r.t. the leaf params through the kept tree shape.
-        s7 = logpdf(truncated(seq; upper = 12.0), [3.0, 5.0])
+        # The δ-bounded `truncated(node; lower, upper)` over a node distributes
+        # into the leaf cores too (#711): the per-leaf finite-window `logcdf`
+        # normaliser must differentiate w.r.t. the leaf params through the kept
+        # tree shape.
+        s7 = logpdf(truncated(seq; lower = 0.3, upper = 12.0), [3.0, 5.0])
         s8 = logpdf(truncated(par; lower = 0.5, upper = 12.0), [2.0, 3.0])
 
         return s1 + s2 + s2b + s3 + s4 + s5 + s6 + s7 + s8

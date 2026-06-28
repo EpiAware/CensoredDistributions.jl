@@ -4,7 +4,7 @@
 #
 # This layer defines what it MEANS to apply a censoring or truncation wrapper
 # (`primary_censored` / `interval_censored` / `double_interval_censored` /
-# `truncate_to_horizon`) ON TOP of a composer. It is the node-level direction: a
+# `truncated`) ON TOP of a composer. It is the node-level direction: a
 # censoring/truncation MODIFIER applies at ANY level — to a leaf OR to a whole
 # composed node alike (tenet 7) — and the modifier keeps the TREE SHAPE
 # unchanged, so the wrapped node is still record-scoreable.
@@ -268,23 +268,6 @@ function double_interval_censored(
     return _DeferredFields(d, build, fields)
 end
 
-@doc "
-
-Right-truncate every leaf core of a [`Sequential`](@ref) chain to an observation
-`window`.
-
-The right-truncation distributes into the chain's leaves, returning a
-`Sequential` of the same step names whose every step delay is right-truncated;
-tree shape is unchanged. The scalar combine-then-truncate chain total stays
-available via `truncate_to_horizon(observed_distribution(d), window)`.
-
-See also: [`truncate_to_horizon`](@ref), [`observed_distribution`](@ref)
-"
-function truncate_to_horizon(d::Sequential, window::Real)
-    return _distribute_into_leaves(
-        d, leaf -> truncate_to_horizon(leaf, window))
-end
-
 # ---------------------------------------------------------------------------
 # Parallel: distribute the wrapper into every branch's leaf core.
 # ---------------------------------------------------------------------------
@@ -320,22 +303,6 @@ See also: [`interval_censored`](@ref)
 "
 function interval_censored(d::Parallel, interval)
     return _distribute_into_leaves(d, leaf -> interval_censored(leaf, interval))
-end
-
-@doc "
-
-Right-truncate every branch core of a [`Parallel`](@ref) to an observation
-`window` independently.
-
-A `Parallel` has several independent endpoints, so right-truncation distributes
-into each branch core, returning a `Parallel` of right-truncated branches (the
-same distribute idiom as [`interval_censored`](@ref)`(::Parallel)`).
-
-See also: [`truncate_to_horizon`](@ref)
-"
-function truncate_to_horizon(d::Parallel, window::Real)
-    return _distribute_into_leaves(
-        d, leaf -> truncate_to_horizon(leaf, window))
 end
 
 # ---------------------------------------------------------------------------
@@ -403,21 +370,6 @@ function double_interval_censored(d::Choose; kwargs...)
         d, leaf -> double_interval_censored(leaf; kwargs...))
 end
 
-@doc "
-
-Right-truncate every alternative of a [`Choose`](@ref) to an observation
-`window` independently.
-
-Distributes the right-truncation into each alternative, returning a `Choose` of
-right-truncated alternatives (selector and names preserved).
-
-See also: [`truncate_to_horizon`](@ref), [`Choose`](@ref)
-"
-function truncate_to_horizon(d::Choose, window::Real)
-    return _distribute_into_leaves(
-        d, leaf -> truncate_to_horizon(leaf, window))
-end
-
 # ---------------------------------------------------------------------------
 # Resolve / Compete (one_of): distribute the wrapper into every outcome's delay.
 # ---------------------------------------------------------------------------
@@ -472,11 +424,10 @@ node with every outcome's delay interval-censored (per-outcome slots preserved).
 
 See also: [`interval_censored`](@ref), [`Resolve`](@ref), [`Compete`](@ref)
 "
-# `interval`/`window` are typed `::Real` here (unlike the Sequential/Parallel/
-# Choose methods, which need no annotation): a one_of node IS a
-# `UnivariateDistribution`, so without the `::Real` match these would be ambiguous
-# with the base `interval_censored(::UnivariateDistribution, ::Real)` /
-# `truncate_to_horizon(::UnivariateDistribution, ::Real)` leaf methods.
+# `interval` is typed `::Real` here (unlike the Sequential/Parallel/Choose
+# methods, which need no annotation): a one_of node IS a `UnivariateDistribution`,
+# so without the `::Real` match this would be ambiguous with the base
+# `interval_censored(::UnivariateDistribution, ::Real)` leaf method.
 function interval_censored(d::AbstractOneOf, interval::Real)
     return _distribute_into_leaves(d, leaf -> interval_censored(leaf, interval))
 end
@@ -510,37 +461,22 @@ function double_interval_censored(
             interval = interval, method = method, force_numeric = force_numeric))
 end
 
-@doc "
-
-Right-truncate every outcome's delay core of a [`Resolve`](@ref) /
-[`Compete`](@ref) one_of node to an observation `window` independently.
-
-Distributes the right-truncation into each outcome, returning the same one_of node
-with every outcome's delay right-truncated (per-outcome slots preserved).
-
-See also: [`truncate_to_horizon`](@ref), [`Resolve`](@ref), [`Compete`](@ref)
-"
-function truncate_to_horizon(d::AbstractOneOf, window::Real)
-    return _distribute_into_leaves(
-        d, leaf -> truncate_to_horizon(leaf, window))
-end
-
 # ---------------------------------------------------------------------------
 # truncated: a FIXED-BOUND truncation distributed into a composed node's leaves.
 # ---------------------------------------------------------------------------
 #
-# `Distributions.truncated(node; lower, upper)` is the FIXED-BOUND truncation
-# variant over a composed node, the truncation sibling of the censoring node
-# wraps above. It distributes the SAME fixed bound into every leaf CORE (each
-# leaf reduced to its continuous core first, then truncated), returning a node of
-# the SAME shape so the wrapped node stays record-scoreable (tenet 7). This is
-# density-identical to the canonical per-leaf construction
-# `Sequential(truncated(d_1; ...), ..., truncated(d_k; ...))`.
+# `Distributions.truncated` is the SINGLE truncation verb over a composed node,
+# the truncation sibling of the censoring node wraps above. It distributes the
+# bound into every leaf CORE (each leaf reduced to its continuous core first, then
+# truncated), returning a node of the SAME shape so the wrapped node stays
+# record-scoreable (tenet 7). This is density-identical to the canonical per-leaf
+# construction `Sequential(truncated(d_1; ...), ..., truncated(d_k; ...))`.
 #
-# This is DISTINCT from the per-record `truncate_to_horizon(node, window)` /
-# `truncate_to_window(node, window, δ)` path above, which is the PER-RECORD-FIELD
-# variant: there the bound is the per-observation horizon supplied at score time.
-# Both are legitimate; this one fixes the bound at construction.
+# A constant bound (`upper = 10.0`) fixes the truncation at construction; the
+# upper-only form is the observation-horizon right-truncation and adding a
+# `lower` gives the δ-bounded finite window `[lower, upper]`. A `Symbol` bound
+# (`upper = :obs_time`) instead names a per-record column read at score time, so
+# the per-observation horizon rides through the same `truncated` surface.
 #
 # The AGGREGATE-total truncation (truncate the chain's observed scalar total, not
 # each leaf) stays available EXPLICITLY through
@@ -557,10 +493,10 @@ end
 # collapse it to its scalar marginal and drop the outcome slots), the same wrinkle
 # the `interval_censored(::AbstractOneOf, ::Real)` method handles.
 
-# The composed verb nodes a fixed-bound `truncated` distributes into.
+# The composed verb nodes `truncated` distributes into.
 const _TruncatableNode = Union{Sequential, Parallel, Choose, AbstractOneOf}
 
-# The core a fixed-bound `truncated` distributes onto: peel only outer
+# The core `truncated` distributes onto: peel only outer
 # truncation layers so re-truncating an already-truncated node re-truncates the
 # inner core rather than nesting `Truncated{Truncated{...}}`, while KEEPING any
 # primary/interval censoring underneath. This is the truncation analogue of
@@ -572,7 +508,7 @@ const _TruncatableNode = Union{Sequential, Parallel, Choose, AbstractOneOf}
 _truncatable_core(d::UnivariateDistribution) = d
 _truncatable_core(d::Truncated) = _truncatable_core(d.untruncated)
 
-# Distribute one fixed `(lower, upper)` bound into every leaf core, truncating
+# Distribute one `(lower, upper)` bound into every leaf core, truncating
 # each at the SHARED bound. A leaf keeps any primary/interval censoring (only an
 # outer truncation layer is peeled, via `_truncatable_core`), so the truncated
 # leaf re-truncates rather than nesting `Truncated{Truncated{...}}` yet stays
@@ -587,28 +523,26 @@ end
 
 @doc "
 
-Fixed-bound–truncate every leaf core of a composed node, keeping the tree shape.
+Right-truncate every leaf core of a composed node, keeping the tree shape.
 
 `Distributions.truncated(node; lower, upper)` over a [`Sequential`](@ref) /
 [`Parallel`](@ref) / [`Choose`](@ref) / [`Resolve`](@ref) / [`Compete`](@ref)
-node distributes the SAME fixed bound into every leaf core (each reduced to its
-continuous core first, then truncated), returning a node of the same shape. Tree
-shape is unchanged, so `logpdf(truncated(node; ...), rows)` scores the record
-exactly as the canonical per-leaf construction
-`Sequential(truncated(d_1; ...), ...)`.
+node distributes the bound into every leaf core (each reduced to its continuous
+core first, then truncated), returning a node of the same shape. Tree shape is
+unchanged, so `logpdf(truncated(node; ...), rows)` scores the record exactly as
+the canonical per-leaf construction `Sequential(truncated(d_1; ...), ...)`.
 
-This is the FIXED-BOUND truncation variant; the per-observation-horizon variant
-is [`truncate_to_horizon`](@ref)`(node, window)` /
-[`truncate_to_window`](@ref)`(node, window, δ)`. The AGGREGATE chain-total
-truncation stays available explicitly via `truncated(observed_distribution(node);
-lower, upper)`.
+The upper-only form `truncated(node; upper)` is the observation-horizon
+right-truncation; adding a `lower` gives the δ-bounded finite observation window
+`[lower, upper]`. The AGGREGATE chain-total truncation stays available explicitly
+via `truncated(observed_distribution(node); lower, upper)`.
 
 A bound may also be a `Symbol` naming a per-record column, e.g.
 `truncated(node; lower = :lo, upper = :obs_time)`: the value is then read from
 that field of each row at scoring time (`logpdf(node, rows)` /
 `composed_distribution_model`), a constant otherwise.
 
-See also: [`truncate_to_horizon`](@ref), [`observed_distribution`](@ref)
+See also: [`observed_distribution`](@ref)
 "
 # A `:field` bound binds that bound to a per-record column, read at scoring time
 # (the same mechanism as the observation horizon, generalised); an all-constant

@@ -170,6 +170,15 @@
 
 ### Breaking
 
+- The three exported truncation verbs `truncate_to_horizon`,
+  `truncate_to_window` and `truncate_chain` are removed, folded into a single
+  `truncated` surface. Right-truncate a delay or composed node to an observation
+  horizon with `truncated(d; upper = window)`; add a `lower` edge for the
+  δ-bounded finite window `truncated(d; lower, upper)`. The single-vs-convolved
+  chain dispatch (`truncate_chain`) is now `truncated` over the collapsed chain
+  total. Over a composed node `truncated` distributes the bound into the leaf
+  cores, keeping the tree shape; a `Symbol` bound (`upper = :obs_time`) reads the
+  per-record horizon at scoring time. Closes #746.
 - The deprecated composer verbs `intervene`, `swap_child` and `cut_branch` are
   removed. Use `update` for node replacement (`intervene`, and `swap_child` via
   the full child path) and `prune` to drop a branch (`cut_branch`).

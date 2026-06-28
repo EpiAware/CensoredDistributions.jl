@@ -16,7 +16,7 @@
 # - discrete `link = :logit` on an interval-censored base: the exact per-bin PMF
 #   reconstruction (`_apply_hazard_link`);
 # - `modify` as a LEAF inside compose / primary_censored / interval_censored /
-#   truncate_to_horizon: the composed gradient flows through the wrapper into the
+#   truncated: the composed gradient flows through the wrapper into the
 #   modified leaf's params and effect.
 #
 # Each backend item compares against the ForwardDiff reference. The continuous
@@ -99,11 +99,11 @@
                 modify(LogNormal(θ[1], θ[2]), θ[3]; link = log), 1.0), x),
         OBS_INT)
 
-    # `modify` as the leaf of `truncate_to_horizon`. θ = [μ, σ, β].
+    # `modify` as the leaf of `truncated`. θ = [μ, σ, β].
     f_truncate(θ) = sum(
         x -> logpdf(
-            truncate_to_horizon(
-                modify(LogNormal(θ[1], θ[2]), θ[3]; link = log), 8.0), x),
+            truncated(
+                modify(LogNormal(θ[1], θ[2]), θ[3]; link = log); upper = 8.0), x),
         OBS)
 
     # The continuous + leaf-in-composer paths every backend must differentiate,
@@ -115,7 +115,7 @@
         ("compose leaf", f_compose, [1.5, 0.5, -0.3]),
         ("primary_censored leaf", f_primary, [1.5, 0.5, -0.4]),
         ("interval_censored leaf", f_interval, [1.5, 0.5, -0.4]),
-        ("truncate_to_horizon leaf", f_truncate, [1.5, 0.5, -0.4])
+        ("truncated leaf", f_truncate, [1.5, 0.5, -0.4])
     ]
 
     # The discrete per-bin paths, broken out so the Enzyme items can mark them

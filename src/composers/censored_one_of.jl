@@ -131,7 +131,7 @@ end
 # Right-truncate a branch `delay` at the per-record window, or return it unchanged
 # when no horizon applies, mirroring the top-level `_maybe_truncate`. The threaded
 # `horizon` carrier rides along so a δ-bounded horizon δ-bounds the branch; a plain
-# horizon (or `nothing` δ) is byte-identical to `truncate_to_horizon`.
+# horizon (or `nothing` δ) is the upper-only `truncated(delay; upper = window)`.
 _one_of_truncate(delay, ::Nothing, horizon) = delay
 function _one_of_truncate(delay, window, horizon)
     return _truncate_horizon(delay, window, horizon)
