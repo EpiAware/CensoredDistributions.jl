@@ -462,3 +462,69 @@ collect(parameters(strip_prefix(chain)))
 - [`composed_parameters_model`](@ref): the submodel whose prefix this removes.
 "
 function strip_prefix end
+
+@doc "
+
+Build a DynamicPPL submodel that samples a renewal model and returns infections.
+
+`renewal_model(gi, I0, Rt_prior; modulator_priors, make_modulator, seed_days)`
+is the renewal analogue of [`composed_parameters_model`](@ref): a submodel that
+samples the reproduction-number path and the modulator's parameters from priors,
+runs the [`renewal`](@ref) recurrence, and returns the infection series. The
+user scores observed counts against the returned infections (typically via
+[`observe_renewal`](@ref) and a count likelihood), so a renewal model fits like
+the rest of the stack.
+
+`Rt` is sampled from `Rt_prior` as a vector whose length sets the horizon, or
+held fixed when `Rt_prior` is a plain numeric vector (then no `Rt` parameters
+enter the chain, so a caller can hold Rt at a known path and estimate only the
+modulator parameters). The modulator parameters are sampled from
+`modulator_priors` (a `NamedTuple` of priors) and passed as a `NamedTuple` to
+`make_modulator`, which returns the [`renewal`](@ref) modulator. The default
+builds [`NoModulation`](@ref) (a bare renewal). The sampled parameters are
+namespaced through the submodel prefix, so the chain reads `Rt[1]`, `N`, and so
+on.
+
+This function has no methods until `DynamicPPL` (or `Turing`) is loaded; the
+method lives in the package extension so the core stays free of `DynamicPPL`.
+
+# Arguments
+- `gi`: the generation-interval weights (a PMF vector or a [`DelayPMF`](@ref)).
+- `I0`: the seed infection level.
+- `Rt_prior`: a multivariate prior for the reproduction-number path (sampled),
+  or a plain numeric vector to hold Rt fixed; its length sets the horizon.
+
+# Keyword Arguments
+- `modulator_priors`: a `NamedTuple` of priors for the modulator parameters
+  (default `(;)`, no modulator parameters).
+- `make_modulator`: a function mapping the sampled modulator-parameter
+  `NamedTuple` to a [`renewal`](@ref) modulator (default builds
+  [`NoModulation`](@ref)).
+- `seed_days`: the number of seeded steps (default the generation-interval
+  length).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, DynamicPPL
+
+gi = pdf(interval_censored(truncated(Gamma(2.5, 1.3); lower = 1.0,
+    upper = 12.0), 1.0), 1:12)
+Rt_prior = product_distribution(
+    fill(truncated(Normal(1.0, 0.5); lower = 0.1), 40))
+mod_priors = (N = truncated(Normal(1.0e5, 2.0e4); lower = 1.0),)
+make_mod = p -> susceptibility_depletion(p.N)
+
+@model function fit(gi, I0, Rt_prior, mod_priors, make_mod, cases)
+    infections ~ to_submodel(renewal_model(gi, I0, Rt_prior;
+        modulator_priors = mod_priors, make_modulator = make_mod))
+    cases ~ product_distribution(Poisson.(infections .+ 1.0e-6))
+end
+nothing # hide
+```
+
+# See also
+- [`renewal`](@ref): the recurrence the submodel runs.
+- [`observe_renewal`](@ref): report the infections through a delay.
+- [`composed_parameters_model`](@ref): the delay-tree analogue this mirrors.
+"
+function renewal_model end

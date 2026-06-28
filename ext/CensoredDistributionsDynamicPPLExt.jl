@@ -11,7 +11,7 @@ using CensoredDistributions: CensoredDistributions, PrimaryCensored, Latent,
 import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model,
                               composed_distribution_model,
-                              composed_parameters_model
+                              composed_parameters_model, renewal_model
 using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
 using Distributions: Distributions, UnivariateDistribution, logpdf,
                      product_distribution
@@ -1720,5 +1720,61 @@ end
 # assembly and `product_distribution` see a typed vector. A single stratum keeps
 # its element type (the full-pooling / shared-`d` degenerate case).
 _narrow_ds(ds::Vector) = CensoredDistributions._narrow(ds)
+
+# ---------------------------------------------------------------------------
+# renewal_model: Rt path + modulator priors -> infection series
+# ---------------------------------------------------------------------------
+#
+# The renewal analogue of `composed_parameters_model`. Samples the Rt path from
+# `Rt_prior` (its length sets the horizon) and the modulator parameters from
+# `modulator_priors`, builds the modulator with `make_modulator`, runs the
+# `renewal` recurrence and returns the infections. The user scores observed
+# counts against the returned series (via `observe_renewal` and a count
+# likelihood). The modulator parameters are sampled by name so the chain reads
+# `N`, etc.; `Rt` is the sampled path, or a fixed vector when `Rt_prior` is one.
+@model function renewal_model(gi, I0, Rt_prior;
+        modulator_priors::NamedTuple = NamedTuple(),
+        make_modulator = _ -> CensoredDistributions.NoModulation(),
+        seed_days::Integer = length(CensoredDistributions._gi_weights(gi)))
+    Rt ~ to_submodel(_rt_model(Rt_prior), false)
+    params ~ to_submodel(_modulator_params_model(modulator_priors), false)
+    modulator = make_modulator(params)
+    return CensoredDistributions.renewal(Rt, gi, I0;
+        modulator = modulator, seed_days = seed_days)
+end
+
+# Sample the Rt path from a prior, or pass a fixed Rt vector through unchanged.
+# A fixed path lets a caller hold Rt at a known trajectory and estimate only the
+# modulator parameters, with no Rt parameters in the chain.
+@model function _rt_model(Rt_prior)
+    Rt ~ Rt_prior
+    return Rt
+end
+
+@model function _rt_model(Rt::AbstractVector{<:Real})
+    return Rt
+end
+
+# Sample each modulator parameter from its prior by name, returning the sampled
+# values as a NamedTuple `make_modulator` consumes. Each field is sampled in a
+# loop through a one-value submodel prefixed by its name, so the chain reads
+# `N`, etc.; the supported loop-with-`to_submodel` pattern (mirroring the strata
+# model) keeps the `~` in the model body. An empty prior set samples nothing
+# (the bare-renewal default).
+@model function _modulator_params_model(priors::NamedTuple{names}) where {names}
+    vals = Vector{Any}(undef, length(names))
+    for i in eachindex(names)
+        sub = DynamicPPL.prefix(_scalar_prior_model(priors[i]), Val(names[i]))
+        vals[i] ~ to_submodel(sub, false)
+    end
+    return NamedTuple{names}(Tuple(vals))
+end
+
+# A one-parameter submodel sampling a single value from its prior, so each
+# modulator parameter gets its own readable chain name through the prefix.
+@model function _scalar_prior_model(prior)
+    x ~ prior
+    return x
+end
 
 end

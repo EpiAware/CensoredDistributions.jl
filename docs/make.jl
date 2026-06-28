@@ -43,6 +43,7 @@ if !skip_notebooks
         "andv-linelist-analysis.jl",
         "ebola-stratified-delays.jl",
         "rt-renewal-convolution.jl",
+        "renewal-susceptibility.jl",
         "epinowcast-nowcasting.jl",
         "linear-chain-sir.jl",
         "branching-competing.jl",
