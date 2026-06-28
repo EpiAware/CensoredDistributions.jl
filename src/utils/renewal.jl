@@ -389,7 +389,19 @@ _state_eltype(x::Tuple) = promote_type(map(_state_eltype, x)...)
 # Update a depleting / waning modulator's pool for the seed infections before
 # the recurrence starts, so the carry-state enters step `seed + 1` already net
 # of the seed. A stateless modulator (no carry) is unchanged.
+#
+# A `nothing` carry-state means there is nothing to seed regardless of the
+# modulator, so it short-circuits to `nothing`. This is dispatched on the
+# stateless `::Nothing` SECOND argument, which overlaps the typed-modulator
+# methods below (they accept any state, including `nothing`); the explicit
+# `::Nothing` methods for the three stateful modulators resolve that overlap
+# so dispatch stays unambiguous (otherwise a `(SusceptibilityDepletion,
+# nothing)` call matches both this catch-all and the typed method, and
+# `detect_ambiguities` flags every pair — see #775).
 _seed_modulator(::Any, ::Nothing, I, seed) = nothing
+_seed_modulator(::SusceptibilityDepletion, ::Nothing, I, seed) = nothing
+_seed_modulator(::ImmunityWaning, ::Nothing, I, seed) = nothing
+_seed_modulator(::ComposedModulator, ::Nothing, I, seed) = nothing
 function _seed_modulator(m::SusceptibilityDepletion, S0, I, seed)
     s = S0
     @inbounds for t in 1:seed
