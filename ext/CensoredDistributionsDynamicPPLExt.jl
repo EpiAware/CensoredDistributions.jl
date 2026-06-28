@@ -14,7 +14,7 @@ import CensoredDistributions: primary_censored_model, interval_censored_model,
                               composed_parameters_model, renewal_model,
                               recurrent_states_model
 using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
-using Distributions: Distributions, UnivariateDistribution, logpdf,
+using Distributions: Distributions, UnivariateDistribution, Truncated, logpdf,
                      product_distribution
 using Random: AbstractRNG
 import Tables
@@ -139,6 +139,40 @@ end
 # primary-SAMPLING leaf model rather than the marginal fallback.
 function composed_distribution_model(
         d::Latent{<:PrimaryCensored}, row::NamedTuple; weight = nothing)
+    _reject_latent_horizon(row)
+    return primary_censored_model(
+        d, _leaf_value(row); weight = _leaf_weight(row, weight))
+end
+
+# A `latent`-wrapped `double_interval_censored` pipeline leaf
+# (`Latent{<:IntervalCensored}` or `Latent{<:Truncated}` over a primary-censored
+# node) samples the primary and scores the interval-censored, truncated secondary
+# conditional on it (#723). This is the genuine single-leaf latent: the primary
+# event is realised, not analytically marginalised, and `PrimaryConditional`
+# keeps the secondary interval and truncation on the total `p + delay` (the joint
+# integrates over `p` to the analytic marginal). A pipeline with no primary event
+# (a bare interval-censored / truncated delay) has nothing to sample, so it
+# collapses to the marginal leaf instead (`_latent_pipeline_model`).
+function composed_distribution_model(
+        d::Latent{<:Union{IntervalCensored, Truncated}}, row; weight = nothing)
+    return _latent_pipeline_model(d, row, weight)
+end
+function composed_distribution_model(
+        d::Latent{<:Union{IntervalCensored, Truncated}}, row::NamedTuple;
+        weight = nothing)
+    return _latent_pipeline_model(d, row, weight)
+end
+
+# Route a latent pipeline leaf: sample the primary when the pipeline carries one,
+# else collapse to the marginal leaf. Dispatch on whether a primary event exists
+# is a runtime check on the node, so the two paths return different model types;
+# both are returned (not run) here, so the caller's `~ to_submodel(...)` scores
+# the chosen one.
+function _latent_pipeline_model(d::Latent, row, weight)
+    if CensoredDistributions._origin_primary_event(d.dist) === nothing
+        return composed_distribution_model(
+            d.dist, row; weight = weight)
+    end
     _reject_latent_horizon(row)
     return primary_censored_model(
         d, _leaf_value(row); weight = _leaf_weight(row, weight))
@@ -678,10 +712,10 @@ end
 
 # --- Latent composer models ------------------------------------------------
 #
-# A `latent`-wrapped composer turns its origin primary ON and declares every
-# internal event time as a `~` latent INSIDE the model, mirroring the leaf latent
+# A `latent`-wrapped composer turns its origin primary on and declares every
+# internal event time as a `~` latent inside the model, mirroring the leaf latent
 # (`p ~ get_primary_event(d); y ~ PrimaryConditional(d, p)`). Because each event
-# is a `~`, the SAME model both fits (observed events score) and generates
+# is a `~`, the same model both fits (observed events score) and generates
 # (missing events sample): a fully-missing row draws the complete event path, and
 # a partially-observed row samples only the missing events while scoring the
 # observed ones. Each sampled event lives in the VarInfo (named after the event
@@ -689,12 +723,12 @@ end
 # namespaces per-record latents.
 
 # A latent composer declares every internal event time as an indexed `~` over the
-# SAME flat event layout the marginal scoring uses: entry 1 is the
-# root origin `E_0`, then one slot per LEAF event in depth-first order. A FLAT
-# chain/branch set is handled directly by the loop; a NESTED composer step/branch
+# same flat event layout the marginal scoring uses: entry 1 is the
+# root origin `E_0`, then one slot per leaf event in depth-first order. A flat
+# chain/branch set is handled directly by the loop; a nested composer step/branch
 # is unrolled to its leaf events by `_latent_leaf_plan`, so the latent twin
 # recurses through an irregular tree exactly as the marginal `_tree_score` does.
-# The plan is a PURE-INTEGER description of the tree (which leaf hangs off
+# The plan is a pure-integer description of the tree (which leaf hangs off
 # which already-sampled event, with which edge delay), built from the same
 # `_child_nleaves` / `_terminal_offset` helpers; the model body then runs one
 # indexed `~` per leaf, so a missing event samples and an observed event scores
@@ -704,14 +738,14 @@ end
 
 # One leaf event in the latent sampling plan: the event slot `event_idx`, the
 # event slot `shift_idx` it hangs off (its predecessor terminal in a chain, or the
-# shared origin in a parallel set), the DECLARED `edge` delay distribution from
+# shared origin in a parallel set), the declared `edge` delay distribution from
 # that predecessor to this event, and `always_bare`. The bare-vs-declared density
-# choice is made at SCORING time (see `_latent_edge`):
+# choice is made at scoring time (see `_latent_edge`):
 #   - `always_bare = false` (a `Sequential` step at any depth, or a nested
-#     `Parallel` branch): the edge keeps DECLARED censoring only when BOTH its
+#     `Parallel` branch): the edge keeps declared censoring only when both its
 #     endpoints are observed; a sampled endpoint makes it bare.
-#   - `always_bare = true` (the ROOT flat shared-origin `Parallel` branches): the
-#     branch ALWAYS scores the bare core, matching the marginal
+#   - `always_bare = true` (the root flat shared-origin `Parallel` branches): the
+#     branch always scores the bare core, matching the marginal
 #     `_parallel_conditional_logpdf` (which conditions each branch on the
 #     continuous core whether or not the shared origin is observed).
 struct _LeafPlan{C}
@@ -724,14 +758,14 @@ end
 # A nested `Resolve` node in the latent sampling plan: the node itself, the event
 # slot `shift_idx` its outcomes hang off (its anchor: the parent origin / preceding
 # terminal), and the event slot `outcome_start` where its first outcome slice
-# begins. The latent form CONDITIONS on the observed outcome (the recorded outcome
-# is DATA, exactly like the marginal `Resolve` model and the bdbv tutorial
+# begins. The latent form conditions on the observed outcome (the recorded outcome
+# is data, exactly like the marginal `Resolve` model and the bdbv tutorial
 # workaround): the observed branch's edge conditions on the anchor (bare when the
 # anchor is a sampled latent, declared when observed, via `_latent_edge`) and the
 # branch-probability term `log p[i]` is added. The unobserved outcomes contribute
-# nothing and are NOT sampled (sampling them would imply every outcome occurred),
+# nothing and are not sampled (sampling them would imply every outcome occurred),
 # so the latent integrates to the same marginal `log p[i] + logpdf(delay[i], gap)`.
-# Sampling WHICH outcome occurs (the generative direction) is a distinct
+# Sampling which outcome occurs (the generative direction) is a distinct
 # construction not built here; the data-conditioned direction is what fits.
 struct _OneOfPlan{C}
     node::C
@@ -757,7 +791,7 @@ Base.push!(p::_LatentPlan, x::_OneOfPlan) = (push!(p.one_ofs, x); p)
 # Mirrors the marginal `_tree_score` layout (origin shared with the parent, leaf
 # events contiguous), recursing into nested composer steps/branches. Pure integer
 # + structure bookkeeping (no `~`, no sampled values), so it runs once up front.
-# `root_parallel` marks the ROOT flat `Parallel` branches as `always_bare` (they
+# `root_parallel` marks the root flat `Parallel` branches as `always_bare` (they
 # couple through the shared origin and the marginal scores them bare); every other
 # level passes `false`.
 function _latent_plan!(plan, d::Sequential, origin_idx::Int, event_start::Int,
@@ -769,7 +803,7 @@ function _latent_plan!(plan, d::Sequential, origin_idx::Int, event_start::Int,
         # A Sequential step is never an always-bare root-Parallel branch.
         _latent_plan_step!(plan, step, o_idx, ev_idx, false)
         o_idx = ev_idx + CensoredDistributions._terminal_offset(step)
-        # Advance by EVENT slots (a Resolve step would span one slot per
+        # Advance by event slots (a Resolve step would span one slot per
         # outcome), matching the marginal scorer's layout.
         ev_idx += CensoredDistributions._event_child_nleaves(step)
     end
@@ -786,13 +820,13 @@ function _latent_plan!(plan, d::Parallel, origin_idx::Int, event_start::Int,
     return plan
 end
 
-# A nested `Resolve` node in a LATENT-wrapped composer emits a `_OneOfPlan`:
+# A nested `Resolve` node in a latent-wrapped composer emits a `_OneOfPlan`:
 # its outcomes begin at `ev_idx`, anchored at the parent origin / preceding
-# terminal `o_idx`. The latent form CONDITIONS on the observed outcome (the
+# terminal `o_idx`. The latent form conditions on the observed outcome (the
 # recorded outcome is data), so the plan only records the node + indices; the model
 # body reads the row's observed outcome, conditions its branch on the (possibly
 # sampled) anchor, and adds the branch-probability term. Each outcome here must be
-# a LEAF delay (the standalone-Resolve latent path): a composer-subtree outcome
+# a leaf delay (the standalone-Resolve latent path): a composer-subtree outcome
 # would itself carry latents, a distinct construction handled by the
 # marginal model. Mis-indexing is avoided because the cursor advances by the
 # Resolve's full event-slot width in `_latent_plan!`.
@@ -803,7 +837,7 @@ function _latent_plan_step!(plan, node::Resolve, o_idx::Int, ev_idx::Int,
     return plan
 end
 
-# A latent-wrapped Resolve supports LEAF outcome delays only: a composer-subtree
+# A latent-wrapped Resolve supports leaf outcome delays only: a composer-subtree
 # outcome carries its own internal latents (a distinct multivariate construction),
 # so it is rejected clearly rather than mis-scored. The marginal composed model
 # handles a composer-subtree Resolve outcome.
@@ -815,22 +849,22 @@ function _reject_nonleaf_one_of_outcomes(node::Resolve)
     return nothing
 end
 
-# Score a nested `Resolve` in a LATENT-wrapped composer for one record, CONDITION-
-# ing on the observed outcome (the recorded outcome is DATA). Mirrors the marginal
+# Score a nested `Resolve` in a latent-wrapped composer for one record, condition-
+# ing on the observed outcome (the recorded outcome is data). Mirrors the marginal
 # `_one_of_logprob` / `_one_of_tree_logpdf` so latent == marginal: the
 # observed branch contributes `log p[i] + logpdf(edge_i, gap)` and the unobserved
 # outcomes contribute nothing (they are not sampled). The anchor is the filled event
 # slot `e[c.shift_idx]` (an observed reference, or a latent sampled by the leaf
-# loop): when the anchor was SAMPLED (and is not the chain origin) the branch edge
-# scores BARE, exactly as the marginal convolves bare cores across a sampled run, so
+# loop): when the anchor was sampled (and is not the chain origin) the branch edge
+# scores bare, exactly as the marginal convolves bare cores across a sampled run, so
 # integrating the sampled anchor reproduces the marginal mixture-conditioned term.
 # Branch probabilities follow the row (`branch_probs` override) else the node's
 # stored probs, shared with the marginal `Resolve` path. Weight `w` scales the
-# likelihood. A per-record `horizon` (default `nothing`) RIGHT-TRUNCATES the
+# likelihood. A per-record `horizon` (default `nothing`) right-truncates the
 # conditioned branch at the remaining window from the anchor exactly as the
 # marginal nested-Resolve scorer (`_one_of_tree_logpdf`) does, so the
 # truncated nested-Resolve term is density-identical in both forms. The
-# truncation is applied to the branch core BEFORE the latent shift, so the shifted
+# truncation is applied to the branch core before the latent shift, so the shifted
 # edge is `truncated(delay; upper = window)` anchored at the (observed/sampled)
 # predecessor, matching the marginal `truncated(delay; upper = horizon - o)`.
 function _latent_one_of_logprob(c::_OneOfPlan, e, sampled, row, w,
@@ -843,7 +877,7 @@ function _latent_one_of_logprob(c::_OneOfPlan, e, sampled, row, w,
     obs_i, obs_slot = _latent_observed_outcome(node, e, sampled, c.outcome_start)
     obs_i == 0 && return _scale(zero(eltype(probs)), w)
     delay = node.delays[obs_i]
-    # An OBSERVED non-occurrence (a no-event slot present) scores the no-event mass
+    # An observed non-occurrence (a no-event slot present) scores the no-event mass
     # `log q` alone (no delay term), matching the marginal Resolve path.
     if CensoredDistributions._is_no_event(delay)
         return _scale(log(probs[obs_i]), w)
@@ -871,9 +905,9 @@ function _latent_one_of_branch(delay, horizon, anchor)
     return CensoredDistributions._truncate_horizon(delay, window, horizon)
 end
 
-# Resolve WHICH leaf outcome a latent Resolve record observes, returning
+# Resolve which leaf outcome a latent Resolve record observes, returning
 # `(outcome_index, slot_index)` with `0` when none is observed (a fully latent
-# resolution contributes nothing). An outcome's slot was OBSERVED iff its original
+# resolution contributes nothing). An outcome's slot was observed iff its original
 # row value was present (`!sampled[slot]`); two distinct observed outcomes are
 # rejected (a record resolves to one outcome), mirroring the marginal resolver.
 # Leaf outcomes only (one slot each), guaranteed by `_reject_nonleaf_one_of_outcomes`.
@@ -902,7 +936,7 @@ function _latent_plan_step!(plan, step::Union{Sequential, Parallel},
 end
 
 # A leaf edge: one event at `ev_idx` hanging off the predecessor/origin `o_idx`
-# through the DECLARED edge delay `step`. `always_bare` flags a root flat
+# through the declared edge delay `step`. `always_bare` flags a root flat
 # `Parallel` branch (scored bare regardless of observation); otherwise the
 # bare-vs-declared choice is made at scoring time from the endpoints' missingness.
 function _latent_plan_step!(plan, step::UnivariateDistribution,
@@ -912,15 +946,15 @@ function _latent_plan_step!(plan, step::UnivariateDistribution,
 end
 
 # A `latent`-wrapped `Sequential` chain spans events `E_0, ..., E_k` over the flat
-# event layout (origin then one slot per leaf event). The split is DRIVEN BY THE
-# ROW: an OBSERVED event (a non-missing row slot) CONDITIONS on its edge through
+# event layout (origin then one slot per leaf event). The split is driven by the
+# row: an observed event (a non-missing row slot) conditions on its edge through
 # `@addlogprob!` (its value is data, not a sampled latent), while a genuinely
-# UNOBSERVED event (a missing slot) is SAMPLED with an indexed `~` so it lives in
+# unobserved event (a missing slot) is sampled with an indexed `~` so it lives in
 # the VarInfo. This mirrors the leaf latent, whose observed `y` (a model argument)
 # conditions while the primary `p` is sampled; declaring a free `~` on an observed
 # slot would instead re-sample it as a latent and silently drop its likelihood.
 # The origin `E_0` is the latent primary; each leaf event time is its predecessor
-# plus the edge delay (a `_ShiftedDelay` over the edge as DECLARED so its censoring
+# plus the edge delay (a `_ShiftedDelay` over the edge as declared so its censoring
 # is kept, matching the marginal, with the predecessor shifted via `_latent_shift`
 # so an interval-censored edge discretises the shift the same way the observed
 # events are). The predecessor is read off `e` (whether sampled or observed). A
@@ -929,7 +963,7 @@ end
 # via the conditional contribution.
 @model function composed_distribution_model(
         d::Latent{<:Sequential}, row::NamedTuple; weight = nothing)
-    # A NamedTuple of equal-length columns IS a Tables.jl table (a `columntable`),
+    # A NamedTuple of equal-length columns is a Tables.jl table (a `columntable`),
     # not one record; route it to the batch latent path. A scalar-valued row
     # NamedTuple is not a table and scores as one record below.
     if Tables.istable(row)
@@ -945,9 +979,9 @@ end
         CensoredDistributions._first_origin_node(chain))
 
     e = Vector{Union{Missing, Float64}}(obs)
-    # The ORIGINAL missingness pattern: an edge whose TARGET slot is SAMPLED
-    # (missing in the row) scores the BARE core (the marginal convolves bare cores
-    # across the sampled run); an edge whose target is OBSERVED keeps its declared
+    # The original missingness pattern: an edge whose target slot is sampled
+    # (missing in the row) scores the bare core (the marginal convolves bare cores
+    # across the sampled run); an edge whose target is observed keeps its declared
     # censoring (see `_latent_edge`). Captured before any `~` fills a slot.
     sampled = [v === missing for v in e]
     plan = _latent_plan!(_LatentPlan(), chain, 1, 2, false)
@@ -955,15 +989,15 @@ end
     # the leaf-twin truncation (a chain with no Resolve node) stays out of
     # scope, so reject a horizon there as before.
     horizon = _latent_one_of_horizon(plan, row)
-    # Origin E_0. A MISSING origin must be SAMPLED, so the chain needs a primary
-    # prior to sample it from (a bare-edge chain offers none -> reject). An OBSERVED
+    # Origin E_0. A missing origin must be sampled, so the chain needs a primary
+    # prior to sample it from (a bare-edge chain offers none -> reject). An observed
     # origin is a fixed continuous reference: it conditions through its primary prior
     # when the chain declares one, and contributes no prior term when it does not (a
     # bare-edge chain with an observed origin reference, the target's continuous
-    # source-onset anchor). NOT weighted (the weight scales the LIKELIHOOD).
+    # source-onset anchor). not weighted (the weight scales the likelihood).
     if e[1] === missing
         origin === nothing && throw(ArgumentError(
-            "latent Sequential model needs a censored origin to SAMPLE a missing " *
+            "latent Sequential model needs a censored origin to sample a missing " *
             "origin event (its first step must carry a primary event); supply the " *
             "origin as an observed reference, or declare a primary on the first " *
             "edge"))
@@ -992,15 +1026,15 @@ end
     return e
 end
 
-# Whether a latent-wrapped `Parallel` forces its branches BARE (the root flat
-# shared-origin rule). A FLAT Parallel (plain leaf branches) is scored by the
+# Whether a latent-wrapped `Parallel` forces its branches bare (the root flat
+# shared-origin rule). A flat Parallel (plain leaf branches) is scored by the
 # marginal `_parallel_conditional_logpdf` / `_parallel_marginal_logpdf` on the
-# continuous core, so the latent forces every branch bare to match. A NESTED
+# continuous core, so the latent forces every branch bare to match. A nested
 # Parallel (a branch is itself a composer) is scored by `_nested_tree_logpdf`
 # instead, which keeps each edge's declared censoring on observed endpoints and
 # marginalises a sampled origin through its primary core (the same per-edge rule a
-# `Sequential` uses), so the latent must NOT force bare. The choice is the
-# `_nested_trait` of the branches, the SAME compile-time trait the marginal
+# `Sequential` uses), so the latent must not force bare. The choice is the
+# `_nested_trait` of the branches, the same compile-time trait the marginal
 # scorer dispatches on, so the latent and marginal stay in lock-step per shape.
 function _latent_root_parallel(tree::Parallel)
     _latent_root_parallel_trait(
@@ -1010,12 +1044,12 @@ _latent_root_parallel_trait(::CensoredDistributions._Flat) = true
 _latent_root_parallel_trait(::CensoredDistributions._Nested) = false
 
 # A `latent`-wrapped `Parallel` shares one latent origin across its branches over
-# the flat event layout `[O, leaf events...]`. The split is DRIVEN BY THE ROW like
-# the latent Sequential: an observed branch (or origin) CONDITIONS on its edge
-# through `@addlogprob!`, a missing one is SAMPLED with an indexed `~`. A FLAT
+# the flat event layout `[O, leaf events...]`. The split is driven by the row like
+# the latent Sequential: an observed branch (or origin) conditions on its edge
+# through `@addlogprob!`, a missing one is sampled with an indexed `~`. A flat
 # shared-origin Parallel conditions each branch on the continuous core
 # (`always_bare` in the plan), matching the marginal `_parallel_conditional_logpdf`;
-# a NESTED Parallel branch keeps the per-edge declared/bare rule, matching the
+# a nested Parallel branch keeps the per-edge declared/bare rule, matching the
 # marginal `_nested_tree_logpdf`. The shared origin couples the branches; each leaf
 # event is the origin plus the branch delay. A nested composer branch recurses
 # through `_latent_plan!`. The likelihood is scaled by the row weight via the
@@ -1036,21 +1070,21 @@ _latent_root_parallel_trait(::CensoredDistributions._Nested) = false
     shared = CensoredDistributions._shared_primary_event(tree.components)
 
     e = Vector{Union{Missing, Float64}}(obs)
-    # The ORIGINAL missingness pattern (captured before any `~` fills a slot)
+    # The original missingness pattern (captured before any `~` fills a slot)
     # drives the target-sampled bare-vs-declared choice (see `_latent_edge`); the
     # root flat Parallel additionally forces every branch bare (`always_bare`),
     # matching the marginal `_parallel_conditional_logpdf` / `_parallel_marginal_logpdf`.
     sampled = [v === missing for v in e]
-    # The root-Parallel `always_bare` flag must match the MARGINAL path the same
-    # shape routes through. A FLAT Parallel (plain leaf branches) is scored by
+    # The root-Parallel `always_bare` flag must match the marginal path the same
+    # shape routes through. A flat Parallel (plain leaf branches) is scored by
     # `_parallel_conditional_logpdf` / `_parallel_marginal_logpdf`, which condition
-    # each branch on its continuous core, so the latent forces every branch BARE
-    # (`root_parallel = true`). A NESTED Parallel (a branch is itself a composer)
+    # each branch on its continuous core, so the latent forces every branch bare
+    # (`root_parallel = true`). A nested Parallel (a branch is itself a composer)
     # is instead scored by `_nested_tree_logpdf` / `_tree_step`, which scores each
-    # edge with its DECLARED censoring (both endpoints observed) and marginalises a
+    # edge with its declared censoring (both endpoints observed) and marginalises a
     # sampled origin through `primary_censored(_marginal_core(edge), prim)` — the
-    # SAME bare-on-sampled / declared-on-observed rule a `Sequential` uses. So a
-    # nested Parallel must NOT force bare; it threads the per-edge rule
+    # same bare-on-sampled / declared-on-observed rule a `Sequential` uses. So a
+    # nested Parallel must not force bare; it threads the per-edge rule
     # (`root_parallel = false`), making the latent density-identical to the nested
     # marginal for the bdbv/andv compose shapes (a nested-chain branch's first
     # edge stays declared when its endpoints are observed).
@@ -1060,13 +1094,13 @@ _latent_root_parallel_trait(::CensoredDistributions._Nested) = false
     # a Parallel with no nested Resolve keeps the leaf-twin truncation out
     # of scope and rejects a horizon as before.
     horizon = _latent_one_of_horizon(plan, row)
-    # Shared origin. A MISSING origin must be SAMPLED, so the branches need a shared
-    # primary prior; bare branches with an observed origin reference need none. NOT
+    # Shared origin. A missing origin must be sampled, so the branches need a shared
+    # primary prior; bare branches with an observed origin reference need none. not
     # weighted (weight scales the observed conditionals, not the prior).
     if e[1] === missing
         shared === nothing && throw(ArgumentError(
             "latent Parallel model needs censored branches sharing one primary " *
-            "event to SAMPLE a missing shared origin; supply the origin as an " *
+            "event to sample a missing shared origin; supply the origin as an " *
             "observed reference, or declare a shared primary"))
         e[1] ~ shared
     elseif shared !== nothing
@@ -1093,18 +1127,18 @@ end
 
 # --- Latent Choose / Resolve / Compete (top-level node) ----------------------
 #
-# A top-level `Choose` / `Resolve` / `Compete` has NO sampled origin of its own:
+# A top-level `Choose` / `Resolve` / `Compete` has no sampled origin of its own:
 # its outcomes/alternatives hang off the implicit origin reference (`0`), the same
 # reference the marginal node conditions against. So `latent(node)` over these top
 # nodes is the marginal node for the parts that carry no internal latent, with a
-# `Choose` routing per record to the chosen alternative's LATENT form. This makes
+# `Choose` routing per record to the chosen alternative's latent form. This makes
 # the single `latent(tree)` wrapper close over the andv (top-level `Choose`) shape
 # the same way the Parallel fix closes over the bdbv (top-level `Parallel`) shape:
-# the only caller-visible change is `latent(tree)` vs `tree`, on the SAME records.
+# the only caller-visible change is `latent(tree)` vs `tree`, on the same records.
 
-# A `latent`-wrapped top-level `Choose` routes a record to ONE alternative by the
+# A `latent`-wrapped top-level `Choose` routes a record to one alternative by the
 # row's selector (exactly like the marginal `Choose`), then delegates to the chosen
-# alternative's LATENT model: `composed_distribution_model(latent(chosen),
+# alternative's latent model: `composed_distribution_model(latent(chosen),
 # inner_row)`. The selector is a pure data field (not an event time), so it is
 # unchanged by `latent`; only the chosen alternative's scoring switches to its
 # latent twin. A leaf/Sequential/Parallel alternative therefore samples its own
@@ -1126,10 +1160,10 @@ end
 
 # A `latent`-wrapped top-level `Resolve` / `Compete` is density-identical to the
 # marginal node: the outcomes hang off the implicit origin reference (`0`), so
-# there is NO origin latent to sample (the origin is observed data, not a sampled
+# there is no origin latent to sample (the origin is observed data, not a sampled
 # event), and the recorded outcome is conditioned on exactly as the marginal node
 # does. So `latent` over a top-level one_of node is the marginal node's own scoring
-# — delegate to it unwrapped. (A NESTED Resolve inside a latent chain DOES interact
+# — delegate to it unwrapped. (A nested Resolve inside a latent chain does interact
 # with a sampled anchor; that path is the `Latent{<:Sequential}` /
 # `Latent{<:Parallel}` `_latent_one_of_logprob`, not this top-level method.)
 @model function composed_distribution_model(
@@ -1140,17 +1174,20 @@ end
     return obs
 end
 
-# A `latent`-wrapped PLAIN leaf that is NOT a separable primary-censored node (an
-# `IntervalCensored`, a `double_interval_censored` pipeline, a `Truncated`, a bare
-# delay, ...) has no compositional latent to sample on its own: its marginal
-# already integrates any internal primary analytically. So `latent(leaf)` over such
-# a leaf is density-identical to the marginal leaf — delegate to the marginal leaf
-# model unwrapped. The more specific `Latent{<:PrimaryCensored}` method above keeps
-# its primary-sampling (the genuine leaf latent); the composer methods
+# A `latent`-wrapped leaf with no primary event to sample (a bare delay, a
+# `Convolved` sum, a plain `Truncated`/`Weighted` over a primary-free delay, ...)
+# has nothing to realise: there is no primary event distribution, so the latent
+# form is density-identical to the marginal leaf, and we delegate to the marginal
+# leaf model unwrapped. The leaves that DO carry a primary have their own
+# primary-sampling methods above: `Latent{<:PrimaryCensored}` (the separable
+# leaf) and `Latent{<:Union{IntervalCensored, Truncated}}` (the
+# `double_interval_censored` pipeline, which samples the primary and scores the
+# interval-censored, truncated secondary, #723). The composer methods
 # (`Latent{<:Sequential/Parallel/Choose/AbstractOneOf}`) are more specific in `d`
-# and dispatch ahead of this. This is what lets a top-level `Choose` route to a
-# plain-leaf alternative's latent form (`latent(chosen)`) without a missing method:
-# the leaf alternative scores its marginal, the andv/bdbv invariant unchanged.
+# and dispatch ahead of this. This is also what lets a top-level `Choose` route
+# to a primary-free leaf alternative's latent form (`latent(chosen)`) without a
+# missing method: the leaf alternative scores its marginal, the andv/bdbv
+# invariant unchanged.
 @model function composed_distribution_model(
         d::Latent{<:UnivariateDistribution}, row::NamedTuple; weight = nothing)
     obs ~ DynamicPPL.to_submodel(
@@ -1160,13 +1197,13 @@ end
 
 # --- Batch latent entry: a whole table of records in one `~` -----------------
 #
-# The MARGINAL form scores a whole table in one `~` through
+# The marginal form scores a whole table in one `~` through
 # `product_distribution(record_distributions(d, rows))`, because each marginal
-# record is an independent distribution with no per-record latent. A LATENT
-# record instead SAMPLES its own per-record latents (the origin and any
+# record is an independent distribution with no per-record latent. A latent
+# record instead samples its own per-record latents (the origin and any
 # unobserved intermediate event), so it cannot collapse to a single
 # `product_distribution`; the per-record loop must stay. This batch entry moves
-# that loop INTO the package: a looping `@model` submodel that delegates each
+# that loop into the package: a looping `@model` submodel that delegates each
 # record to the existing per-record latent model
 # (`composed_distribution_model(d, row)`), prefixing record `i` with `:recN`
 # exactly as the manual hand-written loop did. The user model then collapses to
@@ -1175,7 +1212,7 @@ end
 #     delays ~ to_submodel(composed_parameters_model(template, priors))
 #     obs    ~ to_submodel(composed_distribution_model(latent(delays), rows))
 #
-# Mirrors the marginal batch method's signature (a vector of rows AND any
+# Mirrors the marginal batch method's signature (a vector of rows and any
 # Tables.jl table), so the marginal and latent batch entries are symmetric.
 
 # A vector of rows: collect to NamedTuple rows up front (so the per-record
@@ -1186,7 +1223,7 @@ function composed_distribution_model(
 end
 
 # Disambiguating batch entry for a `latent(primary_censored(...))` leaf over a
-# VECTOR of rows (issue #673). The single-record latent primary-censored method
+# vector of rows (issue #673). The single-record latent primary-censored method
 # (more specific in `d`: `Latent{<:PrimaryCensored}`) and the batch method above
 # (more specific in the second argument: `::AbstractVector`) each dominate on a
 # different argument, so a `Latent{<:PrimaryCensored}` + vector-of-rows call
@@ -1196,6 +1233,16 @@ end
 # batch; the per-record loop then routes each row to the single-record method.
 function composed_distribution_model(
         d::Latent{<:PrimaryCensored}, rows::AbstractVector; weight = nothing)
+    return _latent_batch_model(d, _latent_batch_rows(rows); weight = weight)
+end
+
+# Same disambiguation for a `latent(double_interval_censored(...))` pipeline leaf
+# over a vector of rows: the single-record pipeline method
+# (`Latent{<:Union{IntervalCensored, Truncated}}`) and the batch method each
+# dominate on a different argument, so pin the batch interpretation here.
+function composed_distribution_model(
+        d::Latent{<:Union{IntervalCensored, Truncated}}, rows::AbstractVector;
+        weight = nothing)
     return _latent_batch_model(d, _latent_batch_rows(rows); weight = weight)
 end
 
@@ -1238,7 +1285,7 @@ end
 
 # A location-shifted view of a delay distribution: `logpdf(shifted, y) =
 # logpdf(delay, y - shift)` and `rand = shift + rand(delay)`, generalising
-# [`PrimaryConditional`](@ref) to any edge delay (a continuous core OR a censored
+# [`PrimaryConditional`](@ref) to any edge delay (a continuous core or a censored
 # edge as declared, per `_latent_edge`). Used to declare each downstream event time
 # as a `~` of its predecessor plus the edge delay, so the latent composer model
 # both scores observed events and samples missing ones. Turing-free arithmetic;
@@ -1255,26 +1302,26 @@ Distributions.pdf(d::_ShiftedDelay, y::Real) = exp(logpdf(d, y))
 Base.rand(rng::AbstractRNG, d::_ShiftedDelay) = d.shift + rand(rng, d.delay)
 
 # The shifted edge distribution one leaf event is scored against, given its
-# DECLARED `edge`, the predecessor value `shift`, whether the predecessor / target
-# were SAMPLED, whether the predecessor is the chain ORIGIN, and `always_bare`
-# (a root flat `Parallel` branch). The bare-vs-declared choice MATCHES the marginal
+# declared `edge`, the predecessor value `shift`, whether the predecessor / target
+# were sampled, whether the predecessor is the chain origin, and `always_bare`
+# (a root flat `Parallel` branch). The bare-vs-declared choice matches the marginal
 # scorer's segment factorisation edge-for-edge: the marginal splits the chain into
-# SEGMENTS between consecutive OBSERVED events, scoring a single observed-bounded
-# edge on its DECLARED censoring and convolving the BARE cores across a segment
+# segments between consecutive observed events, scoring a single observed-bounded
+# edge on its declared censoring and convolving the bare cores across a segment
 # that spans a sampled (unobserved) intermediate.
 #
-#   - ROOT flat `Parallel` branch (`always_bare`): bare core, matching the marginal
+#   - root flat `Parallel` branch (`always_bare`): bare core, matching the marginal
 #     `_parallel_conditional_logpdf` / `_parallel_marginal_logpdf` (each
 #     shared-origin branch conditions / integrates on `_marginal_core`).
-#   - TARGET SAMPLED (a mid-run latent intermediate): bare core — the target is
+#   - target sampled (a mid-run latent intermediate): bare core — the target is
 #     integrated out, so this edge is the head of a marginalised run the marginal
 #     scores as a bare convolution.
-#   - TARGET OBSERVED, PREDECESSOR a SAMPLED INTERMEDIATE (not the origin): bare
-#     core — this edge is the TAIL of a run whose intermediate predecessor was
+#   - target observed, predecessor a sampled intermediate (not the origin): bare
+#     core — this edge is the tail of a run whose intermediate predecessor was
 #     sampled, so the whole observed->observed segment is a bare convolution in the
 #     marginal; scoring it bare makes latent-integrated == marginal.
-#   - TARGET OBSERVED, PREDECESSOR OBSERVED, or the SAMPLED ORIGIN: DECLARED edge,
-#     shifted by the FLOORED predecessor (`_latent_shift`). A single
+#   - target observed, predecessor observed, or the sampled origin: declared edge,
+#     shifted by the floored predecessor (`_latent_shift`). A single
 #     observed-bounded edge conditions on its declared interval/double
 #     censoring; the origin->first-observed edge keeps the declared edge and
 #     floors the sampled continuous origin so the floored gap stays in-support.
@@ -1288,21 +1335,21 @@ function _latent_edge(edge, shift, pred_sampled::Bool, pred_is_origin::Bool,
     return _ShiftedDelay(edge, _latent_shift(edge, shift))
 end
 
-# The BARE continuous core of an edge for a sampled-endpoint latent edge
+# The bare continuous core of an edge for a sampled-endpoint latent edge
 # (delegates to the shared core helper): every censoring layer stripped (primary
-# AND secondary interval), matching the `_marginal_core` the marginal scorer
+# and secondary interval), matching the `_marginal_core` the marginal scorer
 # conditions a sampled-endpoint edge on, so latent-integrated == marginal.
 _bare_edge(edge) = CensoredDistributions._bare_latent_edge(edge)
 
 # The predecessor value an interval-censored latent edge is shifted by when the
-# predecessor is OBSERVED. The observed downstream events of a chain are
-# DISCRETISED (floored to the secondary interval), but a continuous predecessor is
+# predecessor is observed. The observed downstream events of a chain are
+# discretised (floored to the secondary interval), but a continuous predecessor is
 # not. Scoring `logpdf(edge, target - shift)` with a continuous shift compares a
 # floored target against a continuous predecessor, so a target that floors into the
-# SAME interval as its predecessor gives a NEGATIVE gap (out of support, `-Inf`)
+# same interval as its predecessor gives a negative gap (out of support, `-Inf`)
 # for any shift above the floored target -- the `double_interval_censored`
 # latent-init failure. Flooring the shift to the edge's interval
-# discretises the predecessor the SAME way the observed events are, so the scored
+# discretises the predecessor the same way the observed events are, so the scored
 # gap is `floor(target) - floor(shift)` (matching the marginal, which scores the
 # floored origin's observed gap) and stays in-support. An edge without secondary
 # interval censoring keeps the continuous shift unchanged.
@@ -1316,8 +1363,8 @@ end
 # composed_parameters_model: priors -> sampled, reconstructed composed dist
 # ===========================================================================
 #
-# `composed_parameters_model(template, priors)` is a submodel that SAMPLES a
-# composed distribution's free parameters from user priors and RETURNS the
+# `composed_parameters_model(template, priors)` is a submodel that samples a
+# composed distribution's free parameters from user priors and returns the
 # reconstructed distribution, ready for the matching record submodel to score.
 # It completes the prior workflow: `compose` -> `params_table` (the
 # inventory) -> the user keys priors against it -> this helper materialises
@@ -1326,9 +1373,9 @@ end
 # `priors` is a nested `NamedTuple` mirroring `params(template)`: a leaf is keyed
 # by its parameter names (`_leaf_param_names`), a `Sequential`/`Parallel` by its
 # edge/event names, a `Resolve` by its outcome names plus an optional
-# `branch_probs` entry. The traversal REUSES the composers' `component_names` and
+# `branch_probs` entry. The traversal reuses the composers' `component_names` and
 # the leaf `params`/`_leaf_param_names` introspection for both structure
-# and names, never re-walking the tree by hand, and rebuilds the SAME structure
+# and names, never re-walking the tree by hand, and rebuilds the same structure
 # and names so the result matches the record submodel's by-name expectations
 # (Option A).
 #

@@ -925,17 +925,19 @@ end
 
 @testitem "single latent wrapper: plain-leaf and Choose-of-leaves" begin
     using CensoredDistributions, Distributions
-    using CensoredDistributions: latent, composed_distribution_model
+    using CensoredDistributions: latent, composed_distribution_model,
+                                 PrimaryConditional, get_primary_event
     using DynamicPPL: @model, to_submodel, logjoint, VarInfo
 
-    # A `latent`-wrapped PLAIN leaf (a double-interval-censored pipeline, not a bare
-    # primary-censored node) has no compositional latent to sample: its marginal
-    # already integrates the primary analytically, so `latent(leaf)` is density-
-    # identical to the marginal leaf. A top-level Choose whose alternatives are such
-    # leaves routes each record to the chosen alternative's latent form, which must
-    # therefore equal the marginal Choose. This guards the leaf-fallback method the
-    # Choose routing relies on (and that a bare `latent(primary_censored)` keeps its
-    # own primary-sampling, scored separately by the equivalence integral above).
+    # A `latent`-wrapped PLAIN leaf (a double-interval-censored pipeline)
+    # SAMPLES its primary event (the genuine single-leaf latent of #723), so a
+    # single `latent(leaf)` VarInfo carries the sampled `p` and its `logjoint`
+    # is the joint at that one draw, NOT the marginal. Integrating `p` over its
+    # prior reproduces the marginal leaf density: that integral, not a
+    # single-sample comparison, is the equivalence check. A top-level Choose
+    # whose alternatives are such leaves routes each record to the chosen
+    # alternative's latent form, so the same integrated identity holds per
+    # chosen branch. This guards the leaf-fallback method Choose routing uses.
     dic(d) = double_interval_censored(d;
         primary_event = Uniform(0, 1), interval = 1.0)
     leaf_a = dic(Gamma(2.0, 3.0))
@@ -943,20 +945,45 @@ end
 
     @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
 
-    # Plain-leaf latent == marginal.
+    # Integrate the sampled primary p ~ Uniform(0, 1) of `latent(d)` against
+    # the observed value `y`: the integral of prior(p) * pdf(secondary | p)
+    # over p equals the marginal density.
+    function latent_int(d, y; n = 60_000)
+        ld = latent(d)
+        pe = get_primary_event(ld)
+        xs = range(1e-9, 1 - 1e-9; length = n)
+        dx = step(xs)
+        s = 0.0
+        for p in xs
+            s += pdf(pe, p) * exp(logpdf(PrimaryConditional(ld, p), y)) * dx
+        end
+        return log(s)
+    end
+
+    # Plain-leaf: integrating the sampled primary recovers the marginal leaf.
     for delay in (4.0, 6.0)
         row = (delay = delay,)
         marg = logjoint(demo(leaf_a, row), VarInfo(demo(leaf_a, row)))
-        lat = logjoint(
-            demo(latent(leaf_a), row), VarInfo(demo(latent(leaf_a), row)))
-        @test isapprox(marg, lat; atol = 1e-10)
+        @test isapprox(marg, latent_int(leaf_a, delay); atol = 1e-3)
     end
 
-    # Choose of plain leaves: latent routes to the chosen leaf's latent (== marginal).
+    # The single-sample latent logjoint differs from the marginal (the primary
+    # is sampled, not integrated): a direct guard that the leaf-latent does NOT
+    # collapse to a "marginal in a hat".
+    let row = (delay = 4.0,)
+        marg = logjoint(demo(leaf_a, row), VarInfo(demo(leaf_a, row)))
+        lat = logjoint(
+            demo(latent(leaf_a), row), VarInfo(demo(latent(leaf_a), row)))
+        @test !isapprox(marg, lat; atol = 1e-10)
+    end
+
+    # Choose of plain leaves: latent routes to the chosen leaf's latent, whose
+    # integrated primary recovers the chosen alternative's marginal.
     ch = choose(:a => leaf_a, :b => leaf_b)
-    for row in ((kind = :a, delay = 6.0), (kind = :b, delay = 4.0))
+    cases = (((kind = :a, delay = 6.0), leaf_a),
+        ((kind = :b, delay = 4.0), leaf_b))
+    for (row, leaf) in cases
         marg = logjoint(demo(ch, row), VarInfo(demo(ch, row)))
-        lat = logjoint(demo(latent(ch), row), VarInfo(demo(latent(ch), row)))
-        @test isapprox(marg, lat; atol = 1e-10)
+        @test isapprox(marg, latent_int(leaf, row.delay); atol = 1e-3)
     end
 end

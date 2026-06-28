@@ -43,6 +43,80 @@ end
     @test rand(rng2, pc) ≈ p + rand(MersenneTwister(11), delay)
 end
 
+@testitem "PrimaryConditional keeps the secondary interval and truncation" begin
+    using Distributions
+
+    # For a `double_interval_censored` pipeline, the conditional given the primary
+    # `p` keeps the secondary interval (and truncation) on the total `p + delay`
+    # rather than stripping to the bare delay (#723). The interval mass over the
+    # interval `[lo, hi)` containing `y` is `cdf(delay, hi - p) - cdf(delay,
+    # lo - p)`, normalised by the truncation constant.
+    delay = LogNormal(1.5, 0.75)
+    pe = Uniform(0, 1)
+    p = 0.4
+
+    dic = double_interval_censored(delay; primary_event = pe, interval = 1.0)
+    pc = PrimaryConditional(dic, p)
+    for y in [2.0, 4.0, 6.0]
+        lo = floor(y)
+        expected = log(cdf(delay, lo + 1 - p) - cdf(delay, lo - p))
+        @test logpdf(pc, y) ≈ expected
+        # Distinct from the bare-delay shift the separable leaf uses.
+        @test logpdf(pc, y) != logpdf(delay, y - p)
+    end
+
+    # With an upper truncation the interval mass is divided by the global
+    # truncation constant Z = cdf(primary_censored(delay, pe), upper).
+    dtic = double_interval_censored(
+        delay; primary_event = pe, upper = 10.0, interval = 1.0)
+    pct = PrimaryConditional(dtic, p)
+    Z = cdf(primary_censored(delay, pe), 10.0)
+    for y in [2.0, 5.0, 9.0]
+        lo = floor(y)
+        hi = min(lo + 1, 10.0)
+        expected = log(cdf(delay, hi - p) - cdf(delay, lo - p)) - log(Z)
+        @test logpdf(pct, y) ≈ expected
+    end
+
+    # Truncated but NOT interval-censored: the conditional is the shifted delay
+    # density inside the window, normalised by the same global Z.
+    dtc = double_interval_censored(delay; primary_event = pe, upper = 10.0)
+    pcc = PrimaryConditional(dtc, p)
+    for y in [2.0, 5.0, 9.0]
+        @test logpdf(pcc, y) ≈ logpdf(delay, y - p) - log(Z)
+    end
+    @test logpdf(pcc, 11.0) == -Inf   # above the truncation upper bound
+end
+
+@testitem "PrimaryConditional pipeline joint integrates to the marginal" begin
+    using Distributions
+    using CensoredDistributions: PrimaryConditional
+
+    # Across the pipeline shapes, the joint (primary prior + conditional)
+    # integrated over the primary must reproduce the analytic marginal density.
+    delay = LogNormal(1.5, 0.75)
+    pe = Uniform(0, 1)
+
+    function integrate_joint(marg, y; n = 150_000)
+        ld = latent(marg)
+        ps = range(0.0, 1.0; length = n)
+        vals = map(p -> pdf(pe, p) * exp(logpdf(PrimaryConditional(ld, p), y)), ps)
+        return sum((vals[1:(end - 1)] .+ vals[2:end]) ./ 2) * step(ps)
+    end
+
+    margs = [
+        double_interval_censored(delay; primary_event = pe, interval = 1),
+        double_interval_censored(
+            delay; primary_event = pe, upper = 10, interval = 1),
+        double_interval_censored(delay; primary_event = pe, upper = 10)
+    ]
+    for marg in margs
+        for y in [1.0, 3.0, 6.0, 9.0]
+            @test isapprox(integrate_joint(marg, y), pdf(marg, y); atol = 5e-4)
+        end
+    end
+end
+
 @testitem "PrimaryConditional works on a Latent wrapper" begin
     using Distributions
 

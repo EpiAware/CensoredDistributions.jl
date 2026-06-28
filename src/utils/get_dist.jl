@@ -93,15 +93,17 @@ get_primary_event(d::Truncated) = get_primary_event(d.untruncated)
 
 @doc "
 
-Extract the BARE continuous delay from a latent node.
+Extract the bare continuous delay from a latent node.
 
-The latent representation SAMPLES the primary event, so its conditional scores
-the bare continuous delay, every censoring layer (primary, truncation, secondary
-interval) stripped. Recurses with [`get_dist_recursive`](@ref) so a latent
-`double_interval_censored` node surfaces the same continuous core as a latent
-`primary_censored` node, and avoids reapplying the secondary interval, which
-would double-count the within-window uncertainty already represented by the
-sampled primary.
+Recurses with [`get_dist_recursive`](@ref) so a latent `double_interval_censored`
+node surfaces the same continuous core as a latent `primary_censored` node, every
+censoring layer (primary, truncation, secondary interval) stripped. This bare
+core is the edge a composer scores a sampled-endpoint (marginalised) intermediate
+on, where reapplying censoring would double-count the within-window uncertainty
+already carried by the sampled continuous time. A single-leaf
+`latent(double_interval_censored(...))` instead keeps its secondary interval and
+truncation on the conditional (see [`PrimaryConditional`](@ref)); that path uses
+the pipeline node directly, not this bare core.
 "
 get_dist(d::Latent) = get_dist_recursive(d.dist)
 
@@ -112,17 +114,6 @@ Extract the primary event time distribution from a latent primary-censored node.
 Delegates to the wrapped node.
 "
 get_primary_event(d::Latent) = get_primary_event(d.dist)
-
-# Reach the PrimaryCensored node a latent wraps, through any interval or
-# truncation layers, so the latent integration can reuse the SAME quadrature
-# solver the primary-censored numeric path uses. Returns `nothing` when no
-# PrimaryCensored node is present (a bare delay), leaving the caller to fall
-# back to the default solver.
-_primary_censored_node(d::Latent) = _primary_censored_node(d.dist)
-_primary_censored_node(d::PrimaryCensored) = d
-_primary_censored_node(d::IntervalCensored) = _primary_censored_node(d.dist)
-_primary_censored_node(d::Truncated) = _primary_censored_node(d.untruncated)
-_primary_censored_node(d) = nothing
 
 @doc "
 
