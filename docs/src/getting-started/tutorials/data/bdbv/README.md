@@ -11,7 +11,7 @@ aggregated seven-outbreak Democratic Republic of the Congo line list
 
 The data are licensed CC-BY 4.0 and are redistributed here under that
 licence for the case-study page
-[Bundibugyo Ebola delays](../bdbv-linelist-analysis.md).
+[Bundibugyo Ebola delays](../../bdbv-linelist-analysis.md).
 No values have been modified in this copy.
 The data-cleaning steps (admission and notification date outliers set to
 missing) are applied in the page itself, following the cleaning used by

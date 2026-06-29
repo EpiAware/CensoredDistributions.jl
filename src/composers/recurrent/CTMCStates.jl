@@ -142,7 +142,11 @@ function ctmc(specs::Pair...)
     n = length(states)
     T = isempty(edges) ? Float64 :
         promote_type(Float64, mapreduce(e -> typeof(e[3]), promote_type, edges))
-    Q = zeros(T, n, n)
+    # `T` comes from `typeof` over the untyped `edges` vector, so inference widens
+    # it to an abstract `Type`; assert the result is a 2-D `Matrix{T}` so the
+    # `CTMCStates(states, Q)` call below dispatches against `M <: AbstractMatrix`
+    # without a spurious higher-dimensional `Array` branch.
+    Q = zeros(T, n, n)::Matrix{T}
     for (from, to, rate) in edges
         Q[idx[from], idx[to]] += rate
     end

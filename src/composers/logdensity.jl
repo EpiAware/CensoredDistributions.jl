@@ -158,6 +158,12 @@ from `priors`, and `DensityInterfaceExt` marks it a density. The flat layout is
 [`params_table`](@ref)`(dist)`'s row order throughout, so a posterior draw maps
 back to named, constrained parameters interchangeable with the Turing path.
 
+This layer is an ORTHOGONAL alternative to the DynamicPPL
+[`composed_parameters_model`](@ref) route, not a wrapper or replacement: the two
+never interact at runtime, but evaluate the same log-posterior over the same
+shared core ([`build_priors`](@ref), [`update`](@ref), [`logpdf`](@ref)). Pick
+this route to sample a composed model with a non-Turing sampler.
+
 # Fields
 - `dist`: the template composed distribution (the structure to reconstruct).
 - `priors`: nested prior `NamedTuple` keyed like [`build_priors`](@ref)`(dist)`.
@@ -168,6 +174,7 @@ back to named, constrained parameters interchangeable with the Turing path.
 - [`as_logdensity`](@ref): the assembler.
 - [`logdensity`](@ref): evaluate on a flat (constrained) vector.
 - [`flatten`](@ref), [`unflatten`](@ref): the flat <-> nested codec.
+- [`composed_parameters_model`](@ref): the orthogonal DynamicPPL/Turing route.
 "
 struct ComposedLogDensity{D, P, T, L}
     dist::D
