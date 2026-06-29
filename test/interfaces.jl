@@ -133,3 +133,50 @@ end
     @test CensoredDistributions._child_logpdf === child_logpdf
     @test CensoredDistributions._child_rand! === child_rand!
 end
+
+@testitem "abstract hierarchy membership is consistent" begin
+    using CensoredDistributions
+    using CensoredDistributions.TestUtils: test_abstract_membership
+
+    # Meta-test: every built-in composer subtypes AbstractComposedDistribution
+    # and every single-base modifier subtypes AbstractModifiedDistribution. A
+    # type filed under the wrong family (or neither) fails here.
+    test_abstract_membership()
+end
+
+@testitem "test_composed_interface over the built-in composer nodes" begin
+    using CensoredDistributions, Distributions
+    import ForwardDiff
+    using CensoredDistributions.TestUtils: test_composed_interface
+
+    # The composed-family conformance entry: each composer subtypes
+    # AbstractComposedDistribution and passes both the node-extension and the
+    # public interface checklist.
+    seq = Sequential((Gamma(2.0, 1.0), Gamma(1.5, 2.0)), (:step_1, :step_2))
+    test_composed_interface(seq; name = "Sequential",
+        draw = rand(seq), path = (:step_1,), overall = :scalar,
+        latent_moments = true, ad_gradient = ForwardDiff.gradient)
+
+    par = compose((onset = Gamma(2.0, 1.0), death = LogNormal(0.5, 0.4)))
+    test_composed_interface(par; name = "Parallel",
+        draw = rand(par), path = (:onset,), overall = :vector,
+        latent_moments = true, has_endpoint = false,
+        ad_gradient = ForwardDiff.gradient)
+end
+
+@testitem "test_modified_interface over the built-in modifier leaves" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions.TestUtils: test_modified_interface
+
+    # The modified-family conformance entry: each modifier subtypes
+    # AbstractModifiedDistribution and its free_leaf / rewrap_leaf round-trip
+    # preserves logpdf at an in-support point.
+    base = Gamma(2.0, 1.0)
+    test_modified_interface(affine(base; scale = 2.0, shift = 1.0);
+        name = "Affine", x = 3.0)
+    test_modified_interface(weight(base, 0.5); name = "Weighted", x = 2.0)
+    test_modified_interface(thin(base, 0.3); name = "Transformed", x = 2.0)
+    test_modified_interface(modify(base, -log(2.0)); name = "Modified", x = 2.0)
+    test_modified_interface(interval_censored(base, 1.0);
+        name = "IntervalCensored", x = 2.0)
+end

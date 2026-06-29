@@ -69,7 +69,7 @@ shared by every alternative that uses it.
 - [`Parallel`](@ref): independent shared-origin branches (product)
 "
 struct Choose{N, K <: NTuple{N, Symbol}, A <: Tuple} <:
-       Distribution{Multivariate, Continuous}
+       AbstractComposedDistribution{Multivariate, Continuous}
     "Tuple of the alternative names (`Symbol`s)."
     names::K
     "Tuple of the alternative distributions, one per name."

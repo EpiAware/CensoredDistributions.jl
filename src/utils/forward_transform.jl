@@ -46,7 +46,7 @@ logpdf-transparent.
 - [`transform`](@ref), [`thin`](@ref), [`cumulative`](@ref): constructors
 "
 struct Transformed{D <: UnivariateDistribution, Op} <:
-       UnivariateDistribution{ValueSupport}
+       AbstractModifiedDistribution{Univariate, ValueSupport}
     "The inner delay distribution."
     dist::D
     "The forward op applied to the convolved series."

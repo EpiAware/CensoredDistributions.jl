@@ -20,7 +20,7 @@ automatically.
 - [`affine`](@ref): constructor function
 """
 struct Affine{D <: UnivariateDistribution, T <: Real} <:
-       UnivariateDistribution{Continuous}
+       AbstractModifiedDistribution{Univariate, Continuous}
     "The inner delay distribution being transformed."
     dist::D
     "The positive multiplicative scale."

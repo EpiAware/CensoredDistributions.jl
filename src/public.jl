@@ -1,5 +1,11 @@
 # Public API declarations for Julia 1.11+
 
+# Abstract type hierarchy (public but not exported): the two family supertypes
+# downstream authors subtype, plus the positional-multi-child intermediate.
+# `AbstractOneOf` re-roots under `AbstractComposedDistribution`.
+public AbstractComposedDistribution, AbstractMultiChild,
+       AbstractModifiedDistribution
+
 # Core distribution types (public but not exported)
 public PrimaryCensored
 public Latent

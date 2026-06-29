@@ -46,12 +46,16 @@ using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
                                Convolved, Difference, ExponentiallyTilted,
                                PrimaryCensored, IntervalCensored,
                                event, event_names, event_tree, params_table,
-                               observed_distribution,
+                               observed_distribution, component_names,
+                               free_leaf, rewrap_leaf, get_dist,
+                               AbstractComposedDistribution,
+                               AbstractModifiedDistribution,
                                child_nleaves, child_logpdf, child_rand!
 
 export test_interface, example_fixtures, test_rejects_invalid,
        test_node_interface, test_ad_safety, registry_types,
-       test_registry_coverage
+       test_registry_coverage, test_composed_interface,
+       test_modified_interface, test_abstract_membership
 
 # --- per-fixture descriptor -------------------------------------------------
 #
@@ -1120,6 +1124,90 @@ function test_node_interface(node; name::AbstractString =
         # vector gives the same value (the node reads only its own slice).
         tight = out[slot]
         @test child_logpdf(node, tight, 0, n) ≈ lp
+    end
+end
+
+# --- abstract-hierarchy conformance -----------------------------------------
+#
+# One conformance entry per family supertype (#779). They wrap the existing
+# leaf / node checklists and add the abstract-specific contract: a composer is
+# an `AbstractComposedDistribution` exposing the node interface; a modifier is
+# an `AbstractModifiedDistribution` whose `free_leaf` / `rewrap_leaf` round-trip.
+
+@doc """
+
+Assert a composed distribution satisfies the `AbstractComposedDistribution`
+contract.
+
+`test_composed_interface(node; kwargs...)` checks `node` subtypes
+`AbstractComposedDistribution`, exposes `component_names`, and passes both the
+node-extension checklist ([`test_node_interface`](@ref)) and the public
+interface checklist ([`test_interface`](@ref); pass the same fixture keyword
+arguments). Returns the `@testset` object.
+""" function test_composed_interface end
+
+function test_composed_interface(node; name::AbstractString =
+        string(nameof(typeof(node))),
+        ad_gradient = nothing, kwargs...)
+    return @testset "composed interface: $name" begin
+        @test node isa AbstractComposedDistribution
+        @test component_names(node) isa Tuple
+        test_node_interface(node; name = name)
+        test_interface(node; name = name, ad_gradient = ad_gradient, kwargs...)
+    end
+end
+
+@doc """
+
+Assert a modified distribution satisfies the `AbstractModifiedDistribution`
+contract.
+
+`test_modified_interface(d)` checks `d` subtypes `AbstractModifiedDistribution`
+and that the leaf-modifier interface round-trips: `free_leaf(d)` returns a free
+inner leaf, `rewrap_leaf(d, free_leaf(d))` reconstructs a node whose `logpdf`
+matches `d` at `x`, and `get_dist` / `params` / `show` work. Pass `x` (an
+in-support point) to score the round-trip. Returns the `@testset` object.
+""" function test_modified_interface end
+
+function test_modified_interface(
+        d; name::AbstractString =
+        string(nameof(typeof(d))), x::Real = 1.0)
+    return @testset "modified interface: $name" begin
+        @test d isa AbstractModifiedDistribution
+        # free_leaf peels to a free inner leaf; rewrap rebuilds an equivalent.
+        inner = free_leaf(d)
+        @test inner isa Distributions.Distribution
+        rebuilt = rewrap_leaf(d, inner)
+        @test rebuilt isa AbstractModifiedDistribution
+        @test logpdf(rebuilt, x) ≈ logpdf(d, x)
+        # Inner accessor and the universal distribution interface.
+        @test get_dist(d) isa Distributions.Distribution
+        @test params(d) isa Tuple
+        @test !isempty(sprint(show, d))
+    end
+end
+
+@doc """
+
+Assert the built-in composer / modifier types subtype the right family
+supertype.
+
+`test_abstract_membership()` is the meta-test that the abstract hierarchy stays
+consistent: every composer node subtypes `AbstractComposedDistribution` and
+every single-base modifier leaf subtypes `AbstractModifiedDistribution`. A new
+type added to the wrong family (or to neither) fails here. Returns the
+`@testset` object.
+""" function test_abstract_membership()
+    return @testset "abstract hierarchy membership" begin
+        for T in (Sequential, Parallel, Resolve, Compete, Choose)
+            @test T <: AbstractComposedDistribution
+        end
+        @test Sequential <: CensoredDistributions.AbstractMultiChild
+        @test Parallel <: CensoredDistributions.AbstractMultiChild
+        for T in (Affine, Modified, Weighted, Transformed,
+            PrimaryCensored, IntervalCensored)
+            @test T <: AbstractModifiedDistribution
+        end
     end
 end
 
