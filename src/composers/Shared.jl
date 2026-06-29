@@ -39,7 +39,7 @@ inventoried, sampled and reconstructed.
 - [`params_table`](@ref), [`update`](@ref): dedup occurrences by tag.
 "
 struct Shared{D <: UnivariateDistribution} <:
-       UnivariateDistribution{ValueSupport}
+       AbstractModifiedDistribution{Univariate, ValueSupport}
     "The shared-parameter group name (`Symbol`)."
     tag::Symbol
     "The wrapped leaf distribution."

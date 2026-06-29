@@ -35,7 +35,7 @@ manual_logpdf = 10.0 * logpdf(d, observed_value)
 ```
 "
 struct Weighted{D <: UnivariateDistribution, T <: Union{Real, Missing}} <:
-       UnivariateDistribution{ValueSupport}
+       AbstractModifiedDistribution{Univariate, ValueSupport}
     "The underlying distribution being weighted."
     dist::D
     "The weight to apply to log-probabilities."

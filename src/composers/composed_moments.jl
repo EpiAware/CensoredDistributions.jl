@@ -18,6 +18,11 @@
 # weight is fixed structure, not part of the delay moment.
 free_leaf(d::Weighted) = free_leaf(d.dist)
 
+# Rebuild a `Weighted` around a new inner leaf, keeping the fixed weight. Without
+# this the generic `rewrap_leaf` default would drop the weight when a structural
+# edit (`update` / `splice`) rebuilds a tree through a weighted leaf.
+rewrap_leaf(d::Weighted, inner) = Weighted(rewrap_leaf(d.dist, inner), d.weight)
+
 # Mean / variance of a (possibly censored) leaf: that of its inner free delay.
 # A plain leaf is its own free leaf; a `Convolved` free-leafs to itself and so
 # reuses its additive `mean`/`var`.

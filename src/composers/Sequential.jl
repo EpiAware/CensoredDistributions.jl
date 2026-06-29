@@ -52,7 +52,7 @@ sum of the step values.
 - [`Resolve`](@ref): exactly one of several outcomes
 "
 struct Sequential{C <: Tuple, N <: Tuple} <:
-       Distribution{Multivariate, Continuous}
+       AbstractMultiChild{Continuous}
     "Tuple of the step distributions ``D_1, \\dots, D_k`` (each univariate or a
     nested composer)."
     components::C

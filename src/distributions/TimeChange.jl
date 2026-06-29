@@ -30,7 +30,7 @@ Because it is a `UnivariateDistribution`, a `TimeChange` nests as a leaf in
 - [`affine`](@ref): the linear special case
 """
 struct TimeChange{D <: UnivariateDistribution, T <: Real} <:
-       UnivariateDistribution{Continuous}
+       AbstractModifiedDistribution{Univariate, Continuous}
     "The inner sojourn delay drawn on the operational-time clock."
     dist::D
     "The positive base clock speed (the intensity at calendar time zero)."

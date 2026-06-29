@@ -14,7 +14,8 @@ import Distributions: params, insupport, pdf, logpdf, cdf, logcdf,
 import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
 using Distributions: Distributions, UnivariateDistribution, Distribution,
-                     Continuous, Multivariate, MixtureModel,
+                     Continuous, Multivariate, Univariate, VariateForm,
+                     MixtureModel,
                      ValueSupport, Truncated, Product, Censored, truncated,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
                      Weibull, Normal, shape, scale, meanlogx, stdlogx,
@@ -201,6 +202,11 @@ export compartment_stages
 export linear_chain_reactions
 
 include("docstrings.jl")
+
+# Abstract type hierarchy for the composer nodes and modifier leaves. Included
+# first so every concrete type can subtype the abstracts (and `AbstractOneOf`
+# can re-root under `AbstractComposedDistribution`).
+include("interface.jl")
 
 include("utils/gamma_ad.jl")
 

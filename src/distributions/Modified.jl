@@ -126,7 +126,7 @@ mirroring the [`primary_censored`](@ref) solver architecture:
 - [`modify`](@ref): the constructor verb.
 """
 struct Modified{D <: UnivariateDistribution, E, L <: HazardLink, M} <:
-       UnivariateDistribution{Continuous}
+       AbstractModifiedDistribution{Univariate, Continuous}
     "The base delay distribution whose hazard is modified."
     dist::D
     "The hazard modification effect (a scalar, a callable `effect(t)`, or a

@@ -26,7 +26,8 @@
 # `AbstractOneOf` wherever the behaviour is shared (one event slot per
 # outcome, the shared origin, the per-outcome `rand`), and on the concrete type
 # only where the scoring arithmetic differs (mixture weight vs hazard survival).
-abstract type AbstractOneOf <: UnivariateDistribution{Continuous} end
+abstract type AbstractOneOf <:
+              AbstractComposedDistribution{Univariate, Continuous} end
 
 # Outcome names, one per one_of outcome. Both concrete types store `names`.
 component_names(c::AbstractOneOf) = c.names

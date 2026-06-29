@@ -42,7 +42,7 @@ censored specialisation layered on top elsewhere, not part of this type.
 - [`Resolve`](@ref): exactly one of several outcomes
 "
 struct Parallel{C <: Tuple, N <: Tuple} <:
-       Distribution{Multivariate, Continuous}
+       AbstractMultiChild{Continuous}
     "Tuple of the branch distributions (each univariate or a nested composer)."
     components::C
     "Tuple of the branch names (`Symbol`s), one per component. The `compose`
