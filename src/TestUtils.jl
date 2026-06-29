@@ -45,17 +45,20 @@ using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
                                Affine, Modified, Weighted, Transformed,
                                Convolved, Difference, ExponentiallyTilted,
                                PrimaryCensored, IntervalCensored,
+                               PrimaryConditional,
                                event, event_names, event_tree, params_table,
                                observed_distribution, component_names,
                                free_leaf, rewrap_leaf, get_dist,
                                AbstractComposedDistribution,
                                AbstractModifiedDistribution,
+                               AbstractPrimaryCensored,
                                child_nleaves, child_logpdf, child_rand!
 
 export test_interface, example_fixtures, test_rejects_invalid,
        test_node_interface, test_ad_safety, registry_types,
        test_registry_coverage, test_composed_interface,
-       test_modified_interface, test_abstract_membership
+       test_modified_interface, test_primary_censored_interface,
+       test_abstract_membership
 
 # --- per-fixture descriptor -------------------------------------------------
 #
@@ -1192,14 +1195,38 @@ end
 
 @doc """
 
-Assert the built-in composer / modifier types subtype the right family
-supertype.
+Assert a primary-censored distribution satisfies the `AbstractPrimaryCensored`
+contract.
+
+`test_primary_censored_interface(d; x)` checks `d` subtypes
+`AbstractPrimaryCensored`, exposes its underlying delay via `get_dist`, and has
+a finite `logpdf` at the in-support point `x`, plus `params` / `show`. Use for
+`PrimaryCensored` and the latent `PrimaryConditional`. Returns the `@testset`
+object.
+""" function test_primary_censored_interface end
+
+function test_primary_censored_interface(
+        d; name::AbstractString = string(nameof(typeof(d))), x::Real = 2.0)
+    return @testset "primary-censored interface: $name" begin
+        @test d isa AbstractPrimaryCensored
+        @test get_dist(d) isa Distributions.Distribution
+        @test params(d) isa Tuple
+        @test isfinite(logpdf(d, x))
+        @test !isempty(sprint(show, d))
+    end
+end
+
+@doc """
+
+Assert the built-in composer / modifier / primary-censored types subtype the
+right family supertype.
 
 `test_abstract_membership()` is the meta-test that the abstract hierarchy stays
-consistent: every composer node subtypes `AbstractComposedDistribution` and
-every single-base modifier leaf subtypes `AbstractModifiedDistribution`. A new
-type added to the wrong family (or to neither) fails here. Returns the
-`@testset` object.
+consistent: every composer node subtypes `AbstractComposedDistribution`, every
+single-base modifier leaf subtypes `AbstractModifiedDistribution`, and the
+primary-censored family subtypes `AbstractPrimaryCensored`. `IntervalCensored`
+is standalone (under neither). A type filed under the wrong family fails here.
+Returns the `@testset` object.
 """ function test_abstract_membership()
     return @testset "abstract hierarchy membership" begin
         for T in (Sequential, Parallel, Resolve, Compete, Choose)
@@ -1207,10 +1234,18 @@ type added to the wrong family (or to neither) fails here. Returns the
         end
         @test Sequential <: CensoredDistributions.AbstractMultiChild
         @test Parallel <: CensoredDistributions.AbstractMultiChild
-        for T in (Affine, Modified, Weighted, Transformed,
-            PrimaryCensored, IntervalCensored)
+        for T in (Affine, Modified, Weighted, Transformed)
             @test T <: AbstractModifiedDistribution
         end
+        # Primary-censored family is its own supertype, NOT a modifier.
+        for T in (PrimaryCensored, PrimaryConditional)
+            @test T <: AbstractPrimaryCensored
+            @test !(T <: AbstractModifiedDistribution)
+        end
+        # IntervalCensored is standalone: under neither shared abstract.
+        @test !(IntervalCensored <: AbstractModifiedDistribution)
+        @test !(IntervalCensored <: AbstractPrimaryCensored)
+        @test IntervalCensored <: Distributions.UnivariateDistribution
     end
 end
 

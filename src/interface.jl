@@ -1,8 +1,8 @@
 # ============================================================================
-# Abstract type hierarchy: composed nodes and modified-distribution leaves
+# Abstract type hierarchy: composed nodes, modifier leaves, primary censoring
 # ============================================================================
 #
-# Two related families share one supertype each, following the `AbstractOneOf`
+# Related families share one supertype each, following the `AbstractOneOf`
 # model (concrete types subtype the abstract; shared behaviour and the
 # documented interface contract hang off the abstract):
 #
@@ -13,16 +13,26 @@
 #     `Compete`).
 #
 #   AbstractModifiedDistribution{F, S} — wrap ONE inner base distribution and
-#     modify it (the `free_leaf` / `rewrap_leaf` leaf interface). `Affine`,
-#     `TimeChange`, `Modified`, `Transformed`, `Weighted`, `Shared` and the
-#     censoring wrappers `IntervalCensored` / `PrimaryCensored`.
+#     modify it (the `free_leaf` / `rewrap_leaf` leaf interface): `Affine`,
+#     `TimeChange`, `Modified`, `Transformed`, `Weighted`, `Shared`. This is the
+#     family slated to be extracted to ModifiedDistributions.jl (#726), so the
+#     core CD censoring wrappers deliberately do NOT live here.
 #
-# Both are parametric on variate form `F` (`Univariate` / `Multivariate`) so one
-# abstract spans the univariate and multivariate members while preserving
-# `Distribution{F, S}` — and so the `UnivariateDistribution{S}` alias for the
-# univariate members, leaving existing dispatch unchanged. The intermediate
-# `AbstractMultiChild` groups the two positional multi-child composers
-# (`Sequential`, `Parallel`) the tree walkers dispatch over together.
+#   AbstractPrimaryCensored — the primary-censored family the package dispatches
+#     on (`PrimaryCensored` and the latent `PrimaryConditional`). Core CD, stays
+#     in the package. Univariate-continuous only, so non-parametric like
+#     `AbstractOneOf`.
+#
+# `IntervalCensored` is a standalone core type with no shared abstract: interval
+# censoring is distinct from primary censoring and stays in CD independently.
+#
+# The composed / modified abstracts are parametric on variate form `F`
+# (`Univariate` / `Multivariate`) so one abstract spans the univariate and
+# multivariate members while preserving `Distribution{F, S}` — and so the
+# `UnivariateDistribution{S}` alias for the univariate members, leaving existing
+# dispatch unchanged. The intermediate `AbstractMultiChild` groups the two
+# positional multi-child composers (`Sequential`, `Parallel`) the tree walkers
+# dispatch over together.
 
 """
     AbstractComposedDistribution{F<:VariateForm, S<:ValueSupport}
@@ -64,8 +74,10 @@ abstract type AbstractMultiChild{S <: ValueSupport} <:
 
 Supertype of the single-base modifier leaves that wrap one inner distribution
 and modify it: `Affine`, `TimeChange`, `Modified`, `Transformed`, `Weighted`,
-`Shared` and the censoring wrappers `IntervalCensored` / `PrimaryCensored`.
-Parametric on variate form for symmetry with the composed family.
+`Shared`. This is the family slated to move to ModifiedDistributions.jl (#726),
+so the core CD censoring wrappers are not here (`PrimaryCensored` lives under
+`AbstractPrimaryCensored`; `IntervalCensored` is standalone). Parametric on
+variate form for symmetry with the composed family.
 
 Required methods a concrete subtype implements (the leaf interface):
 
@@ -88,11 +100,37 @@ abstract type AbstractModifiedDistribution{F <: VariateForm,
 _modified_inner(d::AbstractModifiedDistribution) = d.dist
 
 # Default one-line show for a modifier leaf: `Name(inner)`. Concrete subtypes
-# with their own `show` (`Modified`, `IntervalCensored`, `PrimaryCensored`,
-# `Shared`) override it; the transform leaves (`Affine`, `TimeChange`,
-# `Transformed`, `Weighted`) use this and so no longer fall back to the bare
-# Distributions default. More specific than the concrete subtypes' own `show`
-# and than `Distributions`' `show(::IO, ::Distribution)`, so no ambiguity.
+# with their own `show` (`Modified`, `Shared`) override it; the transform leaves
+# (`Affine`, `TimeChange`, `Transformed`, `Weighted`) use this and so no longer
+# fall back to the bare Distributions default. More specific than the concrete
+# subtypes' own `show` and than `Distributions`' `show(::IO, ::Distribution)`,
+# so no ambiguity.
 function Base.show(io::IO, d::AbstractModifiedDistribution)
     print(io, nameof(typeof(d)), "(", _modified_inner(d), ")")
 end
+
+"""
+    AbstractPrimaryCensored
+
+Supertype of the primary-censored family the package dispatches on:
+`PrimaryCensored` (the primary-event-censored delay) and the latent
+`PrimaryConditional` (the secondary conditioned on a realised primary). Core CD,
+distinct from interval censoring, and it stays in the package. Univariate and
+continuous, so non-parametric (mirroring `AbstractOneOf`).
+
+Required of a concrete subtype:
+
+- `get_dist(d)` — the underlying delay distribution;
+- `params(d)`;
+- `logpdf(d, x)` finite on its support;
+- `Base.show(io, d)`.
+
+Verify a subtype with
+`CensoredDistributions.TestUtils.test_primary_censored_interface`.
+
+`double_interval_censored` is a constructor function, not a type: it returns a
+pipeline (`interval_censored(truncated(primary_censored(...)))`) whose object
+type is the outer wrapper, so there is no `DoubleIntervalCensored` type to place
+under this supertype.
+"""
+abstract type AbstractPrimaryCensored <: UnivariateDistribution{Continuous} end
