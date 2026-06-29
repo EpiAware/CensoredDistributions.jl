@@ -129,8 +129,10 @@ forward on the matrix exponential). The
 [Recurrent multi-state transitions](@ref recurrent-multistate) tutorial works a
 reinfection cycle end to end.
 
-The self-contained design `prototypes/recurrent_states_545.jl` is kept as the
-original proof of concept.
+The shipped implementation above supersedes the original design proof of
+concept, so the standalone prototype script has been retired; the
+renewal-over-states approach it sketched now lives in `src/composers/recurrent/`
+with tests, AD fixtures, and the tutorial linked above.
 
 ## Deferred production scope
 

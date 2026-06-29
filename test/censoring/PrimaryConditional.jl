@@ -88,6 +88,25 @@ end
     @test logpdf(pcc, 11.0) == -Inf   # above the truncation upper bound
 end
 
+@testitem "PrimaryConditional cdf: bare form only, pipeline scores via logpdf" begin
+    using Distributions
+
+    # The bare primary-censored conditional carries a real CDF (the shifted
+    # delay). The interval/truncation pipeline form has no closed-form CDF and is
+    # scored through `logpdf`, so `cdf` raises an explanatory error rather than a
+    # bare `MethodError` (keeps the dispatch total; see #739 JET linting).
+    delay = LogNormal(1.5, 0.75)
+    pe = Uniform(0, 1)
+    p = 0.4
+
+    bare = PrimaryConditional(primary_censored(delay, pe), p)
+    @test cdf(bare, 2.7) ≈ cdf(delay, 2.7 - p)
+
+    pipeline = PrimaryConditional(
+        double_interval_censored(delay; primary_event = pe, interval = 1.0), p)
+    @test_throws ArgumentError cdf(pipeline, 2.0)
+end
+
 @testitem "PrimaryConditional pipeline joint integrates to the marginal" begin
     using Distributions
     using CensoredDistributions: PrimaryConditional

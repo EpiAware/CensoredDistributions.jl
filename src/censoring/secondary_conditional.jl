@@ -69,6 +69,17 @@ function logpdf(d::_SecondaryConditional, y::Real)
 end
 pdf(d::_SecondaryConditional, y::Real) = exp(logpdf(d, y))
 
+# An interval-censored / truncated pipeline secondary has no closed-form CDF; it
+# is scored through `logpdf` (and `pdf`). Defining `cdf` here keeps the
+# `cdf(::PrimaryConditional)` dispatch total -- the bare `_ShiftedDelayCore` form
+# carries a real CDF, this pipeline form raises an explanatory error instead of a
+# bare `MethodError`. `logcdf` falls through to the `log(cdf(...))` generic.
+function cdf(d::_SecondaryConditional, ::Real)
+    throw(ArgumentError(
+        "cdf is undefined for an interval-censored / truncated " *
+        "primary-conditional pipeline; score it with `logpdf` instead"))
+end
+
 # Interval-censored secondary: the mass of the total `p + delay` over the
 # interval `[lo, hi)` containing `y`, clamped to the truncation bounds and
 # normalised by Z.

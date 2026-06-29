@@ -15,7 +15,7 @@ The copy here is taken from
 released under the MIT licence (Copyright (c) 2022 epidist authors; see
 `LICENSE`).
 It is redistributed here under that licence for the case-study page
-[Stratified Ebola delays](../ebola-stratified-delays.md).
+[Stratified Ebola delays](../../ebola-stratified-delays.md).
 No values have been modified in this copy.
 
 Columns: case id, age, sex (`Female`/`Male`/`NA`), symptom onset date,

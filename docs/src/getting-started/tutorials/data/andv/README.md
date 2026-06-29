@@ -14,7 +14,7 @@ The copy here is taken from the re-analysis at
 which is released under the MIT licence (Copyright (c) 2026 Sebastian Funk
 and contributors; see `LICENSE`).
 It is redistributed here under that licence for the case-study page
-[Real-time Andes virus delays](../andv-linelist-analysis.md).
+[Real-time Andes virus delays](../../andv-linelist-analysis.md).
 No values have been modified in this copy.
 
 Columns: patient ID, age, sex, residence, exposure place, exposure window
