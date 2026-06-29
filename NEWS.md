@@ -83,15 +83,24 @@
   prior NamedTuples, each sampled under a `:stratumK` prefix), which lets the user
   encode no-pooling, full-pooling, or partial pooling (per-stratum parameters
   drawn off a shared hyperprior) freely.
-- `linear_chain_stages`: lower an Exponential or Erlang (integer-shape Gamma)
-  delay, or a `Sequential` chain of such leaves, to its linear-chain-trick
-  `(rate, stages)` compartment structure (a `ChainStage` per step). This is the
-  distributions -> compartments bridge an ODE/compartment model consumes:
-  an Erlang(k, θ) delay is k Exponential sub-compartments leaving at rate 1/θ.
-  Censoring wrappers are peeled to the free delay; non-Exp/Erlang families throw,
-  since no exact finite linear chain represents them. A new tutorial composes
-  the resulting delay compartments with an SIR-type ModelingToolkit system.
-  Addresses #400.
+- `compartment_stages` (renamed from `linear_chain_stages`): lower an Exponential
+  or Erlang (integer-shape Gamma) delay, or a `Sequential` chain of such leaves,
+  to its linear-chain-trick `(rate, stages)` compartment structure (a
+  `ChainStage` per step). This is the distributions -> compartments bridge an
+  ODE/compartment model consumes: an Erlang(k, θ) delay is k Exponential
+  sub-compartments leaving at rate 1/θ. Censoring wrappers are peeled to the free
+  delay. The representation-agnostic name leaves room for non-linear-chain ODE
+  lowerings (e.g. a future phase-type / Coxian fit) to extend the same entry
+  point. Pass `moment_match = true` to lower an under-dispersed non-Erlang delay
+  (LogNormal, non-integer-shape Gamma, ...) to its nearest Erlang chain by
+  matching its mean and squared coefficient of variation, instead of throwing;
+  over-dispersed delays (scv > 1) still throw, since no Erlang chain matches both
+  moments. The Catalyst bridge `linear_chain_reactions` threads the same
+  `moment_match` keyword and now also returns the entry reaction (`from -> first
+  sub-compartment`) split from `internal` (the interior hops + exit), so a model
+  builder can swap the entry for a force of infection without slicing
+  `reactions[2:end]`. A tutorial builds an SEIR and an SIR from the same two
+  composed delays through one bridge. Addresses #400 and #644.
 - Labelled `NamedTuple` outputs for multivariate composed distributions. Any
   multivariate composed output is now self-labelling: `rand(d)` for a flat
   censored `Sequential`/`Parallel` returns a `NamedTuple` keyed by

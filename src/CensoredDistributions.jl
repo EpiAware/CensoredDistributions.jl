@@ -190,7 +190,7 @@ export recur, ctmc, RecurrentStates, CTMCStates, StatePath,
 # Exported linear chain trick lowering: read the (rate, stages) Erlang-stage
 # compartment structure off an Exponential/Erlang delay or Sequential chain, the
 # distributions -> compartments bridge an ODE/compartment model consumes.
-export linear_chain_stages
+export compartment_stages
 
 # Exported Catalyst reaction-network bridge: slot a composed delay onto a
 # transition of a Catalyst reaction network (`linear_chain_reactions`). No

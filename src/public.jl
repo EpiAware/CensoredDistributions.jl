@@ -15,7 +15,7 @@ public Convolved
 public TimeChange, timechange
 
 # Linear chain trick per-step record (public but not exported): the (rate,
-# stages) Erlang-stage struct `linear_chain_stages` returns.
+# stages) Erlang-stage struct `compartment_stages` returns.
 public ChainStage
 
 # Build-once delay PMF for vector evaluation (public but not exported): the

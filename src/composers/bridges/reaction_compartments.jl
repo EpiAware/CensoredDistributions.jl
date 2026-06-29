@@ -3,7 +3,7 @@
 # ============================================================================
 #
 # The linear chain trick lowers an Exp/Erlang composed delay to its
-# `(rate, stages)` compartment structure with `linear_chain_stages` (Catalyst-
+# `(rate, stages)` compartment structure with `compartment_stages` (Catalyst-
 # free, in core). Turning those stages into an actual ODE/compartment model
 # needs a reaction-network framework. We use Catalyst.jl, kept optional behind
 # a package extension so the core stays free of the heavy SciML stack.
@@ -19,7 +19,7 @@
 Build the Catalyst reactions for a composed delay between two compartments.
 
 `linear_chain_reactions(delay, from, to)` lowers a composed Exp/Erlang `delay`
-to its [`linear_chain_stages`](@ref) Erlang sub-compartments and builds the
+to its [`compartment_stages`](@ref) Erlang sub-compartments and builds the
 [Catalyst](https://docs.sciml.ai/Catalyst/stable/) `Reaction`s that thread an
 individual from the `from` species, through one sub-compartment per Erlang
 stage, to the `to` species. This is the modular primitive: it *slots a composed
@@ -49,13 +49,18 @@ stays an intentional optional weak-dependency extension for that reason.
   (defaults to `:stage`), e.g. `:E` gives `E1_1, E1_2, ...`.
 - `moment_match`: lower a non-Erlang delay to the nearest Erlang chain by
   matching its first two moments, instead of throwing (see
-  [`linear_chain_stages`](@ref)). Defaults to `false`.
+  [`compartment_stages`](@ref)). Defaults to `false`.
 
 # Returns
-A `NamedTuple` `(species, reactions)`: the generated sub-compartment `species`
-(in chain order) and the Catalyst `reactions` threading `from` through them to
-`to`. Pass the reactions to a `ReactionSystem`, alongside `from`/`to` and the
-returned `species`.
+A `NamedTuple` `(species, reactions, entry, internal)`: the generated
+sub-compartment `species` (in chain order); the full Catalyst `reactions`
+threading `from` through them to `to`; the `entry` reaction (`from` into the
+first sub-compartment) on its own; and `internal`, the interior hops plus the
+exit into `to` (every reaction but `entry`). Pass `reactions` to a
+`ReactionSystem` to slot the delay onto a plain `from -> to` edge. When wiring
+the chain into a larger model, drop `entry` and supply your own (e.g. a force of
+infection into `species[1]`), then reuse `internal` unchanged. This split
+removes the `reactions[2:end]` boilerplate when assembling an SEIR or SIR.
 
 # Examples
 ```@example
@@ -69,7 +74,7 @@ length(chain.species)
 ```
 
 # See also
-- [`linear_chain_stages`](@ref): the Catalyst-free `(rate, stages)` lowering
+- [`compartment_stages`](@ref): the Catalyst-free `(rate, stages)` lowering
 "
 function linear_chain_reactions end
 
