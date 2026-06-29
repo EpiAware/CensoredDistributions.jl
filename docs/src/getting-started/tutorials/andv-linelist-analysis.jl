@@ -706,8 +706,7 @@ rt_compare = DataFrame(
 # every source; a real-time read would instead thin each source by its own
 # `R(t)` interpolated at its onset day. This is the completeness coupling the
 # joint upstream fit applies to every offspring term, read here off the fitted
-# delays with the package's
-# [`completeness_probability`](@ref) (the fraction `p`) and the log-space
+# delays with `cdf` (the fraction `p`) and the log-space
 # [`log_thin_by_completeness`](@ref) (the thinned `log R_eff = log R + log p`,
 # exponentiated to `R_eff`). The log-space thinning is the same operation the
 # joint offspring likelihood applies, and it stays finite for a recently seen
@@ -718,7 +717,7 @@ completion_chain = convolved(delta_post, inc_post)
 R_week1 = rt_summary.R_mean[1]
 realtime = map(eachindex(Z)) do i
     window = horizon - source_onset_day[i]
-    p = completeness_probability(completion_chain, window)
+    p = cdf(completion_chain, window)
     log_R_eff = log_thin_by_completeness(log(R_week1), completion_chain, window)
     (source_onset_day = Int(source_onset_day[i]),
         completeness = round(p; digits = 3),

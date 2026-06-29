@@ -186,7 +186,7 @@ end
 md"""
 ### One reusable forward map
 
-The forward map from parameters to expected event streams is defined ONCE and
+The forward map from parameters to expected event streams is defined once and
 reused everywhere: the simulator, the Turing `@model`, and the
 posterior-predictive check all call the same function rather than
 re-implementing the renewal-and-convolve pipeline per step.
@@ -199,7 +199,7 @@ returning a `NamedTuple` of both streams discretised, convolved and thinned in
 one pass.
 Calling the convolution once per stream would rebuild the shared incubation
 twice and lose the shared-origin structure, so we do it once.
-It returns the FULL streams over every day; which days are scored is the
+It returns the full streams over every day; which days are scored is the
 likelihood's choice (see the observed-only window below), not the forward map's.
 """
 
@@ -302,7 +302,7 @@ md"""
 ## The Turing fit
 
 The model puts priors on the reproduction number, the ascertainment and the
-IFR, then runs the SAME `forward_map` as the demo with the sampled scales,
+IFR, then runs the same `forward_map` as the demo with the sampled scales,
 recomputing both expected streams with the single
 [`convolved`](@ref) call inside the map.
 The sampled `alpha` and `rho` are AD duals; [`thin`](@ref) carries them as
@@ -313,7 +313,7 @@ read as globals inside the `@model` and the predictive map, to keep the renewal
 and observation code shared across the forward demo and the fit.
 
 The forward map returns the full streams over every day, but the likelihood
-scores only the OBSERVED days: the first `length(g)` days are the seeded burn-in
+scores only the observed days: the first `length(g)` days are the seeded burn-in
 the renewal needs as history and carry no information about Rt, so we drop them
 from the likelihood while the map still returns them for prediction.
 The `observed` index set is the model's choice; passing the full range scores
@@ -418,7 +418,7 @@ md"""
 
 Recovering the parameters is one check; a stronger one is whether the fitted
 model reproduces the data it was fit to.
-We push the posterior back through the SAME `forward_map` used in the demo and
+We push the posterior back through the same `forward_map` used in the demo and
 the `@model`: for each draw we expand the block-level Rt to a per-day path and
 call the one forward map with that draw's ascertainment and IFR, with no new
 machinery and no re-implementation of the renewal-and-convolve pipeline.

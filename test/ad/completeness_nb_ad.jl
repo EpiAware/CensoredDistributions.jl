@@ -3,13 +3,13 @@
 # The andv joint model scores each source's offspring count with a
 # negative binomial whose mean is a reproduction number thinned by the
 # completeness of the convolved reporting delay (`delta + inc`). Scoring the
-# thinned rate in LINEAR space, `R_eff = R * cdf(conv, window)`, drives the mean
+# thinned rate in linear space, `R_eff = R * cdf(conv, window)`, drives the mean
 # to exactly zero when the completeness underflows (a recent source against a
 # long incubation), collapsing the NB success probability `k / (k + R_eff)` to
 # `1`: a degenerate point mass whose logpdf is `-Inf` and whose reverse-mode
 # gradient is `NaN` for any positive count.
 #
-# The fix is to thin in LOG space with `log_thin_by_completeness` and build the
+# The fix is to thin in log space with `log_thin_by_completeness` and build the
 # NB success probability as `inv(1 + exp(log_mu - log_k))`, which stays strictly
 # inside `(0, 1)` for any finite log mean and log dispersion. These items pin
 # that the log-space term differentiates finitely on every backend at a window
@@ -40,13 +40,13 @@
 
     # Linear-space comparison: thin then build the NB directly. At this window
     # the completeness underflows, so this density is `-Inf` and ForwardDiff
-    # returns a non-finite gradient — the failure the log-space form removes.
+    # returns a non-finite gradient, the failure the log-space form removes.
     function linear_nb_logpdf(θ)
         mu_inc, log_sig_inc, mu_delta, log_sig_delta, log_k, log_R = θ
         inc = LogNormal(mu_inc, exp(log_sig_inc))
         delta = Normal(mu_delta, exp(log_sig_delta))
         conv = convolved(delta, inc)
-        R_eff = thin_by_completeness(exp(log_R), conv, recent_window)
+        R_eff = exp(log_R) * cdf(conv, recent_window)
         k = exp(log_k)
         return logpdf(NegativeBinomial(k, k / (k + R_eff)), offspring_count)
     end
@@ -72,7 +72,7 @@ end
     # Document the failure the log-space form fixes: the linear thinning drives
     # the rate to (numerically) zero, so the negative-binomial success
     # probability saturates to 1, a degenerate point mass whose density at a
-    # positive count is -Inf. The log-space form at the SAME point is finite.
+    # positive count is -Inf. The log-space form at the same point is finite.
     @test linear_nb_logpdf(θ0) == -Inf
     @test isfinite(stable_nb_logpdf(θ0))
 end

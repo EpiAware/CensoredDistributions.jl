@@ -588,7 +588,7 @@ end
 @testitem "andv sourced: latent == marginal == bare convolution (target)" begin
     using CensoredDistributions, Distributions
     using CensoredDistributions: latent, Sequential, convolved,
-                                 composed_distribution_model, completeness_probability,
+                                 composed_distribution_model,
                                  _flat_event_names
     using DynamicPPL: VarInfo, logjoint
 
@@ -624,14 +624,6 @@ end
         # exact density the target model scores (`logpdf(inc, T_onset - T_inf)` +
         # `logpdf(delta, T_inf - T_onset_src)` with both internal times sampled).
         @test isapprox(latent_int(onset), logpdf(conv, onset); atol = 1e-2)
-    end
-
-    # Sourced right-truncation: the denominator is the BARE convolution cdf at the
-    # source-relative window (the target's `cdf(ConvolvedDelays(inc, δ), w)`), NOT
-    # the censored-convolution cdf. `completeness_probability` on the bare chain is
-    # exactly that cdf.
-    for w in (20.0, 35.0, 60.0)
-        @test isapprox(completeness_probability(conv, w), cdf(conv, w); atol = 1e-10)
     end
 end
 

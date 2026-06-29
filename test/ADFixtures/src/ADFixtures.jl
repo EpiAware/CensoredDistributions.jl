@@ -1019,27 +1019,21 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
             [3.0, 1.5, 2.0, 0.5], (Constant(obs),))
     end
 
-    # Completeness thinning helpers. `thin_by_completeness(R, delay,
-    # window) = R * cdf(delay, window)`, so the gradient flows through `R` and
-    # the delay-distribution parameters via the CDF. The Convolved-chain form
-    # routes the CDF through the AD-safe numeric convolution quadrature.
-    # Guarded for the AirspeedVelocity baseline build, as above.
-    if isdefined(CensoredDistributions, :thin_by_completeness)
-        _push!("thin_by_completeness LogNormal delay",
+    # Completeness thinning is `R * cdf(delay, window)`, so the gradient flows
+    # through `R` and the delay-distribution parameters via the cdf. The
+    # Convolved-chain form routes the cdf through the AD-safe numeric
+    # convolution quadrature. The chain fixture is guarded for the
+    # AirspeedVelocity baseline.
+    _push!("R * cdf(LogNormal) completeness thinning",
+        (θ, _obs) -> θ[1] * cdf(LogNormal(θ[2], θ[3]), 7.0),
+        [1.5, 1.5, 0.5], (Constant(obs),))
+    if isdefined(CensoredDistributions, :convolved)
+        _push!("R * cdf(Convolved chain) completeness thinning",
             (θ,
-                _obs) -> CensoredDistributions.thin_by_completeness(
-                θ[1], LogNormal(θ[2], θ[3]), 7.0),
-            [1.5, 1.5, 0.5], (Constant(obs),))
-        if isdefined(CensoredDistributions, :convolved)
-            _push!("thin_by_completeness Convolved chain",
-                (θ,
-                    _obs) -> CensoredDistributions.thin_by_completeness(
-                    θ[1],
-                    CensoredDistributions.convolved(
-                        Gamma(θ[2], θ[3]), LogNormal(0.5, 0.4)),
-                    14.0),
-                [1.5, 2.0, 1.0], (Constant(obs),))
-        end
+                _obs) -> θ[1] * cdf(
+                CensoredDistributions.convolved(
+                    Gamma(θ[2], θ[3]), LogNormal(0.5, 0.4)), 14.0),
+            [1.5, 2.0, 1.0], (Constant(obs),))
     end
 
     # Right-truncation. The index single-delay term right-truncates a

@@ -103,17 +103,17 @@ export Sequential, Parallel, Resolve, Compete, NoEvent,
        compose, as_mixture, occurrence_probability
 
 # Exported composed-distribution introspection: the flat prior table and
-# name introspection. `event_names` is the FLAT per-event name tuple (the data-
-# row key space); `event_tree` is the NESTED tree of event names; `event` fetches
+# name introspection. `event_names` is the flat per-event name tuple (the data-
+# row key space); `event_tree` is the nested tree of event names; `event` fetches
 # a child or descends a path. Nested name-keyed values come from the extended
 # `Distributions.params`.
 export params_table, event_names, event_tree, event, update, build_priors,
        param_priors, default_prior, inspect
 
-# The PPL-neutral log-density layer (#734) — the flat-vector <-> nested-
+# The PPL-neutral log-density layer — the flat-vector <-> nested-
 # NamedTuple codec (`flatten` / `unflatten` / `flat_dimension`, ordered by
 # `params_table`), the `as_logdensity` assembler and the `ComposedLogDensity`
-# spec — is PUBLIC but NOT exported: the generic `flatten` / `unflatten` names
+# spec — is public but not exported: the generic `flatten` / `unflatten` names
 # would otherwise occupy the top-level namespace and clash with the
 # `Iterators.flatten` mental model, so it is reached by the qualified name
 # (`CensoredDistributions.flatten`). The `public` declarations live in
@@ -123,9 +123,9 @@ export params_table, event_names, event_tree, event, update, build_priors,
 
 # Exported structural edits on a composed tree. `update` (the `path => new_node`
 # method, sharing the verb with the value-update NamedTuple method) replaces a
-# named node, KEEPING the tree shape. `prune` drops a branch (renormalising a
+# named node, keeping the tree shape. `prune` drops a branch (renormalising a
 # Resolve arm) and `splice` inserts a before/after step; these two are the
-# TOPOLOGY edits (they change the shape).
+# topology edits (they change the shape).
 export prune, splice
 
 # Exported chain reader: read a fitted Turing chain into the
@@ -133,7 +133,7 @@ export prune, splice
 # loaded; the method lives in the package extension.
 export chain_to_params
 
-# Exported vectorised chain reader: read EVERY draw of a fitted chain into a
+# Exported vectorised chain reader: read every draw of a fitted chain into a
 # vector of parameter NamedTuples (one per draw), replacing per-draw
 # `chain_to_params(...; draw = i)` loops. No method until both DynamicPPL and
 # FlexiChains are loaded; the method lives in the package extension.
@@ -159,13 +159,6 @@ export observed_distribution
 
 # Exported utilities
 export weight, get_dist, get_dist_recursive, get_primary_event
-
-# Exported thinning helpers: completeness / ascertainment thinning,
-# Turing-free and distributions-led. The log-space companions
-# `log_completeness_probability` / `log_thin_by_completeness` are `public` (not
-# exported) so they stay reachable by their qualified name without expanding the
-# top-level namespace; see `src/public.jl`.
-export completeness_probability, thin_by_completeness
 
 # Exported discrete-time reporting-hazard helpers: the epinowcast hazard layer
 # that reshapes a delay PMF by logit-scale reference + report effects and forms
@@ -221,177 +214,108 @@ include("censoring/IntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")
-# Moment-parameterisation wrapper: a plain delay leaf (no censoring wrapper), so
-# it has no `free_leaf`/`rewrap_leaf` to extend. Its `_param_names`/`_leaf_ctor`
-# reconstruction hooks live in `composers/introspection.jl`.
+# Moment-parameterisation leaf; reconstruction hooks in introspection.jl.
 include("distributions/MomentParams.jl")
 include("distributions/Convolved.jl")
-# Difference (Z = X - Y), the dual of Convolved. After Convolved.jl since it
-# reuses `_window_quantile` / `_CONVOLVED_TAIL` for the quadrature window clamp.
+# Difference (Z = X - Y); reuses Convolved's quadrature-window helpers.
 include("distributions/Difference.jl")
 
-# Right-truncation helpers: depend on Convolved / convolved.
+# Right-truncation helpers; depend on Convolved.
 include("censoring/truncation.jl")
 
 include("composers/Sequential.jl")
 include("composers/Parallel.jl")
 include("composers/Resolve.jl")
-# Racing-hazard one_of node (the `min`-of-delays dual of convolve). Split out
-# of Resolve.jl; after it since it builds on `AbstractOneOf`/`Resolve`
-# helpers (`_n_branches`, `_is_no_event`, `_is_nonterminal`).
+# Racing-hazard one_of node; builds on Resolve helpers.
 include("composers/hazard_one_of.jl")
 include("composers/Choose.jl")
 include("composers/nesting.jl")
 include("composers/equality.jl")
 include("composers/compose.jl")
 include("composers/introspection.jl")
-# Flat-vector <-> nested-NamedTuple codec and the PPL-neutral
-# `ComposedLogDensity` spec (the LogDensityProblems layer's core piece). After
-# introspection so it reuses `params_table`, `_edge_path`, `_nest_insert!`,
-# `_freeze_tree` and the `update` value method. The library-specific glue
-# (LogDensityProblems / DensityInterface / Bijectors) lives in weakdep exts.
+# Flat-vector <-> nested-NamedTuple codec and the ComposedLogDensity spec.
 include("composers/logdensity.jl")
-# Linear chain trick: lower an Exp/Erlang composed delay to its (rate, stages)
-# compartment structure. After introspection so it reuses `free_leaf` to peel
-# censoring; depends on `Sequential`.
+# Linear chain trick: lower an Exp/Erlang delay to its (rate, stages) structure.
 include("composers/bridges/linear_chain.jl")
-# Catalyst reaction-network bridge stubs (methods in the Catalyst extension).
-# After linear_chain.jl since the extension methods reuse `linear_chain_stages`.
+# Catalyst reaction-network bridge stubs (methods in the Catalyst ext).
 include("composers/bridges/reaction_compartments.jl")
-# Affine transform leaf: after introspection so it can extend
-# `free_leaf`/`rewrap_leaf` for transparent inner-delay introspection.
+# Affine transform leaf.
 include("distributions/Affine.jl")
-# Monotone operational-time warp leaf (the continuous generalisation of
-# `affine`). After Affine so they sit together; same leaf introspection hooks.
+# Monotone operational-time warp leaf.
 include("distributions/TimeChange.jl")
-# Structural edits on a composed tree (`update` node replace / `prune` /
-# `splice`): after introspection so it reuses `_rebuild`, `component_names`,
-# `_split_edge` and the `update` value method.
+# Structural edits on a composed tree (update / prune / splice).
 include("composers/intervene.jl")
-# Shared (name-tagged tied leaf): after introspection so it can extend
-# `free_leaf`/`rewrap_leaf`, and before tree_events/wrap which traverse leaves.
+# Shared (name-tagged tied leaf).
 include("composers/Shared.jl")
 include("composers/tree_events.jl")
-# Per-record `:field` modifier carrier type + resolver helpers: before wrap.jl,
-# which builds the carrier from `:field` modifier keywords.
+# Per-record `:field` modifier carrier type + resolver helpers.
 include("composers/per_record_fields.jl")
 include("composers/wrap.jl")
 
 include("utils/Weighted.jl")
 
-# Per-edge delay moments: after Weighted (adds a `free_leaf(::Weighted)` method)
-# and the composers (Sequential/Parallel/Resolve/Choose/Latent it walks).
+# Per-edge delay moments.
 include("composers/composed_moments.jl")
 
 include("utils/get_dist.jl")
 include("utils/quantile_optimization.jl")
 include("utils/thinning.jl")
 
-# Forward-transform leaves (thin / cumulative): after get_dist (extends it) and
-# introspection (extends free_leaf/rewrap_leaf), before the convolve layer that
-# applies them.
+# Forward-transform leaves (thin / cumulative).
 include("utils/forward_transform.jl")
 
-# Renewal layer: convolve a timeseries through a composed delay stack. After the
-# composers/wrap (uses `observed_distribution`, `_observed_leaves`) and
-# tree_events (`_flat_event_names`).
+# Renewal layer: convolve a timeseries through a composed delay stack.
 include("utils/convolve_with_vector.jl")
 
-# Renewal recurrence: the renewal step `I[t] = R_t m(t) Σ_s g_s I[t-s]` as a
-# composable forward scan, reusing the causal-convolution arithmetic one output
-# step at a time (the output feeds back as input). After convolve_with_vector,
-# whose `DelayPMF` generation interval it consumes.
+# Renewal recurrence: the renewal step as a composable forward scan.
 include("utils/renewal.jl")
 
-# Discrete-time reporting-hazard layer (epinowcast): reshape a delay PMF by
-# logit-scale reference + report effects and form the per-(reference, report)
-# expected-count matrix. After convolve_with_vector, whose `_delay_pmf` it
-# reuses as the baseline PMF.
+# Discrete-time reporting-hazard layer (epinowcast).
 include("utils/reporting_hazard.jl")
 
-# Hazard-modified distribution leaf (`modify`/`Modified`): after
-# reporting_hazard (reuses `_logit`/`_logistic`, `delay_hazard`,
-# `hazard_to_pmf`, `_apply_hazard_link`), introspection (extends
-# `free_leaf`/`rewrap_leaf`), get_dist (extends it), the integration solver and
-# `_quantile_optimization`. The discrete path dispatches on `IntervalCensored`.
+# Hazard-modified distribution leaf (modify / Modified).
 include("distributions/Modified.jl")
 
-# Censored specialisations of the generic composers: included last
-# as they depend on the composers, the censored types, `get_dist_recursive`
-# (utils/get_dist.jl) and the integration helpers. Split across cohesive files;
-# the shared recovery helpers and the `_Nested`/`_Flat` traits live in
-# `censored_specialisations.jl` and so it is included FIRST, then the scoring
-# and simulation files that use them (their order between each other is free,
-# they only define methods over the already-defined helpers).
+# Censored specialisations of the generic composers; included last. The shared
+# helpers live in censored_specialisations.jl, so it is included first.
 include("composers/censored_specialisations.jl")
-# The interval/truncation-aware secondary conditional of `PrimaryConditional`
-# needs the pipeline node types and `_origin_primary_event` from above.
+# Interval/truncation-aware secondary conditional of PrimaryConditional.
 include("censoring/secondary_conditional.jl")
 include("composers/censored_scoring_tree.jl")
 include("composers/censored_one_of.jl")
 include("composers/censored_scoring_flat.jl")
 include("composers/censored_rand.jl")
 
-# Labelled NamedTuple OUTPUTS for multivariate composed distributions: an
-# output/interface layer over the vector-valued scored representation. After the
-# censored specialisations (`_composer_rand`, `_tree_primary_event`) and
-# tree_events (`_row_event_vector`) it wraps, and the composers it names.
+# Labelled NamedTuple outputs for multivariate composed distributions.
 include("composers/named_outputs.jl")
 
-# Per-record composed distributions for vectorised scoring + sampling: depends on
-# the censored specialisations (`event_logpdf`, `_sequential_segment`,
-# `_composer_rand`) and the row-parsing helpers in `tree_events.jl`.
+# Per-record composed distributions for vectorised scoring + sampling.
 include("composers/record_dists.jl")
-# Vectorised LATENT scoring pair (stacked primary priors + vectorised observed
-# conditional). Split out of record_dists.jl; after it since it reuses the row
-# helpers (`_row_namedtuple`, `_row_event_vector`, `_weight_lp`) and the
-# `_alternative_record` Choose build, and defines the shared `_narrow` helper.
+# Vectorised latent scoring pair (stacked primary priors + conditional).
 include("composers/record_latent.jl")
-# The marginal -> latent WRAPPER over a composed tree: `latent(tree)` lowers a
-# composer to the per-segment latent `Choose`, and `latent_records` derives the
-# per-segment rows the vectorised path scores. After record_latent.jl (it builds
-# the `Choose` the vectorised path consumes) and the composer files (it reads the
-# tree structure and event names).
+# The marginal -> latent wrapper over a composed tree (latent(tree)).
 include("composers/latent_tree.jl")
-# Grouped per-stratum assembly (`record_distributions(ds, rows; group)` and
-# `batched_event_logpdf`). Split out of record_dists.jl; after record_latent.jl
-# since it reuses `_narrow`, and after record_dists.jl's single-`d`
-# `record_distributions` which it dispatches each stratum through.
+# Grouped per-stratum assembly (record_distributions(...; group)).
 include("composers/record_grouped.jl")
-# Per-record `:field` modifier resolution + scoring: after record_grouped.jl
-# (reuses `batched_event_logpdf` / `_batched_records_logpdf` and the table
-# front-door) and the per-record `record_distributions` it resolves each row
-# through.
+# Per-record `:field` modifier resolution + scoring.
 include("composers/per_record_fields_scoring.jl")
-# Batched record-aware `rand`: the forward-simulation dual to the scoring path.
-# After record_dists.jl (the per-record `record_distributions` it draws from) and
-# named_outputs.jl (the `_as_named` / `_output_names` labelling it reuses).
+# Batched record-aware `rand`: the forward-simulation dual to scoring.
 include("composers/record_rand.jl")
 
-# Hazard accessors from a composed tree (north-star tenet 5): `hazard`,
-# `loghazard`, `cumhazard` and `survival` read the hazard surface of any composed
-# delay through the verbs. After the composer files and the censored
-# specialisations (`_marginal_core`) the `Sequential` marginal needs, and after
-# `Convolved` / `Modified`. The SurvivalDistributions extension aligns these with
-# `SurvivalDistributions.hazard` / `cumhazard` / `loghazard`.
+# Hazard accessors from a composed tree (hazard / loghazard / cumhazard /
+# survival). The SurvivalDistributions extension aligns these with its verbs.
 include("utils/hazards.jl")
 
-# Recurrent / cyclic multi-state: the renewal-over-states (semi-Markov) default
-# and the memoryless CTMC fast path. After the one_of composers (`Compete` /
-# `Resolve` / `AbstractOneOf`) whose per-edge scoring it reuses, and after the
-# hazard accessors. The path I/O (simulate / score) follows the type; the CTMC
-# fast path and the Turing glue stub follow it.
+# Recurrent / cyclic multi-state: semi-Markov default and CTMC fast path.
 include("composers/recurrent/RecurrentStates.jl")
 include("composers/recurrent/path_io.jl")
 include("composers/recurrent/CTMCStates.jl")
 include("composers/recurrent/turing.jl")
 
-# Turing-free `primary_censored_model` function stub. Has no methods
-# until DynamicPPL is loaded; the methods live in the package extension.
+# Turing-free `primary_censored_model` stub (methods in the extension).
 include("turing_models.jl")
 
-# Public interface-conformance harness (a public submodule). Included last so it
-# can reference the whole public surface; uses `Test` only inside its functions.
+# Public interface-conformance harness (a public submodule).
 include("TestUtils.jl")
 
 # Public API - functions that are part of public interface but not exported

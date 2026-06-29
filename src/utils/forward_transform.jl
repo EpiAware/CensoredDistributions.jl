@@ -2,35 +2,11 @@
 # Forward-transform leaves: a generic transform with thin / cumulative
 # ============================================================================
 #
-# A forward transform carries an OP that `convolved(stack, series)`
-# applies to the branch's output count series, materialising only when a stack is
-# convolved through a timeseries.
-#
-# `cumulative` and the generic `transform(d, f)` are DETERMINISTIC functions of
-# the series and stay TRANSPARENT to `logpdf` (an individual delay use ignores
-# the op): the forward dual of `Weighted` (which touches `logpdf` only).
-#
-# `thin` is the exception. `thin(d, p)` is the friendly constructor over the
-# probabilistic one-of `resolve(:event => (d, p), :none => (NoEvent(), 1 - p))`:
-# each event is reported with probability `p`, else nothing happens. So thinning
-# is NOT logpdf-transparent — it enters the per-record likelihood (the honest
-# generative model): `logpdf(thin(d, p), x) == log(p) + logpdf(d, x)` (the
-# defective density of an event observed at `x`), and `rand` returns a time with
-# probability `p`, else `missing`. Under `convolved(stack, series)`
-# this STILL reduces to the same `p`-scaling of the branch's count series (the
-# `(1 - p)` no-event mass leaves the observed stream), so the aggregate-count
-# convolution is unchanged: the convolution-marginal equivalence. `thin` carries
-# the `ThinOp(p)` forward op so the convolve layer scales the series by `p`
-# through the same path a `Resolve` branch probability uses.
-#
-# One node type, `Transformed`, carries an OP. `thin` and `cumulative` are
-# specialised constructors over it with TYPED ops (so the factor stays
-# introspectable and validated); the generic `transform(d, f)` accepts any
-# callable `series -> series` as an escape hatch.
-#
-# The boundary (per the in/out test for generic node ops): a forward transform
-# is a function of the series. A scale that is itself a sampled latent process
-# stays user/model-side.
+# A forward transform carries an op that `convolved(stack, series)` applies to
+# the branch's output count series. `cumulative` and the generic `transform`
+# are transparent to `logpdf`; `thin(d, p)` is not, carrying the probabilistic
+# one-of `resolve(:event => (d, p), :none => (NoEvent(), 1 - p))` semantics into
+# `logpdf` / `rand` (each event reported with probability `p`).
 
 # --- the ops --------------------------------------------------------------
 
@@ -63,7 +39,7 @@ with the generic [`transform`](@ref) or the specialised [`thin`](@ref) /
 The generic [`transform`](@ref) and [`cumulative`](@ref) ops are transparent to
 `logpdf` (an individual delay use ignores the op). [`thin`](@ref) is the
 exception: it carries the probabilistic one-of `resolve` + `NoEvent` semantics
-into `logpdf` / `rand` (each event reported with probability `p`), so it is NOT
+into `logpdf` / `rand` (each event reported with probability `p`), so it is not
 logpdf-transparent.
 
 # See also
@@ -119,9 +95,9 @@ composable op, not a convolve-only forward scaler:
   with probability `p` (its time then drawn from `d`), else `missing`:
   ``\text{logpdf} = \log p + \log f_d(x)`` (the defective density of an event
   observed at `x`, integrating to `p`), and `rand` returns a time with
-  probability `p`, else `missing`. So thinning ENTERS the per-record likelihood;
-  it is NOT logpdf-transparent.
-- Under [`convolved`](@ref)`(stack, series)` it STILL scales the
+  probability `p`, else `missing`. So thinning enters the per-record likelihood;
+  it is not logpdf-transparent.
+- Under [`convolved`](@ref)`(stack, series)` it still scales the
   branch's expected-count series by `p` (e.g. ascertainment of cases, the
   infection fatality ratio for deaths): the `(1 - p)` no-event mass leaves the
   observed stream. So the aggregate-count convolution is unchanged from the
@@ -203,15 +179,15 @@ Distributions.params(d::Transformed) = (params(d.dist)..., _op_params(d.op)...)
 
 # --- thin: the honest one-of (resolve + NoEvent) scalar semantics ------------
 #
-# `thin(d, p)` is NOT logpdf-transparent (unlike `cumulative` / the generic
+# `thin(d, p)` is not logpdf-transparent (unlike `cumulative` / the generic
 # `transform`): it carries the `resolve(:event => (d, p), :none => (NoEvent(),
 # 1 - p))` semantics into `logpdf` / `rand`. Dispatch is on the `ThinOp` op so
 # only `thin` overrides the transparent block above; `cumulative` and the generic
 # transform keep delegating to the inner delay.
 #
 # An event is reported with probability `p`, else nothing happens (`missing`), so
-# the scalar density is DEFECTIVE (it integrates to `p`, not 1): the joint density
-# of "an event occurred AND was at `x`" is `p · f_d(x)`. This is exactly the
+# the scalar density is defective (it integrates to `p`, not 1): the joint density
+# of "an event occurred and was at `x`" is `p · f_d(x)`. This is exactly the
 # `:event` branch of the resolve + NoEvent node (`_one_of_condition_logpdf`'s
 # `log p + logpdf(d, x)`); the `none` branch carries the residual `1 - p` survival
 # mass. The convolve layer's `ThinOp(p)` series-scaling is the aggregate-count
@@ -235,7 +211,7 @@ Distributions.logcdf(d::_Thinned, x::Real) = log(_thin_prob(d)) + logcdf(d.dist,
 Distributions.ccdf(d::_Thinned, x::Real) = one(_thin_prob(d)) - cdf(d, x)
 Distributions.logccdf(d::_Thinned, x::Real) = log(ccdf(d, x))
 
-# `quantile` / `mean` / `var` are the CONDITIONAL-on-report time moments (the
+# `quantile` / `mean` / `var` are the conditional-on-report time moments (the
 # `:event` branch's own delay `d`): the defective node has no proper marginal,
 # so these describe the reported-event time, matching `rand`'s non-`missing` draw.
 Distributions.quantile(d::_Thinned, q::Real) = quantile(d.dist, q)
@@ -260,7 +236,7 @@ rewrap_leaf(d::Transformed, inner) = Transformed(rewrap_leaf(d.dist, inner), d.o
 # --- thin weight as a surfaced free parameter --------------------------------
 #
 # Unlike the fixed censoring bounds, a `thin(d, p)` reporting probability `p` is
-# a FREE parameter (it enters the per-record likelihood as the defective density
+# a free parameter (it enters the per-record likelihood as the defective density
 # `log p + logpdf(d, x)`), so it must be inventoried by `params_table`,
 # defaulted by `build_priors`, and round-tripped by `update` /
 # `composed_parameters_model` like any leaf parameter. These helpers expose the

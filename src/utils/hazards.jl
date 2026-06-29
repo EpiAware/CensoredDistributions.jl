@@ -1,51 +1,24 @@
 # ============================================================================
-# Hazards from a composed tree (north-star tenet 5: the composed object is the
-# input to downstream layers)
+# Hazards from a composed tree
 # ============================================================================
 #
-# A delay's hazard surface is the natural input to a hazard-based downstream
-# layer (a competing-risks racing node, a discrete-time reporting hazard, a
-# proportional-hazards regression). This file exposes that surface as four
-# accessors that read the hazard, log-hazard, cumulative hazard and survival of
-# ANY composed delay through the verbs, with NO new state: each is a thin
-# function of the `pdf`/`ccdf`/`logpdf`/`logccdf` the composed object already
-# defines, so it flows through every leaf, every censoring wrapper, every
-# `Modified` hazard modification and every univariate composer (`Convolved`,
-# `Compete`, `Resolve`) the package builds.
+# Hazard, log-hazard, cumulative hazard and survival accessors for a composed
+# delay, as thin functions of its `pdf`/`ccdf`/`logpdf`/`logccdf`.
 #
 # Definitions (the standard survival-analysis identities, matching
-# `SurvivalDistributions.hazard` / `cumhazard` / `loghazard` exactly so the two
-# interoperate — see the SurvivalDistributions extension):
+# `SurvivalDistributions.hazard` / `cumhazard` / `loghazard`):
 #
 #   survival   S(t) = ccdf(d, t)
 #   cumhazard  H(t) = -log S(t) = -logccdf(d, t)
 #   hazard     h(t) = f(t) / S(t) = pdf(d, t) / ccdf(d, t)
 #   loghazard  log h(t) = logpdf(d, t) - logccdf(d, t)
 #
-# `loghazard`/`cumhazard` are computed in log space (not `log(hazard(...))`,
-# `-log(survival(...))`) so they stay finite and AD-stable into the tail where
-# `S(t) → 0`. The marginal-form `loghazard`/`cumhazard` of a `Modified` reuse
-# the log-space `logpdf`/`logccdf` the modify layer already builds, so a
-# modified hazard read back through `hazard` matches its construction
-# `g⁻¹(g(h) + effect)` to floating point (locked in the tests), keeping the
-# accessor and `modify` consistent.
-#
-# For a univariate composed delay (a leaf, a censored wrapper, a `Modified`, a
-# `Convolved` sum, an `AbstractOneOf` racing/resolve node) the four accessors
-# read its own hazard surface directly. For the MULTIVARIATE verb composers the
-# hazard is that of the marginal univariate time-to-event:
-#
-#   - `Sequential`: the total time E_k - E_0 is the SUM of the (continuous)
-#     step delays, whose marginal is the `Convolved` of the step cores, exactly
-#     the marginal a missing-intermediate run scores against
-#     (`_marginal_core` / `convolved`), so the tree's hazard is the
-#     hazard of that convolution and the marginal/latent forms agree.
-#   - `Parallel`: the branches share an origin but the joint has NO single
-#     canonical univariate time-to-event (the branches resolve at different,
-#     separately-observed times); a hazard needs the user to pick the marginal
-#     they mean (the min is a `Compete`, a specific branch is that branch). So
-#     `Parallel` does NOT get a tree hazard — calling one raises an error that
-#     names the well-defined choices, rather than silently picking one.
+# `loghazard`/`cumhazard` are computed in log space to stay finite and
+# AD-stable into the tail where `S(t) → 0`. For a univariate composed delay
+# the accessors read its own hazard surface; for the multivariate composers
+# they read the marginal univariate time-to-event (a `Sequential` chain's
+# total-time convolution; a `Parallel` has no single time-to-event, so it
+# errors).
 
 @doc raw"""
 
@@ -175,22 +148,22 @@ end
 # Marginal univariate time-to-event of a composed object
 # ---------------------------------------------------------------------------
 #
-# The accessors read the hazard surface of a UNIVARIATE delay. A univariate
+# The accessors read the hazard surface of a univariate delay. A univariate
 # composed object (a leaf, a censoring wrapper, a `Modified`, a `Convolved`, an
-# `AbstractOneOf`) IS its own marginal, so it flows straight through. The
+# `AbstractOneOf`) is its own marginal, so it flows straight through. The
 # multivariate verb composers reduce to their marginal time-to-event here so the
-# hazard of the TREE is the hazard of that marginal.
+# hazard of the tree is the hazard of that marginal.
 
 # A univariate delay is its own marginal time-to-event.
 _hazard_marginal(d::UnivariateDistribution) = d
 
 # A `Sequential` chain's total time E_k - E_0 is the sum of its step delays, so
-# the marginal is the `Convolved` of the step delays AS GIVEN. Each step's own
+# the marginal is the `Convolved` of the step delays as given. Each step's own
 # marginal is convolved (recursing `_hazard_marginal` so a nested composer step
-# contributes its marginal time-to-event), NOT its stripped `_marginal_core`:
+# contributes its marginal time-to-event), not its stripped `_marginal_core`:
 # that helper drops a `Modified` step's hazard modification (and any other
 # wrapper) down to the bare base, which is right for the latent-edge marginal
-# scorer but would SILENTLY ignore the modification in the chain's hazard.
+# scorer but would silently ignore the modification in the chain's hazard.
 # `convolved` consumes a `Modified` / censored step directly, so
 # the step law flows through intact. A single-step chain is just that step's
 # marginal.

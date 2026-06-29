@@ -3,29 +3,29 @@
 # ============================================================================
 #
 # `Resolve(:a => (d, p), :b => (d, p), ...)` composes any
-# `UnivariateDistribution`s into one_of outcomes: exactly ONE outcome occurs,
+# `UnivariateDistribution`s into one_of outcomes: exactly one outcome occurs,
 # governed by branch probabilities that sum to one. It lowers to a
 # `Distributions.MixtureModel` over the outcome delays weighted by those
 # probabilities, so the realisation is a single time (the marginal
 # time-to-resolution). Because it stays univariate it nests inside
 # [`Sequential`](@ref) / [`Parallel`](@ref) as an ordinary child. This layer adds
-# NO censored-internal behaviour: the generic composition only.
+# no censored-internal behaviour: the generic composition only.
 
 # ----------------------------------------------------------------------------
 # AbstractOneOf: the shared supertype for the one_of-outcome composers
 # ----------------------------------------------------------------------------
 #
 # Two one_of-outcome composers share one event-tree behaviour and so one
-# supertype: the fixed-probability MIXTURE [`Resolve`](@ref) (cause and timing
+# supertype: the fixed-probability mixture [`Resolve`](@ref) (cause and timing
 # independent) and the racing-hazard [`Compete`](@ref) (the branch
-# probability DERIVED from the hazards, timing coupled). The shared `compete(
-# ...)` constructor builds the right one: a `Compete` when NO branch
+# probability derived from the hazards, timing coupled). The shared `compete(
+# ...)` constructor builds the right one: a `Compete` when no branch
 # probabilities are given, a `Resolve` when they are. The tree walkers
 # (`tree_events.jl` name layout, `nesting.jl` `_event_child_nleaves`,
 # `censored_specialisations.jl` scoring / `rand`, the introspection) dispatch on
 # `AbstractOneOf` wherever the behaviour is shared (one event slot per
 # outcome, the shared origin, the per-outcome `rand`), and on the concrete type
-# only where the SCORING arithmetic differs (mixture weight vs hazard survival).
+# only where the scoring arithmetic differs (mixture weight vs hazard survival).
 abstract type AbstractOneOf <: UnivariateDistribution{Continuous} end
 
 # Outcome names, one per one_of outcome. Both concrete types store `names`.
@@ -36,12 +36,12 @@ _n_branches(c::AbstractOneOf) = length(c.names)
 # Scalar marginal-time-to-resolution leaf of a one_of node
 # ---------------------------------------------------------------------------
 #
-# `observed_distribution(node)` returns the one_of node's SCALAR marginal time-to-
+# `observed_distribution(node)` returns the one_of node's scalar marginal time-to-
 # resolution as a plain univariate leaf, so `modifier(observed_distribution(node))`
 # stays the scalar combine-then-censor lowering (vs the node-level wrap, which
 # distributes the modifier into the outcome slots, #655). This thin wrapper forwards
-# the univariate interface to the node's OWN scalar methods (a `Resolve`'s mixture
-# density, a `Compete`'s racing-hazard `min_k D_k` density). It is NOT an
+# the univariate interface to the node's own scalar methods (a `Resolve`'s mixture
+# density, a `Compete`'s racing-hazard `min_k D_k` density). It is not an
 # `AbstractOneOf`, so a censoring/truncation modifier over it scalar-collapses
 # through the generic `UnivariateDistribution` wrapper rather than re-distributing.
 struct OneOfMarginal{D <: AbstractOneOf} <: UnivariateDistribution{Continuous}
@@ -75,18 +75,18 @@ _one_of_marginal(c::AbstractOneOf) = OneOfMarginal(c)
 
 @doc "
 
-Marker distribution for a NO-EVENT (absorbing) outcome of a [`resolve`](@ref)
+Marker distribution for a no-event (absorbing) outcome of a [`resolve`](@ref)
 node: the outcome where *nothing happens* and no event time is written.
 
 A `none => (NoEvent(), q)` branch carries no delay; its mass `q` is the
 probability that no event occurs. On `rand` a no-event win yields `missing` (no
-time recorded). On `logpdf` an OBSERVED non-occurrence (an explicit `no event by
+time recorded). On `logpdf` an observed non-occurrence (an explicit `no event by
 the horizon` record) scores the survival term `log q` (mixture) or the
 racing-hazard survival `∏ S_k`; a latent non-occurrence (a record whose no-event
 slot is simply missing) contributes no one_of term.
 
 `NoEvent` is a degenerate placeholder, not a sampling distribution: it has no
-support and errors if asked for a density or a draw. It exists only to MARK the
+support and errors if asked for a density or a draw. It exists only to mark the
 absorbing branch so the one_of node carries its mass `q`.
 
 # See also
@@ -110,7 +110,7 @@ cdf(::NoEvent, ::Real) = _no_event_error()
 Base.minimum(::NoEvent) = _no_event_error()
 Base.maximum(::NoEvent) = _no_event_error()
 Base.rand(::AbstractRNG, ::NoEvent) = _no_event_error()
-# An EMPTY param tuple (no free parameters): the marker carries no delay, so the
+# An empty param tuple (no free parameters): the marker carries no delay, so the
 # tree's `_param_eltype` / `_tree_core_eltype` promotions skip it cleanly.
 params(::NoEvent) = ()
 
@@ -121,14 +121,14 @@ _is_no_event(::NoEvent) = true
 _is_no_event(::Any) = false
 
 # Whether a one_of node carries a no-event branch (one of its delays is the
-# marker). Such a node is a DEFECTIVE marginal (the observed-time mass is `< 1`),
+# marker). Such a node is a defective marginal (the observed-time mass is `< 1`),
 # so its scalar `logpdf` / `mean` / `as_mixture` error: it is multivariate /
 # sub-stochastic, scored only through the event-vector path.
 _has_no_event(c::AbstractOneOf) = any(_is_no_event, c.delays)
 
 # `_is_composer_outcome` / `_is_nonterminal` (the non-terminal one_of predicate)
 # reference `Sequential` / `Parallel` / `Choose`, which are loaded
-# AFTER this file, so they are defined in `nesting.jl` (loaded once all composer
+# after this file, so they are defined in `nesting.jl` (loaded once all composer
 # types exist) rather than here.
 
 @doc "
@@ -165,20 +165,20 @@ struct Resolve{C <: Tuple, D <: Tuple, P <: Tuple} <: AbstractOneOf
     "Tuple of the branch probabilities, summing to one."
     branch_probs::P
 
-    # Validate the structural invariants in the INNER constructor so EVERY
+    # Validate the structural invariants in the inner constructor so every
     # construction path (the `Pair...` outer constructor, equality round-trips,
     # `update` value- and node-edits, and direct struct calls) is checked,
     # rather than silently building a malformed node whose failure only surfaces
     # later as a confusing `DomainError` from `Categorical` inside `as_mixture`.
     #
     # The bounds (each prob in `[0, 1]`) and structure (at least two outcomes;
-    # names, delays and branch_probs of equal length) hold on EVERY path,
+    # names, delays and branch_probs of equal length) hold on every path,
     # including the DynamicPPL extension that rebuilds a `Resolve` from branch
-    # probabilities sampled INDEPENDENTLY from priors. Those sampled probs are
-    # in `[0, 1]` but need NOT sum to one (the AD-safe `_one_of_logmix`
+    # probabilities sampled independently from priors. Those sampled probs are
+    # in `[0, 1]` but need not sum to one (the AD-safe `_one_of_logmix`
     # scorer handles an unnormalised weight set), so the sum-to-one requirement
     # is enforced at the user-facing `Pair...` constructor and at `as_mixture`
-    # (which DOES need a normalised `Categorical`), not here.
+    # (which does need a normalised `Categorical`), not here.
     function Resolve(names::C, delays::D, branch_probs::P) where {
             C <: Tuple, D <: Tuple, P <: Tuple}
         length(names) >= 2 ||
@@ -219,7 +219,7 @@ mean(node)
 function Resolve(outcomes::Pair...)
     length(outcomes) >= 2 ||
         throw(ArgumentError("Resolve needs at least two outcomes"))
-    # `map` over the outcome tuple, NOT `Tuple(gen)`: a generator-collect
+    # `map` over the outcome tuple, not `Tuple(gen)`: a generator-collect
     # lowers to `collect_to!` building an intermediate `Vector` whose element
     # type is the (possibly heterogeneous, e.g. `Tuple{Sequential, Float64}`
     # vs `Tuple{Gamma, Float64}`) payload union. Enzyme's type analysis rejects
@@ -241,17 +241,17 @@ end
 @doc "
 
 Build a fixed-probability [`Resolve`](@ref) node from
-`name => (delay, branch_prob)` outcomes: exactly one outcome RESOLVES, with cause
+`name => (delay, branch_prob)` outcomes: exactly one outcome resolves, with cause
 independent of timing.
 
 Each outcome is `name => (delay, branch_prob)`; the branch probabilities must
 each lie in ``[0, 1]`` and sum to one, and at least two outcomes are required.
 
-The LAST outcome's probability may be OMITTED (a bare `name => delay`): it then
+The last outcome's probability may be omitted (a bare `name => delay`): it then
 takes the residual `1 - sum(of the others)`, so a probability that is fully
 determined by the rest need not be written out (and cannot disagree with them).
 The leading probabilities must sum to at most one. Omitting any outcome but the
-last, or more than one, is rejected. To omit EVERY probability (a racing-hazard
+last, or more than one, is rejected. To omit every probability (a racing-hazard
 node where the winning probability is derived from the hazards) use
 [`compete`](@ref) instead.
 
@@ -308,10 +308,10 @@ function resolve(outcomes::Pair...)
     # the `collect_to!` `Array` temporary Enzyme cannot type-analyse (see the
     # `Resolve` constructor).
     payloads = map(o -> o.second, outcomes)
-    # `resolve` builds the fixed-probability MIXTURE `Resolve` (cause and timing
-    # independent): every outcome carries a `(delay, branch_prob)` pair, OR every
-    # outcome but the LAST does and the last is a bare delay taking the residual
-    # `1 - sum(of the others)`. ALL-bare delays are the racing-hazard form and
+    # `resolve` builds the fixed-probability mixture `Resolve` (cause and timing
+    # independent): every outcome carries a `(delay, branch_prob)` pair, or every
+    # outcome but the last does and the last is a bare delay taking the residual
+    # `1 - sum(of the others)`. All-bare delays are the racing-hazard form and
     # belong to `compete`; a misplaced omission is rejected as an unclear mix.
     if all(_is_prob_payload, payloads)
         return Resolve(outcomes...)
@@ -325,8 +325,8 @@ function resolve(outcomes::Pair...)
             "probability derived from the hazards) use `compete` instead"))
     end
     throw(ArgumentError(
-        "`resolve` outcomes must ALL carry a branch probability " *
-        "(`name => (delay, prob)`), or carry one on every outcome BUT the " *
+        "`resolve` outcomes must all carry a branch probability " *
+        "(`name => (delay, prob)`), or carry one on every outcome but the " *
         "last (`name => delay`), which then takes the residual " *
         "`1 - sum(others)`; the given mix is unclear. For an all-bare-delay " *
         "racing-hazard node use `compete`"))
@@ -339,10 +339,10 @@ resolve(outcomes::NamedTuple) = resolve(_nt_pairs(outcomes)...)
 @doc "
 
 Build a racing-hazard [`Compete`](@ref) node from bare `name => delay`
-outcomes: the cause-specific delays RACE, the first wins, and the winning
-probability of each cause is DERIVED from the hazards (cause coupled to timing).
+outcomes: the cause-specific delays race, the first wins, and the winning
+probability of each cause is derived from the hazards (cause coupled to timing).
 
-Each outcome is `name => delay` (a bare delay, NO branch probability). At least
+Each outcome is `name => delay` (a bare delay, no branch probability). At least
 two outcomes are required. To give an explicit fixed probability per outcome (a
 mixture where cause is independent of timing) use [`resolve`](@ref) instead.
 
@@ -378,7 +378,7 @@ function compete(outcomes::Pair...)
     # `Array` temporary Enzyme cannot type-analyse (see `Resolve`).
     payloads = map(o -> o.second, outcomes)
     # `compete` builds the racing-hazard `Compete`: every outcome is a
-    # BARE delay (no branch probability), the winning probability being derived
+    # bare delay (no branch probability), the winning probability being derived
     # from the hazards. A `(delay, prob)` pair anywhere is the fixed-probability
     # mixture and belongs to `resolve`.
     if all(_is_bare_payload, payloads)
@@ -394,10 +394,10 @@ end
 # Positional NamedTuple spelling: `(a = d1, …)` lowers to `:a => d1, …` Pairs.
 compete(outcomes::NamedTuple) = compete(_nt_pairs(outcomes)...)
 
-# The RESIDUAL mixture shape: every outcome but the LAST carries a `(delay,
-# prob)` pair and the last is a BARE delay, so the last outcome's probability is
-# the residual `1 - sum(of the others)`. A bare delay ANYWHERE BUT the last (or
-# more than one bare delay) is NOT the residual form: it falls through to the
+# The residual mixture shape: every outcome but the last carries a `(delay,
+# prob)` pair and the last is a bare delay, so the last outcome's probability is
+# the residual `1 - sum(of the others)`. A bare delay anywhere but the last (or
+# more than one bare delay) is not the residual form: it falls through to the
 # ambiguous-mix error so a misplaced omission is rejected clearly rather than
 # silently treated as a hazard or a residual. At least two outcomes hold by the
 # caller's guard, so the leading prob-payload set is non-empty.
@@ -411,7 +411,7 @@ end
 # form: keep every leading `(delay, prob)` outcome and give the last (bare
 # delay) outcome the residual probability `1 - sum(of the others)`. The residual
 # rides the leading probabilities' element type, so a `logistic(Xβ)`/sampled
-# leading prob keeps the last outcome a DIFFERENTIABLE function of the others
+# leading prob keeps the last outcome a differentiable function of the others
 # (the residual flows the same `Dual`/tracked type). The leading probabilities
 # are bounds- and sum-checked (each in `[0, 1]`, summing to `<= 1`) so the
 # residual is a valid probability; an over-one leading set errors clearly here
@@ -433,7 +433,7 @@ function _fill_residual_outcome(outcomes::Tuple)
 end
 
 # A `(delay, branch_prob)` mixture payload vs a bare-delay hazard payload. A
-# one_of OUTCOME delay may be a plain univariate leaf OR a composer SUBTREE
+# one_of outcome delay may be a plain univariate leaf or a composer subtree
 # (`Sequential` / `Parallel` / `Choose` / nested `Resolve`, the non-terminal
 # branch); `_is_one_of_branch` (defined in `nesting.jl`, once
 # those types exist) is the runtime admit-check, so the predicates stay value-based
@@ -464,7 +464,7 @@ _one_of_prob(payload::Tuple{Any, <:Real}) = payload[2]
 # tolerance so a saturating covariate prob (`logistic(Xβ)` evaluating to a hair
 # past 0 or 1 under AD/sampling) is accepted rather than spuriously rejected.
 # Comparisons are value-based, so an AD `Dual`/tracked `branch_probs` is compared
-# on its value WITHOUT being stripped of its derivative information.
+# on its value without being stripped of its derivative information.
 function _validate_branch_prob_bounds(branch_probs::Tuple)
     tol = 1e-6
     for p in branch_probs
@@ -477,7 +477,7 @@ end
 
 # The branch probabilities must additionally sum to one. Applied on the
 # user-facing `Pair...` constructor and at `as_mixture` (which lowers to a
-# `Categorical` and so needs a normalised weight set), but NOT in the inner
+# `Categorical` and so needs a normalised weight set), but not in the inner
 # constructor, where a prior-sampled (unnormalised) weight set is legitimate.
 # The `isapprox` sum check is value-based, so an AD `Dual` is not stripped.
 function _validate_branch_probs_sum(branch_probs::Tuple)
@@ -493,8 +493,8 @@ end
 # ---------------------------------------------------------------------------
 #
 # The Turing-free arithmetic of the `Resolve` self-dispatch (decision 2),
-# factored here so BOTH the top-level `composed_distribution_model(d::Resolve,
-# row)` (the DynamicPPL extension) and the NESTED tree scorer use ONE
+# factored here so both the top-level `composed_distribution_model(d::Resolve,
+# row)` (the DynamicPPL extension) and the nested tree scorer use one
 # implementation rather than two parallel copies. Each helper consumes already-
 # resolved inputs (the observed-outcome index or `nothing`, the gap from the
 # node's anchor, and the per-record branch probabilities) and returns a plain
@@ -505,7 +505,7 @@ end
 # Per-record branch probabilities must each lie in `[0, 1]` and sum to one.
 # Delegates to the same bounds and sum validators the stored `branch_probs` use
 # (`_validate_branch_prob_bounds` then `_validate_branch_probs_sum`) so the
-# per-record override and the node share ONE validation path; the tolerance and
+# per-record override and the node share one validation path; the tolerance and
 # AD-`Dual`-preserving, value-based comparisons live in those helpers.
 function _validate_record_probs(probs)
     _validate_branch_prob_bounds(probs)
@@ -514,7 +514,7 @@ function _validate_record_probs(probs)
 end
 
 # Coerce a per-record branch-probability override to the node's outcome order. A
-# `NamedTuple` must name exactly the outcomes; a scalar is the FIRST outcome's
+# `NamedTuple` must name exactly the outcomes; a scalar is the first outcome's
 # probability of a two-outcome node (`(p, 1 - p)`). The element type is preserved
 # so a `logistic(Xβ)` `Dual` flows through.
 function _coerce_branch_probs(c::Resolve, bp::NamedTuple)
@@ -550,15 +550,15 @@ end
 # caller (matching the conditioned path's per-record horizon), else the node's
 # delays.
 #
-# Computed directly, NOT via `MixtureModel(delays, float.(probs))`: `float.`
+# Computed directly, not via `MixtureModel(delays, float.(probs))`: `float.`
 # strips an AD `Dual`/tracked type from the probabilities, breaking the gradient
-# through a sampled / `logistic(Xβ)` branch probability on the MARGINALISED path.
+# through a sampled / `logistic(Xβ)` branch probability on the marginalised path.
 # The explicit reduction keeps the probabilities' element type, so a `Dual`
 # propagates exactly as it does on the conditioned path. A zero probability
 # contributes no term (its `log` is `-Inf`); an all-zero set returns `-Inf`. A
 # no-event branch carries no density at a finite observed time `t` (its mass is
 # the survival, not a density term), so it contributes `-Inf` and is skipped
-# here, leaving the marginal as the sum over the REAL outcomes.
+# here, leaving the marginal as the sum over the real outcomes.
 function _one_of_logmix(probs, delays, t)
     n = length(probs)
     terms = ntuple(
@@ -598,7 +598,7 @@ function as_mixture(c::Resolve)
     # A non-terminal node (a composer-valued outcome) is multivariate: no single
     # marginal time-to-resolution exists, so the scalar lowering is rejected.
     _is_nonterminal(c) && _nonterminal_marginal_error("as_mixture")
-    # A no-event branch makes the OBSERVED-time mass `< 1` (a defective marginal),
+    # A no-event branch makes the observed-time mass `< 1` (a defective marginal),
     # so there is no proper `MixtureModel` over the observed delays: the node is
     # multivariate / sub-stochastic and is scored only through the event-vector
     # path. Reject the scalar lowering with a clear message.
@@ -622,12 +622,12 @@ function _no_event_marginal_error(what::AbstractString)
         "through the event-vector path (its observed-outcome / no-event record)"))
 end
 
-# A NON-TERMINAL (composer-outcome) one_of node is MULTIVARIATE: an outcome's
+# A non-terminal (composer-outcome) one_of node is multivariate: an outcome's
 # subtree spans several event slots, so there is no single marginal
 # time-to-resolution and no scalar `logpdf` / `mean` / `as_mixture`. It is scored
 # only through the event-vector path (its outcome subtree's slice), so the scalar
 # methods error with a clear message pointing at the event-vector / NamedTuple
-# path. Defined AFTER `as_mixture` so the `@doc` block above
+# path. Defined after `as_mixture` so the `@doc` block above
 # `as_mixture` attaches to it (an intervening function definition would steal the
 # docstring and leave `as_mixture` undocumented, an Aqua failure).
 function _nonterminal_marginal_error(what::AbstractString)
@@ -704,8 +704,8 @@ outcome that fired.
 
 The draw resolves to a single outcome (sampled from the branch probabilities)
 and the result is a `NamedTuple` keyed by [`event_names`](@ref): a positional
-origin slot then one slot per outcome, with the FIRED outcome's time present and
-the others `missing`. This is the SAME self-describing record the in-tree path
+origin slot then one slot per outcome, with the fired outcome's time present and
+the others `missing`. This is the same self-describing record the in-tree path
 produces (a `Resolve` nested in a `compose(...)` tree), so a standalone draw
 identifies which outcome won and feeds straight back into [`logpdf`](@ref). For
 `n` independent draws use the count form `rand(c, n)`.
@@ -718,8 +718,8 @@ See also: [`event_names`](@ref), [`as_mixture`](@ref), [`rand_outcome`](@ref)
 Base.rand(rng::AbstractRNG, c::Resolve) = _one_of_event_record(rng, c)
 Base.rand(c::Resolve) = rand(default_rng(), c)
 
-# The scalar MARGINAL draw of a terminal Resolve (its branch-prob-weighted
-# mixture time-to-resolution, discarding which outcome fired). Used by the PLAIN
+# The scalar marginal draw of a terminal Resolve (its branch-prob-weighted
+# mixture time-to-resolution, discarding which outcome fired). Used by the plain
 # flat value path (`child_rand!`), where a Resolve child is one value slot, and
 # wherever the marginal time alone is wanted. A no-event Resolve has no scalar
 # marginal, so it is excluded from the plain path (it is a defective marginal).
@@ -727,7 +727,7 @@ _one_of_marginal_rand(rng::AbstractRNG, c::Resolve) = rand(rng, as_mixture(c))
 
 @doc "
 
-Sample a one_of outcome AND its time, returning `(name, time)`.
+Sample a one_of outcome and its time, returning `(name, time)`.
 
 A flat `(name, time)` view of the resolved draw: the resolved outcome is sampled
 from the branch probabilities and the time from that outcome's own delay. The
@@ -794,7 +794,7 @@ names.
 
 This is the [`Resolve`](@ref) method of `Distributions.probs`, the standard
 mixture-weight reader: a `Resolve` lowers to a `MixtureModel` (see
-[`as_mixture`](@ref)), so its weights ARE the declared branch probabilities.
+[`as_mixture`](@ref)), so its weights are the declared branch probabilities.
 The racing-hazard [`Compete`](@ref) sibling derives the same split from the
 hazards instead.
 
@@ -818,7 +818,7 @@ end
 
 @doc "
 
-The probability that ANY (non-no-event) outcome occurs for a fixed-probability
+The probability that any (non-no-event) outcome occurs for a fixed-probability
 [`Resolve`](@ref) node: one minus the no-event branch mass.
 
 See also: `Distributions.probs`

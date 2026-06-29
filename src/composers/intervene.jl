@@ -2,8 +2,8 @@
 # Structural edits on a composed distribution tree
 # ============================================================================
 #
-# `update` rebuilds a tree's LEAVES with new parameter values; a structural edit
-# is the same recursive reconstruction with a node EDIT instead of a param
+# `update` rebuilds a tree's leaves with new parameter values; a structural edit
+# is the same recursive reconstruction with a node edit instead of a param
 # update: replace a named node's distribution, prune a branch (a `Resolve`
 # arm or a `Choose` alternative, renormalising probs), or splice a before/after
 # change at a named node. Each op walks the tree by name path and rebuilds only
@@ -73,7 +73,7 @@ function _child_index(names::Tuple, name::Symbol, what)
     return idx
 end
 
-# Normalise an edit-verb address to a name-path tuple, accepting the SAME forms
+# Normalise an edit-verb address to a name-path tuple, accepting the same forms
 # as the read-side [`event`](@ref): a bare `Symbol` (a one-step path), a dotted
 # `Symbol` (`:a.b`, split via `_split_edge` into `(:a, :b)`), or a tuple of edge
 # names. So `event(d, addr)` reads and `update(d, addr => x)` writes the same
@@ -83,7 +83,7 @@ _as_path(p::Tuple) = p
 
 # --- update: replace a node (structural edit) -------------------------------
 #
-# `update` is the single verb for both kinds of SHAPE-PRESERVING edit: a value
+# `update` is the single verb for both kinds of shape-preserving edit: a value
 # update keyed by a nested NamedTuple (the `update(d, ::NamedTuple)` method in
 # `introspection.jl`) and node replacement keyed by `path => new_node` pairs
 # (here). The two methods dispatch on the second argument at the public
@@ -95,15 +95,15 @@ _as_path(p::Tuple) = p
 Replace named nodes of a composed distribution with new distributions.
 
 `update(d, path => new_node, ...)` returns a new composed distribution of the
-SAME outer structure as `d` with the node addressed by each `path` replaced by
+same outer structure as `d` with the node addressed by each `path` replaced by
 `new_node`. A `path` is a `Symbol` (a top-level child), a dotted `Symbol`
 (`:admit_path.admit_resolution.death`, as in [`event`](@ref) /
 [`params_table`](@ref)), or a tuple of edge names from the root (e.g.
 `(:admit_path, :admit_resolution, :death)`); the same address [`event`](@ref)
-READS is the one this WRITES. `new_node` may be a leaf distribution or a nested
+reads is the one this writes. `new_node` may be a leaf distribution or a nested
 composer. This shares the recursive reconstruction with the value-update method
 [`update`](@ref)`(d, params::NamedTuple)`, so the result scores and `rand`s. It
-preserves the tree SHAPE; for shape changes use [`prune`](@ref) or
+preserves the tree shape; for shape changes use [`prune`](@ref) or
 [`splice`](@ref).
 
 # Arguments
@@ -140,7 +140,7 @@ end
 
 Drop a branch from a composed distribution (a topology edit).
 
-`prune(d, path)` removes the node addressed by `path` from its parent, CHANGING
+`prune(d, path)` removes the node addressed by `path` from its parent, changing
 the tree shape. A [`Resolve`](@ref) arm is removed and the remaining branch
 probabilities are renormalised to sum to one; a [`Choose`](@ref) alternative or
 a [`Sequential`](@ref)/[`Parallel`](@ref) step is removed. The parent must keep
@@ -254,7 +254,7 @@ edit).
 [`Sequential`](@ref) chain of `before`, the original node, then `after` (any of
 which may be omitted). This inserts a change-point step around the addressed
 node without rebuilding the rest of the tree, e.g. an extra delay before a
-branch or a follow-up step after it, CHANGING the tree shape. The result is a
+branch or a follow-up step after it, changing the tree shape. The result is a
 valid composed distribution that scores and `rand`s. `path` accepts the same
 forms as [`event`](@ref): varargs `Symbol`s, a dotted `Symbol`, or a tuple of
 edge names.

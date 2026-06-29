@@ -280,7 +280,7 @@ end
 Element type for the cached interval CDF values and the `0`/`1` boundary
 seeds in the batched PDF path.
 
-This must follow the underlying DISTRIBUTION's parameter type, not just the
+This must follow the underlying distribution's parameter type, not just the
 evaluation points. When the distribution carries AD `Dual`/tracked
 parameters but `x` and the boundaries are plain `Float64`, a type derived
 from the eval points alone (e.g. `Float64`) would strip the AD numbers and
@@ -328,7 +328,7 @@ parallel to the sorted unique `boundaries`. `_cdf_ad_safe` keeps the
 The CDF values are kept in their natural type rather than converted to the
 boundary/data element type. The CDF carries the AD tangent w.r.t. the
 distribution parameters; converting it to the (constant) data eltype would
-strip a `Dual`/tracked number and drop the gradient (#699).
+strip a `Dual`/tracked number and drop the gradient.
 
 Boundaries at or below `minimum(dist)` / at or above `maximum(dist)` get
 the literal CDF (`0` / `1`) instead of an evaluation, mirroring the scalar
