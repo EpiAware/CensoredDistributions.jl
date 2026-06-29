@@ -1,3 +1,8 @@
+// MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
+// The standard DocumenterVitepress site config. The `REPLACE_ME_DOCUMENTER_*`
+// markers are filled by DocumenterVitepress at build time from `make.jl`; the
+// `mathjax-plugin` / `julia-repl-transformer` modules are written next to this
+// file in the build directory by DocumenterVitepress.
 import { defineConfig } from 'vitepress'
 import { tabsMarkdownPlugin } from 'vitepress-plugin-tabs'
 import { mathjaxPlugin } from './mathjax-plugin'
@@ -38,18 +43,16 @@ export default defineConfig({
   outDir: 'REPLACE_ME_DOCUMENTER_VITEPRESS', // This is required for MarkdownVitepress to work correctly...
   // Safety net: Documenter's `warnonly = [:cross_references]` (docs/make.jl)
   // turns an unresolved `@ref` into a warning rather than a build error, and
-  // the unresolved reference renders as a literal `./@ref` dead link in the
-  // output Markdown. VitePress's dead-link checker would then abort the whole
-  // site build. Narrowly ignore only that `/@ref` pattern so a future stray
-  // unresolved reference warns without crashing the build; every other dead
-  // link is still reported. This is NOT a blanket `ignoreDeadLinks: true`.
+  // the unresolved reference renders as a literal `./@ref` dead link. Ignore
+  // only that pattern so a stray unresolved reference warns without crashing
+  // the build; every other dead link is still reported. NOT a blanket
+  // `ignoreDeadLinks: true`.
   ignoreDeadLinks: [
     /\/@ref(\b|$)/,
   ],
   head: [
     ['link', { rel: 'icon', href: 'REPLACE_ME_DOCUMENTER_VITEPRESS_FAVICON' }],
     ['script', {src: `${getBaseRepository(baseTemp.base)}versions.js`}],
-    // ['script', {src: '/versions.js'], for custom domains, I guess if deploy_url is available.
     ['script', {src: `${baseTemp.base}siteinfo.js`}]
   ],
 
@@ -86,7 +89,6 @@ export default defineConfig({
     },
     ssr: {
       noExternal: [
-        // If there are other packages that need to be processed by Vite, you can add them here.
         '@nolebase/vitepress-plugin-enhanced-readabilities',
         '@nolebase/ui',
       ],
@@ -106,7 +108,7 @@ export default defineConfig({
     sidebarDrawer: 'REPLACE_ME_DOCUMENTER_VITEPRESS_SIDEBAR_DRAWER',
     editLink: 'REPLACE_ME_DOCUMENTER_VITEPRESS',
     socialLinks: [
-      { icon: 'github', link: 'REPLACE_ME_DOCUMENTER_VITEPRESS' }
+      { icon: 'github', link: 'https://github.com/EpiAware/CensoredDistributions.jl' }
     ],
     footer: {
       message: 'Made with <a href="https://luxdl.github.io/DocumenterVitepress.jl/dev/" target="_blank"><strong>DocumenterVitepress.jl</strong></a><br>',

@@ -1,3 +1,4 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 # Run a single Literate tutorial in its own process with `execute = true`.
 #
 # Heavy tutorials (live MCMC fits + CairoMakie/PairPlots) accumulate native and

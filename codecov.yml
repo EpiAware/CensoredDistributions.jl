@@ -7,6 +7,8 @@
 # jobs (ad-*.yaml) run and upload independently, so without carryforward a
 # run that posts only some flags would blank the others.
 
+# Package-owned addition (NOT in the kit's managed codecov.yml — see
+# EpiAware/EpiAwarePackageTools.jl issue to add this for ad=true packages).
 # The seven flag uploads (unit + six AD backends) arrive from separate
 # workflows that finish minutes apart. Codecov recomputes the patch/project
 # status on every upload, so without a gate it posts an early FAILURE from a
