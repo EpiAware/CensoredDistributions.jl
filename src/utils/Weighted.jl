@@ -57,13 +57,31 @@ end
 
 # `weight` / `Weighted` are slated to move out of CensoredDistributions.jl and
 # into the standalone ModifiedDistributions.jl package (issue #128). This is the
-# warning release: the surface stays fully functional, but every `weight`
-# constructor emits a one-time deprecation warning so callers can migrate ahead
-# of removal in a later breaking release. As with the package's other soft
+# warning release: the surface stays fully functional, but the `weight`
+# constructors emit a deprecation warning so callers can migrate ahead of
+# removal in a later breaking release. As with the package's other soft
 # deprecations, the warning only surfaces under `--depwarn=yes`/`error`, so it
 # never spams normal use. The underlying `Weighted` type stays reachable (it is
 # `public`) for code that needs the multiplicity behaviour today.
+#
+# The warning fires AT MOST ONCE per session, gated on a module-level flag. This
+# is not just cosmetic deduplication: the `weight` constructor is called inside
+# differentiated/sampled closures (the AD fixtures and any `~ weight(dist, w)`
+# model), so `_weight_deprecation` lands in the gradient hot path.
+# `Base.depwarn` walks a `backtrace()` and reads the world counter on every
+# call, which under `--depwarn=yes` (forced by `Pkg.test`) turns a NUTS fit
+# pathological — a 50-parameter censored+latent fit stalled for ~1.5h because
+# the warning ran on every gradient evaluation. The cached flag makes every
+# call after the first a single `Bool` read and early return, taking
+# `depwarn`/`backtrace`/the world counter out of the hot path entirely. The
+# first call is additionally shielded from Enzyme (which cannot shadow the
+# `@jl_world_counter` global) by an `EnzymeRules.inactive` rule on this helper
+# in the Enzyme extension.
+const _WEIGHT_DEPRECATION_WARNED = Ref(false)
+
 function _weight_deprecation()
+    _WEIGHT_DEPRECATION_WARNED[] && return nothing
+    _WEIGHT_DEPRECATION_WARNED[] = true
     Base.depwarn(
         "`weight` is deprecated and will move to the standalone " *
         "ModifiedDistributions.jl package in a future breaking release; it " *
