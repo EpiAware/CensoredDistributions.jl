@@ -141,6 +141,13 @@ The sojourn on any edge is any `UnivariateDistribution`, including a censored or
 composed delay. An edge may point back to an already-visited state, so the model
 admits cycles.
 
+When every edge sojourn is `Exponential` and every state races its edges (no
+fixed-probability [`Resolve`](@ref) split), the model is memoryless and `recur`
+DISPATCHES automatically to the [`CTMCStates`](@ref) fast path (the generator
+matrix, exact jump-chain scoring, and `exp(Q t)` panel data), so an
+all-exponential `recur(...)` returns a [`CTMCStates`](@ref). Any non-exponential
+or fixed-split edge keeps the semi-Markov [`RecurrentStates`](@ref).
+
 # Arguments
 - `specs`: `state => transitions` pairs. `transitions` is a single
   `next_state => sojourn` pair (a lone edge), or a tuple / NamedTuple of
@@ -179,7 +186,14 @@ function recur(specs::Pair...; start::Union{Symbol, Nothing} = nothing)
         nodes[state] = _build_transition_node(transitions)
     end
     s = start === nothing ? first(specs).first : start
-    return RecurrentStates(nodes, s)
+    rs = RecurrentStates(nodes, s)
+    # Memoryless dispatch: when every edge is `Exponential` and every state races
+    # (no fixed-probability `Resolve` split), the model IS a continuous-time
+    # Markov chain, so return the `CTMCStates` fast path (exact jump chain +
+    # `exp(Q t)` panel data). Any non-exponential or fixed-split edge keeps the
+    # semi-Markov `RecurrentStates`.
+    _is_memoryless(rs) && return ctmc(rs)
+    return rs
 end
 
 # Build a state's transition node from its outgoing-edge spec. A lone

@@ -1552,9 +1552,10 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
     end
 
     # === RECURRENT / cyclic multi-state scenarios (category = :recurrent) ===
-    # The renewal-over-states path likelihood and the CTMC fast path, scored as
-    # `logpdf(model, path)` / `panel_logpdf` and differentiated w.r.t. the edge
-    # sojourn params / generator rates. Each function REBUILDS the model from `θ`
+    # The renewal-over-states path likelihood and the CTMC fast path, both scored
+    # through the dispatching `logpdf(model, obs)` front door (a jump chain or a
+    # `(time, state)` panel) and differentiated w.r.t. the edge sojourn params /
+    # generator rates. Each function REBUILDS the model from `θ`
     # with literal constructors (the captured-`Type` Enzyme limitation, as for the
     # other groups); the observed path / panel travels as a `Constant` context.
 
@@ -1618,7 +1619,7 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
         (15.0, :dead)]
     _push!("CTMC panel-data exp(Qt) logpdf",
         (θ,
-            panel) -> CensoredDistributions.panel_logpdf(
+            panel) -> logpdf(
             ctmc(:well => (:ill => θ[1]),
                 :ill => (:well => θ[2], :dead => θ[3])),
             panel),

@@ -210,8 +210,18 @@ function logpdf(m::RecurrentStates, path::StatePath)
     return total
 end
 
-# Score an iterable of bare `(from, to, dwell)` jumps (no censoring tail).
-logpdf(m::RecurrentStates, jumps) = _jumps_logpdf(m, jumps)
+# Score a bare observation iterable. A jump chain (`(from, to, dwell)` items)
+# scores the semi-Markov per-sojourn term directly. A panel (`(time, state)`
+# items) needs the memoryless `exp(Q t)` kernel, so it DISPATCHES through the
+# CTMC representation: `ctmc(m)` converts the model (and errors with a clear
+# message if it is not all-exponential), then scores the panel. This is the
+# state-at-visit likelihood the semi-Markov path cannot offer directly.
+function logpdf(m::RecurrentStates, obs)
+    o = collect(obs)
+    (!isempty(o) && _is_panel_obs(first(o))) &&
+        return _ctmc_panel_logpdf(ctmc(m), o)
+    return _jumps_logpdf(m, o)
+end
 
 function _jumps_logpdf(m::RecurrentStates, jumps)
     total = 0.0

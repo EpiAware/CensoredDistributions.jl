@@ -131,12 +131,36 @@ cmodel = ctmc(
     :infected => (:recovered => 0.33, :dead => 0.12),
     :recovered => (:susceptible => 0.033))
 
-# A panel observation scores by multiplying the per-gap transition
-# probabilities.
+# A panel observation scores through the same `logpdf` front door: it dispatches
+# on the observation shape, so a `(time, state)` panel multiplies the per-gap
+# transition probabilities while a `(from, to, dwell)` jump chain scores the
+# exact term. No bespoke panel-scoring name is needed.
 
 panel = [(0.0, :susceptible), (5.0, :infected), (9.0, :recovered),
     (40.0, :susceptible)]
-CensoredDistributions.panel_logpdf(cmodel, panel)
+logpdf(cmodel, panel)
+
+# `recur` reaches the same fast path automatically: when every edge is
+# `Exponential` and every state races (no fixed-probability split), `recur`
+# returns a [`CTMCStates`](@ref), so the memoryless model needs no separate
+# constructor call.
+
+auto = recur(
+    :susceptible => (:infected => Exponential(1 / 0.25)),
+    :infected => (:recovered => Exponential(1 / 0.33),
+        :dead => Exponential(1 / 0.12)),
+    :recovered => (:susceptible => Exponential(1 / 0.033)))
+auto isa CTMCStates
+
+# ## Repeating one sojourn across many states
+#
+# A progression through several identical stages (e.g. an Erlang-style chain of
+# equal-rate steps) repeats one sojourn rather than spelling each step out.
+# [`compose`](@ref)`(dist, n)` builds the repeated chain in one call, which then
+# drops in as an edge sojourn like any other delay.
+
+stagewise = compose(Gamma(2.0, 3.0), 3)
+event_names(stagewise)
 
 # ## Summary
 #
@@ -146,4 +170,7 @@ CensoredDistributions.panel_logpdf(cmodel, panel)
 #   competing-risks term; the path likelihood fits with Turing through
 #   [`recurrent_states_model`](@ref).
 # - [`ctmc`](@ref) is the memoryless fast path: exponential sojourns, a
-#   generator matrix, and panel-data scoring via `exp(Q t)`.
+#   generator matrix, and panel-data scoring via `exp(Q t)`. `logpdf` is the one
+#   scoring front door for both panel and jump-chain data, and an
+#   all-exponential [`recur`](@ref) dispatches to the CTMC automatically.
+# - [`compose`](@ref)`(dist, n)` repeats one sojourn into an `n`-step chain.
