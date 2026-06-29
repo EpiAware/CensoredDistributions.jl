@@ -21,7 +21,7 @@ using Distributions: Distributions, UnivariateDistribution, Distribution,
 
 using PrecompileTools: @setup_workload, @compile_workload
 
-using LogExpFunctions: logsubexp, log1mexp, logsumexp
+using LogExpFunctions: logsubexp, log1mexp
 
 using SpecialFunctions: gamma, gamma_inc, loggamma, digamma
 
@@ -53,6 +53,10 @@ export convolve_distributions
 export weight, get_dist, get_dist_recursive, get_primary_event
 
 include("docstrings.jl")
+
+# Abstract type hierarchy. Included first so the primary-censored core types can
+# subtype `AbstractPrimaryCensored`.
+include("interface.jl")
 
 include("utils/gamma_ad.jl")
 

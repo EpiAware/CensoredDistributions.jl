@@ -1,5 +1,9 @@
 # Public API declarations for Julia 1.11+
 
+# Abstract type hierarchy (public but not exported): the primary-censored family
+# supertype the package dispatches on and downstream authors subtype.
+public AbstractPrimaryCensored
+
 # Core distribution types (public but not exported)
 public PrimaryCensored
 public Latent

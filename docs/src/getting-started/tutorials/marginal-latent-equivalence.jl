@@ -6,32 +6,30 @@ md"""
 ### What are we going to do in this tutorial
 
 A primary-censored delay has two forms that share the same parameters and the
-same observed-delay distribution, computed two genuinely different ways.
+same observed-delay distribution.
 
 1. The **marginal** form is the plain `primary_censored` distribution. The
    primary event time is integrated out by the analytic closed form inside
    `logpdf` and `cdf`, so the distribution is univariate over the observed time
    alone. This is the target.
 2. The **latent** form, `latent(d)`, keeps the primary event time as an explicit
-   augmented variable. A draw is a labelled `(primary, observed)` record, and
-   the joint `logpdf([primary, observed])` scores the primary prior plus the
-   conditional of the observed time given that primary. Its observed `cdf` and
-   `pdf` are computed by NUMERICALLY INTEGRATING that joint over the primary,
-   the augmented-data integral, using the same Gauss-Legendre quadrature the
-   package uses elsewhere.
+   sampled variable. A draw is a labelled `(primary, observed)` record, and the
+   joint `logpdf([primary, observed])` scores the primary prior plus the
+   conditional of the observed time given that primary. The latent form has NO
+   scalar observed density of its own: the observed marginal is the marginal
+   form's job, recovered with `marginal(d)`.
 
-These two computations are different: one is an analytic closed form, the other
-a numeric integral over the augmented primary. They agree to quadrature
-tolerance, which validates the latent formulation. We demonstrate that here,
-show it for a `double_interval_censored` delay too, and forward-simulate event
-paths with `rand(latent(d))`, all without Turing.
+The two forms are equivalent **in expectation**: averaging (integrating) the
+latent joint over the primary recovers the analytic marginal. We demonstrate
+that by forward simulation here, show it for a `double_interval_censored` delay
+too, and forward-simulate event paths with `rand(latent(d))`, all without
+Turing.
 
 ### What might I need to know before starting
 
 This tutorial builds on
 [Getting Started with CensoredDistributions.jl](@ref getting-started).
-It uses the [`latent`](@ref) wrapper, its inverse [`marginal`](@ref), and the
-Distributions interface (`cdf`, `pdf`, `logpdf`) that both forms share.
+It uses the [`latent`](@ref) wrapper and its inverse [`marginal`](@ref).
 
 ## Packages used
 
@@ -64,55 +62,86 @@ The latent form wraps the marginal node, and `marginal` recovers it unchanged.
 marginal(latent_delay) === marginal_delay
 
 md"""
-## Latent integration agrees with the analytic marginal
+## The latent form has no scalar observed density
 
-The analytic marginal `cdf` integrates the primary out in closed form. The
-latent `cdf` instead evaluates the augmented-data integral
-`∫ pdf(prior, p) · cdf(delay, x - p) dp` by Gauss-Legendre quadrature over the
-primary window. These are two different computations of the same observed-delay
-distribution, so they should agree to quadrature tolerance, NOT to machine
-precision.
-
-We compare them across a set of evaluation points.
+The latent form is a joint over `[primary, observed]`. Scoring a scalar observed
+value would just re-integrate the primary and reproduce the marginal default, so
+the scalar density methods are deliberately undefined and throw. Recover the
+observed marginal with `marginal(d)`.
 """
+
+scalar_density_errors = try
+    logpdf(latent_delay, 2.5)
+    false
+catch err
+    err isa ArgumentError
+end
+
+md"""
+The joint density over the scored `[primary, observed]` vector is what the latent
+form provides, the primary prior plus the conditional of the observed given the
+primary.
+"""
+
+joint_logpdf = logpdf(latent_delay, [0.3, 2.5])
+
+md"""
+## Equivalence in expectation with the analytic marginal
+
+The two forms are equivalent in expectation: drawing many latent records and
+keeping the observed component recovers the analytic marginal observed-delay
+distribution. We compare the empirical observed `cdf` from the latent form
+against the analytic `cdf` of the marginal form.
+"""
+
+rng = MersenneTwister(20240610)
+
+observed_draws = [rand(rng, latent_delay).observed for _ in 1:200_000]
 
 eval_points = [1.0, 3.0, 6.0, 10.0]
 
 cdf_comparison = [(x = x,
                       marginal = cdf(marginal_delay, x),
-                      latent = cdf(latent_delay, x))
+                      empirical = count(<=(x), observed_draws) /
+                                  length(observed_draws))
                   for x in eval_points]
 
 md"""
-The analytic `marginal` column and the numeric `latent` column agree to about
-quadrature tolerance. The largest gap across the points is small but non-zero,
-because one is a closed form and the other a numeric integral.
+The analytic `marginal` column and the `empirical` latent column agree to Monte
+Carlo error. The largest gap across the points is small.
 """
 
-cdf_gap = maximum(abs(r.marginal - r.latent) for r in cdf_comparison)
+cdf_gap = maximum(abs(r.marginal - r.empirical) for r in cdf_comparison)
 
 md"""
-The density agrees the same way. The latent `pdf` is the augmented-data integral
-`∫ pdf(prior, p) · pdf(delay, x - p) dp`, again matching the analytic marginal
-`pdf` to quadrature tolerance.
+The same equivalence holds for the density. An explicit trapezoidal integration
+of the latent joint over the primary window reproduces the analytic marginal
+`pdf`, the equivalence written as an integral rather than a sample average.
 """
+
+function integrate_joint_pdf(ld, y; n = 200_000)
+    lo, hi = minimum(get_primary_event(ld)), maximum(get_primary_event(ld))
+    ps = range(lo, hi; length = n)
+    vals = map(p -> exp(logpdf(ld, [p, y])), ps)
+    return sum((vals[1:(end - 1)] .+ vals[2:end]) ./ 2) * step(ps)
+end
 
 pdf_comparison = [(x = x,
                       marginal = pdf(marginal_delay, x),
-                      latent = pdf(latent_delay, x))
+                      integrated = integrate_joint_pdf(latent_delay, x))
                   for x in eval_points]
 
-pdf_gap = maximum(abs(r.marginal - r.latent) for r in pdf_comparison)
+pdf_gap = maximum(abs(r.marginal - r.integrated) for r in pdf_comparison)
 
 md"""
-## The same validation holds for a double-interval-censored delay
+## The same equivalence holds for a double-interval-censored delay
 
 The censoring wrappers work for both forms. We build a
-`double_interval_censored` delay and wrap it in `latent`. The latent form
-samples the primary, so its conditional scores the bare continuous delay, and
-integrating the augmented joint over the primary reproduces the analytic
-CONTINUOUS primary-censored marginal. The analytic target for the latent
-double-interval-censored leaf is therefore `primary_censored(delay, pe)`.
+`double_interval_censored` delay and wrap it in `latent`. The latent form samples
+the primary, so its conditional scores the bare continuous delay, and integrating
+the joint over the primary reproduces the analytic CONTINUOUS primary-censored
+marginal. The analytic target for the latent double-interval-censored leaf is
+therefore `primary_censored(delay, pe)`.
 """
 
 pe = Uniform(0, 1)
@@ -125,38 +154,35 @@ marginal_dic = double_interval_censored(
 latent_dic = latent(marginal_dic)
 
 dic_comparison = [(x = x,
-                      analytic_target = cdf(target, x),
-                      latent = cdf(latent_dic, x))
+                      analytic_target = pdf(target, x),
+                      integrated = integrate_joint_pdf(latent_dic, x))
                   for x in [1.0, 3.0, 6.0, 9.0]]
 
 md"""
-The numeric latent `cdf` of the double-interval-censored leaf matches the
-analytic continuous primary-censored target to quadrature tolerance.
+The integrated latent joint of the double-interval-censored leaf matches the
+analytic continuous primary-censored target.
 """
 
-dic_cdf_gap = maximum(
-    abs(r.analytic_target - r.latent) for r in dic_comparison)
+dic_pdf_gap = maximum(
+    abs(r.analytic_target - r.integrated) for r in dic_comparison)
 
 md"""
 ## Forward-simulate event paths from the latent form
 
 `rand(latent(d))` draws a full event path as a labelled
 `(primary = ..., observed = ...)` record. The primary lies in the window and the
-observed time exceeds it by a positive delay. No model or conditioning is
-needed.
+observed time exceeds it by a positive delay. No model or conditioning is needed.
 """
 
 one_path = rand(MersenneTwister(1), latent_delay)
 
 md"""
 A comprehension batches many draws from the latent form. Keeping the observed
-component recovers the observed-delay marginal, the same distribution the latent
-`cdf` integral computes.
+component recovers the observed-delay marginal, the same distribution the
+analytic marginal `cdf` computes.
 """
 
-rng = MersenneTwister(2)
-
-many_paths = [rand(rng, latent_delay) for _ in 1:500]
+many_paths = [rand(MersenneTwister(2), latent_delay) for _ in 1:500]
 
 observed_times = [path.observed for path in many_paths]
 
@@ -173,9 +199,10 @@ censored problems where the extra latent dimensions cost little.
 
 - The marginal `primary_censored` form and its `latent` wrapper are one model
   that share parameters and the same observed-delay distribution.
-- The marginal `cdf`/`pdf` use the analytic closed form; the latent `cdf`/`pdf`
-  numerically integrate the augmented-data joint over the primary. They agree to
-  quadrature tolerance, which validates the latent formulation.
+- The marginal form carries the analytic scalar `cdf`/`pdf`; the latent form has
+  no scalar density, only the joint over `[primary, observed]`. Averaging or
+  integrating that joint over the primary recovers the marginal: the two forms
+  are equivalent in expectation.
 - The same holds for a `double_interval_censored` delay against the continuous
   primary-censored target, so the censoring wrappers work in both forms.
 - `rand(latent(d))` forward-simulates full `(primary, observed)` event paths,

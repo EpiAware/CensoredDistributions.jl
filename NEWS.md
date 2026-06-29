@@ -29,21 +29,20 @@
   multivariate distribution over `[primary, observed]` whose joint
   `logpdf` scores the primary prior plus the conditional of the observed
   time given the primary, and whose `rand` draws a labelled
-  `(primary, observed)` event record. The observed-delay interface (`cdf`,
-  `pdf`, single-value `logpdf`, `logcdf`, `ccdf`, `logccdf`, `quantile`)
-  is computed from the LATENT formulation, numerically integrating the
-  augmented-data joint over the primary with the package's Gauss-Legendre
-  quadrature, rather than delegating to the analytic marginal. This is a
-  genuinely different computation from the analytic `primary_censored`
-  marginal, and the two agree to quadrature tolerance, validating the
-  formulation. The observed `logpdf` integrates in log space with the
-  integration bounds clamped to the delay support, so it stays finite and
-  finitely differentiable at extreme parameters and far-tail observations,
-  which lets a Turing model on the latent form find valid initial
-  parameters. `marginal` is the inverse, unwrapping a `Latent` back to the
-  censored node it carries. `PrimaryConditional` and `get_primary_event`
-  support this path. The composed latent form (over a composer tree) is a
-  follow-up.
+  `(primary, observed)` event record. The latent form genuinely samples
+  the primary; it has NO scalar observed density, so the scalar interface
+  (`logpdf`, `pdf`, `cdf`, `logcdf`, `ccdf`, `logccdf`, `quantile` on a
+  `Real`) throws and points to `marginal(d)`. The observed marginal is the
+  marginal default's job: `marginal(d)` recovers the analytic
+  `primary_censored` node with its closed-form density. The two forms are
+  equivalent in expectation — averaging or integrating the latent joint
+  over the primary recovers the marginal. `marginal` is the inverse,
+  unwrapping a `Latent` back to the censored node it carries.
+  `PrimaryConditional` (the conditional of the observed given a realised
+  primary) and `get_primary_event` support this path. The new
+  `AbstractPrimaryCensored` supertype groups the primary-censored family
+  (`PrimaryCensored`, `PrimaryConditional`). The composed latent form
+  (over a composer tree) is a follow-up.
 
 - `primary_censored` and `double_interval_censored` accept a `method`
   keyword taking a solver object, `AnalyticalSolver()` (the default) or
