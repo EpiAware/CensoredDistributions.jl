@@ -116,13 +116,8 @@ backend `name` from [`working_backends`](@ref).
 
 """
 function backend_broken_scenarios()
-    # The batched `pdf(::IntervalCensored, ::AbstractVector)` boundary
-    # collection is now marked non-differentiable per backend (Mooncake
-    # `@zero_derivative`, Enzyme `inactive`, ChainRules `@non_differentiable`),
-    # so neither Mooncake nor Enzyme traces the `unique`/sort internals. The
-    # boundaries are functions of the constant lags, not the AD parameters, so
-    # the zero-tangent rule is exact; all backends now differentiate the path
-    # (#699, #701).
+    # Empty: every backend differentiates every scenario, including the batched
+    # `pdf(::IntervalCensored, ::AbstractVector)` path (#699, #701).
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
@@ -296,17 +291,16 @@ function scenarios(; with_reference::Bool = false)
             obs),
         [1.0, 0.75], (Constant(obs_double),))
 
-    # Batched (vectorised) `pdf`/`logpdf` over an AbstractVector of lags.
-    # These hit the `pdf(::IntervalCensored, ::AbstractVector)` path, which
-    # evaluates each unique interval-boundary CDF once via the boundary cache
-    # rather than the `2·(n+1)` overlapping evals a scalar `pdf`-per-lag loop
-    # does. The boundary collection is marked non-differentiable per backend
-    # (the boundaries are functions of the constant lags, not the AD params),
-    # so all backends differentiate the path: see #699 (Mooncake/ReverseDiff)
-    # and #701 (Enzyme). The scalar scenarios above never exercised it.
-    # Passing the lag vector `obs` as the differentiated argument's data (a
-    # `Constant` context) keeps the gradient w.r.t. the delay params only.
-    obs_batch = collect(0.0:1.0:9.0)
+    # Batched (vectorised) `pdf`/`logpdf` over a lag vector. These hit the
+    # `pdf(::IntervalCensored, ::AbstractVector)` boundary-cache path (#699,
+    # #701) that the scalar scenarios never exercise; batched `logpdf` routes
+    # through it too. All four cases score over a partial support, not the full
+    # `0:9`: `sum(pdf(dic, 0:9))` is identically 1.0, so its gradient is the
+    # zero vector and would match the reference even if AD silently zeroed the
+    # path. Partial support makes the reference genuinely non-zero. `obs` rides
+    # as a `Constant` so the gradient is w.r.t. the delay params only.
+    obs_batch = collect(0.0:1.0:5.0)
+    obs_double_batch = [1.0, 2.0, 4.0, 6.0]
     _push!("IntervalCensored LogNormal regular batched pdf",
         (θ, obs) -> sum(
             pdf(interval_censored(LogNormal(θ[1], θ[2]), 1.0), obs)),
@@ -315,21 +309,23 @@ function scenarios(; with_reference::Bool = false)
         (θ, obs) -> sum(
             logpdf(interval_censored(LogNormal(θ[1], θ[2]), 1.0), obs)),
         [1.0, 0.75], (Constant(obs_batch),))
-    # The double-interval batched path scores at specific lags rather than
-    # summing pdf over the full truncated support: `sum(pdf(dic, 0:9))` with
-    # `upper=10, interval=1` is identically 1.0 (the whole support), so its
-    # gradient is the zero vector — a degenerate reference that "passes" on
-    # every backend even if AD were broken. Scoring `logpdf` at a partial set
-    # of lags gives a genuine non-zero param gradient that exercises the
-    # cdf-eval tangent the boundary rule must leave intact (#699, #701).
-    obs_double_batch = [1.0, 2.0, 4.0, 6.0]
+    _push!("DoubleIntervalCensored LogNormal batched pdf",
+        (θ,
+            obs) -> sum(
+            pdf(
+            double_interval_censored(LogNormal(θ[1], θ[2]);
+                primary_event = Uniform(0.0, 1.0),
+                upper = 10.0, interval = 1.0),
+            obs)),
+        [1.0, 0.75], (Constant(obs_batch),))
     _push!("DoubleIntervalCensored LogNormal batched logpdf",
         (θ,
             obs) -> sum(
             logpdf(
             double_interval_censored(LogNormal(θ[1], θ[2]);
                 primary_event = Uniform(0.0, 1.0),
-                upper = 10.0, interval = 1.0), obs)),
+                upper = 10.0, interval = 1.0),
+            obs)),
         [1.0, 0.75], (Constant(obs_double_batch),))
 
     # Weighted scalar logpdf: a count/aggregated-data likelihood term
