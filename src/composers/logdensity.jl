@@ -245,7 +245,7 @@ function _graft(node, priors, fixed, nt)
     _all_fixed(priors) ? fixed : _graft_node(node, priors, fixed, nt)
 end
 
-function _graft_node(node::Union{Sequential, Parallel}, priors, fixed, nt)
+function _graft_node(node::AbstractMultiChild, priors, fixed, nt)
     names = component_names(node)
     parts = ntuple(length(names)) do i
         nm = names[i]

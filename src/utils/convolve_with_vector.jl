@@ -161,7 +161,7 @@ function _collect_branch!(specs, bname, delay::UnivariateDistribution, prefix,
     push!(specs, _EventSpec(bname, (prefix..., delay), ops))
     return nothing
 end
-function _collect_branch!(specs, bname, delay::Union{Sequential, Parallel},
+function _collect_branch!(specs, bname, delay::AbstractMultiChild,
         prefix, ops, counter)
     _collect_specs!(specs, delay, prefix, ops, counter)
     return nothing
@@ -172,7 +172,7 @@ function _collect_branch!(specs, bname, c::AbstractOneOf, prefix, ops, counter)
 end
 
 # All event specs of a stack, in tree order (names mirror `event_names`).
-function _event_specs(stack::Union{Sequential, Parallel})
+function _event_specs(stack::AbstractMultiChild)
     specs = _EventSpec[]
     counter = Ref(0)
     _root_origin_name(stack, counter)

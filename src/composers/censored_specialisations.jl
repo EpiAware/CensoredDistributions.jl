@@ -57,7 +57,7 @@ _origin_primary_event(::UnivariateDistribution) = nothing
 # A nested multivariate composer is not a primary-censored origin leaf, so it
 # surfaces no origin primary event (the censored treatment is resolved within
 # the child). `Resolve` is univariate and already hits the fallback above.
-_origin_primary_event(::Union{Sequential, Parallel}) = nothing
+_origin_primary_event(::AbstractMultiChild) = nothing
 # A nested `Choose` resolves censoring within the committed alternative (the
 # first on the flat path); a `Latent` resolves it within its wrapped node.
 # Neither surfaces a flat origin primary event.
@@ -168,7 +168,7 @@ end
 # rather than a leaf edge. Dispatch on the type, so the recursion is selected at
 # compile time with no runtime type lookup. A `Resolve` is univariate (a single
 # marginal time-to-resolution leaf), so it is NOT a nested composer here.
-_is_nested_composer(::Union{Sequential, Parallel}) = true
+_is_nested_composer(::AbstractMultiChild) = true
 _is_nested_composer(::UnivariateDistribution) = false
 
 # Whether any of a composer's components is itself a nested composer. Picks the

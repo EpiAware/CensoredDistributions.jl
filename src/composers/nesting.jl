@@ -1,5 +1,5 @@
 # Shared nesting machinery for the composers, defined once both composer types
-# exist so the `Union{Sequential, Parallel}` methods resolve. A realisation of
+# exist so the `AbstractMultiChild` methods resolve. A realisation of
 # any composer is a flat vector of leaf values; a nested child contributes its
 # own flat sub-vector, so nesting is pure concatenation and that nesting is the
 # tree. These helpers do the flat-slice recursion shared by `Sequential` and
@@ -12,7 +12,7 @@
 # rather than through the univariate clause; this lets a `Choose` carry a latent
 # alternative branch (the index-vs-sourced split's sourced chain).
 _is_composable(::UnivariateDistribution) = true
-_is_composable(::Union{Sequential, Parallel}) = true
+_is_composable(::AbstractMultiChild) = true
 _is_composable(::Choose) = true
 _is_composable(::Latent) = true
 _is_composable(::Any) = false
@@ -32,7 +32,7 @@ _is_one_of_branch(::Any) = false
 # (univariate but multi-slot) also counts: its event layout spans more than one
 # slot. A leaf delay (including the `NoEvent` marker) is terminal. Defined here
 # (not in `Resolve.jl`) so `Sequential` / `Parallel` / `Choose` are all loaded.
-_is_composer_outcome(::Union{Sequential, Parallel, Choose, AbstractOneOf}) = true
+_is_composer_outcome(::AbstractComposedDistribution) = true
 _is_composer_outcome(::UnivariateDistribution) = false
 
 # Whether a one_of node is non-terminal: any outcome's payload is a composer
@@ -109,7 +109,7 @@ CensoredDistributions.child_nleaves(node)
 function child_nleaves end
 
 child_nleaves(::UnivariateDistribution) = 1
-child_nleaves(c::Union{Sequential, Parallel}) = length(c)
+child_nleaves(c::AbstractMultiChild) = length(c)
 # A nested `Choose` swaps in one alternative of fixed width, so it occupies a
 # fixed flat slot only when every alternative has the same leaf count. The
 # common width is the nested Choose's leaf count; disagreeing widths cannot
@@ -186,7 +186,7 @@ function _one_of_outcome_slots(d::Union{Sequential, Parallel, Choose,
         AbstractOneOf})
     return _event_child_nleaves(d)
 end
-_event_child_nleaves(c::Union{Sequential, Parallel}) = _event_nleaves(c.components)
+_event_child_nleaves(c::AbstractMultiChild) = _event_nleaves(c.components)
 # A nested `Choose` occupies its (common) alternative's event-slot width: every
 # alternative must expose the same number of event slots to share one flat slot,
 # so the chosen alternative for a row lands in the same slice whichever it is.
@@ -262,7 +262,7 @@ function child_logpdf end
 child_logpdf(c::UnivariateDistribution, x, offset, ::Int) = logpdf(c, x[offset + 1])
 # A nested child scores its own contiguous slice of the value vector; a `@view`
 # avoids a copy and differentiates on every supported backend.
-function child_logpdf(c::Union{Sequential, Parallel}, x, offset, n::Int)
+function child_logpdf(c::AbstractMultiChild, x, offset, n::Int)
     logpdf(c, @view x[(offset + 1):(offset + n)])
 end
 # A nested `Choose` in the data-free flat value-vector path commits to its first
@@ -340,7 +340,7 @@ function child_rand!(out, offset, rng::AbstractRNG, c::UnivariateDistribution)
     return nothing
 end
 function child_rand!(
-        out, offset, rng::AbstractRNG, c::Union{Sequential, Parallel})
+        out, offset, rng::AbstractRNG, c::AbstractMultiChild)
     # Use the internal vector-valued realisation (`_composer_rand`), not the
     # public `rand`: the public `rand` labels a top-level multivariate draw as a
     # NamedTuple, but a nested child here is concatenated into the flat value

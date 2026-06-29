@@ -218,7 +218,7 @@ See also: [`double_interval_censored`](@ref), [`observed_distribution`](@ref)
 # into the leaves as before. The `Sequential` and `Parallel` cases share this
 # method (both distribute into branch/step leaves identically).
 function double_interval_censored(
-        d::Union{Sequential, Parallel};
+        d::AbstractMultiChild;
         primary_event::UnivariateDistribution = Uniform(0, 1),
         lower::_MaybeField = nothing, upper::_MaybeField = nothing,
         interval::_MaybeField = nothing,
@@ -463,7 +463,7 @@ end
 # the `interval_censored(::AbstractOneOf, ::Real)` method handles.
 
 # The composed verb nodes `truncated` distributes into.
-const _TruncatableNode = Union{Sequential, Parallel, Choose, AbstractOneOf}
+const _TruncatableNode = AbstractComposedDistribution
 
 # The core `truncated` distributes onto: peel only outer
 # truncation layers so re-truncating an already-truncated node re-truncates the

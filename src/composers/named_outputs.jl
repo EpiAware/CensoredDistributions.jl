@@ -53,7 +53,7 @@ end
 # vector (one value per leaf, no latent origin), so its output names are the
 # per-value leaf names. Calls `_flat_event_names` directly (not the public
 # `event_names`, which now delegates back to this) to avoid a cycle.
-function _output_names(d::Union{Sequential, Parallel})
+function _output_names(d::AbstractMultiChild)
     _tree_primary_event(d) === nothing && return _value_names(d)
     return _flat_event_names(d)
 end
@@ -65,7 +65,7 @@ end
 # dotted-underscore path (`:r1_step_1`) so a positional default repeated across
 # nesting levels (a default `:step_1` in two branches) still yields unique
 # NamedTuple keys (a leaf at the top level keeps its bare name).
-function _value_names(d::Union{Sequential, Parallel})
+function _value_names(d::AbstractMultiChild)
     out = Symbol[]
     names = component_names(d)
     for i in eachindex(d.components)
@@ -75,7 +75,7 @@ function _value_names(d::Union{Sequential, Parallel})
 end
 
 function _append_value_names!(out, path::Tuple,
-        child::Union{Sequential, Parallel})
+        child::AbstractMultiChild)
     cnames = component_names(child)
     for i in eachindex(child.components)
         _append_value_names!(out, (path..., cnames[i]), child.components[i])
@@ -141,7 +141,7 @@ end
 # at the REPL. A censored composer scores the flat event vector `[E_0, ..., E_k]`
 # keyed by `event_names(d)`; a plain composer scores the per-value vector keyed
 # by its value names.
-function _wrong_shape_error(d::Union{Sequential, Parallel}, what, x)
+function _wrong_shape_error(d::AbstractMultiChild, what, x)
     censored = _tree_primary_event(d) !== nothing
     names = censored ? event_names(d) : _value_names(d)
     kind = d isa Sequential ? "Sequential" : "Parallel"
@@ -155,10 +155,10 @@ function _wrong_shape_error(d::Union{Sequential, Parallel}, what, x)
         "$(what)(d, rand(d))."))
 end
 
-function logpdf(d::Union{Sequential, Parallel}, x::Real)
+function logpdf(d::AbstractMultiChild, x::Real)
     return _wrong_shape_error(d, "logpdf", x)
 end
-function pdf(d::Union{Sequential, Parallel}, x::Real)
+function pdf(d::AbstractMultiChild, x::Real)
     return _wrong_shape_error(d, "pdf", x)
 end
 
@@ -172,7 +172,7 @@ end
 # plain composer scores the per-value vector (matched by its value names). Field
 # order does not matter; the names do.
 
-function logpdf(d::Union{Sequential, Parallel}, x::NamedTuple)
+function logpdf(d::AbstractMultiChild, x::NamedTuple)
     # A column table (a `NamedTuple` of vectors, `Tables.istable == true`) is a
     # multi-record source, not a single labelled draw; route it to the public
     # vectorised `logpdf(d, rows)` front-door. A single labelled draw
@@ -188,7 +188,7 @@ end
 # (no latent origin, no missing events), so this is a plain `Vector{Float64}`
 # that routes to the plain `logpdf(::Sequential/Parallel, ::AbstractVector)`
 # (not the Missing-admitting censored event scorer).
-function _named_value_vector(d::Union{Sequential, Parallel}, x::NamedTuple)
+function _named_value_vector(d::AbstractMultiChild, x::NamedTuple)
     vnames = _value_names(d)
     for k in keys(x)
         k in vnames || throw(ArgumentError(

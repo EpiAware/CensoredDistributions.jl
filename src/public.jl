@@ -3,9 +3,11 @@
 # Abstract type hierarchy (public but not exported): the family supertypes
 # downstream authors subtype, plus the positional-multi-child intermediate.
 # `AbstractOneOf` re-roots under `AbstractComposedDistribution`;
-# `AbstractPrimaryCensored` is the core primary-censored family.
+# `AbstractPrimaryCensored` is the core primary-censored family;
+# `AbstractCombinedDistribution` is the multi-base algebraic-combination family.
 public AbstractComposedDistribution, AbstractMultiChild,
-       AbstractModifiedDistribution, AbstractPrimaryCensored
+       AbstractModifiedDistribution, AbstractPrimaryCensored,
+       AbstractCombinedDistribution
 
 # Core distribution types (public but not exported)
 public PrimaryCensored

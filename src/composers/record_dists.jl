@@ -325,7 +325,7 @@ end
 # first alternative. The resolved tree may itself be flat or nested; either way
 # the generic record scores it through `event_logpdf`, equal to the per-record
 # loop over the resolved trees.
-function _choose_resolved_records(d::Union{Sequential, Parallel}, rows)
+function _choose_resolved_records(d::AbstractMultiChild, rows)
     rowvec = collect(Tables.rows(rows))
     isempty(rowvec) && throw(ArgumentError(
         "record_distributions needs at least one record; got an empty table"))
@@ -352,7 +352,7 @@ function _choose_fields(d::Choose)
     vcat([d.selector],
         reduce(vcat, map(_choose_fields, d.alternatives); init = Symbol[]))
 end
-function _choose_fields(d::Union{Sequential, Parallel})
+function _choose_fields(d::AbstractMultiChild)
     return reduce(vcat, map(_choose_fields, d.components); init = Symbol[])
 end
 function _choose_fields(c::AbstractOneOf)
@@ -378,14 +378,14 @@ end
 # Parse a table into `_ParsedRow`s once (the AD-free data pre-pass): each row is
 # matched to the tree's flat event vector by name and its reserved weight /
 # horizon / branch_probs read, reusing the shared core row helpers.
-function _parse_rows(d::Union{Sequential, Parallel}, rows)
+function _parse_rows(d::AbstractMultiChild, rows)
     rowvec = collect(Tables.rows(rows))
     isempty(rowvec) && throw(ArgumentError(
         "record_distributions needs at least one record; got an empty table"))
     return [_parse_row(d, row) for row in rowvec]
 end
 
-function _parse_row(d::Union{Sequential, Parallel}, row)
+function _parse_row(d::AbstractMultiChild, row)
     nt = _row_namedtuple(row)
     ev = _row_event_vector(d, nt)
     w = _row_weight_field(nt, nothing)
@@ -507,7 +507,7 @@ function _record_logpdf(r::_GenericRecord, x::AbstractVector)
     return _weight_lp(lp, r.weight)
 end
 
-function _generic_event_logpdf(d::Union{Sequential, Parallel}, merged, horizon)
+function _generic_event_logpdf(d::AbstractMultiChild, merged, horizon)
     event_logpdf(d, merged; horizon = horizon)
 end
 # A univariate-leaf alternative scores its single observed value; a missing slot
@@ -524,7 +524,7 @@ function _record_rand(rng::AbstractRNG, r::_GenericRecord)
     return _generic_record_rand(rng, r.dist)
 end
 
-function _generic_record_rand(rng::AbstractRNG, d::Union{Sequential, Parallel})
+function _generic_record_rand(rng::AbstractRNG, d::AbstractMultiChild)
     _nested_trait(d.components) isa _Nested ?
     collect(_tree_event_vector(rng, d)) : _composer_rand(rng, d)
 end
@@ -557,7 +557,7 @@ end
 # Build a generic per-record distribution vector: each record bakes in its own
 # `branch_probs` override (coerced + validated against the tree's single Resolve
 # node) so a covariate CFR flows in per record, plus its weight / horizon.
-function _generic_records(d::Union{Sequential, Parallel}, parsed)
+function _generic_records(d::AbstractMultiChild, parsed)
     return [_generic_record(d, p) for p in parsed]
 end
 
@@ -596,7 +596,7 @@ _the_one_of_node(c::Resolve) = _merge_one_of(c,
     _the_one_of_node_in(c.delays))
 _the_one_of_node(c::Compete) = _the_one_of_node_in(c.delays)
 _the_one_of_node(::UnivariateDistribution) = nothing
-function _the_one_of_node(d::Union{Sequential, Parallel})
+function _the_one_of_node(d::AbstractMultiChild)
     return _the_one_of_node_in(d.components)
 end
 _the_one_of_node(d::Choose) = _the_one_of_node_in(d.alternatives)
@@ -668,7 +668,7 @@ end
 # reuses the per-record build (so nested trees / branch_probs work under a
 # Choose); a leaf alternative builds a univariate-leaf record scored through
 # `event_logpdf`.
-function _alternative_record(d::Union{Sequential, Parallel}, row::NamedTuple)
+function _alternative_record(d::AbstractMultiChild, row::NamedTuple)
     return only(record_distributions(d, [row]))
 end
 function _alternative_record(d::UnivariateDistribution, row::NamedTuple)

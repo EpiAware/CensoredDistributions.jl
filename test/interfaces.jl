@@ -194,3 +194,18 @@ end
     pcond = PrimaryConditional(pc, 0.5)
     test_primary_censored_interface(pcond; name = "PrimaryConditional", x = 2.0)
 end
+
+@testitem "test_combined_interface over the multi-base combinations" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions.TestUtils: test_combined_interface
+
+    # The combined-family conformance entry: Convolved (sum of independent
+    # components) and Difference (Z = X - Y) subtype AbstractCombinedDistribution
+    # and carry params / a finite logpdf / show. MomentParams and
+    # ExponentiallyTilted stay plain (see the membership meta-test).
+    conv = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
+    test_combined_interface(conv; name = "Convolved", x = 3.0)
+
+    diff = difference(Gamma(2.0, 1.0), Gamma(1.5, 1.0))
+    test_combined_interface(diff; name = "Difference", x = 0.5)
+end

@@ -30,7 +30,7 @@ function _edit_at(node, path::Tuple, op)
     return _edit_step(node, path, op)
 end
 
-function _edit_step(d::Union{Sequential, Parallel}, path::Tuple, op)
+function _edit_step(d::AbstractMultiChild, path::Tuple, op)
     names = component_names(d)
     idx = _child_index(names, first(path), nameof(typeof(d)))
     parts = ntuple(length(names)) do i
@@ -196,7 +196,7 @@ function _prune_path(d, p::Tuple)
 end
 
 # Remove the child `name` from a composer, rebuilding the node without it.
-function _drop_child(d::Union{Sequential, Parallel}, name::Symbol)
+function _drop_child(d::AbstractMultiChild, name::Symbol)
     names = component_names(d)
     idx = _child_index(names, name, nameof(typeof(d)))
     length(names) >= 2 || throw(ArgumentError(

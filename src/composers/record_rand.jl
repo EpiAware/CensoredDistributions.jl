@@ -29,7 +29,7 @@ end
 # named `:value`.
 _record_event_names(r::EventRecord) = _flat_event_names(r.dist)
 _record_event_names(r::_GenericRecord) = _generic_record_event_names(r.dist)
-function _generic_record_event_names(d::Union{Sequential, Parallel})
+function _generic_record_event_names(d::AbstractMultiChild)
     return _flat_event_names(d)
 end
 _generic_record_event_names(::UnivariateDistribution) = (:value,)
