@@ -127,13 +127,17 @@ function backend_broken_scenarios()
 end
 
 """
-    scenarios(; with_reference::Bool = false)
+    scenarios(; with_reference::Bool = false, category::Symbol = :marginal)
 
 Return a `Vector{DIT.Scenario{:gradient, :out}}`. When
 `with_reference = true`, each scenario's `res1` is populated with a
 ForwardDiff reference gradient (see module docstring for rationale).
+
+`category` satisfies the EpiAwarePackageTools `ADRegistry` contract (the
+managed `test/ad/setup.jl` forwards it); these fixtures are a single
+marginal-density category, so the argument is accepted and ignored.
 """
-function scenarios(; with_reference::Bool = false)
+function scenarios(; with_reference::Bool = false, category::Symbol = :marginal)
     obs = [0.5, 1.2, 2.5, 3.8, 5.1]
     obs_int = [0.0, 1.0, 2.0, 3.0, 4.0]
     boundaries = [0.0, 1.5, 3.0, 5.0, 10.0]

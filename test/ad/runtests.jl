@@ -1,15 +1,15 @@
 #!/usr/bin/env julia
-# AD gradient tests for CensoredDistributions, organised as `@testitem`s
-# (as in the main test suite) and run with TestItemRunner.
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
+#
+# AD gradient test entry, organised as `@testitem`s and run with
+# TestItemRunner. The AD items live in their own environment (Enzyme, Mooncake,
+# etc. are not main-test deps) and in dedicated per-backend CI.
 #
 #   julia --project=test/ad test/ad/runtests.jl              # all backends
 #   julia --project=test/ad test/ad/runtests.jl enzyme_reverse  # one tag
 #
-# Per-backend tags (`forwarddiff`, `reversediff`, `enzyme_reverse`,
-# `enzyme_forward`, `mooncake_reverse`, `mooncake_forward`) let the
-# per-backend CI (#269) run a single backend, so a transiently unstable
-# backend only reds its own badge. Group tags `enzyme` and `mooncake` are
-# also available. With no argument every AD item runs.
+# Per-backend tags let the per-backend CI run a single backend so a transiently
+# unstable backend only reds its own badge. With no argument every AD item runs.
 
 using TestItemRunner
 
