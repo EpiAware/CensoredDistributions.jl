@@ -258,3 +258,113 @@ end
     # update rebuilds the template structure from a param_draws NamedTuple.
     @test update(tree, draw) isa CensoredDistributions.Parallel
 end
+
+@testitem "fix/estimate: free vector excludes fixed params" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: as_logdensity, logdensity, free_dimension,
+                                 flat_dimension, _reconstruct
+    using LogDensityProblems
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    data = [[0.5, 2.0], [1.0, 3.0], [0.8, 2.5]]
+
+    # No fixed params: free dimension is the full row count (back compatible).
+    prob0 = as_logdensity(tree, build_priors(tree), data)
+    @test free_dimension(prob0) == flat_dimension(tree) == 4
+    @test LogDensityProblems.dimension(prob0) == 4
+
+    # Fix onset_admit.scale and the whole admit_death leaf -> 1 free param.
+    priors = build_priors(tree;
+        fix = (onset_admit = (scale = 1.0,),
+            admit_death = (mu = 0.5, sigma = 0.4)))
+    prob = as_logdensity(tree, priors, data)
+    @test free_dimension(prob) == 1
+    # The LDP dimension is the FREE count, NOT the full table row count.
+    @test LogDensityProblems.dimension(prob) == 1
+    @test free_dimension(prob) < flat_dimension(tree)
+
+    # Reconstruction at the single free value HOLDS the fixed params and sets
+    # estimated one.
+    d = _reconstruct(prob, [3.0])
+    @test params(event(d, :onset_admit)) == (3.0, 1.0)
+    @test params(event(d, :admit_death)) == (0.5, 0.4)
+end
+
+@testitem "fix/estimate: logdensity = estimated priors + held likelihood" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: as_logdensity, logdensity
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    data = [[0.5, 2.0], [1.0, 3.0], [0.8, 2.5]]
+    priors = build_priors(tree;
+        fix = (onset_admit = (scale = 1.0,), admit_death = (sigma = 0.4,)))
+    prob = as_logdensity(tree, priors, data)
+
+    # Free vector: [onset_admit.shape, admit_death.mu] in row order.
+    x = [3.0, 0.7]
+    ld = logdensity(prob, x)
+    held = update(tree, (onset_admit = (shape = 3.0, scale = 1.0),
+        admit_death = (mu = 0.7, sigma = 0.4)))
+    # Only the TWO estimated priors contribute a prior term; the fixed scale and
+    # sigma do not.
+    manual = logpdf(priors.onset_admit.shape, 3.0) +
+             logpdf(priors.admit_death.mu, 0.7) +
+             sum(logpdf(held, y) for y in data)
+    @test ld ≈ manual
+
+    # A fully-fixed model has no free params and scores the pure likelihood.
+    allfix = build_priors(tree;
+        fix = (onset_admit = (shape = 2.0, scale = 1.0),
+            admit_death = (mu = 0.5, sigma = 0.4)))
+    aprob = as_logdensity(tree, allfix, data)
+    @test CensoredDistributions.free_dimension(aprob) == 0
+    @test logdensity(aprob, Float64[]) ≈ sum(logpdf(tree, y) for y in data)
+end
+
+@testitem "fix/estimate: fully-fixed subtree built once and reused" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: as_logdensity, _reconstruct
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    data = [[0.5, 2.0], [1.0, 3.0]]
+    # admit_death is fully fixed; onset_admit.shape is estimated.
+    priors = build_priors(tree;
+        fix = (onset_admit = (scale = 1.0,),
+            admit_death = (mu = 0.5, sigma = 0.4)))
+    prob = as_logdensity(tree, priors, data)
+
+    d1 = _reconstruct(prob, [3.0])
+    d2 = _reconstruct(prob, [5.0])
+    # The fully-fixed subtree is the SAME object across evaluations and is the
+    # one prebuilt at assembly (built once, not rebuilt per evaluation).
+    @test event(d1, :admit_death) === event(d2, :admit_death)
+    @test event(d1, :admit_death) ===
+          event(prob.free.fixed_template, :admit_death)
+    # The estimated leaf IS rebuilt per evaluation (its value tracks the input).
+    @test params(event(d1, :onset_admit)) == (3.0, 1.0)
+    @test params(event(d2, :onset_admit)) == (5.0, 1.0)
+end
+
+@testitem "fix/estimate: codec round-trips with a fixed leaf" begin
+    using CensoredDistributions, Distributions, Tables
+    using CensoredDistributions: as_logdensity, logdensity, free_dimension
+
+    # Toggling a slot value<->distribution toggles fix<->estimate with no other
+    # rewiring: the estimated-only and the fixed problem share structure.
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    data = [[0.5, 2.0], [1.0, 3.0]]
+
+    est = as_logdensity(tree, build_priors(tree), data)
+    fix1 = as_logdensity(tree,
+        build_priors(tree; fix = (admit_death = (sigma = 0.4,),)), data)
+    # Fixing one param drops exactly one free slot.
+    @test free_dimension(est) - free_dimension(fix1) == 1
+    # Both evaluate finitely on their own free vectors.
+    @test isfinite(logdensity(est,
+        collect(Tables.getcolumn(params_table(tree), :value))))
+    @test isfinite(logdensity(fix1, [2.0, 1.0, 0.5]))
+end
