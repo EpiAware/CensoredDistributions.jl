@@ -2,7 +2,7 @@ module CensoredDistributionsEnzymeExt
 
 using CensoredDistributions: _gamma_cdf, _gamma_cdf_value_and_partials,
                              _window_quantile, _subevent_slice,
-                             _collect_unique_boundaries
+                             _collect_unique_boundaries, _weight_deprecation
 using Distributions: UnivariateDistribution
 using Enzyme: Enzyme
 using Enzyme.EnzymeRules: EnzymeRules
@@ -52,6 +52,19 @@ EnzymeRules.inactive(::typeof(_window_quantile), args...) = nothing
 # #701). `inactive` runs the primal unchanged; the parameter gradient flows
 # through the CDF evaluation in `_compute_boundary_cdfs`, not here.
 EnzymeRules.inactive(::typeof(_collect_unique_boundaries), args...) = nothing
+
+# `_weight_deprecation()` emits the `weight` soft-deprecation warning (issue
+# #128) via `Base.depwarn`, called from every `weight` constructor — which the
+# AD fixtures invoke INSIDE the differentiated closure. `depwarn` reads
+# `Base.get_world_counter()`, i.e. the `@jl_world_counter` LLVM global, and
+# Enzyme cannot find a shadow for that global (`EnzymeNoShadowError`), erroring
+# every `weight` path on Enzyme forward and reverse. The warning is a pure
+# logging side-effect with no numeric output and no tangent, so marking it
+# inactive runs it on the primal unchanged (the depwarn still fires on normal
+# calls) and keeps Enzyme from tracing into the world-counter read. The other
+# backends (ForwardDiff/ReverseDiff/Mooncake) tolerate the call as-is, so this
+# rule is only needed for Enzyme.
+EnzymeRules.inactive(::typeof(_weight_deprecation), args...) = nothing
 
 # `EnzymeRules.@easy_rule` expands into both the reverse-mode
 # (`augmented_primal` / `reverse`) and forward-mode (`forward`) rules
