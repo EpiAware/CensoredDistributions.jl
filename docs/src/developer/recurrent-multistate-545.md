@@ -109,9 +109,11 @@ The renewal-over-states default lives in `src/composers/recurrent/`:
   sub-density, and adds the survival term of a horizon-censored final sojourn
   (right-censoring).
 - `ctmc(...)` builds the memoryless `CTMCStates` fast path: a generator matrix
-  with closed-form `transition_probability` `P(t) = exp(Q t)`, a `panel_logpdf`
-  for state-at-visit data, and the exponential-sojourn jump-chain `logpdf`. The
-  matrix exponential is AD-safe.
+  with closed-form `transition_probability` `P(t) = exp(Q t)`, scored through the
+  dispatching `logpdf` front door (a `(time, state)` panel uses `exp(Q t)`, a
+  `(from, to, dwell)` jump chain the exponential-sojourn term). The matrix
+  exponential is AD-safe. An all-exponential `recur(...)` auto-dispatches to this
+  representation, and `ctmc(::RecurrentStates)` converts an existing model.
 - `recurrent_states_model(template, priors)` (DynamicPPL extension) samples each
   state's edge priors through the shared `_params_submodel` and rebuilds the
   model, so a cyclic model fits with `@addlogprob! logpdf(m, path)` like the

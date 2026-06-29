@@ -138,6 +138,56 @@ function _compose_child(v::Union{AbstractVector, Tuple})
     return Sequential(map(_compose_child, Tuple(v)))
 end
 
+# --- repeated-leaf front-end -----------------------------------------------
+# `compose(dist, n)` repeats the SAME distribution (or pre-built composer
+# subtree) `n` times, the clean replacement for spelling out `n` identical
+# steps / branches by hand. The default builds a [`Sequential`](@ref) chain of
+# `n` identical steps (`:step_1 … :step_n`); `chain = false` builds a
+# [`Parallel`](@ref) of `n` identical branches (`:branch_1 … :branch_n`). The
+# repeated child is one shared object, so a single edit (or one prior keyed by
+# the repeated leaf) covers every copy.
+@doc raw"""
+
+Repeat the same distribution `n` times into a composer stack.
+
+`compose(dist, n)` is the count form of [`compose`](@ref): it repeats `dist` (a
+leaf or a pre-built composer subtree) `n` times, instead of writing out `n`
+identical steps or branches by hand. The default builds a [`Sequential`](@ref)
+chain (`:step_1 … :step_n`); `chain = false` builds a [`Parallel`](@ref) of `n`
+identical branches (`:branch_1 … :branch_n`).
+
+# Arguments
+- `dist`: the distribution or composer subtree to repeat.
+- `n`: the repeat count (`n >= 1`).
+
+# Keyword Arguments
+- `chain`: `true` (default) repeats into a [`Sequential`](@ref) chain; `false`
+  into a [`Parallel`](@ref) branch set.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+# A three-step chain of one shared delay (e.g. a fixed-rate progression).
+compose(Gamma(2.0, 1.0), 3)
+
+# Three independent branches off one origin instead.
+compose(Gamma(2.0, 1.0), 3; chain = false)
+```
+
+# See also
+- [`compose`](@ref): the NamedTuple / table front-end.
+- [`sequential`](@ref), [`parallel`](@ref): the structural composers this builds.
+"""
+function compose(dist::Union{UnivariateDistribution, Sequential, Parallel,
+            Choose},
+        n::Integer; chain::Bool = true)
+    n >= 1 || throw(ArgumentError("compose(dist, n) needs n >= 1; got $n"))
+    child = _compose_child(dist)
+    components = ntuple(_ -> child, n)
+    return chain ? Sequential(components) : Parallel(components)
+end
+
 # --- Tables.jl table front-end ---------------------------------------------
 # A table with `name` and `dist` columns maps to a Parallel over its rows, the
 # column-table equivalent of a flat NamedTuple of leaves. An optional `chain`

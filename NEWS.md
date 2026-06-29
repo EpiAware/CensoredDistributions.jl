@@ -2,6 +2,23 @@
 
 ### Features
 
+- Recurrent / cyclic multi-state toolkit integration. The renewal-over-states
+  `recur` and its memoryless `ctmc` fast path are surfaced in the composer
+  toolkit (operator map, syntax reference, and a cross-referenced recurrent
+  multi-state tutorial). Three API simplifications land with it: (a)
+  `logpdf(model, obs)` is now the single scoring front door for both
+  `RecurrentStates` and `CTMCStates` — it dispatches on the observation shape, so
+  a `(time, state)` panel uses the `exp(Q t)` kernel and a `(from, to, dwell)`
+  jump chain the exact term, retiring the bespoke `panel_logpdf` name (panel
+  scoring on a semi-Markov model routes through the CTMC representation, erroring
+  with a clear message if the model is not all-exponential); (b) an
+  all-exponential `recur(...)` whose states all race auto-dispatches to the
+  `CTMCStates` generator-matrix representation (exact jump chain + `exp(Q t)`
+  panel data), with `ctmc(::RecurrentStates)` exposed as the explicit converter;
+  and (c) `compose(dist, n)` repeats one distribution into an `n`-step
+  `Sequential` chain (`chain = false` for an `n`-branch `Parallel`), the clean
+  replacement for spelling out `n` identical steps. Advances
+  EpiAware/CensoredDistributions.jl#545.
 - PPL-agnostic inference: expose a composed model as a standard
   `LogDensityProblems` problem, so it can be fit without Turing (AdvancedHMC /
   DynamicHMC / Pathfinder straight off the problem), with the DynamicPPL

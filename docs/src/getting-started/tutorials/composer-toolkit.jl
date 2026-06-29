@@ -44,6 +44,7 @@
 # ```text
 # Structural composition (wire branches into a tree)
 # ├─ compose      lower a NamedTuple / table / matrix to the stack
+# ├─ compose(d,n) repeat one distribution into an n-step chain / branch set
 # ├─ sequential   conjunctive chain (steps add up)
 # ├─ parallel     independent branches off one shared origin
 # ├─ compete      racing hazards, first to fire wins
@@ -51,6 +52,10 @@
 # ├─ choose       a data field picks the branch
 # ├─ tie          tie leaves at paths into one parameter group
 # └─ shared       tag a leaf as a tied parameter group at build time
+#
+# Cyclic state graphs (lift the acyclic-tree no-cycles limit)
+# ├─ recur        renewal over states (semi-Markov), admits cycles
+# └─ ctmc         memoryless fast path (generator matrix, panel data)
 #
 # Combination (add or difference whole delays)
 # ├─ convolved    the sum X + Y (Convolved)
@@ -88,6 +93,14 @@
 # The structural composers are the subject of [The five composers](@ref) and
 # [Nesting](@ref) below; [`tie`](@ref) and [`shared`](@ref) appear in the
 # [Syntax reference](@ref) at the foot of the page.
+# The structural composers build a finite, acyclic tree (each event happens at
+# most once); a model with cycles (waning and reinfection, hospital admit /
+# discharge cycling) needs the cyclic state-graph family [`recur`](@ref) and
+# [`ctmc`](@ref), covered in the
+# [Recurrent multi-state transitions](@ref recurrent-multistate) tutorial.
+# [`compose`](@ref)`(dist, n)` repeats one distribution `n` times into a chain
+# (or, with `chain = false`, a branch set), the clean shorthand for `n` identical
+# steps.
 # The censoring leaves are the [drop-in swap](@ref censoring-drop-in), and
 # truncation is covered under [Truncating the whole chain](@ref).
 # The combinators ([`convolved`](@ref), [`difference`](@ref)) and
@@ -779,6 +792,7 @@ event_names(event(spliced, :admit_death))
 # |---|---|---|
 # | `compose((a = d1, b = d2))` | NamedTuple front-end; a `Vector` value is a chain | builds |
 # | `compose(table)` | explicit Tables.jl `name`/`dist` source (a NamedTuple is read structurally); an optional `chain` column folds rows into a `Sequential`, a `compete`/`prob` column pair into a `Resolve` | builds |
+# | `compose(d, n)` | repeat `d` into an `n`-step `Sequential` chain (`chain = false` for an `n`-branch `Parallel`) | builds |
 # | `sequential(:a => d1, :b => d2)` | a [`Sequential`](@ref) chain (steps add up) | builds |
 # | `parallel(:a => d1, :b => d2)` | a [`Parallel`](@ref) branch set (shared origin) | builds |
 # | `resolve(:a => (d1, p1), :b => (d2, p2))` | a [`Resolve`](@ref) node (one outcome occurs by fixed probability); the last prob may be omitted as the residual `1 - sum(others)` | builds |
@@ -853,6 +867,11 @@ event_names(event(spliced, :admit_death))
 #   full Turing fit and posterior summary. We do not repeat fitting on this page.
 # - The [Fit marginal, sample event based](@ref) tutorial fits in the cheap
 #   marginal form and then samples event paths from the latent form.
+# - For a model with cycles (waning and reinfection, hospital cycling) the
+#   acyclic composers do not suffice; the
+#   [Recurrent multi-state transitions](@ref recurrent-multistate) tutorial uses
+#   [`recur`](@ref) (renewal over states) and its memoryless [`ctmc`](@ref) fast
+#   path, each state owning a [`compete`](@ref) node over its outgoing edges.
 # - To write your own leaf or composer that plugs into these tools, see
 #   [Extending the composer toolkit](@ref extending-composer): the interface a
 #   custom distribution must satisfy, a worked example composed into a tree, and

@@ -120,6 +120,8 @@ public logdensity, to_constrained
 # graph readers (`transient_states`, `absorbing_states`, `is_absorbing`) and the
 # path reader (`visited_states`) inspect a `RecurrentStates` model and its
 # `StatePath` realisations; `transition_probability` is the CTMC `exp(Q t)`
-# kernel and `panel_logpdf` the CTMC panel-data (state-at-visit) likelihood.
+# kernel. Panel-data (state-at-visit) and jump-chain scoring both go through the
+# exported `logpdf` front door, which dispatches on the observation shape, so
+# there is no bespoke panel-scoring name on the public surface.
 public transient_states, absorbing_states, is_absorbing, visited_states,
-       transition_probability, panel_logpdf
+       transition_probability

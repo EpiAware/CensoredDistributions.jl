@@ -76,3 +76,26 @@ end
     # At least one branch is required.
     @test_throws ArgumentError compose(incub)
 end
+
+@testitem "compose(dist, n) repeats a distribution into a chain or branches" begin
+    using CensoredDistributions, Distributions
+    const CD = CensoredDistributions
+
+    d = Gamma(2.0, 1.0)
+    # The default repeats into a Sequential chain of n identical steps.
+    chain = compose(d, 3)
+    @test chain isa CD.Sequential
+    @test length(chain.components) == 3
+    @test all(==(d), chain.components)
+    @test CD.component_names(chain) == (:step_1, :step_2, :step_3)
+    # `chain = false` repeats into a Parallel of n identical branches, equal to
+    # the hand-written NamedTuple of the same leaf repeated.
+    branches = compose(d, 3; chain = false)
+    @test branches isa CD.Parallel
+    @test branches == compose((branch_1 = d, branch_2 = d, branch_3 = d))
+    # A pre-built composer subtree repeats too (one shared child object).
+    sub = compose((a = Gamma(1.0, 1.0), b = LogNormal(0.5, 0.4)))
+    @test compose(sub, 2) isa CD.Sequential
+    # n must be at least one.
+    @test_throws ArgumentError compose(d, 0)
+end

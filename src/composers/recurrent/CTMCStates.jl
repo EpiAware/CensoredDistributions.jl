@@ -157,6 +157,90 @@ _ctmc_edges(p::Pair) = (p,)
 _ctmc_edges(t::Tuple) = t
 _ctmc_edges(nt::NamedTuple) = _nt_pairs(nt)
 
+@doc raw"""
+
+Convert a memoryless [`RecurrentStates`](@ref) model to its [`CTMCStates`](@ref)
+generator-matrix representation.
+
+A renewal-over-states model is a continuous-time Markov chain exactly when every
+edge sojourn is `Exponential` and every state RACES its edges (a [`Compete`](@ref)
+node or a lone edge, never a fixed-probability [`Resolve`](@ref) split). For such
+a model the per-edge rate is `1 / scale` of its `Exponential`, and the generator
+`Q` collects those rates. This is the conversion [`recur`](@ref) performs
+automatically, exposed here for a `RecurrentStates` built or edited by hand. It
+errors if the model is not memoryless.
+
+# Arguments
+- `m`: a memoryless [`RecurrentStates`](@ref) (all-`Exponential`, all-racing).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+# Built directly as a RecurrentStates, then converted to the CTMC fast path.
+rs = CensoredDistributions.RecurrentStates(
+    Dict(:well => (:ill => Exponential(5.0)),
+        :ill => CensoredDistributions.Compete(:well => Exponential(3.0),
+            :dead => Exponential(10.0))), :well)
+ctmc(rs)
+```
+
+# See also
+- [`recur`](@ref): builds a `RecurrentStates`, auto-dispatching to a CTMC when
+  the model is memoryless.
+- [`CTMCStates`](@ref): the generator-matrix model this returns.
+"""
+function ctmc(m::RecurrentStates)
+    _is_memoryless(m) || throw(ArgumentError(
+        "a RecurrentStates converts to a CTMC only when every edge sojourn is " *
+        "Exponential and every state races its edges (a Compete node or a lone " *
+        "edge, not a fixed-probability Resolve); use the semi-Markov recur(...) " *
+        "path for non-exponential or fixed-split models"))
+    order = _ctmc_state_order(m)
+    idx = Dict(s => i for (i, s) in enumerate(order))
+    n = length(order)
+    # Promote the matrix element type from the edge rates so a `Dual`/tracked
+    # scale differentiates through the generator (mirrors `ctmc(specs...)`).
+    T = Float64
+    for node in values(m.nodes)
+        for d in _edge_dists(node)
+            T = promote_type(T, typeof(_exp_rate(d)))
+        end
+    end
+    Q = zeros(T, n, n)
+    for (state, node) in m.nodes
+        for (dest, d) in zip(_edge_dests(node), _edge_dists(node))
+            Q[idx[state], idx[dest]] += _exp_rate(d)
+        end
+    end
+    for i in 1:n
+        Q[i, i] = -sum(Q[i, j] for j in 1:n if j != i; init = zero(T))
+    end
+    return CTMCStates(Tuple(order), Q)
+end
+
+# The exit rate of an `Exponential` edge: `1 / scale` (`params(Exponential) =
+# (θ,)` the scale). Kept AD-safe by `inv` on the scalar scale.
+_exp_rate(d::Exponential) = inv(params(d)[1])
+
+# Whether a RecurrentStates is memoryless (an all-`Exponential`, all-racing CTMC).
+function _is_memoryless(m::RecurrentStates)
+    return all(_node_is_exp_race, values(m.nodes))
+end
+
+# A node is an exponential race when it is a lone `Exponential` edge or a
+# `Compete` of `Exponential`s. A `Resolve` (fixed split) is never a CTMC, and a
+# non-`Exponential` sojourn keeps the model semi-Markov.
+_node_is_exp_race(p::Pair) = p.second isa Exponential
+_node_is_exp_race(c::Compete) = all(d -> d isa Exponential, c.delays)
+_node_is_exp_race(::Any) = false
+
+# A deterministic CTMC state order from a RecurrentStates: the start state, then
+# the remaining transient states sorted, then the absorbing states sorted.
+function _ctmc_state_order(m::RecurrentStates)
+    return unique(vcat([m.start], transient_states(m), absorbing_states(m)))
+end
+
 # --- accessors --------------------------------------------------------------
 
 state_index(m::CTMCStates, s::Symbol) = findfirst(==(s), m.states)
@@ -232,22 +316,31 @@ function _eye(::Type{T}, n::Int) where {T}
     return M
 end
 
-# --- panel-data likelihood --------------------------------------------------
+# --- observation likelihood (dispatching front door) ------------------------
 
 @doc raw"""
 
-Log-likelihood of a panel observation under a [`CTMCStates`](@ref) model.
+Log-likelihood of an observation under a [`CTMCStates`](@ref) model.
 
-A panel observation is the state seen at a sequence of visit times, with the
-transition times UNKNOWN between visits. Its log-likelihood is
-`sum_v log P(Δt_v)[s_v, s_{v+1}]`, where `P(Δt) = exp(Q Δt)` marginalises
-over every hidden jump in the gap. This is the CTMC's advantage over the
-semi-Markov path, which needs the transition times.
+`logpdf` is the single front door for both observation kinds a CTMC scores; it
+DISPATCHES on the shape of `obs`, so no bespoke per-kind scoring name is needed:
+
+- a PANEL — an iterable of `(time, state)` pairs (the state seen at fixed visit
+  times, the transition times UNKNOWN) — scores
+  `sum_v log P(Δt_v)[s_v, s_{v+1}]`, where `P(Δt) = exp(Q Δt)` marginalises over
+  every hidden jump in the gap (the CTMC's advantage over the semi-Markov path);
+- a JUMP CHAIN — a [`StatePath`](@ref) or an iterable of `(from, to, dwell)`
+  jumps (the transition times KNOWN, a line list) — scores the exact
+  exponential-sojourn term `sum log q_{from,to} - q_from * dwell`.
+
+A panel observation is recognised by its element shape (a `(time, state)` pair),
+a jump by its `(from, to, dwell)` fields, so the same `logpdf(model, data)` call
+covers both.
 
 # Arguments
 - `m`: the [`CTMCStates`](@ref) model.
-- `panel`: an iterable of `(time, state)` observations, in increasing time
-  order.
+- `obs`: a panel (iterable of `(time, state)` pairs, in increasing time order) or
+  a jump chain (a [`StatePath`](@ref) or iterable of `(from, to, dwell)` jumps).
 
 # Examples
 ```@example
@@ -255,21 +348,37 @@ using CensoredDistributions
 
 model = ctmc(:well => (:ill => 0.2), :ill => (:well => 0.3, :dead => 0.1))
 panel = [(0.0, :well), (3.0, :ill), (7.0, :well)]
-panel_logpdf(model, panel)
+logpdf(model, panel)            # panel: transition times unknown
+jumps = [(from = :well, to = :ill, dwell = 4.0)]
+logpdf(model, jumps)            # jump chain: transition times known
 ```
 
 # See also
-- [`transition_probability`](@ref): the `exp(Q Δt)` kernel summed here.
-- [`logpdf`](@ref): the exact jump-chain likelihood (transition times known).
+- [`transition_probability`](@ref): the `exp(Q Δt)` kernel the panel sums.
+- [`RecurrentStates`](@ref): the semi-Markov default for non-exponential dwells.
 """
-function panel_logpdf(m::CTMCStates, panel)
+function logpdf(m::CTMCStates, obs)
+    o = collect(obs)
+    (!isempty(o) && _is_panel_obs(first(o))) &&
+        return _ctmc_panel_logpdf(m, o)
+    return _ctmc_jumps_logpdf(m, o)
+end
+
+# Whether an observation element is a PANEL `(time, state)` point rather than a
+# `(from, to, dwell)` jump. A panel point is a 2-tuple ending in a state Symbol,
+# or a NamedTuple carrying a `:state` field; a jump NamedTuple has no `:state`.
+_is_panel_obs(o::Tuple) = length(o) == 2 && o[2] isa Symbol
+_is_panel_obs(o::NamedTuple) = haskey(o, :state)
+_is_panel_obs(::Any) = false
+
+function _ctmc_panel_logpdf(m::CTMCStates, panel)
     obs = collect(panel)
     length(obs) >= 2 || throw(ArgumentError(
         "a panel needs at least two (time, state) observations"))
     total = 0.0
     for v in 1:(length(obs) - 1)
-        (t0, s0) = obs[v]
-        (t1, s1) = obs[v + 1]
+        (t0, s0) = _panel_point(obs[v])
+        (t1, s1) = _panel_point(obs[v + 1])
         Δt = t1 - t0
         Δt >= 0 || throw(ArgumentError(
             "panel visit times must be non-decreasing; got Δt = $Δt"))
@@ -283,25 +392,32 @@ function panel_logpdf(m::CTMCStates, panel)
     return total
 end
 
+# Read a `(time, state)` panel point from a 2-tuple or a `(time, state)`
+# NamedTuple, so the panel worker is order-independent for the NamedTuple form.
+_panel_point(o::Tuple) = (o[1], o[2])
+_panel_point(o::NamedTuple) = (o.time, o.state)
+
 # --- exact jump-chain likelihood --------------------------------------------
 
 @doc """
 
-Log-density of an exactly-observed jump chain under a [`CTMCStates`](@ref).
+Log-density of an exactly-observed jump chain ([`StatePath`](@ref) overload).
 
 When the transition times ARE known (a line list, not panel data) the CTMC
 likelihood is the exponential-sojourn special case of the semi-Markov path: each
 step contributes `log q_{from,to} - q_from * dwell` where `q_from` is the total
-exit rate of `from`. A [`StatePath`](@ref) or any iterable of `(from, to,
-dwell)` jumps is accepted; a `:censored` path adds the survival `-q_state *
-remaining` of its unfinished final sojourn.
+exit rate of `from`. This [`StatePath`](@ref) overload adds, for a `:censored`
+path, the survival `-q_state * remaining` of its unfinished final sojourn; a bare
+iterable of `(from, to, dwell)` jumps routes through the general `logpdf` front
+door.
 
 # Arguments
 - `m`: the [`CTMCStates`](@ref) model.
-- `path`: a [`StatePath`](@ref) or an iterable of `(from, to, dwell)` jumps.
+- `path`: a [`StatePath`](@ref).
 
 # See also
-- [`panel_logpdf`](@ref): the panel-data likelihood (transition times unknown).
+- [`CTMCStates`](@ref): the model type; its `logpdf` front door dispatches panel
+  data and bare jump chains on the observation shape.
 """
 function logpdf(m::CTMCStates, path::StatePath)
     total = _ctmc_jumps_logpdf(m, path.jumps)
@@ -311,8 +427,6 @@ function logpdf(m::CTMCStates, path::StatePath)
     end
     return total
 end
-
-logpdf(m::CTMCStates, jumps) = _ctmc_jumps_logpdf(m, jumps)
 
 function _ctmc_jumps_logpdf(m::CTMCStates, jumps)
     total = 0.0
