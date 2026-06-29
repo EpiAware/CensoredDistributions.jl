@@ -11,14 +11,15 @@ module CensoredDistributionsLogDensityProblemsExt
 # backends. Loaded only when LogDensityProblems is available.
 
 using CensoredDistributions: CensoredDistributions, ComposedLogDensity,
-                             flat_dimension, to_constrained
+                             free_dimension, to_constrained
 using LogDensityProblems: LogDensityProblems
 
-# `dimension`: the flat free-parameter count. The transforms are univariate (one
-# scalar prior per row), so the unconstrained dimension equals the constrained
-# one, both the `params_table` row count.
+# `dimension`: the FREE (estimated) parameter count. The transforms are
+# univariate (one scalar prior per estimated row), so the unconstrained
+# dimension equals the constrained one; fixed params are excluded from the
+# vector, so this is the `params_table` row count only when nothing is fixed.
 function LogDensityProblems.dimension(prob::ComposedLogDensity)
-    return flat_dimension(prob.dist)
+    return free_dimension(prob)
 end
 
 # Order-0 capability: this method evaluates the log-density only. A gradient is

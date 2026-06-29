@@ -19,6 +19,22 @@
   `Sequential` chain (`chain = false` for an `n`-branch `Parallel`), the clean
   replacement for spelling out `n` identical steps. Advances
   EpiAware/CensoredDistributions.jl#545.
+- Fix-vs-estimate for composed-distribution parameters on the
+  `LogDensityProblems` layer. A prior slot holding a plain value (rather than a
+  distribution) PINS that parameter: it is held at its constant, contributes no
+  prior term, and is EXCLUDED from the assembled problem's free vector, so
+  `free_dimension(prob)` and `LogDensityProblems.dimension(prob)` count only the
+  estimated parameters and a fixed param never enters the sampler or the
+  transform. Swap a value for a distribution (e.g. via `build_priors`'s `fix`
+  keyword) to toggle fix<->estimate with no other rewiring. A subtree whose
+  parameters are ALL fixed has a constant concrete distribution, so it is built
+  ONCE when `as_logdensity` assembles the `ComposedLogDensity` and reused on
+  every evaluation rather than rebuilt per call; the estimated leaves elsewhere
+  still differentiate (verified ForwardDiff == Mooncake on a mixed tree). This
+  reuses the existing `_is_sampled_prior` classification the Turing path already
+  applies (EpiAware/CensoredDistributions.jl#752), so the two backends agree on
+  which parameters are free. Implements EpiAware/CensoredDistributions.jl#778
+  (PyRenew fix-vs-estimate). `free_dimension` is public but NOT exported.
 - PPL-agnostic inference: expose a composed model as a standard
   `LogDensityProblems` problem, so it can be fit without Turing (AdvancedHMC /
   DynamicHMC / Pathfinder straight off the problem), with the DynamicPPL
