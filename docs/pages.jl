@@ -39,6 +39,7 @@ dev_pages = [
     "Overview" => "developer/index.md",
     "Contributing" => "developer/contributing.md",
     "Extending the composer toolkit" => "developer/extending.md",
+    "Interface contracts" => "developer/interface-contracts.md",
     "LogDensityProblems inference layer" => "developer/logdensity-layer.md",
     "Composable renewal step (design)" => "developer/renewal-step-611.md",
     "Recurrent multi-state design" => "developer/recurrent-multistate-545.md",
