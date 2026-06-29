@@ -189,7 +189,7 @@ end
 # `latent(d)` over a composer wraps it in the `Latent` per-event view. (The
 # leaf-level `latent(primary_censored(...))` keeps its own `[primary, observed]`
 # methods in `Latent.jl`.)
-const _ComposerLatent = Latent{<:Union{Sequential, Parallel}}
+const _ComposerLatent = Latent{<:AbstractMultiChild}
 
 Base.length(d::_ComposerLatent) = length(rand(d))
 Base.eltype(::Type{<:_ComposerLatent}) = Float64
@@ -276,7 +276,7 @@ std(d::_ComposerLatent) = map(sqrt, var(d))
 # value vector, so the moment vector is the per-value free-delay moments. `f` is
 # `_leaf_mean` or `_leaf_var`.
 
-function _event_moment_vector(d::Union{Sequential, Parallel}, f::F) where {F}
+function _event_moment_vector(d::AbstractMultiChild, f::F) where {F}
     primary = _tree_primary_event(d)
     primary === nothing && return _value_moment_vector(d, f)
     out = Vector{Float64}(undef, _event_nleaves(d.components) + 1)
@@ -289,7 +289,7 @@ end
 # Returns the next free index. Mirrors the `_flat_event_names` / `_tree_rand!`
 # depth-first walk: a `Sequential` threads step to step, a `Parallel` hangs each
 # branch off the shared origin, both filling one slot per leaf edge.
-function _event_moment_targets!(out, d::Union{Sequential, Parallel}, f::F,
+function _event_moment_targets!(out, d::AbstractMultiChild, f::F,
         start::Int) where {F}
     idx = start
     for child in d.components
@@ -298,7 +298,7 @@ function _event_moment_targets!(out, d::Union{Sequential, Parallel}, f::F,
     return idx
 end
 
-function _event_moment_step!(out, child::Union{Sequential, Parallel}, f::F,
+function _event_moment_step!(out, child::AbstractMultiChild, f::F,
         idx::Int) where {F}
     return _event_moment_targets!(out, child, f, idx)
 end
@@ -333,7 +333,7 @@ end
 # The per-value moment vector for a plain (uncensored) tree: one slot per leaf
 # value in `_child_nleaves` order, each a free-delay moment, matching the generic
 # `_composite_rand` value layout.
-function _value_moment_vector(d::Union{Sequential, Parallel}, f::F) where {F}
+function _value_moment_vector(d::AbstractMultiChild, f::F) where {F}
     out = Vector{Float64}(undef, _nleaves(d.components))
     _value_moment_fill!(out, d.components, f, 1)
     return out
@@ -347,7 +347,7 @@ function _value_moment_fill!(out, components::Tuple, f::F, start::Int) where {F}
     return idx
 end
 
-function _value_moment_child!(out, c::Union{Sequential, Parallel}, f::F,
+function _value_moment_child!(out, c::AbstractMultiChild, f::F,
         idx::Int) where {F}
     return _value_moment_fill!(out, c.components, f, idx)
 end

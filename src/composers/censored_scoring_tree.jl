@@ -120,7 +120,7 @@ end
 # untruncated walk; the plain leaf/chain edges ignore the horizon (their
 # whole-compose right-truncation is applied by the flat scorer's collapsed
 # denominator, not here).
-function _nested_tree_logpdf(d::Union{Sequential, Parallel}, events,
+function _nested_tree_logpdf(d::AbstractMultiChild, events,
         primary, ::Type{T}, horizon = nothing) where {T}
     return _tree_score(d, events, 1, 2, primary, T, horizon)
 end
@@ -186,7 +186,7 @@ end
 # the differentiated arithmetic still sees only the leaf params. The nested
 # (declared-edge) semantics are preserved -- this is `_tree_score`, not the flat
 # `logpdf` -- so an observed origin conditions each child on its declared edge.
-function _tree_step(step::Union{Sequential, Parallel}, events, o_idx::Int,
+function _tree_step(step::AbstractMultiChild, events, o_idx::Int,
         ev_idx::Int, primary, ::Type{T}, horizon = nothing) where {T}
     # The sub-view spans the node's event slots (a `Resolve` step contributes
     # one slot per outcome), so use the event-slot count, not `length`.

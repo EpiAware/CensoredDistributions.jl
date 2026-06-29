@@ -63,8 +63,8 @@ abstract type AbstractComposedDistribution{F <: VariateForm,
 Supertype of the positional multi-child composers `Sequential` and `Parallel`
 (subtype of `AbstractComposedDistribution{Multivariate, S}`). These two store
 `.components` / `.names` and are walked positionally by the tree machinery, so
-they share dispatch wherever a `Union{Sequential, Parallel}` is spelt today.
-`Choose` (disjoint alternatives) is a sibling, not a multi-child node.
+they share dispatch on `::AbstractMultiChild` (the supertype the tree walkers
+key off). `Choose` (disjoint alternatives) is a sibling, not a multi-child node.
 """
 abstract type AbstractMultiChild{S <: ValueSupport} <:
               AbstractComposedDistribution{Multivariate, S} end
@@ -134,3 +134,28 @@ type is the outer wrapper, so there is no `DoubleIntervalCensored` type to place
 under this supertype.
 """
 abstract type AbstractPrimaryCensored <: UnivariateDistribution{Continuous} end
+
+"""
+    AbstractCombinedDistribution{F<:VariateForm, S<:ValueSupport}
+
+Supertype of the multi-base algebraic combinations: `Convolved` (the sum of
+independent components) and `Difference` (`Z = X - Y`). These combine TWO or more
+base distributions by an algebraic operation — distinct from the single-base
+modifier leaves (`AbstractModifiedDistribution`) and from the named-child
+event-tree composers (`AbstractComposedDistribution`). Parametric on variate form
+for symmetry with the other families.
+
+Required of a concrete subtype:
+
+- `params(d)`;
+- `logpdf(d, x)` finite on its support;
+- `Base.show(io, d)`.
+
+Verify a subtype with
+`CensoredDistributions.TestUtils.test_combined_interface`.
+
+`MomentParams` (a reparameterised single-base leaf) and `ExponentiallyTilted` (a
+base family) are NOT combinations and stay plain `UnivariateDistribution`s.
+"""
+abstract type AbstractCombinedDistribution{F <: VariateForm,
+    S <: ValueSupport} <: Distribution{F, S} end

@@ -59,7 +59,7 @@ event_names(segs)
   vectorised path the wrapper feeds.
 - [`latent`](@ref): the whole-tree per-event view this complements.
 "
-function latent_segments(d::Union{Sequential, Parallel, AbstractOneOf, Choose})
+function latent_segments(d::AbstractComposedDistribution)
     segs = _tree_segments(d)
     isempty(segs) && throw(ArgumentError(
         "the tree has no leaf segments to make latent"))
@@ -91,7 +91,7 @@ end
 # the terminal event forward step to step; a `Parallel` hangs every branch off
 # the shared origin; a `Resolve` outcome hangs off its anchor and carries its
 # branch probability.
-function _tree_segments(d::Union{Sequential, Parallel, AbstractOneOf, Choose})
+function _tree_segments(d::AbstractComposedDistribution)
     segs = _Segment[]
     origin = _segment_root_origin(d)
     _collect_segments!(segs, d, origin)
@@ -100,7 +100,7 @@ end
 
 # The root origin event name of a tree (E_0), reusing the event-name walker so
 # the segment names align with `event_names`.
-function _segment_root_origin(d::Union{Sequential, Parallel})
+function _segment_root_origin(d::AbstractMultiChild)
     return _flat_event_names(d)[1]
 end
 _segment_root_origin(c::AbstractOneOf) = _flat_event_names(c)[1]
@@ -155,7 +155,7 @@ function _collect_edge_segments!(segs, edge_name::Symbol,
 end
 
 function _collect_edge_segments!(segs, edge_name::Symbol,
-        child::Union{Sequential, Parallel}, origin::Symbol)
+        child::AbstractMultiChild, origin::Symbol)
     _collect_segments!(segs, child, origin)
     return _nested_terminal_name(child, segs, origin)
 end
@@ -193,7 +193,7 @@ function _collect_outcome_segment!(segs, oname::Symbol,
 end
 
 function _collect_outcome_segment!(segs, oname::Symbol,
-        delay::Union{Sequential, Parallel}, ::Any, origin::Symbol)
+        delay::AbstractMultiChild, ::Any, origin::Symbol)
     _collect_segments!(segs, delay, origin)
     return nothing
 end

@@ -166,7 +166,7 @@ end
 # truncates; the subtree shares the parent anchor, so the same absolute
 # horizon applies.
 function _one_of_outcome_payload_logpdf(
-        delay::Union{Sequential, Parallel}, o, o_idx::Int, events,
+        delay::AbstractMultiChild, o, o_idx::Int, events,
         obs_start::Int, obs_w::Int, primary, ::Type{T},
         horizon = nothing) where {T}
     sub = _subevent_slice(events, o_idx, obs_start, obs_w)
@@ -271,7 +271,7 @@ end
 # `_logccdf_ad_safe` in log space; only the `t` gap is narrowed to the data type).
 # The anchor for the subtree is the parent origin (shared).
 function _hazard_outcome_payload(step::Compete, obs_i::Int,
-        delay::Union{Sequential, Parallel}, o, o_idx::Int, events,
+        delay::AbstractMultiChild, o, o_idx::Int, events,
         obs_start::Int, obs_w::Int, primary, ::Type{T},
         horizon = nothing) where {T}
     sub = _subevent_slice(events, o_idx, obs_start, obs_w)
@@ -441,7 +441,7 @@ end
 _count_one_of(c::Resolve) = 1 + _count_one_of_in(c.delays)
 _count_one_of(c::Compete) = _count_one_of_in(c.delays)
 _count_one_of(::UnivariateDistribution) = 0
-function _count_one_of(d::Union{Sequential, Parallel})
+function _count_one_of(d::AbstractMultiChild)
     return _count_one_of_in(d.components)
 end
 _count_one_of(d::Choose) = _count_one_of_in(d.alternatives)
@@ -524,7 +524,7 @@ _replace_one_of(d::Latent, probs) = Latent(_replace_one_of(d.dist, probs))
 # alternative; and a top-level `Latent` hit no method.)
 _count_chooses(c::Choose) = 1 + _count_chooses_in(c.alternatives)
 _count_chooses(::UnivariateDistribution) = 0
-function _count_chooses(d::Union{Sequential, Parallel})
+function _count_chooses(d::AbstractMultiChild)
     return _count_chooses_in(d.components)
 end
 _count_chooses(c::AbstractOneOf) = _count_chooses_in(c.delays)

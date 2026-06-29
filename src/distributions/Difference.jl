@@ -59,7 +59,8 @@ path even for a `Normal`-`Normal` pair (useful for validation).
 - [`Convolved`](@ref): The dual sum ``X + Y``
 "
 struct Difference{X <: UnivariateDistribution, Y <: UnivariateDistribution,
-    M <: AbstractSolverMethod} <: UnivariateDistribution{Continuous}
+    M <: AbstractSolverMethod} <:
+       AbstractCombinedDistribution{Univariate, Continuous}
     "The minuend component (the `X` in `Z = X - Y`)."
     x::X
     "The subtrahend component (the `Y` in `Z = X - Y`)."

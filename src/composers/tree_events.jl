@@ -81,7 +81,7 @@ end
 # the EDGE names ([`component_names`](@ref) / the parameter inventory). A row
 # passed to `composed_distribution_model` is matched to the event vector BY these
 # names, so field order does not matter.
-function _flat_event_names(d::Union{Sequential, Parallel})
+function _flat_event_names(d::AbstractMultiChild)
     names = Symbol[]
     counter = Ref(0)
     origin = _root_origin_name(d, counter)
@@ -99,7 +99,7 @@ _flat_event_names(c::AbstractOneOf) = (:event_1, c.names...)
 # positional. For a `Sequential` the first edge is `components[1]`; for a
 # `Parallel` it is the first branch. A nested first child recurses to its own
 # first edge.
-function _root_origin_name(d::Union{Sequential, Parallel}, counter)
+function _root_origin_name(d::AbstractMultiChild, counter)
     name1 = component_names(d)[1]
     pair = _edge_origin_pair(name1, d.components[1])
     pair === nothing && return _next_event_name(counter)
@@ -113,7 +113,7 @@ function _edge_origin_pair(edge_name::Symbol, child::UnivariateDistribution)
     return split === nothing ? nothing : split[1]
 end
 function _edge_origin_pair(
-        edge_name::Symbol, child::Union{Sequential, Parallel})
+        edge_name::Symbol, child::AbstractMultiChild)
     return _root_origin_name_or_nothing(child)
 end
 # A nested `Choose` as a first edge derives its origin from the EDGE name split
@@ -122,7 +122,7 @@ end
 function _edge_origin_pair(edge_name::Symbol, child::Choose)
     return _edge_origin_pair(edge_name, _flat_choose_alternative(child))
 end
-function _root_origin_name_or_nothing(d::Union{Sequential, Parallel})
+function _root_origin_name_or_nothing(d::AbstractMultiChild)
     name1 = component_names(d)[1]
     return _edge_origin_pair(name1, d.components[1])
 end
@@ -161,7 +161,7 @@ function _walk_edge!(names, edge_name::Symbol, child::UnivariateDistribution,
 end
 
 function _walk_edge!(names, edge_name::Symbol,
-        child::Union{Sequential, Parallel}, origin::Symbol, counter)
+        child::AbstractMultiChild, origin::Symbol, counter)
     _walk_targets!(names, child, origin, counter)
     return _nested_terminal_name(child, names, origin)
 end
@@ -200,7 +200,7 @@ function _walk_one_of_outcome!(names, oname::Symbol,
 end
 
 function _walk_one_of_outcome!(names, oname::Symbol,
-        delay::Union{Sequential, Parallel}, origin::Symbol, counter)
+        delay::AbstractMultiChild, origin::Symbol, counter)
     _walk_targets!(names, delay, oname, counter)
     return nothing
 end
@@ -290,7 +290,7 @@ end
 # slots regardless of field order, `missing` fields drive the dispatch, and a
 # reserved field is excluded. When the tree's event names are all positional
 # defaults (`:event_i`), the row is matched POSITIONALLY (the fallback).
-function _row_event_vector(d::Union{Sequential, Parallel}, row::NamedTuple)
+function _row_event_vector(d::AbstractMultiChild, row::NamedTuple)
     enames = _flat_event_names(d)
     _all_positional_event_names(enames) && return _row_event_vector(row)
     return _row_event_vector_by_name(enames, row)

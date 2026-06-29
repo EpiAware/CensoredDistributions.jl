@@ -146,7 +146,7 @@ function _collect_shared(d)
     return acc
 end
 
-function _collect_shared!(acc, seen, d::Union{Sequential, Parallel})
+function _collect_shared!(acc, seen, d::AbstractMultiChild)
     for c in d.components
         _collect_shared!(acc, seen, c)
     end
@@ -193,7 +193,7 @@ _tie_path(p::Symbol) = _split_edge(p)
 
 # True for the composer (non-leaf) nodes a path can run through; a path that
 # resolves to one of these is pointing at a subtree, not a tieable leaf.
-_is_composer_node(::Union{Sequential, Parallel, AbstractOneOf, Choose}) = true
+_is_composer_node(::AbstractComposedDistribution) = true
 _is_composer_node(::Any) = false
 
 # The (family, param-names) signature a tie groups by: tied leaves become ONE
@@ -247,7 +247,7 @@ params_table(tied)
 - [`shared`](@ref): the leaf-local spelling of the same tie.
 - [`event`](@ref), [`update`](@ref): share the path forms `tie` accepts.
 "
-function tie(d::Union{Sequential, Parallel, AbstractOneOf, Choose},
+function tie(d::AbstractComposedDistribution,
         paths...; name::Symbol)
     isempty(paths) && throw(ArgumentError(
         "tie needs at least one path to a leaf"))

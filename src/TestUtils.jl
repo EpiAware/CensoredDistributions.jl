@@ -51,14 +51,15 @@ using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
                                free_leaf, rewrap_leaf, get_dist,
                                AbstractComposedDistribution,
                                AbstractModifiedDistribution,
-                               AbstractPrimaryCensored,
+                               AbstractMultiChild, AbstractPrimaryCensored,
+                               AbstractCombinedDistribution,
                                child_nleaves, child_logpdf, child_rand!
 
 export test_interface, example_fixtures, test_rejects_invalid,
        test_node_interface, test_ad_safety, registry_types,
        test_registry_coverage, test_composed_interface,
        test_modified_interface, test_primary_censored_interface,
-       test_abstract_membership
+       test_combined_interface, test_abstract_membership
 
 # --- per-fixture descriptor -------------------------------------------------
 #
@@ -358,7 +359,7 @@ end
 # `_insupport_gap` scalar for a univariate node. Mirrors the layout `_score`
 # scores: `[origin, leaf events...]` in depth-first order, an unobserved
 # `Resolve` outcome left `missing`. The shared origin is fixed at `0.0`.
-function _insupport_event_draw(d::Union{Sequential, Parallel})
+function _insupport_event_draw(d::AbstractMultiChild)
     out = Vector{Union{Missing, Float64}}(
         missing, CensoredDistributions._event_nleaves(d.components) + 1)
     out[1] = 0.0
@@ -392,7 +393,7 @@ end
 # (the time a following chain step hangs off): its own event for a leaf, the
 # shared origin for a `Parallel`/`Resolve`, the last step for a `Sequential`.
 function _fill_insupport_step!(
-        out, step::Union{Sequential, Parallel}, origin, idx)
+        out, step::AbstractMultiChild, origin, idx)
     next = _fill_insupport!(out, step, origin, idx)
     term = step isa Parallel ? origin :
            out[idx + CensoredDistributions._terminal_offset(step)]
@@ -516,7 +517,7 @@ end
 # Whether a composer tree contains a nested `Choose` anywhere (its alternatives
 # share one flat event slot, so the tree-vs-flat leaf-count equality is relaxed).
 _contains_choose(::Choose) = true
-_contains_choose(c::Union{Sequential, Parallel}) = any(_contains_choose, c.components)
+_contains_choose(c::AbstractMultiChild) = any(_contains_choose, c.components)
 _contains_choose(c::AbstractOneOf) = any(_contains_choose, c.delays)
 _contains_choose(c::Latent) = _contains_choose(c.dist)
 _contains_choose(::Any) = false
@@ -977,7 +978,7 @@ end
 function _collect_types!(seen, d)
     push!(seen, typeof(d))
     # Composer children.
-    if d isa Union{Sequential, Parallel}
+    if d isa AbstractMultiChild
         for c in d.components
             _collect_types!(seen, c)
         end
@@ -1218,15 +1219,37 @@ end
 
 @doc """
 
-Assert the built-in composer / modifier / primary-censored types subtype the
-right family supertype.
+Assert a combined distribution satisfies the `AbstractCombinedDistribution`
+contract.
+
+`test_combined_interface(d; x)` checks `d` subtypes
+`AbstractCombinedDistribution` (a multi-base algebraic combination) and exposes
+`params`, a finite `logpdf` at the in-support point `x`, and a non-empty `show`.
+Use for `Convolved` and `Difference`. Returns the `@testset` object.
+""" function test_combined_interface end
+
+function test_combined_interface(
+        d; name::AbstractString = string(nameof(typeof(d))), x::Real = 1.0)
+    return @testset "combined interface: $name" begin
+        @test d isa AbstractCombinedDistribution
+        @test params(d) isa Tuple
+        @test isfinite(logpdf(d, x))
+        @test !isempty(sprint(show, d))
+    end
+end
+
+@doc """
+
+Assert the built-in composer / modifier / primary-censored / combined types
+subtype the right family supertype.
 
 `test_abstract_membership()` is the meta-test that the abstract hierarchy stays
 consistent: every composer node subtypes `AbstractComposedDistribution`, every
-single-base modifier leaf subtypes `AbstractModifiedDistribution`, and the
-primary-censored family subtypes `AbstractPrimaryCensored`. `IntervalCensored`
-is standalone (under neither). A type filed under the wrong family fails here.
-Returns the `@testset` object.
+single-base modifier leaf subtypes `AbstractModifiedDistribution`, the
+primary-censored family subtypes `AbstractPrimaryCensored`, and the multi-base
+combinations subtype `AbstractCombinedDistribution`. `IntervalCensored`,
+`MomentParams` and `ExponentiallyTilted` are standalone (under none). A type
+filed under the wrong family fails here. Returns the `@testset` object.
 """ function test_abstract_membership()
     return @testset "abstract hierarchy membership" begin
         for T in (Sequential, Parallel, Resolve, Compete, Choose)
@@ -1242,10 +1265,22 @@ Returns the `@testset` object.
             @test T <: AbstractPrimaryCensored
             @test !(T <: AbstractModifiedDistribution)
         end
+        # Multi-base algebraic combinations are their own supertype.
+        for T in (Convolved, Difference)
+            @test T <: AbstractCombinedDistribution
+            @test !(T <: AbstractModifiedDistribution)
+            @test !(T <: AbstractComposedDistribution)
+        end
         # IntervalCensored is standalone: under neither shared abstract.
         @test !(IntervalCensored <: AbstractModifiedDistribution)
         @test !(IntervalCensored <: AbstractPrimaryCensored)
         @test IntervalCensored <: Distributions.UnivariateDistribution
+        # Reparameterised leaf / base family stay plain (no shared abstract).
+        for T in (MomentParams, ExponentiallyTilted)
+            @test !(T <: AbstractModifiedDistribution)
+            @test !(T <: AbstractCombinedDistribution)
+            @test !(T <: AbstractComposedDistribution)
+        end
     end
 end
 

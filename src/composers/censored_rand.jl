@@ -41,7 +41,7 @@ end
 # sample). A plain nested tree has no origin distribution, so it keeps the generic
 # per-leaf realisation (a Resolve child stays its marginal time-to-resolution).
 function _composer_rand(::_Nested, rng::AbstractRNG,
-        d::Union{Sequential, Parallel})
+        d::AbstractMultiChild)
     _tree_primary_event(d) === nothing && return _composite_rand(
         rng, d.components, float(eltype(d)))
     return _tree_event_record(rng, d)
@@ -138,7 +138,7 @@ end
 # root, then the depth-first leaf-event slots from the tree walk. The vector is
 # `Vector{Union{Missing, T}}` with a concrete sampled-time type `T` (an unsampled
 # Resolve outcome stays `missing`), so the walk is type-stable.
-function _tree_event_vector(rng::AbstractRNG, d::Union{Sequential, Parallel})
+function _tree_event_vector(rng::AbstractRNG, d::AbstractMultiChild)
     primary = _tree_primary_event(d)
     T = _tree_rand_type(d, primary)
     out = Vector{Union{Missing, T}}(missing, _event_nleaves(d.components) + 1)
@@ -159,7 +159,7 @@ end
 
 # Draw the full named event record of a nested tree: the typed event vector keyed
 # by `_flat_event_names`, mirroring the same flat layout the scorer consumes.
-function _tree_event_record(rng::AbstractRNG, d::Union{Sequential, Parallel})
+function _tree_event_record(rng::AbstractRNG, d::AbstractMultiChild)
     out = _tree_event_vector(rng, d)
     enames = _flat_event_names(d)
     return NamedTuple{enames}(Tuple(out))
@@ -257,7 +257,7 @@ end
 # does not constant-fold here.
 _tree_core_eltype(d::AbstractOneOf) = promote_type(map(_param_eltype, d.delays)...)
 _tree_core_eltype(d::UnivariateDistribution) = _param_eltype(_marginal_core(d))
-function _tree_core_eltype(d::Union{Sequential, Parallel})
+function _tree_core_eltype(d::AbstractMultiChild)
     return promote_type(map(_tree_core_eltype, d.components)...)
 end
 # A nested `Choose` promotes over every alternative's core param type, so the
@@ -297,7 +297,7 @@ end
 # Sequential, the shared origin for a Parallel/Resolve, mirroring
 # `_terminal_offset`).
 function _tree_rand_step!(out, rng::AbstractRNG,
-        step::Union{Sequential, Parallel}, origin, idx, ::Type{T}) where {T}
+        step::AbstractMultiChild, origin, idx, ::Type{T}) where {T}
     next = _tree_rand!(out, rng, step, origin, idx, T)
     return next, _tree_subtree_terminal(out, step, origin, idx)
 end
@@ -329,7 +329,7 @@ function _one_of_outcome_rand!(out, rng::AbstractRNG,
 end
 
 function _one_of_outcome_rand!(out, rng::AbstractRNG,
-        delay::Union{Sequential, Parallel}, origin, start::Int,
+        delay::AbstractMultiChild, origin, start::Int,
         ::Type{T}) where {T}
     _tree_rand!(out, rng, delay, origin, start, T)
     return nothing
@@ -391,7 +391,7 @@ function _hazard_outcome_racing_draw(rng, delay::UnivariateDistribution,
     t = convert(T, rand(rng, _marginal_core(delay)))
     return t, t
 end
-function _hazard_outcome_racing_draw(rng, delay::Union{Sequential, Parallel},
+function _hazard_outcome_racing_draw(rng, delay::AbstractMultiChild,
         ::Type{T}) where {T}
     z = zero(T)
     nslots = _event_nleaves(delay.components)
@@ -442,7 +442,7 @@ function _hazard_outcome_rand!(out, rng::AbstractRNG,
     return nothing
 end
 function _hazard_outcome_rand!(out, rng::AbstractRNG,
-        delay::Union{Sequential, Parallel}, origin, best_t, real, start::Int,
+        delay::AbstractMultiChild, origin, best_t, real, start::Int,
         ::Type{T}) where {T}
     _reanchor_subtree!(out, real, origin, start, T)
     return nothing
@@ -526,7 +526,7 @@ end
 
 # Discretise one step/branch's slots, advancing the cursor by its event-slot
 # count (a Resolve spans one slot per outcome).
-function _discretise_step!(out, step::Union{Sequential, Parallel}, idx::Int)
+function _discretise_step!(out, step::AbstractMultiChild, idx::Int)
     return _discretise_event_record!(out, step, idx)
 end
 
@@ -551,7 +551,7 @@ function _discretise_one_of_outcome!(out, delay::UnivariateDistribution,
         (out[start] = _apply_leaf_interval(out[start], _leaf_interval(delay)))
     return nothing
 end
-function _discretise_one_of_outcome!(out, delay::Union{Sequential, Parallel},
+function _discretise_one_of_outcome!(out, delay::AbstractMultiChild,
         start::Int, ::Int)
     _discretise_event_record!(out, delay, start)
     return nothing

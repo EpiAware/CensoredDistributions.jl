@@ -46,14 +46,14 @@ end
 # Is a child a composer (has named children) or a leaf? `Choose` is deliberately
 # NOT `<: AbstractOneOf`, so it is listed explicitly to take part in the shared
 # tree render (recursing into a nested `Choose` rather than printing it flat).
-_is_composer_dist(::Union{Sequential, Parallel, AbstractOneOf, Choose}) = true
+_is_composer_dist(::AbstractComposedDistribution) = true
 _is_composer_dist(::Any) = false
 
 # Named children of a composer as `(name, child[, note])` triples. The note is
 # an extra print annotation (a `Resolve` outcome's branch probability), empty
 # otherwise. Hand-rolled and type-stable (a tuple comprehension over the
 # constant-length component tuple).
-function _named_children(d::Union{Sequential, Parallel})
+function _named_children(d::AbstractMultiChild)
     names = component_names(d)
     return ntuple(i -> (names[i], d.components[i], ""), length(d.components))
 end
@@ -241,13 +241,13 @@ reconstructs through [`compose`](@ref), not through `Distribution(params...)`.
 
 See also: [`params_table`](@ref), [`event_names`](@ref), [`event`](@ref)
 "
-function _composed_params(d::Union{Sequential, Parallel})
+function _composed_params(d::AbstractMultiChild)
     names = component_names(d)
     vals = map(_child_params, d.components)
     return NamedTuple{names}(vals)
 end
 
-_child_params(c::Union{Sequential, Parallel}) = _composed_params(c)
+_child_params(c::AbstractMultiChild) = _composed_params(c)
 _child_params(c::Resolve) = _one_of_params(c)
 _child_params(c::Compete) = _hazard_one_of_params(c)
 _child_params(c::Choose) = _choose_params(c)
@@ -522,7 +522,7 @@ tbl.edge  # a column; wrap the table in `DataFrame(tbl)` for a DataFrame
 - [`event_names`](@ref), [`event`](@ref): name introspection
 "
 function params_table(
-        d::Union{Sequential, Parallel, AbstractOneOf, Choose})
+        d::AbstractComposedDistribution)
     edges = Symbol[]
     params_col = Symbol[]
     values = Any[]
@@ -552,7 +552,7 @@ end
 # `Resolve` additionally emits its branch-probability rows; a leaf emits one
 # row per scalar parameter. Hand-rolled recursion to stay type-stable.
 function _walk_rows!(edges, params_col, values, supports, seen,
-        d::Union{Sequential, Parallel}, path)
+        d::AbstractMultiChild, path)
     names = component_names(d)
     for (name, child) in zip(names, d.components)
         _walk_rows!(edges, params_col, values, supports, seen, child,
@@ -698,7 +698,7 @@ event(tree2, :onset_admit)
 - [`update`](@ref)`(d, path => new_node)`: replace whole nodes (same shape)
 - [`prune`](@ref), [`splice`](@ref): topology edits that change the shape
 "
-function update(d::Union{Sequential, Parallel, AbstractOneOf, Choose},
+function update(d::AbstractComposedDistribution,
         params::NamedTuple)
     return _update(d, params, params)
 end
@@ -713,7 +713,7 @@ end
 # entry; per-node keys are validated against the per-occurrence params with the
 # shared tags excluded.
 
-function _update(d::Union{Sequential, Parallel}, params::NamedTuple, shared)
+function _update(d::AbstractMultiChild, params::NamedTuple, shared)
     names = component_names(d)
     _check_child_keys(params, names, nameof(typeof(d)), shared)
     parts = ntuple(length(names)) do i
@@ -1280,7 +1280,7 @@ event_names(tree)
 - [`event`](@ref): fetch a child or subtree by name path
 - [`params_table`](@ref): the parameter table
 "
-function event_names(d::Union{Sequential, Parallel})
+function event_names(d::AbstractMultiChild)
     return _output_names(d)
 end
 # A standalone disjunction (`Resolve` / `Compete`) realises the flat event
@@ -1317,7 +1317,7 @@ event_tree(tree)
 - [`event_names`](@ref): the FLAT per-event names
 - [`event`](@ref): fetch a child or subtree by name path
 "
-function event_tree(d::Union{Sequential, Parallel})
+function event_tree(d::AbstractMultiChild)
     names = component_names(d)
     vals = ntuple(i -> _event_tree_child(names[i], d.components[i]),
         length(names))
@@ -1339,14 +1339,14 @@ end
 # A composer child recurses to its own nested NamedTuple; a leaf is keyed by its
 # parent under its own name, so its value is just that name (the leaf event).
 function _event_tree_child(
-        ::Symbol, c::Union{Sequential, Parallel, AbstractOneOf, Choose})
+        ::Symbol, c::AbstractComposedDistribution)
     event_tree(c)
 end
 _event_tree_child(name::Symbol, ::Any) = name
 
 # Direct-child lookup by a single (un-dotted) name. Internal so the public
 # `event` can split a dotted path before descending.
-function _event_child(d::Union{Sequential, Parallel}, name::Symbol)
+function _event_child(d::AbstractMultiChild, name::Symbol)
     names = component_names(d)
     idx = findfirst(==(name), names)
     idx === nothing && throw(KeyError(name))
