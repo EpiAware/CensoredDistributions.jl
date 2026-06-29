@@ -20,9 +20,11 @@ We'll cover the following key points:
    but not primary event censoring.
 7. Fitting the full model that accounts for double censoring and right
    truncation.
-8. Aggregating to weighted counts so repeated observations score once.
-9. Reading the posterior back through the standard composed interface and the
-   FlexiChains output.
+8. Refitting that leaf in its latent form, which samples the primary event
+   instead of integrating it out.
+9. Aggregating to weighted counts so repeated observations score once.
+10. Reading the posterior back through the standard composed interface and the
+    FlexiChains output.
 
 ## What might I need to know before starting
 
@@ -51,14 +53,14 @@ Random for reproducibility, and StatsBase for the empirical CDF.
 using CensoredDistributions
 using Distributions
 using Turing
-using DynamicPPL: to_submodel, @varname
+using DynamicPPL: to_submodel, @varname, InitFromParams, InitFromPrior
 using FlexiChains: VNChain, parameters, rhat
 using DataFramesMeta
 using CairoMakie, PairPlots
 using Random
 using StatsBase
 using Statistics
-using ADTypes: AutoMooncake
+using ADTypes: AutoMooncake, AutoForwardDiff
 import Mooncake
 
 md"""
@@ -428,6 +430,100 @@ recovery = DataFrame(
     full = full_recovered.value)
 
 md"""
+## A latent fit that samples the primary event
+
+Every fit so far is marginal: the within-window primary event time is integrated
+out inside `logpdf`, leaving only the delay parameters in the chain.
+The latent form instead samples it.
+Wrapping a leaf in [`latent`](@ref) draws the within-window primary as a model
+variable `p ~ get_primary_event(d)`, then scores the observed delay against the
+conditional [`PrimaryConditional`](@ref)`(d, p)`, the delay measured from that
+sampled primary.
+The marginal and latent forms are one model scored two ways and agree in
+expectation, so the sampled-primary fit recovers the same parameters as the
+marginal double-censored fit above.
+
+We fit the bare double-censored leaf here rather than the one-step chain, so the
+leaf samples its own primary; the chain wrapper with both `onset` and `report`
+observed would keep the marginal leaf density.
+The latent form scores each record separately, with one sampled primary per
+record, so we fit a light subset of the untruncated reports and keep the chains
+short for the docs build.
+"""
+
+latent_leaf = full_leaf(meanlog, sdlog)
+
+latent_leaf_priors = build_priors(params_table(latent_leaf))
+
+md"""
+Each record samples its own primary from `Uniform(0, 1)`, so we keep reports of
+at least one day, which holds every record's conditional in support for any
+sampled primary.
+"""
+
+latent_reports = filter(r -> r >= 1, reports)
+
+latent_data = [(report = r,) for r in latent_reports[1:50]]
+
+md"""
+The latent fit reuses the same parameter block and swaps the marginal leaf for
+its latent twin with one [`latent`](@ref) wrapper.
+"""
+
+@model function latent_fit_model(template, priors, data)
+    delays ~ to_submodel(composed_parameters_model(template, priors))
+    obs ~ to_submodel(composed_distribution_model(latent(delays), data))
+end
+
+md"""
+We pin the two delay parameters at a neutral start and let the per-record
+primaries initialise from their prior, so the joint starts at a finite density.
+This small looping model differentiates cleanly under ForwardDiff, which we use
+here in place of the Mooncake backend the marginal fits use.
+"""
+
+latent_init = InitFromParams(
+    (delays = (mu = 1.0, sigma = 1.0),), InitFromPrior())
+
+latent_fit = sample(Xoshiro(1),
+    latent_fit_model(latent_leaf, latent_leaf_priors, latent_data),
+    NUTS(0.8; adtype = AutoForwardDiff()), MCMCThreads(), 250, 2;
+    chain_type = VNChain, progress = false,
+    initial_params = fill(latent_init, 2))
+
+md"""
+The chain carries one sampled primary per record (`obs.recN.p`) alongside the
+two delay parameters, the signature of a genuinely sampled latent rather than an
+integrated one.
+"""
+
+parameters(latent_fit)
+
+md"""
+We read the delay parameters back through the same composed interface;
+[`param_draws`](@ref) keys a bare leaf directly by its `mu` and `sigma`.
+"""
+
+latent_recovered = params_table(
+    update(latent_leaf, latent_fit; prefix = :delays))
+
+latent_draws = param_draws(latent_leaf, latent_fit; prefix = :delays)
+
+latent_series = (mu = [e.mu for e in latent_draws],
+    sigma = [e.sigma for e in latent_draws])
+
+pairplot(
+    PairPlots.Series(latent_series; label = "latent",
+        color = (:seagreen, 0.6)),
+    PairPlots.Truth(truth_nt, label = "True values"))
+
+md"""
+The sampled-primary posterior sits on the true parameters, matching the marginal
+full fit: the latent and marginal forms recover the same delay, one by sampling
+the primary event and one by integrating it out.
+"""
+
+md"""
 ## Working with FlexiChains output
 
 Because we asked Turing to return a `VNChain`, the posterior is keyed by
@@ -679,10 +775,10 @@ md"""
   count weighting without changing the model.
 - The naive model is misspecified; adding interval censoring and truncation
   improves it, and the full double-censored model recovers the truth.
-- Wrapping the same composed object in [`latent`](@ref) switches from the
-  marginal form to the latent form; a single censored leaf samples its primary
-  event (`obs.recN.p`), and a chain with an unobserved intermediate also samples
-  that intermediate (`obs.recN.e[2]`), all explicit latents in the posterior.
+- Wrapping the same leaf in [`latent`](@ref) switches from the marginal form to
+  the latent form, which samples the within-window primary (`obs.recN.p`) instead
+  of integrating it out; the two forms agree in expectation and recover the same
+  delay, as the latent fit above shows.
 - [`update`](@ref)`(template, chain)`, [`event`](@ref), and
   [`mean`](@ref CensoredDistributions.mean) read
   the fitted delay back onto the composed object with no manual chain indexing,
