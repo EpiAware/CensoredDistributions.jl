@@ -8,15 +8,5 @@ on:
 
 jobs:
   pre-commit:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v6
-    - uses: actions/setup-python@v6
-    - uses: julia-actions/setup-julia@v3
-    - uses: julia-actions/cache@v3
-    # Pin so the `julia-formatter` pre-commit hook (which formats via the
-    # global env's JuliaFormatter) matches the version pinned in
-    # `test/formatter`; otherwise it floats to the latest release and
-    # reformats files the rest of the matrix leaves alone.
-    - run: julia -e 'using Pkg; Pkg.add(name="JuliaFormatter", version="2.5.5")'
-    - uses: ./.github/actions/pre-commit
+    uses: EpiAware/.github/.github/workflows/format-check.yml@dc919e0d1674c16d1518df07eda5ee0be09b47e2
+    secrets: inherit  # pragma: allowlist secret
