@@ -250,12 +250,10 @@ function backend_broken_scenarios()
 
     # === recurrent / cyclic multi-state per-backend gaps (#545) ===
     # The differentiated function REBUILDS a `RecurrentStates` / `CTMCStates`
-    # model from `θ` inside the call (the verbs allocate a `Dict{Symbol, Any}` of
-    # transition nodes and the `Compete` / generator structs). The analytic
-    # backends (ForwardDiff, ReverseDiff) and Mooncake FORWARD trace this
-    # straight through and match the reference on all four scenarios; the gaps
-    # below are genuine compiled-backend limitations, verified against the
-    # ForwardDiff reference.
+    # model from `θ` inside the call. The analytic backends (ForwardDiff,
+    # ReverseDiff) and Mooncake (forward AND reverse) trace this and match the
+    # ForwardDiff reference on the scenarios noted below; the registered gaps are
+    # genuine Enzyme/Mooncake limitations, each verified against the reference.
     recur_path = "RecurrentStates reinfection path logpdf"
     recur_censored = "RecurrentStates horizon-censored path logpdf"
     ctmc_jump = "CTMC jump-chain logpdf"
@@ -267,23 +265,33 @@ function backend_broken_scenarios()
     # shapes). The single-edge censored path (no `Compete` node), the CTMC
     # jump-chain and the CTMC panel all differentiate on Mooncake reverse.
     mooncake_reverse_recurrent = Set{String}([recur_path])
-    # Enzyme REVERSE fails ALL four. The model rebuild allocates a
-    # `Dict{Symbol, Any}` of transition nodes whose reverse shadow Enzyme cannot
-    # construct (`EnzymeNoShadowError`) for the `RecurrentStates` paths, and the
-    # `Dict`-backed generator assembly trips `EnzymeNoTypeError` for the CTMC
-    # scenarios (it cannot statically prove the rebuilt `Q` element type through
-    # the `Dict` lookups). Both are upstream Enzyme-reverse limitations on the
-    # heterogeneous `Dict`/struct rebuild, not reachable from a value-level rule.
-    enzyme_reverse_recurrent = Set{String}(
-        [recur_path, recur_censored, ctmc_jump, ctmc_panel])
-    # Enzyme FORWARD: the two `RecurrentStates` paths and the CTMC jump-chain
-    # differentiate correctly, but the CTMC panel scenario returns a WRONG
-    # (finite but incorrect) gradient through the scaling-and-squaring matrix
-    # exponential `exp(Q Δt)` — Enzyme forward mis-differentiates the repeated
-    # `E = E * E` squaring loop (it also drops to fallback BLAS). The wrong
-    # answer is caught by the reference comparison and registered broken rather
-    # than trusted; ForwardDiff / ReverseDiff / Mooncake compute it correctly.
-    enzyme_forward_recurrent = Set{String}([ctmc_panel])
+    # Enzyme REVERSE: only the two CTMC scenarios fail. Both route through the
+    # `ctmc(specs...)` generator builder, which Enzyme cannot compile and aborts
+    # on with `EnzymeInternalError` (an upstream Enzyme compiler bug on the
+    # builder's heterogeneous `Pair...` spec iteration and runtime-typed `Q`
+    # allocation; the panel additionally hits the BLAS matrix exponential). The
+    # two semi-Markov `RecurrentStates` paths (`recur_path`, `recur_censored`)
+    # now DIFFERENTIATE on Enzyme reverse, so they are NOT registered (a hard
+    # correctness test covers them) — registering a working backend broken would
+    # mask real coverage.
+    enzyme_reverse_recurrent = Set{String}([ctmc_jump, ctmc_panel])
+    # Enzyme FORWARD: three scenarios fail, each a genuine, verified limitation —
+    #   - `ctmc_jump` / `ctmc_panel`: both rebuild `Q` via `ctmc(specs...)`.
+    #     Enzyme aborts compiling that builder (`EnzymeInternalError`, the same
+    #     upstream bug as Enzyme reverse; the panel also stresses the BLAS matrix
+    #     exponential). The earlier `edges = Any[]` collection returned a SILENT
+    #     WRONG gradient here; assembling `Q` straight from the typed spec tuple
+    #     (see `ctmc`) turned that into a loud, catchable compile error, so the
+    #     test marks it broken instead of trusting a wrong number.
+    #   - `recur_path`: a semi-Markov `RecurrentStates` whose `:infected` state is
+    #     a multi-edge `Compete` node fetched from the model's `Dict{Symbol, Any}`
+    #     of transition nodes. Enzyme forward mis-differentiates that boxed
+    #     `Compete` fetch and returns a WRONG (finite) gradient. `recur_censored`
+    #     — all lone-`Pair` nodes, no `Compete` — differentiates correctly on
+    #     Enzyme forward, which isolates the boxed `Compete` fetch as the cause.
+    # ForwardDiff / ReverseDiff / Mooncake forward+reverse compute all three
+    # correctly (Mooncake reverse excepted on `recur_path`, above).
+    enzyme_forward_recurrent = Set{String}([recur_path, ctmc_jump, ctmc_panel])
 
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
@@ -293,13 +301,13 @@ function backend_broken_scenarios()
         "Mooncake forward" => copy(compiled_broken),
         # Enzyme REVERSE: the marginal/latent trees are all fixed now (the
         # one_of/Choose constructors build concrete tuples, #760), so only the
-        # vectorised pre-pass scenarios (`compiled_broken`) plus the recurrent
-        # `Dict`-rebuild shadow/type gaps above remain broken.
+        # vectorised pre-pass scenarios (`compiled_broken`) plus the two
+        # recurrent CTMC builder compile failures above remain broken.
         "Enzyme reverse" => union(
             copy(compiled_broken), enzyme_reverse_recurrent),
         # Enzyme FORWARD: the marginal/latent trees are all fixed now; only the
-        # vectorised pre-pass scenarios plus the recurrent CTMC panel matrix
-        # exponential remain broken.
+        # vectorised pre-pass scenarios plus the recurrent CTMC builder failures
+        # and the boxed-`Compete` reinfection path remain broken.
         "Enzyme forward" => union(
             copy(compiled_broken), enzyme_forward_recurrent)
     )
