@@ -2,7 +2,7 @@
 # TestUtils: a public interface-conformance harness for composers / leaves
 # ============================================================================
 #
-# `CensoredDistributions.TestUtils.test_interface(d)` runs ONE interface
+# `CensoredDistributions.TestUtils.test_interface(d)` runs one interface
 # checklist over a composed distribution (or bare leaf), so a downstream author
 # writing a new leaf / composer can drop it into their own `@testset` to verify
 # conformance. The package itself runs it over a fixture set in
@@ -58,7 +58,7 @@ export test_interface, example_fixtures, test_rejects_invalid,
 # A fixture is the distribution plus the metadata the checklist needs that is not
 # recoverable from the object alone: a known event-name `path` to round-trip
 # through `event`, an in-support `draw` to score, a `kind` selector for a
-# `Choose`, the shape of the OVERALL `mean(d)` moment, and whether the per-event
+# `Choose`, the shape of the overall `mean(d)` moment, and whether the per-event
 # `mean(latent(d))` view applies.
 
 Base.@kwdef struct InterfaceFixture{D}
@@ -73,7 +73,7 @@ Base.@kwdef struct InterfaceFixture{D}
     kind::Union{Nothing, Symbol} = nothing
     "Whether the node's `rand` is a univariate scalar (a leaf / `Resolve`)."
     univariate::Bool = false
-    "The shape of the OVERALL `mean(d)`/`var(d)`/`std(d)` moment: `:scalar` for a
+    "The shape of the overall `mean(d)`/`var(d)`/`std(d)` moment: `:scalar` for a
     univariate-collapsible node (a leaf, `Sequential`, `Resolve`), `:vector`
     for a genuinely multivariate `Parallel` (a per-endpoint Vector), or `:none`
     to skip the overall-moment check (a `Choose`, or a node with no closed-form
@@ -86,14 +86,14 @@ Base.@kwdef struct InterfaceFixture{D}
     "Whether the node collapses to a univariate endpoint via
     `observed_distribution` (a chain / univariate)."
     has_endpoint::Bool = true
-    "Whether the distribution is DEFECTIVE / sub-stochastic: its total mass is
+    "Whether the distribution is defective / sub-stochastic: its total mass is
     `< 1` (a `thin` leaf, a `modify`/`Modified` with sub-stochastic mass, a
     `Resolve`/`Compete` with a no-event branch). A defective univariate leaf's
     `rand` may return `missing` (the no-event outcome), so the `rand isa Real`
     assertion is relaxed to `Real`-or-`missing`, and its `cdf` tends to its
     deficit-adjusted mass `< 1` rather than `1`."
     defective::Bool = false
-    "For a DEFECTIVE univariate leaf, the expected total density mass (the
+    "For a defective univariate leaf, the expected total density mass (the
     reporting probability `p` of a `thin`, say), checked by integrating the pdf
     over `[0, integrate_upper]`; `nothing` skips the sub-density-mass check (a
     non-defective node, or one whose mass has no simple closed form)."
@@ -107,11 +107,11 @@ Base.@kwdef struct InterfaceFixture{D}
     differentiability is a contract, not an ad-hoc fixture. `nothing` skips it."
     ad::Union{Nothing, Tuple{Function, Vector{Float64}}} = nothing
     "Whether to exercise the missing-sentinel round-trip: a simulated record with
-    `missing` slots fed straight back into scoring (north-star tenet 8). Applies
+    `missing` slots fed straight back into scoring. Applies
     to a multivariate composer whose `rand`/event vector can carry a `missing`
     slot (a censored `Parallel`/tree, a `Resolve` with an unobserved outcome)."
     missing_record::Bool = false
-    "Whether `rand(d)` returns a self-describing NamedTuple OUTCOME RECORD even
+    "Whether `rand(d)` returns a self-describing NamedTuple outcome record even
     though the node has scalar marginal moments / cdf (`univariate = true`). True
     for a standalone terminal `Resolve` / `Compete`: its `rand` returns the named
     record of the outcome that fired (the fired slot present, the others
@@ -135,7 +135,7 @@ The checklist asserts, where applicable to the node's shape:
 
 - `length` is defined (multivariate) and a `rand(d)` realisation has matching
   length;
-- the OVERALL `mean` / `var` / `std` are shaped as the fixture's `overall`
+- the overall `mean` / `var` / `std` are shaped as the fixture's `overall`
   declares (a scalar for a univariate-collapsible node, a per-endpoint Vector for
   a `Parallel`), and where `latent_moments` is set the per-event
   `mean(latent(d))` / `var(latent(d))` / `std(latent(d))` are a full Vector
@@ -185,7 +185,7 @@ function test_interface(d; name::AbstractString = string(nameof(typeof(d))),
     return test_interface(fix; ad_gradient = ad_gradient)
 end
 
-# `ad_gradient` is an INJECTED gradient backend (e.g. `ForwardDiff.gradient`):
+# `ad_gradient` is an injected gradient backend (e.g. `ForwardDiff.gradient`):
 # the harness lives in `src` and is dependency-light (no AD dep of its own), so a
 # caller in the test env passes the backend it has loaded. `nothing` skips the
 # AD-safety contract check (still reported as a skip).
@@ -223,10 +223,10 @@ function _check_choose(d::Choose, fix)
 end
 _check_choose(::Any, fix) = nothing
 
-# The moments have two tiers: the OVERALL `mean(d)` (a scalar for a
+# The moments have two tiers: the overall `mean(d)` (a scalar for a
 # univariate-collapsible node, a per-endpoint NamedTuple for a `Parallel`) and
 # the per-event `mean(latent(d))` (a NamedTuple matching `rand(latent(d))`). Any
-# MULTIVARIATE composed output is a labelled `NamedTuple`; a univariate
+# multivariate composed output is a labelled `NamedTuple`; a univariate
 # (collapsible) output stays a scalar. The harness exercises `rand(d)` and
 # asserts each tier the fixture declares applicable.
 function _check_moments_and_rand(d, fix)
@@ -234,11 +234,11 @@ function _check_moments_and_rand(d, fix)
     @testset "moments and rand" begin
         r = rand(d)
         # A multivariate composer realisation is a labelled NamedTuple; a
-        # univariate node is a bare scalar. A DEFECTIVE univariate leaf's `rand`
+        # univariate node is a bare scalar. A defective univariate leaf's `rand`
         # may return `missing` (the no-event outcome), so its realisation is
         # `Real`-or-`missing`. A standalone terminal `Resolve` / `Compete`
         # (`record_rand`) has scalar marginal moments but its `rand` returns the
-        # self-describing NamedTuple OUTCOME RECORD (which outcome fired), so its
+        # self-describing NamedTuple outcome record (which outcome fired), so its
         # realisation is a NamedTuple even though it is univariate-collapsible.
         if fix.record_rand
             @test r isa NamedTuple
@@ -293,7 +293,7 @@ function _check_logpdf(d, fix)
 end
 
 # Score `draw` under `d`, accommodating the two composer realisation layouts: a
-# censored composer scores an EVENT vector (a `Vector{Union{Missing, Float64}}`,
+# censored composer scores an event vector (a `Vector{Union{Missing, Float64}}`,
 # a `NamedTuple` event record collected into one), a plain composer scores its
 # per-value vector, and a univariate node a scalar. Tries the draw as-is first,
 # then a Missing-admitting event vector, so both a `rand(d)` draw and a
@@ -302,7 +302,7 @@ function _score(d, draw::Real)
     return logpdf(d, draw)
 end
 # A labelled NamedTuple draw scores directly: the composer / latent-leaf `logpdf`
-# accepts a NamedTuple and converts it to the scored vector BY NAME internally.
+# accepts a NamedTuple and converts it to the scored vector by name internally.
 function _score(d, draw::NamedTuple)
     return logpdf(d, draw)
 end
@@ -330,12 +330,12 @@ end
 # to its interval, so a random draw can land a gap on (or before) the
 # continuous core's support edge, where the marginal-core density is zero and
 # `logpdf(d, draw)` is `-Inf`. The check then fails intermittently. This builds a
-# DETERMINISTIC event vector that is guaranteed in-support: it walks the same
+# deterministic event vector that is guaranteed in-support: it walks the same
 # tree shape the scorer consumes (mirroring `_composer_rand` / `_tree_rand!`),
 # but places each leaf event at `origin + round(mean(core)) + 1`, a strictly
 # positive gap clear of every continuous core's lower edge. The shared origin is
 # `0.0` (in the `Uniform`/primary support, density positive). A `Resolve` node
-# observes its FIRST outcome and leaves the others `missing`, the same one-
+# observes its first outcome and leaves the others `missing`, the same one-
 # observed-outcome record `rand` produces, so the unobserved-outcome `missing`
 # slot is exercised. The result feeds straight into `_score` like any draw.
 
@@ -392,7 +392,7 @@ function _fill_insupport_step!(
     return next, term
 end
 function _fill_insupport_step!(out, step::AbstractOneOf, origin, idx)
-    # Observe the FIRST REAL outcome (a positive in-support gap off the anchor) and
+    # Observe the first real outcome (a positive in-support gap off the anchor) and
     # leave the others missing, the one-observed-outcome record the scorer
     # expects; the unobserved slots exercise the `missing` path. A no-event branch
     # carries no delay, so the first non-no-event outcome is observed.
@@ -405,7 +405,7 @@ function _fill_insupport_step!(out, step::UnivariateDistribution, origin, idx)
     out[idx] = y
     return idx + 1, y
 end
-# A nested `Choose` commits to its FIRST alternative on the flat (data-free) event
+# A nested `Choose` commits to its first alternative on the flat (data-free) event
 # path, matching `_flat_choose_alternative`: the alternatives share one event-slot
 # width, so the committed alternative fills the slot and a following step hangs off
 # its terminal time whichever alternative is chosen.
@@ -413,7 +413,7 @@ function _fill_insupport_step!(out, step::Choose, origin, idx)
     return _fill_insupport_step!(out, first(step.alternatives), origin, idx)
 end
 
-# A univariate node's cdf is monotone and lives in [0, 1]. A DEFECTIVE leaf's
+# A univariate node's cdf is monotone and lives in [0, 1]. A defective leaf's
 # cdf tends to its mass `< 1`, so it stays `<= 1` and monotone all the same.
 function _check_cdf(d, fix)
     fix.univariate || return nothing
@@ -431,7 +431,7 @@ function _check_cdf(d, fix)
     return nothing
 end
 
-# A DEFECTIVE (sub-stochastic) univariate leaf integrates its pdf to a total mass
+# A defective (sub-stochastic) univariate leaf integrates its pdf to a total mass
 # `<= 1`, the reporting probability the deficit accounts for. When the expected
 # `subdensity_mass` is supplied the harness pins the integrated mass to it; the
 # quadrature is a coarse midpoint rule over `[0, integrate_upper]` (the harness
@@ -473,16 +473,16 @@ function _check_params(d)
     return nothing
 end
 
-# The flat EVENT PATH and the nested `event_tree` must agree in LEAF count:
+# The flat event path and the nested `event_tree` must agree in leaf count:
 # every `event_tree` leaf (a Resolve outcome / a leaf delay) has its own flat
 # slot, plus the flat origin event, so `length(flat) == leaves + 1`. A `Choose`
-# (standalone or nested as a composer child) shares ONE flat slot across its
+# (standalone or nested as a composer child) shares one flat slot across its
 # alternatives, while its `event_tree` carries every alternative name, so the
 # leaf-count equality does not hold; for a Choose-containing node the check is
-# that the flat count matches the actual flat EVENT layout and both are
-# non-empty. This tests the STRUCTURAL flat event path (`_flat_event_names`,
+# that the flat count matches the actual flat event layout and both are
+# non-empty. This tests the structural flat event path (`_flat_event_names`,
 # origin + one per leaf), not the public `event_names` record-key space, which
-# for a PLAIN composer drops the origin and follows the branch names.
+# for a plain composer drops the origin and follows the branch names.
 function _check_event_names(d, fix)
     d isa Union{Sequential, Parallel, Resolve, Choose} || return nothing
     @testset "event_names / event_tree leaf count" begin
@@ -542,9 +542,9 @@ function _check_endpoint(d, fix)
     return nothing
 end
 
-# Missing-sentinel round-trip (north-star tenet 8): a simulated record carries
+# Missing-sentinel round-trip: a simulated record carries
 # `missing` in an unobserved slot (a censored composer's `rand`, a `Resolve`
-# outcome that did not fire), and that SAME record must feed straight back into
+# outcome that did not fire), and that same record must feed straight back into
 # scoring and yield a finite log density. This pins the simulate -> score loop on
 # a `missing`-bearing record: a `rand(d)` draw is collected into an event vector,
 # one observed slot is blanked to `missing`, and the blanked record is scored.
@@ -553,7 +553,7 @@ function _check_missing_roundtrip(d, fix)
     @testset "missing-sentinel record round-trips into scoring" begin
         # The fixture's in-support event draw already carries the censored layout
         # the scorer consumes (with an unobserved `Resolve` slot left `missing`),
-        # so it IS a missing-bearing record where the node has an unobserved
+        # so it is a missing-bearing record where the node has an unobserved
         # outcome; otherwise blank the last real slot to a `missing` sentinel.
         rec = _missing_record(fix.draw)
         @test any(ismissing, rec)
@@ -576,7 +576,7 @@ _missing_record(draw) = draw
 # --- AD-safety contract -----------------------------------------------------
 
 # `logpdf` must differentiate: the fixture's `ad = (f, θ)` reconstructs the node
-# from a parameter vector and returns a scalar log density, and the INJECTED
+# from a parameter vector and returns a scalar log density, and the injected
 # `ad_gradient` backend (e.g. `ForwardDiff.gradient`, passed from the test env)
 # evaluates `∇f(θ)`, which must be finite. This makes differentiability a first-
 # class contract rather than an ad-hoc per-fixture test. With no backend injected
@@ -644,13 +644,13 @@ function example_fixtures()
     LN = Distributions.LogNormal
 
     leaf = dic(G(2.0, 1.0))
-    # A real Sequential chain (a `compose` of a `Vector` step), which DOES have a
+    # A real Sequential chain (a `compose` of a `Vector` step), which does have a
     # single observed endpoint (the convolution of its steps).
     seq = Sequential((dic(G(2.0, 1.0)), dic(G(1.5, 2.0))),
         (:onset_admit, :admit_death))
     par = Parallel(dic(G(2.0, 1.0)), dic(G(1.5, 2.0)))
     # A standalone Resolve's scalar moment lowers through `as_mixture`, which has
-    # no analytic moment for a CENSORED leaf, so the bare-Resolve fixture uses
+    # no analytic moment for a censored leaf, so the bare-Resolve fixture uses
     # plain delays (a censored Resolve is still exercised nested in `nested`).
     comp = Resolve(:death => (G(2.0, 3.5), 0.4),
         :discharge => (G(1.0, 8.0), 0.6))
@@ -662,7 +662,7 @@ function example_fixtures()
         onset_notif = dic(G(0.7, 20.0))))
     sel = CensoredDistributions.choose(:index => dic(G(2.0, 1.0)),
         :sourced => compose((a = dic(G(4.0, 1.5)), b = dic(G(1.0, 2.0)))))
-    # A `Choose` with equal-width alternatives nested AS a composer child:
+    # A `Choose` with equal-width alternatives nested as a composer child:
     # the Parallel admits it and the flat event path commits to its first
     # alternative. There is no closed-form moment for the Choose branch, so the
     # overall moment and per-event latent view are skipped.
@@ -689,11 +689,11 @@ function example_fixtures()
         θ -> Distributions.logpdf(
             modify(LN(θ[1], θ[2]), -log(2.0); link = log), 2.0),
         [1.5, 0.5])
-    # modify, identity link (additive hazards): a POSITIVE effect keeps the
+    # modify, identity link (additive hazards): a positive effect keeps the
     # modified hazard `h + β >= 0`, so the sub-survival stays in `[0, 1]` and the
-    # cdf is monotone. A NEGATIVE identity-link effect drives the cdf negative and
+    # cdf is monotone. A negative identity-link effect drives the cdf negative and
     # non-monotone (the hazard goes sub-zero near the origin) — a real model-
-    # validity bug tracked in issue #670, NOT a harness regression, so the fixture
+    # validity bug tracked in issue #670, not a harness regression, so the fixture
     # uses the valid positive-effect regime.
     mod_id = modify(LN(1.5, 0.5), 0.1; link = identity)
     mod_id_ad = (
@@ -708,7 +708,7 @@ function example_fixtures()
     wtd = weight(G(2.0, 1.0), 3.0)
     wtd_ad = (θ -> Distributions.logpdf(weight(G(θ[1], θ[2]), 3.0), 3.0),
         [2.0, 1.0])
-    # thin: a DEFECTIVE leaf (reporting probability `p = 0.3`). Its pdf integrates
+    # thin: a defective leaf (reporting probability `p = 0.3`). Its pdf integrates
     # to `p`, its cdf tends to `p`, and `rand` returns `missing` with probability
     # `1 - p`. The conditional-on-report moments are closed-form (`:scalar`).
     thn = thin(LN(1.5, 0.5), 0.3)
@@ -740,15 +740,15 @@ function example_fixtures()
             from_moments(Distributions.Gamma; mean = θ[1], shape = θ[2]),
             4.0),
         [5.0, 2.0])
-    # Compete (racing hazards): a UNIVARIATE time-to-first-event marginal, an
+    # Compete (racing hazards): a univariate time-to-first-event marginal, an
     # AbstractOneOf like Resolve. Plain (non-censored) delays so it has an
     # analytic-enough scalar mean.
     cmp = compete(:recovery => G(2.0, 1.0), :death => G(1.5, 2.0))
-    # A DEFECTIVE Resolve with an explicit no-event branch: its observed-time mass
+    # A defective Resolve with an explicit no-event branch: its observed-time mass
     # is `< 1` (the `:none` outcome carries the deficit, `occurrence_probability`
-    # `= 0.4 < 1`). A standalone defective Resolve has NO scalar/marginal logpdf
+    # `= 0.4 < 1`). A standalone defective Resolve has no scalar/marginal logpdf
     # (it is scored through the event-vector path only), so it is exercised
-    # NESTED in a Parallel where the composer scores its event vector and its
+    # nested in a Parallel where the composer scores its event vector and its
     # unobserved `:none` outcome leaves a `missing` slot — the sub-stochastic
     # no-event semantics in the simulate -> score loop.
     res_def_node = resolve(:event => (dic(G(2.0, 1.0)), 0.4),
@@ -761,7 +761,7 @@ function example_fixtures()
         (Parallel(dic(G(2.0, 1.0)), dic(G(1.5, 2.0))), dic(G(1.0, 3.0))),
         (:fanout, :tail))
     # A Choose of Sequentials: each alternative is a two-step chain. The
-    # alternatives are PLAIN (uncensored) chains so the selected alternative
+    # alternatives are plain (uncensored) chains so the selected alternative
     # exposes the scalar event-vector `logpdf(d, x; kind)` (the censored
     # multivariate `Choose` alternative has no such scalar path yet — out of
     # scope here, mirroring the nested-scalar coverage in
@@ -776,7 +776,7 @@ function example_fixtures()
     # noise in the saturated tail — exercised by the dic fixtures already).
     conv_composed = convolved(
         affine(G(1.5, 2.0); shift = 0.5), LN(0.5, 0.4))
-    # Right-truncation of a composed chain's observed TOTAL: the chain is
+    # Right-truncation of a composed chain's observed total: the chain is
     # collapsed to its scalar combine-then-censor total via
     # `observed_distribution`, then right-truncated, giving a univariate
     # `Truncated` leaf. (A bare-node `truncated(seq; upper)` instead distributes
@@ -789,7 +789,7 @@ function example_fixtures()
         # no latent per-event view.
         InterfaceFixture(; name = "bare plain leaf", dist = G(2.0, 1.0),
             draw = 3.0, univariate = true, overall = :scalar),
-        # A bare CENSORED leaf scores and has a monotone cdf, but no analytic
+        # A bare censored leaf scores and has a monotone cdf, but no analytic
         # summary moment (censoring has no closed-form mean), so the overall
         # moment check is skipped here.
         InterfaceFixture(; name = "bare censored leaf", dist = leaf,
@@ -803,7 +803,7 @@ function example_fixtures()
         # per-endpoint Vector, with the full per-event vector via `latent`. It has
         # several independent endpoints and so no single observed scalar;
         # `observed_distribution` is not defined for it. The `draw` is a
-        # DETERMINISTIC in-support event vector (not `rand(par)`): a random
+        # deterministic in-support event vector (not `rand(par)`): a random
         # censored-branch draw can floor a gap onto the core's support edge and
         # score `-Inf`, so the "logpdf finite" check would fail intermittently.
         InterfaceFixture(; name = "Parallel", dist = par,
@@ -827,7 +827,7 @@ function example_fixtures()
         # A nested tree branches off a shared origin (a Parallel at its root), so
         # its overall moment is a per-endpoint Vector and it has no single
         # collapsed endpoint; the full per-event vector is via `latent`. The
-        # `draw` is a DETERMINISTIC in-support event vector (not `rand(nested)`):
+        # `draw` is a deterministic in-support event vector (not `rand(nested)`):
         # its nested `Resolve` observes one outcome and leaves the other
         # `missing`, the one-observed-outcome record the scorer expects, with
         # every gap clear of its core's support edge so `logpdf` is finite.
@@ -848,7 +848,7 @@ function example_fixtures()
         # modify, log link (proportional hazards): no analytic moment.
         InterfaceFixture(; name = "modify (log link)", dist = mod_log,
             draw = 2.0, univariate = true, overall = :none, ad = mod_log_ad),
-        # modify, identity link (additive hazards), POSITIVE effect (the valid
+        # modify, identity link (additive hazards), positive effect (the valid
         # regime; the negative-effect bug is #670).
         InterfaceFixture(; name = "modify (identity link)", dist = mod_id,
             draw = 2.0, univariate = true, overall = :none, ad = mod_id_ad),
@@ -858,7 +858,7 @@ function example_fixtures()
         # Weighted: a per-record count weight on a leaf.
         InterfaceFixture(; name = "weight", dist = wtd, draw = 3.0,
             univariate = true, overall = :none, ad = wtd_ad),
-        # thin: a DEFECTIVE leaf, pdf integrates to p = 0.3, rand may be missing.
+        # thin: a defective leaf, pdf integrates to p = 0.3, rand may be missing.
         InterfaceFixture(; name = "thin (defective)", dist = thn, draw = 2.0,
             univariate = true, overall = :scalar, defective = true,
             subdensity_mass = 0.3, integrate_upper = 400.0, ad = thn_ad),
@@ -880,7 +880,7 @@ function example_fixtures()
         InterfaceFixture(; name = "Compete", dist = cmp, draw = 2.0,
             path = (:recovery,), univariate = true, overall = :scalar,
             record_rand = true),
-        # A DEFECTIVE Resolve (a no-event branch) nested in a Parallel: the
+        # A defective Resolve (a no-event branch) nested in a Parallel: the
         # composer scores its event vector and the unobserved `:none` outcome
         # leaves a `missing` slot, exercising the sub-stochastic no-event
         # semantics in the simulate -> score loop.
@@ -915,11 +915,11 @@ end
 # The package's own public distribution / leaf / node types that
 # `test_interface` is expected to exercise. Each must appear (possibly nested) in
 # at least one `example_fixtures()` fixture, asserted by `test_registry_coverage`.
-# A NEW public distribution type added without a fixture fails that meta-test.
+# A new public distribution type added without a fixture fails that meta-test.
 #
-# A handful of public `Distribution` subtypes are deliberately EXCLUDED from the
+# A handful of public `Distribution` subtypes are deliberately excluded from the
 # `test_interface` registry, with a documented reason each:
-#   - `NoEvent`        : an absorbing no-event MARKER, not a scorable delay; it
+#   - `NoEvent`        : an absorbing no-event marker, not a scorable delay; it
 #                        only appears as a `Resolve`/`thin` branch (covered via
 #                        the defective Resolve / thin fixtures).
 #   - `Shared`         : a name-tag wrapper tying a leaf across branches; it is an
@@ -1011,7 +1011,7 @@ Assert the fixture registry covers every public distribution / leaf type.
 
 `test_registry_coverage(fixtures = example_fixtures())` checks that every type in
 [`registry_types`](@ref) appears (possibly nested) in at least one fixture, so a
-NEW public distribution type added without a `test_interface` fixture fails here.
+new public distribution type added without a `test_interface` fixture fails here.
 The walk descends composer children, censoring wrappers and modifier inners.
 Returns the `@testset` object.
 """ function test_registry_coverage(fixtures = example_fixtures())
@@ -1033,7 +1033,7 @@ end
 Assert each composer rejects invalid construction in its inner constructor.
 
 `test_rejects_invalid()` checks that the standard composers validate their
-structural invariants on EVERY construction path (the inner constructor), so a
+structural invariants on every construction path (the inner constructor), so a
 malformed node errors at build time rather than later: `Sequential` needs at
 least one component, `Parallel`/`Resolve`/`Choose` at least two children,
 `Resolve` branch probabilities in `[0, 1]`, and unique `Choose` names. Returns

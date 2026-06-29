@@ -2,46 +2,10 @@
 # Discrete-time reporting hazard with reference + report effects
 # ============================================================================
 #
-# The epinowcast nowcasting model treats the reporting delay as a DISCRETE-TIME
-# HAZARD, not a fixed PMF. The hazard `h_d` is the conditional probability that a
-# case is reported at delay `d` GIVEN it has not yet been reported by delay
-# `d - 1`. Writing the hazard on the logit scale lets covariate effects enter
-# additively and lets the delay distribution VARY by reference date (a slow
-# drift in reporting speed) and by report date (e.g. a weekday reporting pattern)
-# while staying a proper, normalised PMF per reference date.
-#
-# This file supplies the small, AD-safe vector pieces that the renewal /
-# convolution layer (`convolve_with_vector.jl`) and the censoring pipeline
-# (`double_interval_censored`) do not: PMF -> hazard, a logit-scale modification
-# of the hazard by additive effects, and hazard -> PMF. Composed, they map a
-# baseline discretised delay PMF and per-(reference, report) logit effects to the
-# modified per-reference-date delay PMF the convolution then uses.
-#
-# Relationship to the delay machinery. The BASELINE PMF is whatever the package
-# already produces: `_delay_pmf(delay, maxlag, interval)` discretises a
-# (primary-/double-censored) delay to interval masses on `0:maxlag`. This file
-# only reshapes that PMF through the hazard, so a primary_censored /
-# double_interval_censored baseline flows straight in.
-#
-# Why not a forward-transform op. The `Transformed`/`thin`/`cumulative` protocol
-# (`forward_transform.jl`) applies a deterministic map to the 1-D count series
-# AFTER `convolved(stack, series)` has collapsed the delay into a
-# single, time-INVARIANT PMF convolved across all times. The nowcasting hazard is
-# time-VARYING by construction: a reference-date effect gives each reference date
-# its OWN delay PMF, so the result is a reference-by-report MATRIX, not a series a
-# forward op can produce. The hazard layer therefore reuses `_delay_pmf` for the
-# baseline PMF (the part the convolution layer already builds once) but forms the
-# per-reference-date matrix itself.
-#
-# AD-safety. Every operation here is a plain arithmetic reduction over vectors
-# (cumulative sums, `logistic`, products), seeded from the input element type, so
-# `Dual`/tracked numbers propagate and the whole hazard layer differentiates
-# inside a Turing `@model`.
-#
-# Relationship to ModifiedDistributions.jl. This is a hazard-MODIFICATION of a
-# delay (a sibling concern to that package's remit). For now it lives here,
-# next to the delay-discretisation and convolution it feeds; the
-# hazard-modification leaves may move into ModifiedDistributions in future.
+# Vector helpers for the epinowcast discrete-time reporting hazard: PMF ->
+# hazard, a logit-scale modification of the hazard by additive reference- and
+# report-date effects, hazard -> PMF, and the expected reference-by-report
+# count matrix. Every step is AD-safe arithmetic over vectors.
 
 @doc raw"
 
@@ -245,10 +209,10 @@ per-reference-date effect and a per-report-date effect
 The two effect families are the epinowcast reference- and report-date hazard
 terms:
 
-- `reference_effects[t]` is a SCALAR logit-hazard shift applied at every delay
+- `reference_effects[t]` is a scalar logit-hazard shift applied at every delay
   for reference date ``t`` (e.g. a random-walk drift in reporting speed). Pass a
   length-`length(expected)` vector, or `nothing` for no reference effect.
-- `report_effect(s)` returns the logit-hazard shift for REPORT date ``s = t +
+- `report_effect(s)` returns the logit-hazard shift for report date ``s = t +
   d`` (e.g. a day-of-week term `dow -> dow_effect[mod1(s, 7)]`). Pass a callable,
   or `nothing` for no report effect. The report effect is evaluated at the report
   date, so it varies along each reference date's delay profile.
@@ -260,7 +224,7 @@ untruncated matrix.
 
 The result is a `length(expected) × length(pmf)` matrix `M[t, d]` of expected
 counts for reference date `t` (row) and delay `d - 1` (column). Summing a row
-over the observed delays gives the expected count SEEN so far for that reference
+over the observed delays gives the expected count seen so far for that reference
 date; the row total over all delays is ``\lambda_t``.
 
 Every step is AD-safe arithmetic, so sampled `expected`, `reference_effects` and
@@ -339,7 +303,7 @@ end
 
 @doc raw"""
 
-Expected counts by reference date and report delay from a delay DISTRIBUTION.
+Expected counts by reference date and report delay from a delay distribution.
 
 This method takes the baseline delay as a `UnivariateDistribution` (typically a
 composed [`compose`](@ref) / [`convolved`](@ref) stack) rather than a

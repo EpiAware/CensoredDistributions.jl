@@ -2,39 +2,11 @@
 # Wrapping a composer with an external censoring wrapper
 # ============================================================================
 #
-# This layer defines what it MEANS to apply a censoring or truncation wrapper
-# (`primary_censored` / `interval_censored` / `double_interval_censored` /
-# `truncated`) ON TOP of a composer. It is the node-level direction: a
-# censoring/truncation MODIFIER applies at ANY level — to a leaf OR to a whole
-# composed node alike (tenet 7) — and the modifier keeps the TREE SHAPE
-# unchanged, so the wrapped node is still record-scoreable.
-#
-# A modifier over a composer DISTRIBUTES the SHARED observation resolution DOWN
-# into the node's LEAF CORES, returning a node of the SAME shape whose leaves all
-# carry that one resolution:
-#   - `Sequential` -> a `Sequential` of the same step names whose every leaf core
-#     is wrapped (the origin step's primary anchors the latent origin once and
-#     each step is interval-/truncation-resolved), so `logpdf(wrapped, rows)`
-#     scores the per-event record exactly as the canonical per-leaf construction
-#     `Sequential(modifier(d_1), modifier(d_2), ...)` does;
-#   - `Parallel` -> a `Parallel` of the same branch names, each branch endpoint
-#     wrapped on its own (its branches hang off one shared origin);
-#   - `Choose` -> a `Choose` of the same alternatives, each wrapped;
-#   - `Resolve` / `Compete` (the one_of nodes) -> the SAME node with each
-#     OUTCOME's delay core wrapped, keeping the per-outcome slots so the result
-#     scores a record per outcome (the loser's slot is `missing`). A `NoEvent`
-#     no-event branch carries no delay and passes through unchanged.
-# Each leaf is reduced to its continuous CORE (`_marginal_core`) BEFORE the
-# modifier is reapplied, so wrapping an ALREADY-censored node re-resolves it at
-# the new resolution instead of stacking `PrimaryCensored{PrimaryCensored{...}}`.
-#
-# `Convolved` is univariate (the observed sum), so the existing
-# `UnivariateDistribution` wrapper methods accept it directly, and the SCALAR
-# combine-then-censor lowering of a chain total or a one_of marginal
-# time-to-resolution stays available EXPLICITLY through
-# `modifier(observed_distribution(seq))` / `modifier(convolved(...))`
-# — that is the dual, scalar direction, distinct from the node-level wrap here.
-# Dispatch on the composer type — no runtime predicate, no new hierarchy.
+# A censoring/truncation modifier (`primary_censored` / `interval_censored` /
+# `double_interval_censored` / `truncated`) over a composer distributes into the
+# leaf cores, returning a node of the same shape (record-scoreable). The scalar
+# combine-then-censor lowering stays available via
+# `modifier(observed_distribution(node))`.
 
 @doc "
 
@@ -47,7 +19,7 @@ it to that quantity:
   unchanged;
 - a [`Resolve`](@ref) / [`Compete`](@ref) one_of node's observed quantity is the
   marginal time-to-resolution, returned as the `MixtureModel` over its outcome
-  delays (via [`as_mixture`](@ref)); this is the SCALAR lowering used by
+  delays (via [`as_mixture`](@ref)); this is the scalar lowering used by
   `modifier(observed_distribution(node))`, distinct from the node-level wrap that
   distributes the modifier into the outcome slots;
 - a [`Sequential`](@ref) chain's observed quantity is the total elapsed time
@@ -73,10 +45,10 @@ observed_distribution(seq)
 observed_distribution(d::UnivariateDistribution) = d
 
 # A one_of node's observed scalar is its marginal time-to-resolution. Returned
-# here as a univariate marginal leaf (NOT the node itself) so
-# `modifier(observed_distribution(node))` stays the SCALAR combine-then-censor
-# lowering even though a bare-node modifier now distributes into the outcome slots
-# (#655). The marginal forwards to the node's OWN scalar density (a `Resolve`'s
+# here as a univariate marginal leaf (not the node itself) so
+# `modifier(observed_distribution(node))` stays the scalar combine-then-censor
+# lowering even though a bare-node modifier now distributes into the outcome
+# slots. The marginal forwards to the node's own scalar density (a `Resolve`'s
 # mixture, a `Compete`'s racing-hazard `min_k D_k`); a non-terminal one_of (a
 # composer-valued outcome) has no scalar marginal and errors there as before.
 observed_distribution(d::AbstractOneOf) = _one_of_marginal(d)
@@ -88,7 +60,7 @@ function observed_distribution(d::Sequential)
 end
 
 # Flatten a composer's components to the univariate leaves whose sum is the
-# chain's terminal time, as a CONCRETE tuple. A nested `Sequential` contributes
+# chain's terminal time, as a concrete tuple. A nested `Sequential` contributes
 # its own steps; a nested `Parallel` has no single terminal time, so a chain
 # step that is itself a `Parallel` cannot be collapsed and is rejected with a
 # clear message. The result is a tuple (not a `Vector{UnivariateDistribution}`)
@@ -115,8 +87,8 @@ end
 # Sequential: distribute the shared resolution into the leaf cores.
 # ---------------------------------------------------------------------------
 #
-# A modifier over a `Sequential` keeps the tree shape (tenet 7): it rebuilds the
-# SAME chain (same step names) with every leaf reduced to its continuous CORE and
+# A modifier over a `Sequential` keeps the tree shape: it rebuilds the
+# same chain (same step names) with every leaf reduced to its continuous core and
 # re-wrapped at the shared resolution. The record scorer then applies the origin
 # step's primary once (at the latent origin E_0) and resolves each step's edge,
 # so `logpdf(wrapped, rows)` equals the canonical per-leaf construction
@@ -124,13 +96,13 @@ end
 # recurses; a nested `Parallel`/`Choose` step distributes through its own method,
 # so a chain whose step is a branching node stays scoreable (no collapse error).
 
-# Rebuild a composer node by applying `wrap_leaf` to each LEAF core, preserving
+# Rebuild a composer node by applying `wrap_leaf` to each leaf core, preserving
 # the tree shape and the step/branch/alternative names. A leaf is first reduced
 # to a core by `leaf_core` (default `_marginal_core`, every censoring layer
 # stripped) so a censoring modifier re-resolves it rather than stacking layers; a
 # nested composer recurses, keeping the structure unchanged. The fixed-bound
 # `truncated` modifier passes `_truncatable_core` instead, which peels only outer
-# truncation layers and KEEPS an inner primary/interval censoring, so a truncated
+# truncation layers and keeps an inner primary/interval censoring, so a truncated
 # primary-censored leaf stays `Truncated{PrimaryCensored}` and record-scoreable.
 function _distribute_into_leaves(
         d::UnivariateDistribution, wrap_leaf, leaf_core = _marginal_core)
@@ -157,9 +129,9 @@ function _distribute_into_leaves(
 end
 
 # A one_of node (`Resolve` / `Compete`) is a UnivariateDistribution (its scalar
-# marginal is the time-to-resolution), but it is a DISJUNCTION over outcome
+# marginal is the time-to-resolution), but it is a disjunction over outcome
 # delays, the dual of a `Choose`'s alternatives. So a modifier distributes into
-# each OUTCOME's delay core, keeping the per-outcome slot layout (the wrapped node
+# each outcome's delay core, keeping the per-outcome slot layout (the wrapped node
 # scores a record per outcome, the loser's slot `missing`), rather than collapsing
 # to the scalar marginal via the `UnivariateDistribution` leaf method. This more-
 # specific `AbstractOneOf` method shadows that leaf method. A `NoEvent` no-event
@@ -310,7 +282,7 @@ end
 # A `Choose` is a data-selected disjunction: each alternative is a full,
 # independent sub-distribution with its own endpoint, and a record's `kind`
 # selects which alternative scores / `rand`s. A censoring or truncation wrapper
-# observes the SELECTED alternative's scalar, so wrapping a `Choose` distributes
+# observes the selected alternative's scalar, so wrapping a `Choose` distributes
 # the wrapper into every alternative and returns a `Choose` of wrapped
 # alternatives. Scoring stays coherent: `logpdf(wrapped, x; kind)` routes (via
 # `_pick`) to the wrapped alternative's own `logpdf`, i.e. the censored /
@@ -372,14 +344,14 @@ end
 # Resolve / Compete (one_of): distribute the wrapper into every outcome's delay.
 # ---------------------------------------------------------------------------
 #
-# A one_of node is a DISJUNCTION over outcome delays (the dual of a `Choose`'s
+# A one_of node is a disjunction over outcome delays (the dual of a `Choose`'s
 # alternatives): exactly one outcome resolves, the record observes the winner's
 # time and leaves the losers `missing`. A censoring/truncation modifier therefore
-# distributes into each OUTCOME's delay core and returns the SAME one_of node
+# distributes into each outcome's delay core and returns the same one_of node
 # (type and probabilities preserved) with every outcome wrapped, keeping the per-
 # outcome slot layout so `logpdf(wrapped, rows)` scores a record per outcome. This
 # mirrors the `Choose` distribute idiom; a `NoEvent` no-event branch is left
-# untouched (it carries no delay). The SCALAR combine-then-censor marginal time-
+# untouched (it carries no delay). The scalar combine-then-censor marginal time-
 # to-resolution stays available explicitly via
 # `modifier(observed_distribution(node))`.
 #
@@ -423,7 +395,7 @@ node with every outcome's delay interval-censored (per-outcome slots preserved).
 See also: [`interval_censored`](@ref), [`Resolve`](@ref), [`Compete`](@ref)
 "
 # `interval` is typed `::Real` here (unlike the Sequential/Parallel/Choose
-# methods, which need no annotation): a one_of node IS a `UnivariateDistribution`,
+# methods, which need no annotation): a one_of node is a `UnivariateDistribution`,
 # so without the `::Real` match this would be ambiguous with the base
 # `interval_censored(::UnivariateDistribution, ::Real)` leaf method.
 function interval_censored(d::AbstractOneOf, interval::Real)
@@ -459,14 +431,14 @@ function double_interval_censored(
 end
 
 # ---------------------------------------------------------------------------
-# truncated: a FIXED-BOUND truncation distributed into a composed node's leaves.
+# truncated: a fixed-bound truncation distributed into a composed node's leaves.
 # ---------------------------------------------------------------------------
 #
-# `Distributions.truncated` is the SINGLE truncation verb over a composed node,
+# `Distributions.truncated` is the single truncation verb over a composed node,
 # the truncation sibling of the censoring node wraps above. It distributes the
-# bound into every leaf CORE (each leaf reduced to its continuous core first, then
-# truncated), returning a node of the SAME shape so the wrapped node stays
-# record-scoreable (tenet 7). This is density-identical to the canonical per-leaf
+# bound into every leaf core (each leaf reduced to its continuous core first, then
+# truncated), returning a node of the same shape so the wrapped node stays
+# record-scoreable. This is density-identical to the canonical per-leaf
 # construction `Sequential(truncated(d_1; ...), ..., truncated(d_k; ...))`.
 #
 # A constant bound (`upper = 10.0`) fixes the truncation at construction; the
@@ -475,8 +447,8 @@ end
 # (`upper = :obs_time`) instead names a per-record column read at score time, so
 # the per-observation horizon rides through the same `truncated` surface.
 #
-# The AGGREGATE-total truncation (truncate the chain's observed scalar total, not
-# each leaf) stays available EXPLICITLY through
+# The aggregate-total truncation (truncate the chain's observed scalar total, not
+# each leaf) stays available explicitly through
 # `truncated(observed_distribution(node); ...)`, the dual scalar direction —
 # exactly as the censoring node wraps keep `modifier(observed_distribution(node))`
 # available. Matching the censoring path, the bare-node form distributes into
@@ -484,8 +456,8 @@ end
 #
 # `Sequential`/`Parallel`/`Choose` are multivariate, so no base `truncated`
 # method applies and the keyword + positional forms below are unambiguous. An
-# `AbstractOneOf` (`Resolve`/`Compete`) IS a `UnivariateDistribution`, so the
-# bounds are typed (`::Real` / `::Nothing`) to SHADOW the base
+# `AbstractOneOf` (`Resolve`/`Compete`) is a `UnivariateDistribution`, so the
+# bounds are typed (`::Real` / `::Nothing`) to shadow the base
 # `truncated(::UnivariateDistribution, ...)` leaf methods (which would otherwise
 # collapse it to its scalar marginal and drop the outcome slots), the same wrinkle
 # the `interval_censored(::AbstractOneOf, ::Real)` method handles.
@@ -495,7 +467,7 @@ const _TruncatableNode = Union{Sequential, Parallel, Choose, AbstractOneOf}
 
 # The core `truncated` distributes onto: peel only outer
 # truncation layers so re-truncating an already-truncated node re-truncates the
-# inner core rather than nesting `Truncated{Truncated{...}}`, while KEEPING any
+# inner core rather than nesting `Truncated{Truncated{...}}`, while keeping any
 # primary/interval censoring underneath. This is the truncation analogue of
 # `_marginal_core` but censoring-preserving: a `truncated(primary_censored(...);
 # lower)` leaf stays `Truncated{PrimaryCensored}`, so its origin primary survives
@@ -506,7 +478,7 @@ _truncatable_core(d::UnivariateDistribution) = d
 _truncatable_core(d::Truncated) = _truncatable_core(d.untruncated)
 
 # Distribute one `(lower, upper)` bound into every leaf core, truncating
-# each at the SHARED bound. A leaf keeps any primary/interval censoring (only an
+# each at the shared bound. A leaf keeps any primary/interval censoring (only an
 # outer truncation layer is peeled, via `_truncatable_core`), so the truncated
 # leaf re-truncates rather than nesting `Truncated{Truncated{...}}` yet stays
 # record-scoreable. `(nothing, nothing)` is a no-op truncation, so the node is
@@ -531,7 +503,7 @@ the canonical per-leaf construction `Sequential(truncated(d_1; ...), ...)`.
 
 The upper-only form `truncated(node; upper)` is the observation-horizon
 right-truncation; adding a `lower` gives the δ-bounded finite observation window
-`[lower, upper]`. The AGGREGATE chain-total truncation stays available explicitly
+`[lower, upper]`. The aggregate chain-total truncation stays available explicitly
 via `truncated(observed_distribution(node); lower, upper)`.
 
 A bound may also be a `Symbol` naming a per-record column, e.g.
@@ -564,7 +536,7 @@ function Distributions.truncated(d::Union{Sequential, Parallel, Choose}, l, u)
 end
 
 # An `AbstractOneOf` is a `UnivariateDistribution`, so these positional forms must
-# be typed to SHADOW the base `truncated(::UnivariateDistribution, ...)` methods
+# be typed to shadow the base `truncated(::UnivariateDistribution, ...)` methods
 # (interval, right-only, left-only, and the empty `nothing, nothing`).
 function Distributions.truncated(d::AbstractOneOf, l::Real, u::Real)
     return _truncate_into_leaves(d, l, u)

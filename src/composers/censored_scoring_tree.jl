@@ -11,16 +11,16 @@
 # Recursive nested-composer scoring
 # ---------------------------------------------------------------------------
 #
-# A composer whose branch/step is ITSELF a `Sequential` / `Parallel` is an
+# A composer whose branch/step is itself a `Sequential` / `Parallel` is an
 # arbitrary, irregular event tree (e.g. bdbv `onset -> {admit -> {death,
 # discharge}, notif}`). The flat one-level scoring above only handles leaf
 # steps/branches; the recursion here scores the tree at every depth, each node
 # consuming its contiguous slice of the flat event vector.
 #
-# The flat event vector lays out one entry per LEAF event in depth-first order,
-# preceded by the root origin `E_0`. A nested composer's ORIGIN is the parent's
+# The flat event vector lays out one entry per leaf event in depth-first order,
+# preceded by the root origin `E_0`. A nested composer's origin is the parent's
 # event at its position (the origin is shared between parent and child, so a
-# nested composer does NOT re-introduce its own origin slot); it then consumes
+# nested composer does not re-introduce its own origin slot); it then consumes
 # one slot per leaf event in its subtree (`_nleaves`). `_subtree_logpdf` walks
 # the tree returning `(logprob, next_idx)`: the subtree log density and the index
 # one past the last event it consumed. Dispatch on the node type drives the
@@ -28,13 +28,13 @@
 # head/tail tuple recursion so the compiler specialises each child type, keeping
 # the walk type-stable and AD-safe.
 
-# The DATA value type for a tree walk: the event vector's non-missing element
-# type. Used only to convert the observed event VALUES (data) and the `zero`
+# The data value type for a tree walk: the event vector's non-missing element
+# type. Used only to convert the observed event values (data) and the `zero`
 # seed; the per-edge log densities keep their own (possibly AD-tracked) type and
-# flow into the UNANNOTATED accumulator, so an AD `Dual`/tracked value from the
+# flow into the unannotated accumulator, so an AD `Dual`/tracked value from the
 # leaf params propagates through the sum without being narrowed.
 #
-# Extracted by a `@generated` function that strips `Missing` at COMPILE time and
+# Extracted by a `@generated` function that strips `Missing` at compile time and
 # splices the bare type in as a constant. A plain runtime `nonmissingtype(eltype(
 # events))` crashes Mooncake's reverse-mode codegen (uncatchable `signal 4`) when
 # applied to the tracked event vector; folding it into a generated constant keeps
@@ -56,8 +56,8 @@ _first_origin_node(d::Sequential) = d.components[1]
 #
 # `_tree_score` walks the tree and sums each edge's contribution, recursing into
 # a nested composer step/branch through a dispatched function call. The walk over
-# a node's children is a RUNTIME `for` loop over the component tuple (mirroring
-# the generic `_composite_logpdf` in `nesting.jl`), NOT a head/tail type
+# a node's children is a runtime `for` loop over the component tuple (mirroring
+# the generic `_composite_logpdf` in `nesting.jl`), not a head/tail type
 # recursion: the compiled AD backends (Mooncake) differentiate a per-node runtime
 # loop plus dispatched recursion, but choke on deep tuple-splatting head/tail
 # recursion that carries the tracked leaf distributions. The mutual recursion
@@ -65,26 +65,26 @@ _first_origin_node(d::Sequential) = d.components[1]
 # the generic composer logpdf already differentiates.
 #
 # The flat event vector is laid out depth-first: entry 1 is the root origin E_0,
-# then one entry per LEAF event in traversal order. A node's ORIGIN is the
-# parent's event (a SHARED slot), while its own leaf events occupy a CONTIGUOUS
+# then one entry per leaf event in traversal order. A node's origin is the
+# parent's event (a shared slot), while its own leaf events occupy a contiguous
 # slice; the walk carries both `origin_idx` (the origin event) and `event_start`
 # (where this node's own leaf events begin) so an irregular tree scores at every
 # depth. Each node returns `(logprob, next_event_idx, terminal_idx)`.
 
-# The event-index layout is computed by PURE-INTEGER helpers (`_child_nleaves`
+# The event-index layout is computed by pure-integer helpers (`_child_nleaves`
 # from `nesting.jl`, plus `_terminal_offset` below) that touch only the tree
 # structure, never the leaf params, so the scoring recursion can return a plain
-# SCALAR log density. Returning a scalar (not an index-carrying tuple) is what
+# scalar log density. Returning a scalar (not an index-carrying tuple) is what
 # keeps the compiled AD backends (Mooncake) happy: a recursion returning a tuple
 # that mixes a tracked log density with inactive `Int` indices hits Mooncake's
 # mixed-activity codegen, while a scalar-returning recursion over the same
 # unrolled-tuple loop differentiates exactly as the generic `_composite_logpdf`
 # does (notwithstanding for Enzyme on deeply mixed trees).
 
-# Offset (relative to a node's `event_start`) of the TERMINAL event a following
+# Offset (relative to a node's `event_start`) of the terminal event a following
 # chain step hangs off. A leaf edge terminates at its own (single) event; a
 # Sequential at its last leaf event; a Parallel at its shared origin, which is the
-# PARENT's event (offset -1 relative to the branch's own first event). Pure Int.
+# parent's event (offset -1 relative to the branch's own first event). Pure Int.
 _terminal_offset(::UnivariateDistribution) = 0
 # A `Resolve` is a terminal node (the chain does not continue through a single
 # outcome); like a `Parallel` its terminal for a following step is the shared
@@ -92,14 +92,14 @@ _terminal_offset(::UnivariateDistribution) = 0
 _terminal_offset(::AbstractOneOf) = -1
 _terminal_offset(d::Sequential) = _seq_terminal_offset(d.components)
 _terminal_offset(::Parallel) = -1
-# A nested `Choose` swaps in ONE alternative per row; the alternatives share one
+# A nested `Choose` swaps in one alternative per row; the alternatives share one
 # event-slot width (checked by `_event_child_nleaves`), so the Choose's terminal
 # offset is that of its (common) alternative. A following chain step hangs off the
 # same terminal regardless of which alternative routes.
 _terminal_offset(d::Choose) = _terminal_offset(_flat_choose_alternative(d))
 function _seq_terminal_offset(components::Tuple)
     # The last step's terminal, measured from the chain's own first event. Uses
-    # the EVENT-slot count (a `Resolve` step spans one slot per outcome).
+    # the event-slot count (a `Resolve` step spans one slot per outcome).
     off = 0
     @inbounds for i in 1:(length(components) - 1)
         off += _event_child_nleaves(components[i])
@@ -109,7 +109,7 @@ function _seq_terminal_offset(components::Tuple)
 end
 
 # Top entry: origin at 1, first event at 2; returns the scalar log density. The
-# return type is NOT `T` (the event-data type): the per-edge log densities carry
+# return type is not `T` (the event-data type): the per-edge log densities carry
 # any AD `Dual`/tracked type from the leaf params, so the result widens past the
 # data type and must not be asserted to `T`.
 #
@@ -127,11 +127,11 @@ end
 
 # Sequential: the first step hangs off `origin_idx` with the (latent) primary,
 # each later step off the previous step's terminal event. The first step is
-# PEELED off so the primary lives only on it (a runtime `i == 1 ? primary :
+# peeled off so the primary lives only on it (a runtime `i == 1 ? primary :
 # nothing` would make the primary a `Union{P, Nothing}` value and defeat
 # inference); the rest are walked with `for c in tail` (Julia unrolls a `for`
 # over a tuple, so the heterogeneous steps stay type-stable). The running event
-# cursor and origin index are PURE-INTEGER bookkeeping computed from
+# cursor and origin index are pure-integer bookkeeping computed from
 # `_child_nleaves` / `_terminal_offset`, so each `_tree_step` returns a scalar.
 function _tree_score(d::Sequential, events, origin_idx::Int, event_start::Int,
         primary, ::Type{T}, horizon = nothing) where {T}
@@ -149,16 +149,16 @@ function _tree_score(d::Sequential, events, origin_idx::Int, event_start::Int,
     return acc
 end
 
-# Parallel: every branch hangs off the SHARED origin `origin_idx`; each branch's
+# Parallel: every branch hangs off the shared origin `origin_idx`; each branch's
 # own events continue from the running cursor. The branch walk is
 # `for b in components` (unrolled, type-stable); the cursor is pure-Int
 # bookkeeping, so each `_tree_step` returns a scalar.
 #
-# Within a NESTED tree the per-branch scoring is independent given the shared
+# Within a nested tree the per-branch scoring is independent given the shared
 # origin: an observed origin conditions each branch on the declared edge, a
-# missing origin marginalises each LEAF branch against the latent primary via the
+# missing origin marginalises each leaf branch against the latent primary via the
 # analytic `primary_censored` (handled in `_tree_step`). The coupled 1-D origin
-# QUADRATURE (the flat-`Parallel` shared-origin marginal) is deliberately NOT
+# quadrature (the flat-`Parallel` shared-origin marginal) is deliberately not
 # reachable from here: its `gl_integrate` path hard-crashes the compiled AD
 # backends (Mooncake/Enzyme) uncatchably even when not taken at runtime (they
 # build a rule for every reachable branch), so pulling it into the nested path
@@ -176,7 +176,7 @@ function _tree_score(d::Parallel, events, origin_idx::Int, event_start::Int,
     return acc
 end
 
-# A nested-composer step/branch recurses on a FRESH sub-event view
+# A nested-composer step/branch recurses on a fresh sub-event view
 # `[origin, its_leaf_events...]` (origin at 1, first event at 2), rather than the
 # full event vector with offset indices. Passing a shrinking sub-view per level
 # mirrors the generic `_composite_logpdf` recursion (which the compiled AD
@@ -188,7 +188,7 @@ end
 # `logpdf` -- so an observed origin conditions each child on its declared edge.
 function _tree_step(step::Union{Sequential, Parallel}, events, o_idx::Int,
         ev_idx::Int, primary, ::Type{T}, horizon = nothing) where {T}
-    # The sub-view spans the node's EVENT slots (a `Resolve` step contributes
+    # The sub-view spans the node's event slots (a `Resolve` step contributes
     # one slot per outcome), so use the event-slot count, not `length`.
     sub = _subevent_slice(events, o_idx, ev_idx, _event_nleaves(step.components))
     return _tree_score(step, sub, 1, 2, primary, T, horizon)
@@ -207,12 +207,12 @@ function _subevent_slice(events, o_idx::Int, ev_idx::Int, n::Int)
     end
     return out
 end
-# A nested `Choose` on the tree path routes to ONE alternative and scores it as
+# A nested `Choose` on the tree path routes to one alternative and scores it as
 # that edge. The numeric event-vector path carries no row selector (the selector
-# is a Symbol, not an event time), so this DETERMINISTIC default commits to the
-# FIRST alternative -- the data-free value-vector round-trip, where a constructed
-# flat vector must score back through `logpdf` without a selector. The DATA path
-# does NOT reach here: the per-record build resolves the selector into the tree
+# is a Symbol, not an event time), so this deterministic default commits to the
+# first alternative -- the data-free value-vector round-trip, where a constructed
+# flat vector must score back through `logpdf` without a selector. The data path
+# does not reach here: the per-record build resolves the selector into the tree
 # (`_pick_choose`) before scoring, replacing the Choose with the routed
 # alternative, so a real record routes by `row[selector]` and never silently
 # scores alternative 1. The chosen alternative is scored through its own
@@ -230,7 +230,7 @@ function _tree_step(step::UnivariateDistribution, events, o_idx::Int,
     y = events[ev_idx]
     if o !== missing && y !== missing
         # Condition on the edge's declared censoring at the observed gap. Only the
-        # DATA gap is converted to `T`; the log density keeps its own (AD-tracked)
+        # data gap is converted to `T`; the log density keeps its own (AD-tracked)
         # type so a leaf-param gradient is not narrowed.
         return logpdf(step, convert(T, y) - convert(T, o))
     end

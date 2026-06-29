@@ -68,36 +68,20 @@ end
 # Generic record entry: composed_distribution_model
 # ===========================================================================
 #
-# `composed_distribution_model(d, row)` is the SINGLE generic entry for a whole
-# record. It dispatches on `typeof(d)`: a leaf/univariate distribution delegates
-# to the matching LEAF model (`primary_censored_model` / `interval_censored_model`
-# / `double_interval_censored_model`), and a composed distribution recurses
-# through the composer structure. This keeps the leaf models correctly named while
-# never misnaming a composed record (a `Sequential` of double-censored edges is
-# composed, not 'primary censored').
-#
-# The composed methods take the observations as a `NamedTuple` ROW keyed by EVENT
-# NAME (`(onset = 2.0, admit = missing, death = 9.0)`); the field ORDER is the
-# event order `E_0, E_1, ..., E_k` the composer's components span (a Tables.jl
-# linelist row IS such a NamedTuple, so a row passes straight in). `missing`
-# fields are the per-record signal that drives the marginalise-vs-condition
-# dispatch. A reserved `weight`/`count` field (or the `weight =` keyword)
-# scales the likelihood and is EXCLUDED from the event dispatch.
-#
-# Marginal vs latent is DISPATCH on the STRUCT TYPE (not a runtime predicate),
-# mirroring the leaf (`PrimaryCensored` marginal, `Latent` latent):
-#   - a bare composer (`Sequential` / `Parallel` / `Resolve`) is MARGINAL: it
-#     scores the row vector via `~ d`, so the censored composer `logpdf`
-#     auto-marginalises unobserved intermediates / the origin and conditions on
-#     observed events. The submodel log-density equals the direct
-#     `logpdf(d, event_vector)`, and missing fields drive the per-record path.
-#   - a `latent`-wrapped composer turns the shared/origin primary ON: the origin
-#     `o ~ ...` is declared INSIDE the model (so the sampled origin lives in the
-#     VarInfo and the model fits AND generates the full event path), each
-#     observed downstream event conditions on `o` through its own edge,
-#     and unobserved intermediates marginalise by convolving the adjacent cores.
-# Per-record/branch latents are namespaced by `prefix` at the call site (see the
-# composer tests), so chains stay readable and groupable.
+# `composed_distribution_model(d, row)` is the generic per-record entry. It
+# dispatches on `typeof(d)`: a leaf delegates to the matching leaf model, a
+# composer recurses through its structure. Rows are NamedTuples keyed by event
+# name (`(onset = 2.0, admit = missing, death = 9.0)`); the field order is the
+# event order the components span, so a Tables.jl linelist row passes straight
+# in. Missing fields drive the marginalise-vs-condition dispatch and a reserved
+# `weight`/`count` field (or the `weight =` keyword) scales the likelihood.
+# Marginal vs latent is dispatch on the struct type: a bare composer is marginal
+# (its `logpdf` auto-marginalises unobserved intermediates and conditions on
+# observed events); a `latent`-wrapped composer samples the origin and
+# conditions each observed downstream event on it. Per-record latents are
+# namespaced by `prefix` at the call site, so chains stay readable and
+# groupable.
+# `prefix` at the call site, so chains stay readable and groupable.
 
 # --- Leaf delegation -------------------------------------------------------
 #
@@ -136,7 +120,7 @@ end
 # `Latent{<:UnivariateDistribution}, row::NamedTuple` leaf fallback (defined with
 # the Choose routing below): both match (one more specific in `d`, the other in the
 # argument), so spell out the primary-censored NamedTuple case to keep its
-# primary-SAMPLING leaf model rather than the marginal fallback.
+# primary-sampling leaf model rather than the marginal fallback.
 function composed_distribution_model(
         d::Latent{<:PrimaryCensored}, row::NamedTuple; weight = nothing)
     _reject_latent_horizon(row)
@@ -191,10 +175,10 @@ function _reject_latent_horizon(row::NamedTuple)
 end
 
 # The per-record horizon to apply to a latent composer's nested Resolve
-# branches. A latent composer with a nested Resolve node CAN honour an
+# branches. A latent composer with a nested Resolve node can honour an
 # `obs_time` horizon (the conditioned branch is right-truncated at the remaining
 # window from its anchor, density-identical to the marginal). A latent composer
-# with NO nested Resolve has only leaf-twin edges, whose latent-form
+# with no nested Resolve has only leaf-twin edges, whose latent-form
 # right-truncation is out of scope, so a horizon there is rejected exactly as
 # before.
 function _latent_one_of_horizon(plan, row::NamedTuple)
@@ -262,12 +246,12 @@ _leaf_weight(row::NamedTuple, kw_weight) = _row_weight(row, kw_weight)
 
 # --- Reserved-field handling -----------------------------------------------
 #
-# The pure row -> event-vector / reserved-field parsing now lives in the CORE
+# The pure row -> event-vector / reserved-field parsing now lives in the core
 # (`src/composers/tree_events.jl`, Turing-free) so the per-record and batched
 # paths share one source of truth. These thin aliases keep the ext's local
 # names while delegating to the core helpers.
 
-# Reserved row fields that are NOT events come from the CORE (`tree_events.jl`),
+# Reserved row fields that are not events come from the core (`tree_events.jl`),
 # shared by the per-record and batched paths. They include the per-record
 # Resolve branch-probability override `branch_probs`, so it is excluded
 # from by-name event matching for a nested Resolve tree too.
@@ -287,7 +271,7 @@ _row_horizon(row::NamedTuple) = CensoredDistributions._row_horizon_field(row)
 # --- Marginal composer models ----------------------------------------------
 
 # Marginal `Sequential` / `Parallel`: score the row's event vector directly
-# through the censored composer `logpdf`. The whole row is DATA (carried in the
+# through the censored composer `logpdf`. The whole row is data (carried in the
 # `row` argument), so the contribution is added with `@addlogprob!` rather than a
 # sampled `~`, leaving no spurious VarInfo variable (matching the leaf marginal,
 # which has no latent). The composer dispatches on the event vector's
@@ -297,10 +281,10 @@ _row_horizon(row::NamedTuple) = CensoredDistributions._row_horizon_field(row)
 # `logpdf(d, event_vector)`, scaled by the row weight, so the submodel
 # log-density equals the direct `logpdf`.
 #
-# A NESTED `Resolve` node is scored by the same path: its outcome
+# A nested `Resolve` node is scored by the same path: its outcome
 # columns occupy one event slot each (`_flat_event_names`), so the observed
 # outcome is identified positionally and `_tree_step(::Resolve)` conditions on
-# that branch. A per-record `branch_probs` field OVERRIDES the (single) nested
+# that branch. A per-record `branch_probs` field overrides the (single) nested
 # Resolve's stored probabilities by rebuilding the tree for the record, so a
 # covariate CFR `logistic(Xβ)` flows in exactly as for the top-level node.
 @model function composed_distribution_model(
@@ -328,7 +312,7 @@ end
 # Rebuild a composed tree with the per-record `branch_probs` override applied to
 # its single nested `Resolve` node, or return it unchanged when the row
 # carries no override. The override is coerced + validated against that node's
-# outcomes via the SHARED core helper, then the tree is rebuilt with the new
+# outcomes via the shared core helper, then the tree is rebuilt with the new
 # probabilities (their element type preserved so a covariate `Dual` flows). The
 # tree must contain exactly one Resolve node for a scalar/NamedTuple override.
 function _apply_branch_probs_override(d, row::NamedTuple)
@@ -343,13 +327,13 @@ end
 
 # The single Resolve node of a tree (for coercing a per-record override against
 # its outcome names), or `nothing` when there is none. Errors if more than one.
-# Mirrors the core `_count_one_of`/`_replace_one_of` nesting: it RECURSES
+# Mirrors the core `_count_one_of`/`_replace_one_of` nesting: it recurses
 # through composer components, an `AbstractOneOf`'s outcome `delays` (a
 # Resolve can nest inside a one_of-outcome subtree), a `Choose`'s
 # alternatives, and a `Latent`'s inner dist. (Previously a nested
 # `AbstractOneOf` hit the `::UnivariateDistribution` fallback — they share
 # that supertype — so a Resolve nested inside a one_of outcome was never
-# found, and `Choose`/`Latent` hit no method.) A `Compete` is NOT
+# found, and `Choose`/`Latent` hit no method.) A `Compete` is not
 # branch-prob-overridable, so it is not itself returned, but its delays are still
 # searched (a Resolve may nest inside one of its causes).
 function _the_one_of(d)
@@ -384,13 +368,13 @@ function _merge_found(a, b)
         "node in the tree; found more than one"))
 end
 
-# VECTORISED entry: score a WHOLE TABLE of records sharing the same composed `d`
-# in one `~`. `rows` is any Tables.jl row source that is NOT a single
+# Vectorised entry: score a whole table of records sharing the same composed `d`
+# in one `~`. `rows` is any Tables.jl row source that is not a single
 # `NamedTuple` row (a `Vector` of rows, a column table); the single-`NamedTuple`
 # method above stays the per-record entry. Each record becomes its own
 # distribution via `record_distributions` (baking the reserved
 # `weight`/`count`/`obs_time` row fields and the missingness pattern, sharing the
-# convolution construction across records). The table scores AND samples with the
+# convolution construction across records). The table scores and samples with the
 # standard `obs ~ product_distribution(...)` tilde: the observed event matrix
 # (one column per record) is read from the rows and supplied as the `~` value, so
 # present observations score; a fully-missing table supplies `missing`, so Turing
@@ -423,20 +407,20 @@ function composed_distribution_model(
     return _vectorised_records_model(recs, _record_obs_matrix(recs))
 end
 
-# --- GROUPED entry: per-stratum (varying / partially-pooled) params ----------
+# --- Grouped entry: per-stratum (varying / partially-pooled) params ----------
 #
-# `composed_distribution_model(ds, table; group)` is the VARYING-PARAMS entry:
-# `ds` is a VECTOR of composed distributions (one per stratum) and `group` is the
+# `composed_distribution_model(ds, table; group)` is the varying-params entry:
+# `ds` is a vector of composed distributions (one per stratum) and `group` is the
 # integer stratum id per record (a 1-based index into `ds`). Each record is built
-# from `ds[group[i]]`, so records in different strata score under DIFFERENT
+# from `ds[group[i]]`, so records in different strata score under different
 # (sampled) params, while the shared single-`d` fast path is recovered exactly
-# when `length(ds) == 1`. The per-stratum params are produced by the USER (a
+# when `length(ds) == 1`. The per-stratum params are produced by the user (a
 # `composed_parameters_model` per stratum, an independent prior per stratum for
-# NO pooling, or per-stratum draws off a shared hyperprior for PARTIAL pooling),
+# no pooling, or per-stratum draws off a shared hyperprior for partial pooling),
 # so the pooling structure is entirely the user's to encode; this entry only does
-# the AD-safe integer-keyed grouped scoring. The table scores AND samples with the
+# the AD-safe integer-keyed grouped scoring. The table scores and samples with the
 # standard `obs ~ product_distribution(...)` tilde, dual-purpose like the shared
-# entry. `ds` is built ONCE per stratum (its sampled params carried inside),
+# entry. `ds` is built once per stratum (its sampled params carried inside),
 # never keyed by a float, so the Enzyme footgun is avoided.
 function composed_distribution_model(
         ds::AbstractVector, table; group, weight = nothing)
@@ -473,7 +457,7 @@ function composed_distribution_model(
     return _vectorised_records_model(recs, _record_obs_matrix(recs))
 end
 
-# The inner vectorised submodel: `obs` is a MODEL ARGUMENT, so a supplied matrix
+# The inner vectorised submodel: `obs` is a model argument, so a supplied matrix
 # is observed (scores) and `missing` is sampled (generates the full event paths).
 @model function _vectorised_records_model(recs, obs)
     obs ~ product_distribution(recs)
@@ -500,34 +484,34 @@ end
 
 _record_has_observed(r) = any(v -> v !== missing, r.events)
 
-# A `Resolve` node SELF-DISPATCHES on the row's outcome missingness
-# (decision 2), mirroring the observed-intermediate dispatch of a chain:
+# A `Resolve` node self-dispatches on the row's outcome missingness, mirroring
+# the observed-intermediate dispatch of a chain:
 #
-#   - EXACTLY ONE outcome's event time observed in the row -> CONDITION on that
+#   - exactly one outcome's event time observed in the row -> condition on that
 #     branch: `log(p[obs]) + logpdf(delay[obs], gap)`, the observed branch's own
 #     (censored) logpdf at its gap (its observed time, the delay from the origin);
 #   - the outcome unknown (a `resolved` resolution time but no per-outcome time,
-#     OR a single bare non-outcome event field) -> MARGINALISE: the mixture
+#     or a single bare non-outcome event field) -> marginalise: the mixture
 #     `logpdf` at the resolution time;
-#   - ALL outcome columns missing and no resolution time -> the record is fully
+#   - all outcome columns missing and no resolution time -> the record is fully
 #     missing and contributes no factor (zero).
 #
-# BRANCH PROBABILITIES (three regimes via the SAME node):
+# Branch probabilities have three regimes via the same node:
 #   (a) fixed/sampled scalar  -> the node's stored `branch_probs`;
-#   (b) COVARIATE-DRIVEN      -> a reserved `branch_probs` ROW field (a NamedTuple
-#       of outcome -> prob, or a scalar for a two-outcome node giving the FIRST
-#       outcome's probability) OVERRIDES the stored probabilities per record. This
-#       is how a covariate CFR `logistic(Xβ)` (computed in PLAIN TURING,
-#       decision 2) flows in per record; the regression stays OUT of the node, the
-#       node only CONSUMES the probability. Validated to lie in `[0, 1]` and (for
-#       a NamedTuple) to sum to one across outcomes.
+#   (b) covariate-driven      -> a reserved `branch_probs` row field (a NamedTuple
+#       of outcome -> prob, or a scalar for a two-outcome node giving the first
+#       outcome's probability) overrides the stored probabilities per record. This
+#       is how a covariate CFR `logistic(Xβ)` (computed in plain Turing) flows
+#       in per record; the regression stays out of the node, the node only
+#       consumes the probability. Validated to lie in `[0, 1]` and (for a
+#       NamedTuple) to sum to one across outcomes.
 #   (c) unknown outcome       -> the probabilities enter only as the mixture
 #       weights of the marginalise path.
 #
-# The observed OUTCOME (which outcome column is non-missing, Feature 1's by-name
-# missingness) and the per-record PROBABILITY (the reserved `branch_probs` field)
-# are DISTINCT row inputs. The whole record is DATA, so the
-# contribution is added with `@addlogprob!` (no spurious VarInfo variable).
+# The observed outcome (which outcome column is non-missing) and the per-record
+# probability (the reserved `branch_probs` field) are distinct row inputs. The
+# whole record is data, so the contribution is added with `@addlogprob!` (no
+# spurious VarInfo variable).
 @model function composed_distribution_model(
         d::Resolve, row::NamedTuple; weight = nothing)
     w = _row_weight(row, weight)
@@ -542,9 +526,9 @@ end
 # (`branch_probs`) is already a shared reserved field.
 const _RESOLVE_RESERVED = (_RESERVED_ROW_FIELDS..., :resolved)
 
-# The branch probabilities to USE for this record: a reserved `branch_probs` row
+# The branch probabilities to use for this record: a reserved `branch_probs` row
 # field overrides the node's stored probabilities (regime b), else the stored ones
-# (regime a). The coercion + validation is the SHARED core helper
+# (regime a). The coercion + validation is the shared core helper
 # (`_coerce_branch_probs`), so the top-level and nested paths agree on the
 # NamedTuple/scalar override semantics.
 function _one_of_outcome_probs(d::Resolve, row::NamedTuple)
@@ -562,9 +546,9 @@ function _one_of_logprob(d::Resolve, row::NamedTuple, probs, w, horizon)
     obs = _observed_outcomes(d, row)
     if length(obs) == 1
         i, gap = obs[1]
-        # An OBSERVED non-occurrence (the no-event slot present) scores the
+        # An observed non-occurrence (the no-event slot present) scores the
         # no-event mass `log q` alone (no delay term); a real outcome conditions
-        # on its branch through the SHARED core arithmetic (the per-record horizon
+        # on its branch through the shared core arithmetic (the per-record horizon
         # right-truncates the branch delay).
         if CensoredDistributions._is_no_event(d.delays[i])
             return _scale(log(probs[i]), w)
@@ -654,11 +638,11 @@ end
 
 # --- Choose (data-selected disjunction) ------------------------------------
 #
-# A `Choose` routes a record to ONE of its independent alternatives, chosen by
+# A `Choose` routes a record to one of its independent alternatives, chosen by
 # the row's selector field (`row[d.selector]`, default `:kind`). The selector
-# VALUE is the alternative's name (a `Symbol`). `composed_distribution_model`
+# value is the alternative's name (a `Symbol`). `composed_distribution_model`
 # reads that value, picks the alternative through the type-stable
-# `CensoredDistributions._pick`, and delegates to the SELECTED alternative's own
+# `CensoredDistributions._pick`, and delegates to the selected alternative's own
 # `composed_distribution_model` as a submodel. Because the alternative is itself
 # any leaf or composer, the selected branch's full handling (marginal / latent /
 # condition, weight, missingness) is exactly its own; `Choose` adds only the
@@ -696,9 +680,9 @@ function _drop_field(row::NamedTuple, field::Symbol)
     return NamedTuple{ks}(map(k -> row[k], ks))
 end
 
-# VECTORISED Choose entry: score a WHOLE TABLE of records whose top node is a
+# Vectorised Choose entry: score a whole table of records whose top node is a
 # `Choose` in one `~`. Each record selects its alternative (and carries its own
-# obs_time) per row via `record_distributions`, then the table scores AND samples
+# obs_time) per row via `record_distributions`, then the table scores and samples
 # with the standard `obs ~ product_distribution(...)` tilde, dual-purpose like the
 # Sequential/Parallel vectorised entry.
 function composed_distribution_model(
@@ -1178,7 +1162,7 @@ end
 # `Convolved` sum, a plain `Truncated`/`Weighted` over a primary-free delay, ...)
 # has nothing to realise: there is no primary event distribution, so the latent
 # form is density-identical to the marginal leaf, and we delegate to the marginal
-# leaf model unwrapped. The leaves that DO carry a primary have their own
+# leaf model unwrapped. The leaves that do carry a primary have their own
 # primary-sampling methods above: `Latent{<:PrimaryCensored}` (the separable
 # leaf) and `Latent{<:Union{IntervalCensored, Truncated}}` (the
 # `double_interval_censored` pipeline, which samples the primary and scores the
@@ -1386,7 +1370,7 @@ end
 
 # --- prior-key validation --------------------------------------------------
 
-# Validate that `priors` (a NamedTuple) covers EXACTLY `expected` (a tuple of
+# Validate that `priors` (a NamedTuple) covers exactly `expected` (a tuple of
 # names) at the current node, with a clear error on a missing or extra key. The
 # `what` label names the node in the message (e.g. `"edge :onset_admit"`).
 function _check_prior_keys(priors::NamedTuple, expected::Tuple, what::AbstractString)
@@ -1412,13 +1396,13 @@ end
 # The base (un-parameterised) constructor of a leaf distribution, so a leaf
 # reconstructs from sampled parameters carrying any (AD) element type rather than
 # the template's concrete one (e.g. `Gamma` from a `Gamma{Float64}` template).
-# Resolves the INNER free delay of a (possibly censored) leaf so a censored leaf
+# Resolves the inner free delay of a (possibly censored) leaf so a censored leaf
 # rebuilds its delay family, not the censoring wrapper.
 _base_ctor(leaf) = CensoredDistributions._leaf_ctor(
     CensoredDistributions.free_leaf(leaf))
 
 # Reconstruct a leaf from sampled parameters. For a censored leaf the inner free
-# delay is rebuilt from the params and the FIXED censoring is re-applied via
+# delay is rebuilt from the params and the fixed censoring is re-applied via
 # `rewrap_leaf`, so a `double_interval_censored(Gamma)` round-trips to the same
 # censored distribution. Argument checks are skipped (`check_args = false`) so a
 # sampler probing an out-of-support point yields `-Inf` rather than throwing
@@ -1443,7 +1427,7 @@ end
 #
 # Whether the constructor accepts `check_args` is decided by
 # `CensoredDistributions._ctor_has_check_args` (a pure `hasmethod` reflection
-# returning a `Bool`), NOT a `try`/`catch`. The original try/catch fallback (catch a
+# returning a `Bool`), not a `try`/`catch`. The original try/catch fallback (catch a
 # `MethodError` from the missing keyword) could not be differentiated by Mooncake
 # reverse on Julia LTS: `_construct_unchecked` is on the AD'd reconstruction path
 # (`composed_parameters_model` rebuilds each leaf from tracked params), and Mooncake
@@ -1473,8 +1457,8 @@ end
 # A leaf: sample each parameter (in `params` order) from its named prior and
 # rebuild the leaf via its base constructor. `tilde_assume!!` with `VarName{p}()`
 # gives each sampled parameter the bare name `p`; the enclosing submodel prefixes
-# add the edge path, so the chain name is `<edge>.<p>`. A SHARED-tagged leaf is
-# NOT sampled here: its value tuple is already in `shared` (sampled once up
+# add the edge path, so the chain name is `<edge>.<p>`. A shared-tagged leaf is
+# not sampled here: its value tuple is already in `shared` (sampled once up
 # front), so the occurrence reconstructs from that tracked tuple, re-applying its
 # own censoring.
 @model function _leaf_params_model(leaf, priors::NamedTuple, shared)
@@ -1506,8 +1490,8 @@ function _child_priors(priors::NamedTuple, name::Symbol)
     haskey(priors, name) ? priors[name] : NamedTuple()
 end
 
-# Sample a composer's children into the component TUPLE the rebuild expects via a
-# head/tail RECURSIVE submodel, instead of writing each into a `Vector{Any}` slot
+# Sample a composer's children into the component tuple the rebuild expects via a
+# head/tail recursive submodel, instead of writing each into a `Vector{Any}` slot
 # and converting with `Tuple(parts)`.
 #
 # The original `parts = Vector{Any}(...); parts[i] ~ ...; Tuple(parts)` lowered the
@@ -1518,7 +1502,7 @@ end
 # single leaf child's reverse data, a structural type mismatch), so a
 # nested-`Resolve` (bdbv / andv) model fell back to `AutoForwardDiff`.
 #
-# `_children_params_model` peels ONE child per recursion: it samples the head child
+# `_children_params_model` peels one child per recursion: it samples the head child
 # through its prefixed submodel into a scalar `head` (no indexed lvalue, so no
 # `setindex!` on an `Any` vector), recurses for the tail, and conses `(head,
 # rest...)`. Each `~` value keeps its own concrete type and the tuple is built by
@@ -1549,7 +1533,7 @@ end
 end
 
 # A `Sequential` / `Parallel`: sample each named child through a prefixed child
-# submodel, then rebuild the SAME composer type with the SAME names. A child whose
+# submodel, then rebuild the same composer type with the same names. A child whose
 # only params are shared has no own prior key and samples nothing locally.
 @model function _composer_params_model(
         d::Union{Sequential, Parallel}, priors::NamedTuple, shared)
@@ -1573,7 +1557,7 @@ end
 # A `Resolve`: sample each outcome delay through a prefixed child submodel; the
 # branch probabilities are kept fixed from the template unless a `branch_probs`
 # entry of priors is supplied (then each is sampled, prefixed under
-# `branch_probs`). Rebuild the `Resolve` with the SAME outcome names.
+# `branch_probs`). Rebuild the `Resolve` with the same outcome names.
 @model function _one_of_params_model(c::Resolve, priors::NamedTuple, shared)
     expected = (c.names..., :branch_probs)
     have = keys(priors)
@@ -1598,7 +1582,7 @@ end
 end
 
 # A racing-hazard `Compete`: sample each racing outcome delay through a
-# prefixed child submodel and rebuild with the SAME outcome names. There is NO
+# prefixed child submodel and rebuild with the same outcome names. There is no
 # `branch_probs` block (the winning probability is derived from the hazards).
 @model function _hazard_one_of_params_model(
         c::CensoredDistributions.Compete, priors::NamedTuple, shared)
@@ -1625,7 +1609,7 @@ end
     return probs
 end
 
-# `branch_probs` is optional, the outcome names are required UNLESS an outcome's
+# `branch_probs` is optional, the outcome names are required unless an outcome's
 # only params are shared (its prior is top-level, no per-outcome key): validate the
 # required outcome priors are present and no key outside `expected`/shared appears.
 function _check_one_of_keys(priors::NamedTuple, required::Tuple,
@@ -1642,9 +1626,9 @@ function _check_one_of_keys(priors::NamedTuple, required::Tuple,
     return nothing
 end
 
-# A composer node's child prior keys. A child key may be ABSENT (its only params
+# A composer node's child prior keys. A child key may be absent (its only params
 # are shared; the prior is top-level under the tag), so missing names are
-# tolerated; an UNEXPECTED key (not a child name or a shared tag) errors. With no
+# tolerated; an unexpected key (not a child name or a shared tag) errors. With no
 # shared tags this is the exact-cover check of `_check_prior_keys`.
 function _check_composer_prior_keys(priors::NamedTuple, names::Tuple, what, shared)
     no_shared = isempty(keys(shared))
@@ -1683,12 +1667,12 @@ const _rebuild = CensoredDistributions._rebuild
 # Shared-parameter tracking (tie a leaf across branches by name)
 # ---------------------------------------------------------------------------
 #
-# A shared-tagged leaf (`shared(:inc, dist)`) is ONE free parameter even when it
-# occurs in several branches. Its prior lives at the TOP level of `priors` under
+# A shared-tagged leaf (`shared(:inc, dist)`) is one free parameter even when it
+# occurs in several branches. Its prior lives at the top level of `priors` under
 # the tag (matching `params_table`'s tag edge). The public model samples each
-# shared group ONCE up front (named `tag.param`, prefixed by the tag), then
+# shared group once up front (named `tag.param`, prefixed by the tag), then
 # threads the sampled value tuples down as `shared`; every occurrence of the tag
-# reconstructs from the one sampled tuple, re-applying its OWN censoring, so the
+# reconstructs from the one sampled tuple, re-applying its own censoring, so the
 # same tracked value flows to all occurrences (AD-safe).
 
 # Sample one shared group from its top-level prior, returning its sampled value
@@ -1736,14 +1720,14 @@ end
 # (`d.stratum1.onset_admit.shape`, ...). It feeds straight into the grouped
 # `composed_distribution_model(ds, table; group)`.
 #
-# POOLING is entirely the user's to encode, in HOW they build `strata_priors`:
-#   - NO pooling: an independent fixed prior per stratum (each entry a plain
+# Pooling is entirely the user's to encode, in how they build `strata_priors`:
+#   - no pooling: an independent fixed prior per stratum (each entry a plain
 #     prior NamedTuple);
-#   - PARTIAL pooling: each stratum's prior is parameterised by a HYPERPARAMETER
-#     sampled ONCE in the user's enclosing model (e.g.
+#   - partial pooling: each stratum's prior is parameterised by a hyperparameter
+#     sampled once in the user's enclosing model (e.g.
 #     `(scale = truncated(Normal(mu_hyper, tau_hyper); lower = 0),)` for every
 #     stratum), so the per-stratum params are drawn from a shared hyperprior;
-#   - FULL pooling: one stratum (`length(strata_priors) == 1`), recovering the
+#   - full pooling: one stratum (`length(strata_priors) == 1`), recovering the
 #     shared-`d` path.
 # Each stratum is reconstructed through the same `composed_parameters_model`
 # machinery (so shared-tagged leaves, Resolve branch_probs, censored leaves all
@@ -1831,7 +1815,7 @@ end
 #
 # The cyclic analogue of `composed_parameters_model`. Each state's transition
 # node (a `Compete` / `Resolve` / leaf edge) is reconstructed from its per-state
-# priors through the SAME `_params_submodel` the acyclic builder uses, prefixed
+# priors through the same `_params_submodel` the acyclic builder uses, prefixed
 # by the state name so the chain reads `infected.recovered.shape`, etc. A lone
 # `dest => dist` edge rebuilds the leaf and re-pairs it with its destination.
 # The rebuilt nodes reassemble into a fresh `RecurrentStates`; the user scores

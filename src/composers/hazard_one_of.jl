@@ -2,48 +2,27 @@
 # Compete: one_of risks by racing hazards (dual to convolve)
 # ============================================================================
 #
-# Where `convolved` SUMS independent delays (events in series, the
-# total time through a chain), one_of RISKS take the MINIMUM of racing latent
-# delays (events compete, the first wins). `Compete` is that combinator:
-# given cause-specific delays `D_1..D_n` it represents
-#
-#   - the marginal `any-event` time `T = min_k D_k`, a univariate with survival
-#     `S(t) = ∏_k S_k(t)` and density `f(t) = ∑_j f_j(t) ∏_{k≠j} S_k(t)` (so it
-#     nests as a leaf like a convolved chain), and
-#   - the cause-resolved split (named outcomes) for the multivariate / event view:
-#     observing `(cause j, time t)` scores `f_j(t) ∏_{k≠j} S_k(t)`.
-#
-# Unlike the mixture `Resolve` (pick a branch by a FIXED probability, then draw
-# its delay; cause and timing INDEPENDENT) the winning probability here is DERIVED
-# from the hazards (`P(cause = j) = ∫ f_j ∏_{k≠j} S_k`) and timing is COUPLED.
-#
-# The three duals that MUST agree (the acceptance test):
-#   - `rand`: draw a latent time per cause, return `(argmin cause, min time)`.
-#   - `logpdf`: the one_of-risks likelihood, marginal `log ∑_j f_j ∏_{k≠j} S_k`
-#     or cause-resolved `log f_j + ∑_{k≠j} log S_k`.
-#   - forward `convolved(stack, series)`: per-outcome sub-density
-#     stream `series ⊛ pmf(f_j ∏_{k≠j} S_k)`, sub-stochastic (NOT renormalised).
-#
-# Ships against plain `Distributions.ccdf` / `logccdf` / `logpdf`, so a stock
-# `Gamma`/`LogNormal` leaf AND a SurvivalDistributions leaf both race. The
-# logpdf is a log-sum-exp of `logpdf` + `logccdf` terms (AD-safe, no `float`
-# stripping).
+# `Compete` takes the minimum of racing cause-specific delays `D_1..D_n`: the
+# marginal any-event time `T = min_k D_k` (survival `∏_k S_k`) plus the
+# cause-resolved split `f_j ∏_{k≠j} S_k`, with the winning probabilities derived
+# from the hazards rather than declared. AD-safe via log-sum-exp of `logpdf` +
+# `logccdf` terms.
 
 @doc "
 
 Resolve risks by racing hazards: the dual of [`convolved`](@ref)
-under MINIMUM instead of sum.
+under minimum instead of sum.
 
 Given cause-specific delay distributions `D_1, ..., D_n`, `Compete`
 represents the first-event time `T = min_k D_k` together with which cause won.
 The marginal `any-event` survival is `∏_k S_k(t)` and density
 `∑_j f_j(t) ∏_{k≠j} S_k(t)`, so it nests as a univariate leaf. Observing a
 resolved `(cause j, time t)` scores `f_j(t) ∏_{k≠j} S_k(t)`. The winning
-probability of each cause is DERIVED from the hazards
-(`P(cause = j) = ∫ f_j ∏_{k≠j} S_k`), NOT a free parameter — this is the key
+probability of each cause is derived from the hazards
+(`P(cause = j) = ∫ f_j ∏_{k≠j} S_k`), not a free parameter — this is the key
 difference from the fixed-probability mixture [`Resolve`](@ref).
 
-Build it with the [`compete`](@ref) constructor by giving BARE delays
+Build it with the [`compete`](@ref) constructor by giving bare delays
 (no branch probabilities): `compete(:death => D1, :recover => D2)`.
 
 # Fields
@@ -72,7 +51,7 @@ struct Compete{C <: Tuple, D <: Tuple} <: AbstractOneOf
             throw(ArgumentError("each one_of outcome name must be a Symbol"))
         any(_is_no_event, delays) && throw(ArgumentError(
             "a racing-hazard one_of node has no no-event branch: the " *
-            "no-event probability is DERIVED as the survival ∏ S_k(horizon). " *
+            "no-event probability is derived as the survival ∏ S_k(horizon). " *
             "Use the fixed-probability `Resolve` for an explicit no-event mass"))
         return new{C, D}(names, delays)
     end
@@ -81,7 +60,7 @@ end
 @doc "
 
 Build a racing-hazard [`Compete`](@ref) node from `name => delay`
-outcomes (bare delays, NO branch probabilities).
+outcomes (bare delays, no branch probabilities).
 
 Each outcome is `name => delay`. The winning probability of each cause is derived
 from the hazards, so no branch probability is supplied (that is what selects this
@@ -120,7 +99,7 @@ end
 params(c::Compete) = map(params, c.delays)
 
 # The marginal any-event distribution `T = min_k D_k` is univariate: its survival
-# is `∏_k S_k(t)` and its support runs from the union floor (the soonest ANY
+# is `∏_k S_k(t)` and its support runs from the union floor (the soonest any
 # cause can fire, i.e. the earliest cause lower bound) up to the largest cause
 # maximum. With staggered onsets the floor must be the earliest cause, not the
 # latest: a min over racing causes can fire as soon as the first one's support
@@ -239,7 +218,7 @@ cause that won the race.
 A latent time is drawn per cause and the `argmin` cause wins; the result is a
 `NamedTuple` keyed by [`event_names`](@ref) (a positional origin slot then one
 slot per cause) with the winning cause's time present and the others `missing`.
-This is the SAME self-describing record the in-tree path produces, so a
+This is the same self-describing record the in-tree path produces, so a
 standalone draw identifies which cause won and feeds straight back into
 [`logpdf`](@ref). For `n` independent draws use the count form `rand(c, n)`.
 
@@ -251,15 +230,15 @@ See also: [`event_names`](@ref), [`rand_outcome`](@ref).
 Base.rand(rng::AbstractRNG, c::Compete) = _one_of_event_record(rng, c)
 Base.rand(c::Compete) = rand(default_rng(), c)
 
-# The scalar MARGINAL draw of a terminal Compete (its racing any-event time
-# `min_k D_k`, discarding which cause won). Used by the PLAIN flat value path
+# The scalar marginal draw of a terminal Compete (its racing any-event time
+# `min_k D_k`, discarding which cause won). Used by the plain flat value path
 # (`child_rand!`), where a Compete child is one value slot, and wherever the
 # marginal time alone is wanted.
 _one_of_marginal_rand(rng::AbstractRNG, c::Compete) = rand_outcome(rng, c)[2]
 
 @doc "
 
-Sample a racing-hazard outcome AND its time, returning `(name, time)`: draw a
+Sample a racing-hazard outcome and its time, returning `(name, time)`: draw a
 latent time per cause and return the `argmin` cause with its `min` time.
 
 This is the generative dual of the [`logpdf`](@ref) (`f_j ∏_{k≠j} S_k`) and of
@@ -298,13 +277,13 @@ rand_outcome(c::Compete) = rand_outcome(default_rng(), c)
 
 @doc "
 
-The DERIVED per-cause winning probabilities of a racing-hazard
+The derived per-cause winning probabilities of a racing-hazard
 [`Compete`](@ref) node: `P(cause = j) = ∫ f_j(t) ∏_{k≠j} S_k(t) dt`,
 returned as a `NamedTuple` keyed by the outcome names.
 
 This is the [`Compete`](@ref) method of `Distributions.probs`, the standard
 mixture-weight reader: it gives the same per-outcome split [`Resolve`](@ref)
-returns from its declared branch probabilities, but DERIVED here from the
+returns from its declared branch probabilities, but derived here from the
 hazards rather than declared.
 
 Computed by AD-safe fixed-node Gauss-Legendre quadrature of the cause-resolved
@@ -330,7 +309,7 @@ function probs(c::Compete)
     _is_nonterminal(c) && _nonterminal_marginal_error("probs")
     lo = float(minimum(c))
     hi_raw = float(maximum(c))
-    # Bind `hi` UNCONDITIONALLY (a ternary, not `isfinite(hi) || (hi = ...)`): the
+    # Bind `hi` unconditionally (a ternary, not `isfinite(hi) || (hi = ...)`): the
     # short-circuit-assignment form leaves `hi` only conditionally assigned, and the
     # `ntuple` closure below that captures it then trips JET's `local variable hi is
     # not defined` (the closure cannot prove the assignment branch ran). An
@@ -354,7 +333,7 @@ end
 
 @doc "
 
-The probability that ANY (non-no-event) outcome occurs for a one_of node.
+The probability that any (non-no-event) outcome occurs for a one_of node.
 
 For a racing-hazard [`Compete`](@ref) node `occurrence_probability` is the
 sum of the derived per-cause split `Distributions.probs` returns (one for
@@ -386,13 +365,13 @@ end
 #
 # The forward `convolved(stack, series)` per-outcome stream of a
 # racing-hazard node is `series ⊛ pmf(f_j ∏_{k≠j} S_k)`, sub-stochastic: each
-# outcome's mass equals its DERIVED winning probability, the deficit being the
+# outcome's mass equals its derived winning probability, the deficit being the
 # one_of fraction. `_HazardCauseDelay` is the cause-resolved sub-density of one
 # cause `j` of a [`Compete`](@ref) node as a (defective) univariate
 # distribution: its `pdf` is `f_j(t) ∏_{k≠j} S_k(t)` and its `cdf` is that
 # sub-density integrated from the support floor to `t` (the cause-`j` winning
 # probability accumulated by time `t`). The convolve layer discretises it through
-# `interval_censored`, so the resulting masses are EXACTLY the sub-stochastic
+# `interval_censored`, so the resulting masses are exactly the sub-stochastic
 # per-outcome stream (no renormalise). AD-safe: the leaf params flow through the
 # log-sum / quadrature.
 struct _HazardCauseDelay{H <: Compete} <: UnivariateDistribution{Continuous}

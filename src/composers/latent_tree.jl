@@ -1,46 +1,22 @@
 # ============================================================================
-# latent_segments(tree): the marginal -> latent WRAPPER over a composed tree
+# latent_segments(tree): the marginal -> latent wrapper over a composed tree
 # ============================================================================
 #
-# `latent` on a single primary-censored leaf wraps it as a `Latent` multivariate
-# node (`src/censoring/Latent.jl`), and `latent(tree)` over a composer is the
-# whole-tree per-event view (`rand`/`mean(latent(tree))`). This file adds
-# `latent_segments`, which lowers a composed tree (`Sequential` / `Parallel` /
-# `Resolve` / `Choose`) to the per-segment latent scoring structure the
-# vectorised latent path (`record_latent.jl`) consumes, so switching a composed
-# model from its marginal form to its latent form is a WRAPPER on the same
-# composed object, not a second hand-rolled model.
-#
-# The marginal and latent forms of a censored composer are ONE model scored two
-# ways (see `test/integration/latent_marginal_equivalence.jl`): the marginal
-# integrates the latent origin/intermediate events out inside `logpdf`; the
-# latent SAMPLES them. The equivalence holds segment by segment, where a SEGMENT
-# is one leaf edge between two events (an `origin -> target` step, or a Resolve
-# outcome hanging off its anchor). `latent_segments(tree)` decomposes the tree
-# into its leaf segments and rebuilds each as a single-edge
-# `latent(Sequential(...))` chain, gathered into one `Choose` keyed by a `:kind`
-# selector. A record then routes its observed segments to the matching
-# alternative; the vectorised path samples each segment's origin event and
-# conditions its observed time on it at the floored gap, the latent counterpart
-# of the marginal leaf.
-#
-# A Resolve outcome additionally carries a per-record BRANCH PROBABILITY (the
-# case-fatality split of `bdbv`): the latent segment row carries the marginal
-# `branch_probs` field unchanged, and the vectorised observed conditional adds
-# `log(branch_prob)` for the recorded outcome. So the latent model consumes the
-# SAME record schema the marginal model does (the event columns plus the
-# reserved `branch_probs`), and the user writes the same Turing model differing
-# only by the `latent_segments(tree)` + `latent_records(tree, rows)` wrapper.
+# `latent_segments` lowers a composed tree (`Sequential` / `Parallel` /
+# `Resolve` / `Choose`) into the per-segment latent scoring structure the
+# vectorised latent path (`record_latent.jl`) consumes, so a composed model
+# swaps from its marginal form to its (density-identical) latent form by
+# wrapping the same object.
 
 @doc "
 
 Lower a composed tree to its per-segment latent scoring structure.
 
-`latent_segments(tree)` turns a MARGINAL composed distribution (a
+`latent_segments(tree)` turns a marginal composed distribution (a
 [`Sequential`](@ref), [`Parallel`](@ref), [`Resolve`](@ref) or [`Choose`](@ref)
-tree) into the latent form that SAMPLES each event rather than integrating it
+tree) into the latent form that samples each event rather than integrating it
 out, returned as a [`Choose`](@ref) of single-edge [`latent`](@ref) chains keyed
-by a `:kind` selector. Each leaf SEGMENT of the tree (an `origin -> target`
+by a `:kind` selector. Each leaf segment of the tree (an `origin -> target`
 edge, or a Resolve outcome hanging off its anchor) becomes one alternative
 `latent(sequential(name => leaf))`, named `origin_target` from the segment's
 event names, so a record routes its observed segments to the matching
@@ -49,14 +25,14 @@ per-segment rows from the marginal records; the resulting `Choose` + rows feed
 the vectorised [`latent_primary_priors`](@ref) / [`latent_observed_logpdf`](@ref)
 path.
 
-This is the marginal -> latent WRAPPER: a Turing model scores its latent form by
+This is the marginal -> latent wrapper: a Turing model scores its latent form by
 swapping the marginal tree for `latent_segments(tree)` and the marginal records
 for `latent_records(tree, rows)`, with the rest of the model (the parameter
 block, regression and priors) unchanged. The marginal and latent forms are
 density-identical (the project invariant), so the latent fit recovers the same
 parameters as the marginal fit.
 
-This is distinct from `latent(tree)`, which wraps the WHOLE tree as one
+This is distinct from `latent(tree)`, which wraps the whole tree as one
 multivariate [`Latent`](@ref) per-event view (`rand`/`mean(latent(tree))`);
 `latent_segments` instead decomposes the tree into the independent
 observed-to-observed segments a record set scores against.
@@ -95,7 +71,7 @@ function latent_segments(d::Union{Sequential, Parallel, AbstractOneOf, Choose})
     return choose(alts...; selector = :kind)
 end
 
-# A leaf SEGMENT of a composed tree: a single edge between two events. `name` is
+# A leaf segment of a composed tree: a single edge between two events. `name` is
 # the `origin_target` underscored event name (the `Choose` alternative key and
 # the segment row's `:kind`); `origin`/`target` are the segment's event names;
 # `leaf` is the edge's delay distribution; `branch_prob` names the reserved
@@ -227,7 +203,7 @@ end
 Derive the per-segment latent rows from marginal records and the tree.
 
 `latent_records(tree, rows)` turns each marginal record into its observed latent
-SEGMENTS, the per-edge rows the vectorised latent path scores against
+segments, the per-edge rows the vectorised latent path scores against
 [`latent_segments`](@ref)`(tree)`. A record contributes one segment row per
 observed edge: the `origin -> target` edge is observed when both its event
 columns are present, its delay the `target - origin` gap, tagged with the
@@ -237,7 +213,7 @@ A Resolve outcome segment additionally copies the record's reserved
 `branch_probs` field, so the vectorised [`latent_observed_logpdf`](@ref) adds the
 per-record branch (case-fatality) log-probability for the recorded outcome.
 
-The rows consume the SAME record schema the marginal
+The rows consume the same record schema the marginal
 [`composed_distribution_model`](@ref) does (the event columns keyed by
 [`event_names`](@ref) plus the reserved `branch_probs`), so a latent model is
 the marginal model with `latent_segments(tree)` in place of the tree and
@@ -245,7 +221,7 @@ the marginal model with `latent_segments(tree)` in place of the tree and
 marginal and latent forms are density-identical (the project invariant).
 
 # Arguments
-- `tree`: the MARGINAL composed tree (the same tree passed to
+- `tree`: the marginal composed tree (the same tree passed to
   [`latent_segments`](@ref) and the marginal model), used to read the segment
   layout.
 - `rows`: the marginal records (each a `NamedTuple` keyed by

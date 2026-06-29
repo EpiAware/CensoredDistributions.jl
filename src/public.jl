@@ -10,7 +10,7 @@ public Convolved
 # Monotone operational-time warp leaf and its constructor (public but not
 # exported): the continuous generalisation of the exported `affine`, giving a
 # calendar-time-varying intensity. `TimeChange` is the type, `timechange` the
-# constructor. Kept off `export` per the sparse-surface precedent (#739/#717),
+# constructor. Kept off `export` per the sparse-surface precedent,
 # as the exported `affine` covers the common linear case.
 public TimeChange, timechange
 
@@ -54,9 +54,9 @@ public HazardLink
 # `docs/src/developer/extending.md`.
 public child_nleaves, child_logpdf, child_rand!
 
-# `event_logpdf` is the INTERNAL horizon-aware event-vector log density (the
+# `event_logpdf` is the internal horizon-aware event-vector log density (the
 # per-record right-truncation scorer the composed record model and the
-# `logpdf(d, rows)` front-door delegate to). It is NOT part of the public surface:
+# `logpdf(d, rows)` front-door delegate to). It is not part of the public surface:
 # `logpdf(d, events)` is the public single-record entry and `logpdf(d, rows)` the
 # public table entry. The horizon-kwarg variant stays internal (reached by the
 # qualified name); the user-facing right-truncation verb is `truncated`.
@@ -75,7 +75,7 @@ public record_distributions, EventRecord
 # records built from its own (possibly partially-pooled) composed distribution.
 public batched_event_logpdf
 
-# Vectorised LATENT scoring (public but not exported): the stacked primary
+# Vectorised latent scoring (public but not exported): the stacked primary
 # priors and the vectorised observed conditional that express the latent table
 # as a `primaries ~ product_distribution(...)` plus `@addlogprob! ...` pair.
 public latent_primary_priors, latent_observed_logpdf
@@ -96,18 +96,18 @@ public TestUtils
 public ParamsTable
 
 # Log-space completeness thinning (public but not exported): the AD-stable
-# companions to the exported `completeness_probability` / `thin_by_completeness`.
+# `logcdf`-based completeness and log-rate thinning helpers.
 # Useful for joint offspring scoring but kept off the top-level namespace,
 # reached qualified (`CensoredDistributions.log_thin_by_completeness`).
 public log_completeness_probability, log_thin_by_completeness
 
-# PPL-neutral LogDensityProblems layer (public but not exported, #734): the
+# PPL-neutral LogDensityProblems layer (public but not exported): the
 # flat-vector <-> nested-NamedTuple codec (`flatten` / `unflatten` /
 # `flat_dimension`, ordered by the `params_table` row walk), the `as_logdensity`
 # assembler and the `ComposedLogDensity` spec, plus the seam the weakdep
 # extensions extend — the constrained-scale `logdensity` evaluation and the
 # prior-driven `to_constrained` transform (its method lives in `BijectorsExt`).
-# These are PUBLIC but NOT exported: the generic `flatten` / `unflatten` names
+# These are public but not exported: the generic `flatten` / `unflatten` names
 # would clash with the `Iterators.flatten` mental model and crowd the top-level
 # namespace, so the whole layer is reached by the qualified name
 # (`CensoredDistributions.flatten`, `CensoredDistributions.as_logdensity`, ...).

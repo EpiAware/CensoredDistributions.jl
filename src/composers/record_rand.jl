@@ -6,15 +6,15 @@
 # builds per-record composed distributions (routing each record to its Choose
 # alternative by the `:kind` selector, carrying per-record covariates and
 # horizons), and `batched_event_logpdf` / `composed_distribution_model` score
-# them. This is the GENERATIVE dual: `rand(d, rows)` draws one full event path
-# per record, reusing the SAME per-record machinery. Each record's draw is
+# them. This is the generative dual: `rand(d, rows)` draws one full event path
+# per record, reusing the same per-record machinery. Each record's draw is
 # labelled by that record's event names, so the result is a self-describing,
 # Tables-friendly vector of NamedTuples (one per row).
 
 # A single record's draw, labelled by that record's event names. An
 # `EventRecord` and a composer `_GenericRecord` are keyed by the resolved tree's
 # flat event names (`_flat_event_names`); a univariate-leaf record is one event,
-# keyed `:value`. The path comes from the record's own `rand` (the SAME draw the
+# keyed `:value`. The path comes from the record's own `rand` (the same draw the
 # scoring-path record samples), so a batched draw of a row equals
 # `rand(record_distributions(d, rows)[i])` under the same rng.
 function _record_named_draw(rng::AbstractRNG, r)
@@ -41,7 +41,7 @@ Draw one labelled event path per record, the generative dual to scoring.
 `rand(d, rows)` is the batched record-aware sampler: it builds the per-record
 composed distributions with [`record_distributions`](@ref)`(d, rows)` (so each
 record routes to its [`Choose`](@ref) alternative by the row's selector and
-carries that row's covariates / horizon) and draws ONE full event path from
+carries that row's covariates / horizon) and draws one full event path from
 each. The result is a vector with one entry per row, each a `NamedTuple` keyed
 by that record's event names (a univariate-leaf record is keyed `:value`), so
 the draws are self-describing and Tables-friendly. This mirrors the scoring
@@ -76,7 +76,7 @@ rand(Random.Xoshiro(1), seq, rows)
 - [`record_distributions`](@ref): the per-record assembly this draws from.
 - [`batched_event_logpdf`](@ref): the scoring dual over the same records.
 "
-# Restricted to the composer types this package OWNS (a method over a bare
+# Restricted to the composer types this package owns (a method over a bare
 # `UnivariateDistribution` from Distributions would be type piracy); a
 # single-delay model wraps its leaf in a one-edge `Sequential` or uses the
 # standard `rand(leaf, n)`.
@@ -90,8 +90,8 @@ function Base.rand(d::Union{Sequential, Parallel, Choose}, rows::AbstractVector)
     return rand(default_rng(), d, rows)
 end
 
-# The count form `rand(d, n)`: `n` independent labelled draws from the OBJECT
-# (the north-star batch path). A composer is multivariate but `rand(rng, d)`
+# The count form `rand(d, n)`: `n` independent labelled draws from the object
+# (the batch path). A composer is multivariate but `rand(rng, d)`
 # returns a labelled `NamedTuple`, not a numeric vector that can fill a matrix
 # column, so the generic `rand(::Multivariate, ::Int)` matrix fallback recurses
 # (StackOverflow). This terminating method returns one full named record per
@@ -121,8 +121,8 @@ function Base.rand(d::Union{Sequential, Parallel, Choose}, n::Int)
     return rand(default_rng(), d, n)
 end
 
-# The count form `rand(c, n)` for a STANDALONE disjunction node (`Resolve` /
-# `Compete`): `n` independent labelled records from the OBJECT. A one_of node is
+# The count form `rand(c, n)` for a standalone disjunction node (`Resolve` /
+# `Compete`): `n` independent labelled records from the object. A one_of node is
 # multivariate (its scalar `rand` returns a labelled `NamedTuple`, not a column
 # vector), so the stock `rand(::Multivariate, ::Int)` matrix fallback recurses
 # (StackOverflow); this terminating method returns one full named record per

@@ -2,44 +2,17 @@
 # convolved(stack, series): push a timeseries through a stack
 # ============================================================================
 #
-# A `convolved` method whose second argument is a numeric
-# timeseries vector convolves that series THROUGH a composed delay stack (the
-# delay chain) to event counts at the same times. With `series` the expected
-# events at times `0..t` (e.g. infections), the result is the expected event
-# counts at the same times: the EpiNow2-style latent / renewal observation layer
-# falls out of the composed delay stack automatically.
-#
-# This reuses the existing distribution-level
-# `convolved(dists...)`: the second positional argument is
-# `AbstractVector{<:Real}` (a numeric series), distinct from the
-# `AbstractVector{<:UnivariateDistribution}` / two-distribution forms, so the
-# renewal method and the distribution-args forms never collide.
-#
-# Event selectivity. In a fit only SOME events are observed (e.g. only onsets),
-# so the `events` keyword names which event(s) to produce. The default is the
-# END-POINT event; a [`Sequential`](@ref) chain's named INTERIM events map to
-# its PREFIX convolutions. Only the requested events are discretised and
-# convolved, so an unobserved prefix costs nothing.
-#
-# Efficiency. The stack convolution is composed at the DISTRIBUTION level ONCE:
-# the total delay is `observed_distribution(stack)` (the convolution of the
-# steps) and each interim cumulative delay is a Sequential PREFIX convolution.
-# Each requested delay is discretised to a PMF over the integer grid `0..t` ONCE
-# via `interval_censored` (raw interval masses, no renormalise). The expensive
-# part is then the discrete VECTOR convolution of the series with that PMF, done
-# once per requested event.
-#
-# AD-safety. The vector convolution is linear and the PMF depends differentiably
-# on the delay parameters (interval_censored routes through the AD-safe CDF
-# helpers), so gradients flow through ForwardDiff / ReverseDiff w.r.t. the delay
-# params.
+# A `convolved` method whose second argument is a numeric timeseries convolves
+# that series through a composed delay stack to event counts at the same times
+# (the EpiNow2-style latent / renewal observation layer). The `events` keyword
+# selects which event(s) to produce; only those are discretised and convolved.
 
 # --- the discrete delay PMF over the grid 0..maxlag ------------------------
 
 # Probability masses of `delay` on the unit-spaced intervals
 # `[0, 1), [1, 2), ..., [maxlag, maxlag + 1)`, as a length `maxlag + 1` vector.
 # Masses are the raw `interval_censored` interval probabilities (no silent
-# renormalise). The SCALAR `IntervalCensored` PDF is mapped over the grid: it
+# renormalise). The scalar `IntervalCensored` PDF is mapped over the grid: it
 # routes each interval mass through `_cdf_ad_safe`, so `Dual`/tracked CDF values
 # survive (the batched PDF would force its cache to `Float64`, breaking AD).
 function _delay_pmf(delay::UnivariateDistribution, maxlag::Integer, interval)
@@ -152,12 +125,12 @@ function _chain_inner!(specs, edge_name, child::Parallel, prefix, ops, counter)
     return prefix, ops
 end
 
-# A Resolve chain edge: one event per LEAF outcome, each thinned by its branch
-# probability; a NON-TERMINAL outcome whose payload is a composer SUBTREE
+# A Resolve chain edge: one event per leaf outcome, each thinned by its branch
+# probability; a non-terminal outcome whose payload is a composer subtree
 # fans the subtree's own events out, each carrying the outcome's
-# branch-probability thinning in the forward op PREFIX so its sub-stream is the
+# branch-probability thinning in the forward op prefix so its sub-stream is the
 # outcome's mass times the subtree convolution. Terminal (continues from the
-# shared prefix). A no-event outcome produces NO event series and is skipped (its
+# shared prefix). A no-event outcome produces no event series and is skipped (its
 # mass leaves the observed stream).
 function _chain_inner!(specs, edge_name, c::Resolve, prefix, ops, counter)
     for i in eachindex(c.names)
@@ -170,7 +143,7 @@ function _chain_inner!(specs, edge_name, c::Resolve, prefix, ops, counter)
 end
 
 # A racing-hazard chain edge: one event per cause, each the cause-resolved
-# SUB-density `f_j ∏_{k≠j} S_k` (sub-stochastic, NOT renormalised; its mass is
+# sub-density `f_j ∏_{k≠j} S_k` (sub-stochastic, not renormalised; its mass is
 # the derived winning probability). No thinning op — the winning mass is already
 # in the sub-density. Terminal (continues from the shared prefix).
 function _chain_inner!(specs, edge_name, c::Compete, prefix, ops, counter)
@@ -247,19 +220,19 @@ EpiNow2-style latent / observation layer).
 The `events` keyword selects which event(s) to produce, because a fit often
 observes only some of them:
 
-- `nothing` (default): the stack's END-POINT event; returns a bare `Vector`.
+- `nothing` (default): the stack's end-point event; returns a bare `Vector`.
 - a single event name (`Symbol`): that event's series; returns a bare `Vector`.
-  An INTERIM event of a [`Sequential`](@ref) chain (a step's target event, see
+  An interim event of a [`Sequential`](@ref) chain (a step's target event, see
   `_flat_event_names`) uses the cumulative delay to that event.
 - a tuple of event names: returns a `NamedTuple` keyed by the requested events.
 
 Only the requested events are discretised and convolved, so an unobserved prefix
 costs nothing.
 
-This method does a DIFFERENT operation from the distribution-level
-`convolved(dists...)`. That form convolves DISTRIBUTIONS together
+This method does a different operation from the distribution-level
+`convolved(dists...)`. That form convolves distributions together
 to produce a single `Convolved` distribution (the sum of independent delays).
-This form convolves a NUMERIC SERIES through a delay PMF to produce a count
+This form convolves a numeric series through a delay PMF to produce a count
 series (or a `NamedTuple` of them). They share the name but never collide: the
 numeric-vector second argument (`AbstractVector{<:Real}`) selects this renewal
 method, distinct from the `AbstractVector{<:UnivariateDistribution}` / tuple /
@@ -299,7 +272,7 @@ endpoint = convolved(stack, series)
 "
 function convolved(stack, series::AbstractVector{<:Real};
         events = nothing, interval = 1.0)
-    # The causal convolution shifts the series by integer SERIES steps, so the
+    # The causal convolution shifts the series by integer series steps, so the
     # PMF bin width must equal the series time-step. `series` is unit-spaced
     # (see the docstring), so only `interval == 1` keeps the discretisation grid
     # aligned with the shift; any other width conflates the two and silently
@@ -344,24 +317,16 @@ end
 # Opt-in build-once delay PMF for vector evaluation
 # ============================================================================
 #
-# The renewal method above rebuilds the delay PMF on EVERY call. For the
-# nowcasting use case a single delay PMF is applied across a whole vector of
-# reference dates / many timeseries (the delay params are FIXED for the build),
-# so rebuilding the (relatively expensive) discretised PMF per element is wasted
-# work. `DelayPMF` is an EXPLICIT precomputed-PMF value object: the caller builds
-# it ONCE with `discretise_pmf` and reuses it across many evaluations.
-#
-# The object is IMMUTABLE and holds no mutable memo: it is built from whatever
-# parameter type the delay carries (a plain `Float64` or an AD `Dual`/tracked
-# number), so the build itself differentiates and the masses propagate gradients.
-# When the parameters change the caller builds a NEW object; there is no hidden
-# param-keyed cache that could go stale under sampling (the Enzyme footgun), and
-# no interpolation/approximation — the masses are EXACTLY the `_delay_pmf`
-# interval probabilities the rebuild-every-time path computes, so results are
-# numerically identical.
+# The renewal method above rebuilds the delay PMF on every call. When one delay
+# PMF is applied across a whole vector of reference dates (the delay params are
+# fixed for the build), `DelayPMF` lets the caller discretise once with
+# `discretise_pmf` and reuse it. The object is immutable and holds no cache: it
+# is built from the delay's parameter type so the build differentiates, and a
+# parameter change means building a new object (no stale memo). The masses are
+# exactly the `_delay_pmf` interval probabilities, so results are identical.
 
 @doc raw"
-A precomputed discretised delay PMF, built ONCE and reused across many vector
+A precomputed discretised delay PMF, built once and reused across many vector
 evaluations.
 
 `DelayPMF` holds the raw [`interval_censored`](@ref) interval masses of a delay
@@ -408,7 +373,7 @@ Base.length(pmf::DelayPMF) = length(pmf.masses)
 _maxlag(pmf::DelayPMF) = length(pmf.masses) - 1
 
 @doc raw"
-Discretise a delay distribution to a [`DelayPMF`](@ref) ONCE for reuse across a
+Discretise a delay distribution to a [`DelayPMF`](@ref) once for reuse across a
 vector of evaluation points.
 
 `discretise_pmf(delay, maxlag; interval = 1.0)` computes the raw
@@ -419,7 +384,7 @@ returning a precomputed [`DelayPMF`](@ref) the caller passes into
 reusing it avoids rediscretising the delay per reference date / per record — the
 nowcasting build-once optimisation.
 
-The masses are EXACTLY those the rebuild-every-time
+The masses are exactly those the rebuild-every-time
 `convolved(delay, series)` path computes (raw interval
 probabilities, no renormalise, no interpolation), so a prebuilt PMF gives
 numerically identical results. The masses keep the delay's parameter type, so the
@@ -465,7 +430,7 @@ renewal convolution, reusing the build-once PMF.
 
 `convolved(pmf, series)` is the same causal, window-truncated
 convolution as `convolved(delay, series)` but takes a PMF that was
-discretised ONCE (via [`discretise_pmf`](@ref)) instead of rebuilding it. The
+discretised once (via [`discretise_pmf`](@ref)) instead of rebuilding it. The
 result is numerically identical to the rebuild-every-time path when the PMF was
 built from the same `delay`. This is the nowcasting build-once path: discretise
 the delay once, then push every reference-date series through the same PMF.

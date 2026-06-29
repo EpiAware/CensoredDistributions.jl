@@ -29,8 +29,7 @@ The model has five parts, each mapped onto a CensoredDistributions tool:
    reported fraction ``\rho`` with [`thin`](@ref).
 5. **Real-time right-truncation**: only cells whose report date ``t + d`` is at
    or before "now" are observed. We also show this truncation acting on the
-   composed two-delay delay itself, with `truncated` and
-   [`completeness_probability`](@ref).
+   composed two-delay delay itself, with `truncated` and `cdf`.
 
 We then fit the model in Turing and show that it recovers the expectation path,
 the hazard effects, the ascertainment fraction and the right-truncated counts,
@@ -241,7 +240,7 @@ on the composed delay rather than cell by cell, and it falls towards zero for th
 most recent reference dates whose composed delay has barely had time to elapse.
 """
 
-stack_completeness = [completeness_probability(composed_case, max(now - t, 0))
+stack_completeness = [cdf(composed_case, max(now - t, 0))
                       for t in 1:n_days]
 
 md"""
@@ -367,9 +366,8 @@ The two truncation routes track the same right-truncation, from different sides.
 With the hazard effects switched off, the fraction of each reference date's
 expected counts that lands at or before `now` is the row sum of the truncated
 matrix over the row sum of the full matrix.
-We compare that matrix-level fraction with the stack-level
-[`completeness_probability`](@ref) of the composed two-delay delay at the same
-remaining window.
+We compare that matrix-level fraction with the stack-level `cdf` of the composed
+two-delay delay at the same remaining window.
 Both saturate at one for old reference dates and fall towards zero for the most
 recent ones, so the truncation pattern is the same.
 They differ in level: the matrix fraction is built from the delay PMF
@@ -631,7 +629,7 @@ md"""
   right-truncated expected-count matrix ``\lambda_t \, p_{t,d}``.
 - Right-truncation is shown two ways: per cell on the count matrix (the `now`
   argument the fit uses) and per record on the composed two-delay delay, where
-  `truncated` and [`completeness_probability`](@ref) act on the
+  `truncated` and `cdf` act on the
   [`convolved`](@ref) chain of incubation and branch tail. Both
   routes show the same falling truncation pattern, differing in level because the
   matrix PMF is renormalised over the capped delay support.

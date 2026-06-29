@@ -107,8 +107,8 @@ total = convolved(
 # ## Hazards from a composed tree
 #
 # The survival families exist for hazard modelling, and the package reads the
-# hazard surface off ANY composed delay through the verbs (north-star tenet 5:
-# the composed object is the input to downstream layers). The four accessors
+# hazard surface off any composed delay through the verbs, so the composed
+# object is the input to downstream layers. The four accessors
 # [`hazard`](@ref CensoredDistributions.hazard),
 # [`loghazard`](@ref CensoredDistributions.loghazard),
 # [`cumhazard`](@ref CensoredDistributions.cumhazard) and
@@ -127,7 +127,7 @@ CensoredDistributions.hazard(SD.GeneralizedGamma(1.0, 1.5, 2.0), 2.0)
 CensoredDistributions.hazard(SD.GeneralizedGamma(1.0, 1.5, 2.0), 2.0) ==
 SD.hazard(SD.GeneralizedGamma(1.0, 1.5, 2.0), 2.0)
 
-# Getting the hazard from a TREE goes through the verbs. A
+# Getting the hazard from a tree goes through the verbs. A
 # [`sequential`](@ref) chain's total-time hazard is the hazard of its marginal
 # convolution, reachable from either package's function name.
 

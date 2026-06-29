@@ -1,9 +1,9 @@
 # Shared nesting machinery for the composers, defined once both composer types
 # exist so the `Union{Sequential, Parallel}` methods resolve. A realisation of
-# any composer is a FLAT vector of leaf values; a nested child contributes its
+# any composer is a flat vector of leaf values; a nested child contributes its
 # own flat sub-vector, so nesting is pure concatenation and that nesting is the
 # tree. These helpers do the flat-slice recursion shared by `Sequential` and
-# `Parallel`. This layer adds NO censored-internal behaviour.
+# `Parallel`. This layer adds no censored-internal behaviour.
 
 # A composable child is any univariate distribution (a leaf or a `Resolve`), a
 # nested `Sequential` / `Parallel` / `Choose`, or a `latent`-wrapped node. Used to
@@ -17,9 +17,9 @@ _is_composable(::Choose) = true
 _is_composable(::Latent) = true
 _is_composable(::Any) = false
 
-# Whether a value is admissible as a one_of OUTCOME delay: a univariate leaf
-# (a plain delay, the `NoEvent` marker, or a nested `Resolve`) OR a composer
-# SUBTREE (`Sequential` / `Parallel` / `Choose`, the non-terminal branch).
+# Whether a value is admissible as a one_of outcome delay: a univariate leaf
+# (a plain delay, the `NoEvent` marker, or a nested `Resolve`) or a composer
+# subtree (`Sequential` / `Parallel` / `Choose`, the non-terminal branch).
 # Used by the `one_of` / `Resolve` / `Compete`
 # constructors to validate a branch payload without referencing the later-loaded
 # composer types in their method signatures.
@@ -27,7 +27,7 @@ _is_one_of_branch(::UnivariateDistribution) = true
 _is_one_of_branch(::Union{Sequential, Parallel, Choose}) = true
 _is_one_of_branch(::Any) = false
 
-# Whether an outcome's payload is itself a composer SUBTREE (a non-terminal
+# Whether an outcome's payload is itself a composer subtree (a non-terminal
 # one_of branch) rather than a leaf delay. A nested `Resolve`
 # (univariate but multi-slot) also counts: its event layout spans more than one
 # slot. A leaf delay (including the `NoEvent` marker) is terminal. Defined here
@@ -35,8 +35,8 @@ _is_one_of_branch(::Any) = false
 _is_composer_outcome(::Union{Sequential, Parallel, Choose, AbstractOneOf}) = true
 _is_composer_outcome(::UnivariateDistribution) = false
 
-# Whether a one_of node is NON-TERMINAL: any outcome's payload is a composer
-# subtree. A non-terminal one_of node is MULTIVARIATE (its outcomes span their
+# Whether a one_of node is non-terminal: any outcome's payload is a composer
+# subtree. A non-terminal one_of node is multivariate (its outcomes span their
 # subtrees' event slots), so its scalar `logpdf` / `mean` / `as_mixture` error and
 # its outputs are NamedTuples; an all-leaf node is the unchanged
 # univariate (collapsible) terminal node.
@@ -63,7 +63,7 @@ end
 
 # --- the public composer-node extension contract ---------------------------
 #
-# A composer node combines branches into ONE flat event vector. The three
+# A composer node combines branches into one flat event vector. The three
 # methods below are the contract a new node implements; they are public (see
 # `public.jl`) and documented in `docs/src/developer/extending.md`. They are
 # reached by the qualified name (`CensoredDistributions.child_nleaves` etc.), as
@@ -77,7 +77,7 @@ end
 #     log density, scoring the `n`-wide slice `x[offset + 1 : offset + n]`.
 #   - `child_rand!(out, offset, rng, node)`: draw the node into the same slice.
 #
-# A node walks the flat vector by the SAME offset arithmetic the composer uses:
+# A node walks the flat vector by the same offset arithmetic the composer uses:
 # `child_nleaves` gives the slice width, `child_logpdf` / `child_rand!` read and
 # write `x[offset + 1 : offset + n]`. Composing two nodes is concatenation, so a
 # nested node recurses by passing the same `(x, offset, n)` inward.
@@ -110,7 +110,7 @@ function child_nleaves end
 
 child_nleaves(::UnivariateDistribution) = 1
 child_nleaves(c::Union{Sequential, Parallel}) = length(c)
-# A nested `Choose` swaps in ONE alternative of fixed width, so it occupies a
+# A nested `Choose` swaps in one alternative of fixed width, so it occupies a
 # fixed flat slot only when every alternative has the same leaf count. The
 # common width is the nested Choose's leaf count; disagreeing widths cannot
 # share one flat slot and error (a `length(::Choose)` has no single answer).
@@ -131,7 +131,7 @@ child_nleaves(c::Latent) = child_nleaves(c.dist)
 # node contract by the underscored name.
 const _child_nleaves = child_nleaves
 
-# Total leaf count over a tuple of children. A HEAD/TAIL recursion, NOT
+# Total leaf count over a tuple of children. A head/tail recursion, not
 # `sum(_child_nleaves, components)`: `sum(f, ::Tuple)` over a heterogeneous tuple
 # is inferred `Any` on the CI compilers (`lts`/`1`) -- it lowers to a generic
 # `mapreduce` whose accumulator type the older inference cannot resolve -- which
@@ -145,20 +145,20 @@ function _nleaves(components::Tuple)
     _child_nleaves(first(components)) + _nleaves(Base.tail(components))
 end
 
-# Number of EVENT slots a child contributes to the flat EVENT vector.
-# Distinct from `_child_nleaves` (the generic VALUE-vector layout): a `Resolve`
-# node contributes ONE value (its marginal time-to-resolution) to the value
-# vector but exposes one EVENT slot PER OUTCOME so a record's death/discharge
+# Number of event slots a child contributes to the flat event vector.
+# Distinct from `_child_nleaves` (the generic value-vector layout): a `Resolve`
+# node contributes one value (its marginal time-to-resolution) to the value
+# vector but exposes one event slot per outcome so a record's death/discharge
 # columns each land in their own slot and the observed outcome is identified
 # positionally (self-dispatch). Every other child contributes the same count
 # as `_child_nleaves`, so the value and event layouts coincide for Resolve-free
 # trees and `length`/the generic value path are untouched.
 _event_child_nleaves(c) = _child_nleaves(c)
 # Both one_of nodes (the mixture `Resolve` and the racing-hazard
-# `Compete`) expose event slots PER OUTCOME. A LEAF outcome (a plain
-# delay) occupies ONE slot; a NON-TERMINAL outcome whose payload is itself a
+# `Compete`) expose event slots per outcome. A leaf outcome (a plain
+# delay) occupies one slot; a non-terminal outcome whose payload is itself a
 # composer subtree (`Sequential`/`Parallel`/`Choose`/nested `Resolve`) occupies
-# its WHOLE subtree's event-slot width, anchored at the outcome's
+# its whole subtree's event-slot width, anchored at the outcome's
 # resolution event (shared like a nested-composer origin). The all-leaf fast path
 # is exactly `_n_branches(c)` (every outcome contributes one slot), preserving the
 # terminal-Resolve layout; a composer outcome instead recurses through
@@ -168,9 +168,9 @@ function _event_child_nleaves(c::AbstractOneOf)
     return _one_of_outcome_nleaves(c.delays)
 end
 
-# Sum the EVENT-slot width of each one_of outcome: a leaf outcome is one slot,
+# Sum the event-slot width of each one_of outcome: a leaf outcome is one slot,
 # a composer outcome is its own `_event_child_nleaves` (its subtree's slots).
-# HEAD/TAIL recursion for the same `Any`-inference reason as `_event_nleaves`
+# head/tail recursion for the same `Any`-inference reason as `_event_nleaves`
 # (`sum`/`mapreduce` over a heterogeneous outcome tuple widens to `Any` on the CI
 # compilers and poisons the downstream event-vector length).
 _one_of_outcome_nleaves(::Tuple{}) = 0
@@ -179,7 +179,7 @@ function _one_of_outcome_nleaves(delays::Tuple)
            _one_of_outcome_nleaves(Base.tail(delays))
 end
 
-# Event-slot width of ONE one_of outcome's payload: a leaf delay (including the
+# Event-slot width of one one_of outcome's payload: a leaf delay (including the
 # no-event marker) is one slot; a composer payload recurses to its subtree width.
 _one_of_outcome_slots(::UnivariateDistribution) = 1
 function _one_of_outcome_slots(d::Union{Sequential, Parallel, Choose,
@@ -187,7 +187,7 @@ function _one_of_outcome_slots(d::Union{Sequential, Parallel, Choose,
     return _event_child_nleaves(d)
 end
 _event_child_nleaves(c::Union{Sequential, Parallel}) = _event_nleaves(c.components)
-# A nested `Choose` occupies its (common) alternative's EVENT-slot width: every
+# A nested `Choose` occupies its (common) alternative's event-slot width: every
 # alternative must expose the same number of event slots to share one flat slot,
 # so the chosen alternative for a row lands in the same slice whichever it is.
 function _event_child_nleaves(c::Choose)
@@ -199,8 +199,8 @@ function _event_child_nleaves(c::Choose)
     return n
 end
 
-# Total EVENT-slot count over a tuple of children (the flat event vector minus
-# its shared origin). HEAD/TAIL recursion for the same reason as `_nleaves`:
+# Total event-slot count over a tuple of children (the flat event vector minus
+# its shared origin). head/tail recursion for the same reason as `_nleaves`:
 # `sum(_event_child_nleaves, ::Tuple)` infers `Any` on the CI compilers and
 # widens the `Vector{Union{Missing, T}}(missing, _event_nleaves(...) + 1)`
 # constructor in `_tree_event_vector` to `Any`, breaking `@inferred` on the
@@ -265,7 +265,7 @@ child_logpdf(c::UnivariateDistribution, x, offset, ::Int) = logpdf(c, x[offset +
 function child_logpdf(c::Union{Sequential, Parallel}, x, offset, n::Int)
     logpdf(c, @view x[(offset + 1):(offset + n)])
 end
-# A nested `Choose` in the data-free flat value-vector path commits to its FIRST
+# A nested `Choose` in the data-free flat value-vector path commits to its first
 # alternative (a deterministic default so flat `logpdf`/`rand` round-trip); the
 # selector-driven choice lives in the row/record path, not the flat path.
 function child_logpdf(c::Choose, x, offset, n::Int)
@@ -280,9 +280,9 @@ end
 # Backward-compatible internal alias (see `child_nleaves`).
 const _child_logpdf = child_logpdf
 
-# The alternative a nested Choose commits to on the data-free path: the FIRST.
+# The alternative a nested Choose commits to on the data-free path: the first.
 # The row/record path overrides this by the row's selector value (`_pick` /
-# `_pick_choose`). This is the SINGLE source of the "Choose routes to its
+# `_pick_choose`). This is the single source of the "Choose routes to its
 # first alternative" rule shared by every tree walk -- the flat value path here,
 # the event-name walk (`tree_events.jl`), the per-event moment / discretisation /
 # sampling walks (`composed_moments.jl` / `censored_rand.jl`), and the AD'd
@@ -341,7 +341,7 @@ function child_rand!(out, offset, rng::AbstractRNG, c::UnivariateDistribution)
 end
 function child_rand!(
         out, offset, rng::AbstractRNG, c::Union{Sequential, Parallel})
-    # Use the INTERNAL vector-valued realisation (`_composer_rand`), not the
+    # Use the internal vector-valued realisation (`_composer_rand`), not the
     # public `rand`: the public `rand` labels a top-level multivariate draw as a
     # NamedTuple, but a nested child here is concatenated into the flat value
     # vector by position, so it must stay vector-valued.
@@ -351,11 +351,11 @@ function child_rand!(
     end
     return nothing
 end
-# A TERMINAL one_of node (`Resolve` / `Compete`) on the PLAIN flat value path is
-# its univariate MARGINAL time-to-resolution (one value slot, scored by the
+# A terminal one_of node (`Resolve` / `Compete`) on the plain flat value path is
+# its univariate marginal time-to-resolution (one value slot, scored by the
 # scalar `logpdf(c, x::Real)`). The public `rand(c)` now returns the full named
 # outcome record (which outcome fired), but a nested child here is concatenated
-# into the flat value vector by position and must stay a single SCALAR, so the
+# into the flat value vector by position and must stay a single scalar, so the
 # marginal is drawn directly: a `Resolve` from its mixture lowering, a `Compete`
 # from its racing min time. A non-terminal one_of has no scalar marginal, so it
 # never reaches this plain flat path (its `_event_child_nleaves > 1`).
@@ -363,7 +363,7 @@ function child_rand!(out, offset, rng::AbstractRNG, c::AbstractOneOf)
     out[offset + 1] = _one_of_marginal_rand(rng, c)
     return nothing
 end
-# A nested `Choose` samples its FIRST alternative on the flat path, matching the
+# A nested `Choose` samples its first alternative on the flat path, matching the
 # committed alternative the flat `child_logpdf` scores.
 function child_rand!(out, offset, rng::AbstractRNG, c::Choose)
     return child_rand!(out, offset, rng, _flat_choose_alternative(c))
