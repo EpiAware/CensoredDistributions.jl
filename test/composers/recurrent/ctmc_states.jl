@@ -56,7 +56,7 @@ end
 end
 
 @testitem "logpdf scores state-at-visit panel observations" begin
-    using CensoredDistributions
+    using CensoredDistributions, Distributions
     const CD = CensoredDistributions
 
     m = ctmc(:well => (:ill => 0.2), :ill => (:well => 0.3, :dead => 0.1))
@@ -77,7 +77,7 @@ end
 end
 
 @testitem "logpdf dispatches panel vs jump chain on one model" begin
-    using CensoredDistributions
+    using CensoredDistributions, Distributions
     const CD = CensoredDistributions
 
     m = ctmc(:well => (:ill => 0.2), :ill => (:well => 0.3, :dead => 0.1))
@@ -121,7 +121,7 @@ end
     # A fast ForwardDiff smoke check run in the main suite. The full per-backend
     # AD matrix (including the Enzyme-forward exp(Qt) gap) lives in the
     # ADFixtures `:recurrent` scenario group (test/ADFixtures, test/ad).
-    using CensoredDistributions
+    using CensoredDistributions, Distributions
     using ForwardDiff
 
     panel = [(0.0, :well), (3.0, :ill), (7.0, :well), (10.0, :ill)]
