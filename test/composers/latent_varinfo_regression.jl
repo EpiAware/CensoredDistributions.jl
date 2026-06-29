@@ -35,6 +35,69 @@
     @test isempty(keys(vi_observed))
 end
 
+@testitem "bdbv tree latent: unobserved admit sampled, not marginal-in-a-hat" begin
+    using Distributions
+    using DynamicPPL: VarInfo, @varname, @model, to_submodel, logjoint
+    using CensoredDistributions: composed_distribution_model, latent,
+                                 resolve, sequential, compose,
+                                 double_interval_censored, Parallel
+
+    # The published bdbv `delays` object (#724): a nested Parallel of an
+    # onset -> admit -> {death, discharge} chain and an onset -> notif leaf, every
+    # edge double-interval censored. When a resolved record leaves admission
+    # UNOBSERVED, the latent form must SAMPLE the admission time, so the latent
+    # event var lands in the VarInfo and the joint density depends on the sampled
+    # value. A refactor that silently re-marginalised `latent` would drop that
+    # variable (empty VarInfo) and return a value constant in the (now absent)
+    # intermediate -- a marginal in a hat. These pin both against that regression.
+    dic(d) = double_interval_censored(d;
+        primary_event = Uniform(0, 1), interval = 1.0)
+    res = resolve(:death => (dic(Gamma(2.0, 3.5)), 0.3),
+        :discharge => (dic(Gamma(1.0, 8.0)), 0.7))
+    admit_path = sequential(:onset_admit => dic(Gamma(1.2, 3.0)),
+        :admit_resolution => res)
+    tree = compose((admit_path = admit_path,
+        onset_notif = dic(Gamma(0.7, 20.0))))
+    @test tree isa Parallel
+
+    @model demo(d, r) = obs ~ to_submodel(composed_distribution_model(d, r))
+    bp = (death = 0.3, discharge = 0.7)
+
+    # Admission UNOBSERVED, death observed: the intermediate admission time is the
+    # sampled latent, keyed `rec1.e[2]` (the second event slot of the first
+    # record). The marginal nested-Resolve scorer needs an observed anchor, so
+    # sampling this intermediate is a capability the latent form adds.
+    miss = (onset = 0.0, admit = missing, death = 12.0, discharge = missing,
+        notif = 18.0, branch_probs = bp)
+    m_miss = composed_distribution_model(latent(tree), [miss])
+    vi_miss = VarInfo(m_miss)
+    @test @varname(rec1.e[2]) in keys(vi_miss)
+
+    # Admission OBSERVED: every event is conditioned on as data, nothing
+    # intermediate is latent, so the VarInfo is empty. This is the contrast the
+    # latent form must preserve.
+    obsv = (onset = 0.0, admit = 4.0, death = 12.0, discharge = missing,
+        notif = 18.0, branch_probs = bp)
+    @test isempty(keys(VarInfo(
+        composed_distribution_model(latent(tree), [obsv]))))
+
+    # With admission observed both endpoints of every edge are observed, so the
+    # latent form keeps each declared censoring and is density-identical to the
+    # marginal (the project marginal == latent invariant), exact.
+    marg = only(logjoint(demo(tree, [obsv]), (;)))
+    lat = only(logjoint(demo(latent(tree), [obsv]), (;)))
+    @test isapprox(marg, lat; atol = 1e-10)
+
+    # Not a marginal in a hat: with admission unobserved the latent joint is a
+    # function of the sampled intermediate, so independent draws of `rec1.e[2]`
+    # give different logjoints. A re-marginalised `latent` would carry no sampled
+    # intermediate and return one constant value regardless of the draw.
+    lj1 = logjoint(m_miss, VarInfo(m_miss))
+    lj2 = logjoint(m_miss, VarInfo(m_miss))
+    lj3 = logjoint(m_miss, VarInfo(m_miss))
+    @test lj1 != lj2 || lj2 != lj3
+end
+
 @testitem "latent fit posterior contains the sampled intermediate latent" begin
     using Distributions, Turing
     using DynamicPPL: to_submodel

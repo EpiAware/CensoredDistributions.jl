@@ -73,7 +73,7 @@ using CSV, DataFramesMeta, Dates
 using CensoredDistributions, Distributions
 using Turing, Random, Statistics
 using DynamicPPL: to_submodel, @varname
-using FlexiChains: Parameter
+using FlexiChains: Parameter, parameters
 using ADTypes: AutoMooncake
 import Mooncake
 using PairPlots, CairoMakie
@@ -659,6 +659,63 @@ each.
 """
 
 md"""
+### A genuinely unobserved intermediate
+
+The latent fit above conditions on a recorded admission date for every resolved
+case, so no admission time is sampled and it coincides with the marginal.
+The latent form earns its name when an intermediate event is unobserved: the
+admission time is then a per-record latent the model samples between the case's
+observed onset and its observed resolution, rather than a date read off the line
+list.
+We mask the recorded admission for a handful of resolved cases and refit the same
+latent model, otherwise unchanged, so those cases' admissions become sampled
+latents on the double-interval-censored onset → admission → resolution edges while
+the rest stay observed.
+"""
+
+resolved_idx = findall(
+    r -> !ismissing(r.death) || !ismissing(r.discharge), real_rows)
+
+mask_idx = Set(resolved_idx[1:min(8, length(resolved_idx))])
+
+admit_masked_rows = map(enumerate(real_rows)) do (i, r)
+    i in mask_idx ? merge(r, (admit = missing,)) : r
+end
+
+unobs_chain = sample(Xoshiro(20260609),
+    bdbv_latent(template, priors, admit_masked_rows),
+    NUTS(0.8; adtype = adbackend), MCMCThreads(), 200, 2;
+    progress = false)
+
+md"""
+The chain now carries one sampled admission time per masked case, keyed
+`obs.recN.e[2]` (the second event slot, the unobserved admission), alongside the
+shared delay parameters and case-fatality coefficients.
+Their count matches the masked cases, the evidence that the intermediate is
+sampled rather than integrated out inside `logpdf`.
+"""
+
+admit_latents = filter(vn -> occursin("e[2]", string(vn)),
+    collect(parameters(unobs_chain)))
+
+(masked_cases = length(mask_idx), sampled_latents = length(admit_latents))
+
+md"""
+One record's posterior admission time reads straight off the chain, the
+within-window latent the marginal form never forms.
+The latent fit conditions on this sampled admission while the marginal integrates
+it out, and the two agree in expectation (the package's marginal-equals-latent
+invariant), so the shared delay parameters recover the same posterior as the
+marginal fit; the masked cases now inform the onset → admission and admission →
+resolution edges only through their sampled admission.
+"""
+
+admit_1 = vec(unobs_chain[Parameter(first(admit_latents))])
+
+(mean = mean(admit_1), lower = quantile(admit_1, 0.025),
+    upper = quantile(admit_1, 0.975))
+
+md"""
 ## Compound delays from the fitted distribution
 
 The natural-history delay from onset to death is the convolution of the
@@ -699,6 +756,10 @@ md"""
   vectorised latent path, the latent form that matches the original Isiro
   analysis; both recover the same delays and coefficients, so the marginal form
   is preferred for speed.
+- Masking the recorded admission for a handful of resolved cases and refitting
+  the latent form makes those admissions per-record sampled latents
+  (`obs.recN.e[2]`) on the double-interval-censored edges, the within-window
+  intermediate the marginal integrates out; the two agree in expectation.
 - Recovery is honest about identifiability, with onset-to-admission and
   admission-to-death recovering well, whereas the heavy-tailed
   onset-to-notification (Gamma shape 0.7) and the small-n admission-to-discharge
