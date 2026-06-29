@@ -125,7 +125,7 @@ The `method` field determines computation strategy:
 struct PrimaryCensored{
     D1 <: UnivariateDistribution, D2 <: UnivariateDistribution,
     M <: AbstractSolverMethod} <:
-       AbstractModifiedDistribution{Univariate, Continuous}
+       AbstractPrimaryCensored
     "The delay distribution from primary event to observation."
     dist::D1
     "The primary event time distribution."

@@ -27,7 +27,7 @@ pipeline over it); the `p` field holds the realised primary event time.
 - [`Latent`](@ref): the joint that reuses this conditional
 - [`get_dist`](@ref): the delay distribution scored here
 "
-struct PrimaryConditional{D, P <: Real} <: UnivariateDistribution{Continuous}
+struct PrimaryConditional{D, P <: Real} <: AbstractPrimaryCensored
     "The primary-censored node (or its `Latent` / pipeline wrapper)."
     dist::D
     "The realised primary event time conditioned on."

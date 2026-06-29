@@ -177,6 +177,20 @@ end
     test_modified_interface(weight(base, 0.5); name = "Weighted", x = 2.0)
     test_modified_interface(thin(base, 0.3); name = "Transformed", x = 2.0)
     test_modified_interface(modify(base, -log(2.0)); name = "Modified", x = 2.0)
-    test_modified_interface(interval_censored(base, 1.0);
-        name = "IntervalCensored", x = 2.0)
+end
+
+@testitem "test_primary_censored_interface over the primary-censored family" begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions.TestUtils: test_primary_censored_interface
+
+    # The primary-censored conformance entry: PrimaryCensored and the latent
+    # PrimaryConditional subtype AbstractPrimaryCensored and expose a delay via
+    # get_dist with a finite logpdf. IntervalCensored is deliberately NOT here
+    # (standalone) and PrimaryCensored is NOT a modifier (see the membership
+    # meta-test).
+    pc = primary_censored(Gamma(2.0, 1.0), Uniform(0.0, 1.0))
+    test_primary_censored_interface(pc; name = "PrimaryCensored", x = 3.0)
+
+    pcond = PrimaryConditional(pc, 0.5)
+    test_primary_censored_interface(pcond; name = "PrimaryConditional", x = 2.0)
 end

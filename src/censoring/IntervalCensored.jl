@@ -9,7 +9,7 @@ Supports both:
 
 "
 struct IntervalCensored{D <: UnivariateDistribution, T} <:
-       AbstractModifiedDistribution{Univariate, ValueSupport}
+       UnivariateDistribution{ValueSupport}
     "The underlying continuous distribution"
     dist::D
     "Either a scalar (regular intervals) or vector (boundaries for arbitrary intervals)"
