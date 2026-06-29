@@ -1,15 +1,13 @@
 name: Downstream
 
-# Opt-in reverse-dependency tests: checks that this PR's version of
-# CensoredDistributions.jl does not break packages that depend on it.
-# This is expensive, so it does not run on every push. Trigger it by
-# adding the `downstream` (or `reverse-deps`) label to a PR, or by
-# running it manually from the Actions tab (workflow_dispatch).
+# Opt-in reverse-dependency tests: checks that this PR's version of the package
+# does not break packages that depend on it. This is expensive, so it does not
+# run on every push. Trigger it by adding the `downstream` (or `reverse-deps`)
+# label to a PR, or by running it manually from the Actions tab.
 #
-# The downstream list below starts empty because no released package
-# depends on CensoredDistributions.jl yet. Add entries as packages are
-# spun out of this repo and start depending on it (see the commented
-# example), then label a PR to exercise them.
+# The downstream list below starts empty. Add entries as packages start
+# depending on this one (see the commented example), then label a PR to run
+# them. This list is package-owned: edit `downstreams` to fit the package.
 
 on:
   pull_request:
@@ -22,7 +20,7 @@ concurrency:
 
 jobs:
   downstream:
-    # Only the label that opts in; manual dispatch always runs.
+    # Only the opt-in label triggers on PRs; manual dispatch always runs.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.label.name == 'downstream' ||
@@ -30,10 +28,8 @@ jobs:
     uses: EpiAware/.github/.github/workflows/downstream.yml@main
     secrets: inherit  # pragma: allowlist secret
     with:
-      # JSON list of downstreams. Each entry needs `repo` (owner/name)
-      # and may set `group` (GROUP env for the downstream suite) and
-      # `allow_fail` (true keeps a failure from reding the run).
-      # Empty for now: nothing released depends on this package yet.
-      # Once EpiAwarePackageTools.jl (or a spin-out) depends on it, add:
-      #   [{"repo":"EpiAware/EpiAwarePackageTools.jl","group":"All"}]
+      # JSON list of downstreams. Each entry needs `repo` (owner/name) and may
+      # set `group` (GROUP env for the downstream suite) and `allow_fail` (true
+      # keeps a failure from reding the run). Empty by default; e.g.:
+      #   [{"repo":"EpiAware/SomeDownstream.jl","group":"All"}]
       downstreams: '[]'

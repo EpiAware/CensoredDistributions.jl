@@ -1,3 +1,4 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 name: Benchmark history
 
 # Persistent benchmark timeline. The PR-comparison workflow
@@ -46,11 +47,14 @@ jobs:
       # `../test/ADFixtures`. benchpkg copies `benchmark/Project.toml`
       # into a tempdir under `/tmp/` and Pkg resolves the relative source
       # to `/tmp/test/ADFixtures`. Stage it there so resolution succeeds
-      # (same workaround as benchmark.yaml).
+      # (same workaround as benchmark.yaml). Guarded so a non-AD package
+      # (no `test/ADFixtures`, no path source to stage) is a no-op.
       - name: Stage ADFixtures for AirspeedVelocity
         run: |
-          mkdir -p /tmp/test
-          cp -r test/ADFixtures /tmp/test/ADFixtures
+          if [ -d test/ADFixtures ]; then
+            mkdir -p /tmp/test
+            cp -r test/ADFixtures /tmp/test/ADFixtures
+          fi
 
       - name: Install AirspeedVelocity
         run: |
