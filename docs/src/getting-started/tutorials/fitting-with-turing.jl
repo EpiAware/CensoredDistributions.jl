@@ -500,7 +500,7 @@ demoted to one consumer among several.
 moves between the flat vector and the named, `update`-able `NamedTuple`, and the
 `Bijectors` extension derives the unconstrained transform from the priors. The
 flat layout and names match the `VarName`-keyed chain above, so a posterior is
-interchangeable across backends. This layer is public but NOT exported (so the
+interchangeable across backends. This layer is public but not exported (so the
 generic `flatten` / `unflatten` names do not crowd the top-level namespace), so
 it is reached by the qualified name (`CensoredDistributions.as_logdensity`,
 ...). Loading `LogDensityProblems`, `Bijectors` and an AD backend gives a
