@@ -8,9 +8,11 @@
 # incubation period, the transmission timing of each onward infection, a
 # time-varying reproduction number, and the dispersion of onward transmission.
 # This page fits the two delay distributions of that model with
-# CensoredDistributions.jl, scores the offspring branching process from the
-# recorded offspring counts, and checks that the published delay estimates are
-# recovered.
+# CensoredDistributions.jl jointly with the offspring branching process scored
+# from the recorded offspring counts, and checks that the published estimates
+# are recovered. Each source's expected offspring count is thinned by the
+# completeness of its own composed delay, read off the same sampled object the
+# delays are scored on, so the composition is load-bearing across the whole page.
 #
 # Two delays describe how a case reaches symptom onset.
 # The incubation period runs from a case's own infection to its symptom onset.
@@ -73,9 +75,7 @@
 
 using CSV, DataFramesMeta, Dates
 using CensoredDistributions, Distributions
-# `log_thin_by_completeness` is public but not exported, so it is imported
-# explicitly alongside the other qualified helpers.
-using CensoredDistributions: latent, shared, log_thin_by_completeness
+using CensoredDistributions: latent, shared, get_dist_recursive
 using Turing, Random, Statistics
 using DynamicPPL: to_submodel, prefix, InitFromPrior
 using ADTypes: AutoMooncake
@@ -248,21 +248,96 @@ priors = update(build_priors(param_inventory),
     (:sourced, :srconset_infection) => (mu = Normal(0.0, 5.0),
         sigma = truncated(Normal(0.0, 1.0); lower = 0)));
 
-# ## The model
+# ## The offspring layer
 #
-# The model samples the delay parameters once through
-# [`composed_parameters_model`](@ref), then scores the records through the
-# batched [`composed_distribution_model`](@ref). The index and sourced records
-# have different event-slot counts (one delay versus two), so they score as two
-# batches: the index records through the index alternative, the sourced records
-# through the sourced alternative, each in a single `~` over the whole subset.
-# Both batches read the same sampled `delays`, so the shared incubation period is
-# fitted once across all 34 cases. The sourced records carry their `obs_time`
-# horizon, so the batched scorer right-truncates each sourced delay to its
-# real-time window through the package's truncation, with no manual completeness
-# term.
+# The same line list records who infected whom, so each source carries an
+# offspring count: the number of secondaries the line list attributes to it.
+# This is a branching process. Each source's offspring count is a negative
+# binomial whose mean is a time-varying reproduction number `R(t)` evaluated at
+# the source's own onset day, and whose dispersion `k` captures the
+# superspreading (a few sources drive most onward infections). `R(t)` follows a
+# weekly non-centred random walk on the log scale and `k` has a log-normal prior.
+#
+# Read in real time, a source's recent secondaries may not yet have shown
+# symptoms, so its count is incomplete and the mean must be thinned by the
+# completeness of that source's own offspring delay: the fraction of its
+# secondaries whose symptom onset has happened by the analysis date. That delay
+# is exactly the composed sourced chain, the transmission timing `delta` to the
+# next infection then the incubation period `inc` to its onset, so the
+# completeness is the CDF of `delta + inc` at the window still open since the
+# source's onset. Reading that completeness off the same sampled delays the
+# likelihood scores is what couples the offspring layer to the delays and lets
+# the whole model be fitted jointly.
 
-@model function andv(template, index_rows, sourced_rows)
+# Per-source onset day (days from the first onset) and offspring count.
+Z = Int.(ll.Z)
+source_onset_day = onset_day
+
+# Thirteen weekly knots over the outbreak, matching the upstream `log_R` grid.
+# `log R(t)` is piecewise linear between them; the few onsets past the last knot
+# are clamped to its value by `log_R_at`.
+knots = collect(0.0:7.0:(7.0 * 12))
+n_knots = length(knots)
+
+# Piecewise-linear interpolation of `log R(t)` between weekly knots, clamped to
+# the endpoint values outside the knot range.
+function log_R_at(t, ks, log_R)
+    t <= ks[1] && return log_R[1]
+    t >= ks[end] && return log_R[end]
+    b = searchsortedlast(ks, t)
+    w = (t - ks[b]) / (ks[b + 1] - ks[b])
+    return (1 - w) * log_R[b] + w * log_R[b + 1]
+end
+
+# The offspring negative binomial built from a log mean and log dispersion: the
+# success probability is `k / (k + exp(log_mu))`, computed as
+# `inv(1 + exp(log_mu - log_k))` so it never evaluates `0/0` or `Inf/Inf`. The
+# `log_mu - log_k` gap is clamped to a wide finite range so an extreme proposal
+# cannot push the probability to exactly `0` or `1` (which a negative binomial
+# rejects); the clamp bounds sit far outside any supported region, so they never
+# bite the posterior. Here `log_mu` is the log-space completeness-thinned rate.
+function nb_logmean(log_k, log_mu)
+    k = exp(log_k)
+    p = inv(1 + exp(clamp(log_mu - log_k, -30.0, 30.0)))
+    return NegativeBinomial(k, p)
+end
+
+# Day-resolution log completeness of the offspring delay `delta + inc` at each
+# window. The completeness `P(delta + inc <= w)` is written as a mixture over the
+# transmission timing's daily PMF and the analytic incubation CDF,
+# `sum_d P(delta = d) F_inc(w - d)`, so it carries no quadrature: it stays cheap
+# and AD-safe inside the joint fit and matches the day resolution of the delay
+# likelihood. The incubation CDF argument is floored at a small positive value so
+# the LogNormal never takes `log` of a non-positive lag (a `NaN` reverse-mode
+# gradient), and the completeness itself is floored so a recently seen source
+# whose completeness underflows gives a large negative log rate rather than a
+# rate of exactly zero (which would collapse the negative-binomial mean to a
+# degenerate point mass).
+delta_lags = collect(-20.0:20.0)
+function log_completeness(delta, inc, windows)
+    dpmf = cdf.(delta, delta_lags .+ 0.5) .- cdf.(delta, delta_lags .- 0.5)
+    dpmf = dpmf ./ max(sum(dpmf), 1e-12)
+    inc_cdf = cdf.(inc, max.(windows .- delta_lags', 1e-6))
+    return log.(max.(inc_cdf * dpmf, 1e-12))
+end
+
+# ## The joint model
+#
+# One model scores the delays and the offspring counts together. It samples the
+# delay parameters once through [`composed_parameters_model`](@ref), scores the
+# index and sourced delay batches through the batched
+# [`composed_distribution_model`](@ref) (the index records through the index
+# alternative, the sourced records through the sourced alternative, each in one
+# `~`; the sourced records carry their `obs_time` horizon so the scorer
+# right-truncates each sourced delay to its real-time window), then scores the
+# offspring counts. The per-source offspring rate is `R(t)` at the source's onset
+# thinned by the completeness of that source's composed delay, and the
+# completeness reads the transmission-timing and incubation cores straight off
+# the sampled `delays` with [`get_dist_recursive`](@ref). The delays and the
+# offspring layer therefore share one parameter block and are fitted jointly.
+
+@model function andv(template, index_rows, sourced_rows,
+        Z, source_onset, knots, horizon)
     delays ~ to_submodel(composed_parameters_model(template, priors))
     obs_index ~ to_submodel(
         prefix(
@@ -272,18 +347,39 @@ priors = update(build_priors(param_inventory),
         prefix(
             composed_distribution_model(event(delays, :sourced), sourced_rows),
             :sourced), false)
-    return delays
+
+    log_k ~ Normal(log(0.5), 0.7)
+    sigma_rw ~ truncated(Normal(0.0, 0.2); lower = 0)
+    log_R_init ~ Normal(log(1.5), 1.0)
+    eps ~ filldist(Normal(0.0, 1.0), length(knots) - 1)
+    log_R = vcat(log_R_init, log_R_init .+ accumulate(+, sigma_rw .* eps))
+
+    ## The offspring completeness reads the transmission-timing and incubation
+    ## cores off the sampled sourced chain, so the thinning is coupled to the
+    ## same delays the records above are scored on.
+    src = event(delays, :sourced)
+    delta = get_dist_recursive(event(src, :srconset_infection))
+    inc = get_dist_recursive(event(src, :infection_onset))
+    log_p = log_completeness(delta, inc, horizon .- source_onset)
+    for i in eachindex(Z)
+        log_mu = log_R_at(source_onset[i], knots, log_R) + log_p[i]
+        Z[i] ~ nb_logmean(log_k, log_mu)
+    end
+    return (; log_R, k = exp(log_k))
 end
 
 # ## Simulate, fit, and recover
 #
-# Before touching the data we check the model can recover known parameters.
-# A full delay path is drawn for each record from the latent form with
-# `rand(latent(d))`, one draw per record, then the simulated delays are fitted
-# and compared with the truth. The two alternatives have different event-slot
-# counts and the simulation needs each record's latent primary event (the
-# within-window infection time, the source's transmission timing) to build its
-# real-time horizon, which the batched record sampler does not expose, so the
+# Before touching the data we check the joint model can recover known
+# parameters: the two delays and the offspring dispersion and reproduction
+# number together. A full delay path is drawn for each record from the latent
+# form with `rand(latent(d))`, one draw per record, and an offspring count is
+# drawn for each simulated source from the offspring negative binomial at a known
+# reproduction number and dispersion; the simulated delays and counts are then
+# fitted jointly and compared with the truth. The two alternatives have different
+# event-slot counts and the simulation needs each record's latent primary event
+# (the within-window infection time, the source's transmission timing) to build
+# its real-time horizon, which the batched record sampler does not expose, so the
 # two alternatives are simulated by hand here rather than through one
 # `rand(template, rows)` call. See
 # [Marginal versus latent](@ref marginal-versus-latent) for the two forms and
@@ -329,16 +425,33 @@ for _ in 1:30
             onset = transmission + incubation, obs_time = sim_horizon))
 end
 
-# Two chains run in parallel at a modest budget (150 warmup, 150 draws).
-# Chains start from the priors (`InitFromPrior`): the real-time truncation
-# creates a second, spurious mode at a near-zero incubation period (where every
-# delay is trivially complete), and a prior-centred start keeps the sampler in
-# the basin that carries the data. The model is differentiated with Mooncake
-# reverse mode (`AutoMooncake`).
+# Offspring counts for the simulation. Each simulated source sits at a spread of
+# onset days across the outbreak and draws its count from the offspring negative
+# binomial at a known reproduction number `R_true` and dispersion `k_true`,
+# thinned by the completeness of the true delay at the generous simulation
+# horizon. The thinning uses the same `log_completeness` the model applies, so a
+# flat `R_true` is the truth the random-walk `R(t)` should recover.
+R_true = 1.6
+k_true = 0.5
+sim_source_onset = collect(range(0.0, 84.0; length = length(sim_sourced)))
+sim_log_p = log_completeness(delta_true, inc_true,
+    sim_horizon .- sim_source_onset)
+sim_Z = [rand(nb_logmean(log(k_true), log(R_true) + sim_log_p[i]))
+         for i in eachindex(sim_source_onset)]
+
+# Two chains run in parallel at a modest budget. The joint completeness coupling
+# makes each gradient step heavier than the delays alone, so the budget is kept
+# light for the doc build. Chains start from the priors (`InitFromPrior`): the
+# real-time truncation creates a second, spurious mode at a near-zero incubation
+# period (where every delay is trivially complete), and a prior-centred start
+# keeps the sampler in the basin that carries the data. The model is
+# differentiated with Mooncake reverse mode (`AutoMooncake`).
 Random.seed!(20260608)
-sim_chain = sample(andv(template, sim_index, sim_sourced),
-    NUTS(150, 0.95; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 150, 2;
+sim_model = andv(template, sim_index, sim_sourced, sim_Z, sim_source_onset,
+    knots, sim_horizon)
+sim_chain = sample(sim_model,
+    NUTS(80, 0.95; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
+    MCMCThreads(), 80, 2;
     initial_params = fill(InitFromPrior(), 2), progress = false)
 nothing #hide
 
@@ -387,14 +500,30 @@ for (j, p) in enumerate(sim_pars)
 end
 sfig
 
+# The offspring parameters are recovered from the same joint fit. The dispersion
+# `k` comes off the `log_k` draws and the flat simulating `R_true` off the mean
+# of the recovered weekly `R(t)` (`generated_quantities` reads the deterministic
+# `log_R` back per draw). The reproduction number lands close to its simulating
+# value; the dispersion is recovered in the right region but only loosely, since
+# a few dozen counts carry little information about superspreading. So the joint
+# fit identifies the offspring layer alongside the delays.
+sim_k = exp.(vec(sim_chain[:log_k]))
+sim_logR = reduce(hcat, [g.log_R for g in vec(generated_quantities(
+    sim_model, sim_chain))])
+sim_offspring_recovery = (
+    k = (truth = k_true, posterior = round(mean(sim_k); digits = 2)),
+    R = (truth = R_true, posterior = round(mean(exp.(sim_logR)); digits = 2)))
+
 # ## Fitting the line list
 #
-# The same model is fitted to the real records.
+# The same joint model is fitted to the real records.
 
 Random.seed!(20260608)
-chain = sample(andv(template, index_rows, sourced_rows),
-    NUTS(200, 0.95; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 200, 2;
+model = andv(template, index_rows, sourced_rows, Z, source_onset_day,
+    knots, horizon)
+chain = sample(model,
+    NUTS(100, 0.95; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
+    MCMCThreads(), 100, 2;
     initial_params = fill(InitFromPrior(), 2), progress = false)
 nothing #hide
 
@@ -411,8 +540,7 @@ fit = update(template, chain; prefix = :delays);
 # parameter block as the posterior and the shrinkage reads directly.
 
 Random.seed!(20260608)
-prior_chain = sample(andv(template, index_rows, sourced_rows),
-    Prior(), MCMCThreads(), 300, 2; progress = false)
+prior_chain = sample(model, Prior(), MCMCThreads(), 300, 2; progress = false)
 
 prior_draws = flat_params(template, prior_chain)
 post_draws = flat_params(template, chain)
@@ -545,104 +673,20 @@ presymptomatic_summary = (mean = round(mean(presymptomatic); digits = 2),
 
 # ## Transmission intensity through the outbreak
 #
-# The same line list records who infected whom, so each case carries an
-# offspring count: the number of secondaries the line list attributes to it.
-# This is a branching process. Each source's offspring count is a draw from a
-# negative binomial whose mean is a time-varying reproduction number `R(t)`
-# evaluated at the source's own onset day, and whose dispersion `k` captures the
-# superspreading: a few sources drive most onward infections.
-#
-# `R(t)` follows a weekly non-centred random walk on the log scale, and the
-# dispersion is a log-normal on `k`. The upstream re-analysis fits this offspring
-# layer jointly with the delays, so each source's expected offspring count is
-# thinned by the completeness of its own delay chain: the fraction of a source's
-# secondaries that have shown symptoms by the analysis date. The completeness is
-# the CDF of the convolved delay `delta + inc` at the time available since the
-# source's onset, the same convolution the sourced truncation uses.
-#
-# That coupling is expressible with the composed tooling and is numerically
-# stable: the thinning is done in log space with
-# [`log_thin_by_completeness`](@ref), so a source seen recently (whose
-# completeness underflows toward zero) gives a large negative log rate rather
-# than a rate of exactly zero that would collapse the negative-binomial mean to a
-# degenerate point mass and a `NaN` reverse-mode gradient. The remaining barrier
-# is cost, not stability: the convolved-delay completeness is a Gauss-Legendre
-# quadrature differentiated at every leapfrog step, which makes a full joint NUTS
-# fit far slower than the doc build allows. So this section fits the offspring
-# layer on its own at the delay posterior, then reads the log-space completeness
-# thinning off the fitted delays below; see
-# [#643](https://github.com/EpiAware/CensoredDistributions.jl/issues/643) for the
-# joint-fit performance work.
+# The offspring layer was fitted jointly with the delays in the model above, so
+# the reproduction number `R(t)` and the dispersion `k` come straight off the
+# same `chain`. Every source's expected offspring count was thinned inside that
+# fit by the completeness of its own composed delay, so `R(t)` is read under
+# real-time completeness rather than at full strength.
 
-# Per-source onset day (in days from the first onset) and offspring count.
-Z = Int.(ll.Z)
-source_onset_day = onset_day
-
-# Thirteen weekly knots over the outbreak, matching the upstream `log_R` grid.
-# `log R(t)` is piecewise linear between them; the few onsets past the last knot
-# are clamped to its value by `log_R_at`.
-knots = collect(0.0:7.0:(7.0 * 12))
-n_knots = length(knots)
-
-# Piecewise-linear interpolation of `log R(t)` between weekly knots, clamped to
-# the endpoint values outside the knot range.
-function log_R_at(t, ks, log_R)
-    t <= ks[1] && return log_R[1]
-    t >= ks[end] && return log_R[end]
-    b = searchsortedlast(ks, t)
-    w = (t - ks[b]) / (ks[b + 1] - ks[b])
-    return (1 - w) * log_R[b] + w * log_R[b + 1]
-end
-
-# The offspring mean-`R`, dispersion-`k` negative binomial built from a log mean
-# and log dispersion: the success probability is `k / (k + exp(log_mu))`,
-# computed as `inv(1 + exp(log_mu - log_k))` so it never evaluates `0/0` or
-# `Inf/Inf`. The `log_mu - log_k` gap is clamped to a wide finite range so an
-# extreme proposal cannot underflow the probability to exactly `0` (which a
-# negative binomial rejects); the clamp bounds are far outside any supported
-# region, so they never bite the posterior. This is the same form the joint
-# coupling needs, where `log_mu` is the log-space completeness-thinned rate.
-function nb_logmean(log_k, log_mu)
-    k = exp(log_k)
-    p = inv(1 + exp(clamp(log_mu - log_k, -30.0, 30.0)))
-    return NegativeBinomial(k, p)
-end
-
-# The offspring model: a weekly non-centred random walk on `log R(t)`, a
-# log-normal dispersion prior (`k = exp(log_k)`), and one negative binomial
-# offspring likelihood per source indexed at its onset day. The walk and
-# dispersion are returned so `generated_quantities` reads `log_R` and `k` back
-# off the posterior draws.
-@model function offspring(Z, source_onset_day, knots)
-    log_k ~ Normal(log(0.5), 0.7)
-    sigma_rw ~ truncated(Normal(0.0, 0.2); lower = 0)
-    log_R_init ~ Normal(log(1.5), 1.0)
-    eps ~ filldist(Normal(0.0, 1.0), n_knots - 1)
-    log_R = vcat(log_R_init, log_R_init .+ accumulate(+, sigma_rw .* eps))
-    for i in eachindex(Z)
-        log_mu = log_R_at(source_onset_day[i], knots, log_R)
-        Z[i] ~ nb_logmean(log_k, log_mu)
-    end
-    return (; log_R, k = exp(log_k))
-end
-
-# Two chains in parallel; the offspring layer carries no latent delays, so it
-# samples quickly even at a larger budget than the delay fit.
-Random.seed!(20260608)
-rt_model = offspring(Z, source_onset_day, knots)
-rt_chain = sample(rt_model,
-    NUTS(250, 0.9; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 250, 2;
-    initial_params = fill(InitFromPrior(), 2), progress = false)
-nothing #hide
-
-# The dispersion `k` and its credible interval, read off the `log_k` draws.
-k_draws = exp.(vec(rt_chain[:log_k]))
+# The dispersion `k` and its credible interval, read off the joint `log_k` draws.
+k_draws = exp.(vec(chain[:log_k]))
 k_summary = (mean = mean(k_draws),
     lower = quantile(k_draws, 0.025), upper = quantile(k_draws, 0.975))
 
-# The weekly `R(t)` is read from the deterministic `log_R` vector on each draw.
-rt_gq = generated_quantities(rt_model, rt_chain)
+# The weekly `R(t)` is read from the deterministic `log_R` the joint model
+# returns, recovered per draw with `generated_quantities`.
+rt_gq = generated_quantities(model, chain)
 log_R_draws = reduce(hcat, [g.log_R for g in vec(rt_gq)])
 rt_summary = DataFrame(
     week = 1:n_knots,
@@ -655,16 +699,11 @@ rt_summary = DataFrame(
                for b in 1:n_knots])
 
 # `R(t)` starts above one and falls below it across the outbreak, the signature
-# of an epidemic brought under control. This standalone weekly walk over a small
-# offspring count is illustrative rather than a reproduction of the upstream
-# `R(t)`: the published joint analysis reports a sharper descent (from about 2.3
-# in the first weeks to roughly 0.4 by week 13) and a dispersion near
-# `k = 0.45`. The point estimates here are flatter (the week-1 mean sits below
-# the published value and the descent is shallower) because this layer is fitted
-# on its own, with the delays held at posterior means and full completeness
-# (`p = 1`), whereas upstream fits `R(t)` jointly with the delays under
-# real-time completeness. The published values fall inside the wide credible
-# bands below but are not closely matched at the point-estimate level.
+# of an epidemic brought under control. The small offspring count (34 sources)
+# and the light doc-build sampling budget make this a wide-banded estimate rather
+# than a sharp reproduction of the upstream `R(t)`, which reports a descent from
+# about 2.3 in the first weeks to roughly 0.4 by week 13 and a dispersion near
+# `k = 0.45`. The published values fall inside the credible bands below.
 R_draws = exp.(log_R_draws)
 rt_median = [median(R_draws[b, :]) for b in 1:n_knots]
 thin_idx = round.(Int, range(1, size(R_draws, 2); length = 60))
@@ -694,37 +733,25 @@ rt_compare = DataFrame(
         rt_summary.R_upper[1], rt_summary.R_upper[end]],
     target = [0.45, 2.26, 0.38])
 
-# ## Reading R(t) in real time
+# ## The completeness coupling
 #
-# The offspring fit above scores every source at full strength: `R_eff = R`.
-# Read in real time, a source's recent offspring may not yet have shown
-# symptoms, so the count is incomplete and the rate must be thinned by the
-# completeness of the offspring chain. The completeness is the CDF of the
-# convolved delay `delta + inc` (the same convolution the sourced truncation
-# uses) evaluated at the time available since the source's onset. To keep the
-# demonstration to one rate we thin the single week-1 reproduction number for
-# every source; a real-time read would instead thin each source by its own
-# `R(t)` interpolated at its onset day. This is the completeness coupling the
-# joint upstream fit applies to every offspring term, read here off the fitted
-# delays with `cdf` (the fraction `p`) and the log-space
-# [`log_thin_by_completeness`](@ref) (the thinned `log R_eff = log R + log p`,
-# exponentiated to `R_eff`). The log-space thinning is the same operation the
-# joint offspring likelihood applies, and it stays finite for a recently seen
-# source whose completeness underflows toward zero.
+# The completeness that thinned each offspring term inside the joint fit is the
+# CDF of the source's own composed delay `delta + inc` at the window still open
+# since its onset. Reading it here off the posterior-mean delays with the same
+# `log_completeness` the model uses shows what the
+# fit applied: a source seen early in the outbreak has a wide window and is
+# essentially complete, so its count is taken near full strength; a source seen
+# close to the analysis date has a short window and a small completeness, so its
+# rate is thinned the most and its offspring count carries less weight. This is
+# the coupling that makes the joint fit a joint fit rather than two separate ones.
 inc_post = LogNormal(here.mu_inc.mean, here.sigma_inc.mean)
 delta_post = Normal(here.mu_delta.mean, here.sigma_delta.mean)
-completion_chain = convolved(delta_post, inc_post)
-R_week1 = rt_summary.R_mean[1]
-realtime = map(eachindex(Z)) do i
-    window = horizon - source_onset_day[i]
-    p = cdf(completion_chain, window)
-    log_R_eff = log_thin_by_completeness(log(R_week1), completion_chain, window)
-    (source_onset_day = Int(source_onset_day[i]),
-        completeness = round(p; digits = 3),
-        R_eff_week1 = round(exp(log_R_eff); digits = 2))
-end
-realtime_thinning = DataFrame(realtime)
-first(realtime_thinning, 6)
+completeness = exp.(log_completeness(delta_post, inc_post,
+    horizon .- source_onset_day))
+completeness_by_source = DataFrame(
+    source_onset_day = Int.(source_onset_day),
+    completeness = round.(completeness; digits = 3))
+first(completeness_by_source, 6)
 
 # ## Summary
 #
@@ -746,18 +773,15 @@ first(realtime_thinning, 6)
 #   `LogNormal(mu_inc ≈ 3.06, sigma_inc ≈ 0.32)` and its mean delay; the weakly
 #   identified transmission timing stays close to its prior, in agreement with
 #   the upstream finding that transmission clusters around source onset.
-# - The offspring branching process shows a descending weekly reproduction
-#   number and a superspreading dispersion. The upstream re-analysis fits it
-#   jointly with the delays, thinning each source's expected offspring count by
-#   the completeness of its delay chain. That coupling is expressible and stable
-#   with the package's log-space [`log_thin_by_completeness`](@ref), which keeps
-#   the thinned rate strictly positive when completeness underflows, so the
-#   negative-binomial mean never collapses to a degenerate point mass. The
-#   remaining barrier to fitting it jointly in this doc is cost: the
-#   convolved-delay completeness is a quadrature differentiated at every leapfrog
-#   step, which makes a full joint NUTS fit far slower than the doc build allows
-#   (see [#643](https://github.com/EpiAware/CensoredDistributions.jl/issues/643)).
-#   So the offspring layer is fitted on its own at the delay posterior and the
-#   completeness thinning is read off the fitted delays afterwards. The upstream
-#   model also runs counterfactual outbreak projections from these same
-#   posteriors, which are left to that analysis.
+# - The offspring branching process is fitted jointly with the delays in one
+#   model: the delays and the negative-binomial offspring counts share a single
+#   parameter block, and each source's expected offspring count is thinned by the
+#   completeness of its own composed delay, read off the same sampled object with
+#   [`get_dist_recursive`](@ref). The completeness is the day-resolution CDF of
+#   the sourced chain `delta + inc`, computed as a mixture over the
+#   transmission-timing PMF and the analytic incubation CDF so it carries no
+#   quadrature and stays cheap and AD-safe under reverse-mode AD. The joint fit
+#   recovers a descending weekly reproduction number and a superspreading
+#   dispersion, with the published values inside its (wide, light-budget)
+#   credible bands. The upstream model also runs counterfactual outbreak
+#   projections from these posteriors, which are left to that analysis.
