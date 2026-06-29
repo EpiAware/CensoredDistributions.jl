@@ -185,6 +185,43 @@ end
     end
 end
 
+@testitem "latent conditional equals the marginal in expectation" begin
+    using Distributions, Random, Statistics
+    using CensoredDistributions: PrimaryConditional, get_primary_event
+
+    # The latent form conditions on a sampled primary (`PrimaryConditional` at
+    # a `rand`-drawn `p`); it does not integrate the primary out and defines no
+    # scalar observed density. So it matches the marginal only in expectation
+    # over the primary prior,
+    #   E_p[cdf(PrimaryConditional(d, p), x)] = cdf(marginal(d), x),
+    # estimated here by Monte Carlo over genuine `rand` draws of the primary,
+    # never by the latent itself integrating. This is the equivalence-in-
+    # expectation that underwrites the latent and marginal fits recovering the
+    # same parameters.
+    rng = MersenneTwister(20260629)
+    n = 400_000
+
+    for (delay,
+        pe) in [
+        (LogNormal(1.5, 0.75), Uniform(0.0, 1.0)),
+        (Gamma(2.0, 1.0), Uniform(0.0, 2.0))
+    ]
+        dm = primary_censored(delay, pe)
+        ld = latent(dm)
+        ps = rand(rng, get_primary_event(ld), n)
+        for x in [1.0, 2.5, 5.0]
+            mc_cdf = mean(cdf(PrimaryConditional(ld, p), x) for p in ps)
+            mc_pdf = mean(pdf(PrimaryConditional(ld, p), x) for p in ps)
+            @test isapprox(mc_cdf, cdf(dm, x); atol = 5e-3)
+            @test isapprox(mc_pdf, pdf(dm, x); atol = 5e-3)
+        end
+        # A single draw is genuinely conditional, not the marginal: one
+        # realised primary gives a shifted conditional, not the marginal cdf.
+        one_p = rand(rng, get_primary_event(ld))
+        @test cdf(PrimaryConditional(ld, one_p), 2.5) != cdf(dm, 2.5)
+    end
+end
+
 @testitem "double_interval_censored works in both marginal and latent forms" begin
     using Distributions
 

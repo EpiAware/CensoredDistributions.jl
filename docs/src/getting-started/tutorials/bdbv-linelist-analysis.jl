@@ -522,11 +522,11 @@ used the latent form instead, and the two are one family on the same parameters
 [Fit marginal, sample event based](@ref) for the how-to).
 This section runs the latent form on the real records and checks the two agree.
 
-The latent model is the marginal `bdbv` with ONE swap: the composed `delays`
+The latent model is the marginal `bdbv` with one swap: the composed `delays`
 object is wrapped in [`latent`](@ref).
 The marginal model scores `composed_distribution_model(delays, obs_rows)`; the
 latent model scores `composed_distribution_model(latent(delays), obs_rows)` on the
-SAME rows, with the same parameter block, case-fatality regression and priors.
+same rows, with the same parameter block, case-fatality regression and priors.
 Wrapping in `latent` samples each unobserved event time internally (the origin and
 any unobserved intermediate) and conditions the observed events on it, rather than
 integrating them out inside `logpdf`; the death-versus-discharge split rides the
