@@ -52,12 +52,40 @@ struct Weighted{D <: UnivariateDistribution, T <: Union{Real, Missing}} <:
 end
 
 # ============================================================================
+# Deprecation: the weighting surface moves to ModifiedDistributions.jl
+# ============================================================================
+
+# `weight` / `Weighted` are slated to move out of CensoredDistributions.jl and
+# into the standalone ModifiedDistributions.jl package (issue #128). This is the
+# warning release: the surface stays fully functional, but every `weight`
+# constructor emits a one-time deprecation warning so callers can migrate ahead
+# of removal in a later breaking release. As with the package's other soft
+# deprecations, the warning only surfaces under `--depwarn=yes`/`error`, so it
+# never spams normal use. The underlying `Weighted` type stays reachable (it is
+# `public`) for code that needs the multiplicity behaviour today.
+function _weight_deprecation()
+    Base.depwarn(
+        "`weight` is deprecated and will move to the standalone " *
+        "ModifiedDistributions.jl package in a future breaking release; it " *
+        "still works for now. Track the migration in CensoredDistributions.jl " *
+        "issue #128.",
+        :weight)
+    return nothing
+end
+
+# ============================================================================
 # Constructor Functions
 # ============================================================================
 
 @doc "
 
 Create a weighted distribution where the log-probability is scaled by `w`.
+
+!!! warning \"Deprecated\"
+    `weight` is deprecated and will move to the standalone
+    ModifiedDistributions.jl package in a future breaking release. It still
+    works for now and emits a deprecation warning under `--depwarn=yes`. Track
+    the migration in issue #128.
 
 A `Weighted` distribution will contribute `w * logpdf(dist, x)` to the
 log-probability when evaluating `logpdf(weighted_dist, x)`.
@@ -77,6 +105,7 @@ weighted_logpdf = logpdf(weighted_d, y_obs)
 ```
 "
 function weight(dist::UnivariateDistribution, w::Real)
+    _weight_deprecation()
     return Weighted(dist, w)
 end
 
@@ -97,6 +126,7 @@ weight(d, nothing) === d
 ```
 "
 function weight(dist::UnivariateDistribution, ::Nothing)
+    _weight_deprecation()
     return dist
 end
 
@@ -129,6 +159,7 @@ weighted_logpdf = logpdf(weighted_dists, y_obs)
 - [`Weighted`](@ref): The underlying weighted distribution type
 "
 function weight(dist::UnivariateDistribution, weights::AbstractVector{<:Real})
+    _weight_deprecation()
     return product_distribution([Weighted(dist, w) for w in weights])
 end
 
@@ -153,6 +184,7 @@ weighted_dists = weight(dists, n_counts)
 function weight(
         dists::AbstractVector{<:UnivariateDistribution},
         weights::AbstractVector{<:Real})
+    _weight_deprecation()
     length(dists) == length(weights) ||
         throw(
             ArgumentError(
@@ -186,6 +218,7 @@ logpdf(weighted_dist, (value = 3.5, weight = 25))
 ```
 "
 function weight(dist::UnivariateDistribution)
+    _weight_deprecation()
     return Weighted(dist, missing)
 end
 
@@ -213,6 +246,7 @@ logpdf(weighted_dists, (values = y_obs, weights = [25, 10, 15]))
 ```
 "
 function weight(dists::AbstractVector{<:UnivariateDistribution})
+    _weight_deprecation()
     return product_distribution(
         [Weighted(d, missing) for d in dists]
     )

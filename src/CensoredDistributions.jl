@@ -158,7 +158,9 @@ export Shared, shared, tie
 # Exported composer-observed lowering used by the external censoring wrappers
 export observed_distribution
 
-# Exported utilities
+# Exported utilities. `weight` is exported but DEPRECATED (issue #128): the
+# weighting surface moves to the standalone ModifiedDistributions.jl package in
+# a future breaking release. It stays functional and warns under `--depwarn`.
 export weight, get_dist, get_dist_recursive, get_primary_event
 
 # Exported discrete-time reporting-hazard helpers: the epinowcast hazard layer

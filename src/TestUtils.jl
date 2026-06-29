@@ -708,9 +708,12 @@ function example_fixtures()
     # interval-censored discrete path with a per-bin effect vector.
     mod_logit = modify(
         interval_censored(LN(1.5, 0.5), 1.0), fill(0.2, 11); link = :logit)
-    # weight: a per-record count weight on a leaf, no analytic moment.
-    wtd = weight(G(2.0, 1.0), 3.0)
-    wtd_ad = (θ -> Distributions.logpdf(weight(G(θ[1], θ[2]), 3.0), 3.0),
+    # weight: a per-record count weight on a leaf, no analytic moment. Built
+    # via the underlying `Weighted` type directly: the `weight` verb is
+    # deprecated (issue #128), but the multiplicity behaviour it wraps is what
+    # this fixture exercises.
+    wtd = Weighted(G(2.0, 1.0), 3.0)
+    wtd_ad = (θ -> Distributions.logpdf(Weighted(G(θ[1], θ[2]), 3.0), 3.0),
         [2.0, 1.0])
     # thin: a defective leaf (reporting probability `p = 0.3`). Its pdf integrates
     # to `p`, its cdf tends to `p`, and `rand` returns `missing` with probability

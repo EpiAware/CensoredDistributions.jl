@@ -137,6 +137,22 @@
   Tables.jl table signatures, so the two batch forms are symmetric. A
   per-record `obs_time` horizon stays rejected under `latent`. Closes #449.
 
+### Deprecations
+
+- `weight` is deprecated and will move to the standalone
+  ModifiedDistributions.jl package in a future breaking release (#128). This is
+  the warning release: every `weight` constructor stays fully functional but now
+  emits a one-time deprecation warning (surfaced under `--depwarn=yes`/`error`,
+  so normal use is unaffected). The multiplicity surface (`w * logpdf(d, x)` for
+  aggregated count data) does not map onto the in-package `modify` (hazard
+  modification) or `thin` (reporting-probability scaling) verbs, which represent
+  different operations, so there is no in-package replacement verb. Migration:
+  until the standalone package lands, code that needs the behaviour today can
+  construct the underlying type directly with
+  `CensoredDistributions.Weighted(dist, w)` (or
+  `Distributions.product_distribution` of `Weighted` for the vectorised forms),
+  which is `public` and not deprecated.
+
 ### Bug fixes
 
 - A `shared(:tag, ...)` censored leaf at a composed-tree origin no longer loses

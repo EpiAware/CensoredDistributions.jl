@@ -254,7 +254,7 @@ get_dist_recursive(pc)
 # Nested wrappers
 continuous = Normal(5, 2)
 ic = interval_censored(continuous, 1.0)
-weighted = weight(ic, 2.0)
+weighted = CensoredDistributions.Weighted(ic, 2.0)
 get_dist_recursive(weighted)
 
 # Double interval censored distributions (fully recursive)
