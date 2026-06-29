@@ -3,7 +3,7 @@
 # composed delay onto one transition; we solve and check the recovered mean
 # dwell time and the per-transition compartment structure. Whole-model assembly
 # (e.g. an SEIR or SIR) is application territory and is exercised in the
-# linear-chain tutorial. The core `linear_chain_stages` lowering is Catalyst-free
+# linear-chain tutorial. The core `compartment_stages` lowering is Catalyst-free
 # and tested in `linear_chain.jl`.
 
 @testitem "Catalyst bridge is an exported stub; core lowering is Catalyst-free" begin
@@ -14,7 +14,7 @@
     # free of the SciML stack (Catalyst is a weakdep, not a dep).
     @test linear_chain_reactions isa Function
     # The (rate, stages) lowering it builds on works with no Catalyst loaded.
-    s = linear_chain_stages(Gamma(3.0, 1.5))
+    s = compartment_stages(Gamma(3.0, 1.5))
     @test s[1].stages == 3
     @test s[1].rate ≈ 1 / 1.5
 end
@@ -67,7 +67,7 @@ end
     t = default_t()
     @species From(t) To(t)
     chain = linear_chain_reactions(delay, From, To; moment_match = true)
-    stages = linear_chain_stages(delay; moment_match = true)
+    stages = compartment_stages(delay; moment_match = true)
     @test length(chain.species) == stages[1].stages
     # Without moment matching the same delay is rejected.
     @test_throws ArgumentError linear_chain_reactions(delay, From, To)
@@ -87,4 +87,22 @@ end
     @test length(species) == 3
     # from -> s1, two interior hops, s3 -> to => 4 reactions.
     @test length(rxs) == 4
+end
+
+@testitem "linear_chain_reactions splits entry from internal reactions" begin
+    using CensoredDistributions, Distributions
+    using Catalyst
+    using Catalyst: default_t
+
+    # The bridge returns the entry (from -> first sub-compartment) split from
+    # the interior hops + exit, so a model builder can drop the entry (e.g. for
+    # a force of infection) without slicing `reactions[2:end]` by hand.
+    delay = Gamma(3.0, 1.5)
+    t = default_t()
+    @species From(t) To(t)
+    chain = linear_chain_reactions(delay, From, To; prefix = :X)
+    @test chain.entry == chain.reactions[1]
+    @test chain.internal == chain.reactions[2:end]
+    @test [chain.entry; chain.internal] == chain.reactions
+    @test length(chain.internal) == length(chain.reactions) - 1
 end

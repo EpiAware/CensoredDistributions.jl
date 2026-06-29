@@ -2,7 +2,7 @@ module CensoredDistributionsCatalystExt
 
 # Catalyst.jl bridge for the linear chain trick.
 #
-# `linear_chain_stages` (in core) lowers an Exp/Erlang composed delay to its
+# `compartment_stages` (in core) lowers an Exp/Erlang composed delay to its
 # `(rate, stages)` Erlang sub-compartment structure without touching Catalyst.
 # This extension turns that structure into actual Catalyst `Reaction`s, so a
 # composed delay distribution can be slotted onto a transition of a reaction
@@ -13,7 +13,7 @@ module CensoredDistributionsCatalystExt
 # See https://github.com/EpiAware/CensoredDistributions.jl/issues/400,
 # /177 and /125.
 
-import CensoredDistributions: linear_chain_reactions, linear_chain_stages
+import CensoredDistributions: linear_chain_reactions, compartment_stages
 using Distributions: Distribution
 using Catalyst: Catalyst, Reaction, @species, default_t
 
@@ -22,7 +22,7 @@ using Catalyst: Catalyst, Reaction, @species, default_t
 # whole chain matches the composed delay exactly (the linear chain trick).
 # Returns `(species, rates)` in chain order.
 function _chain_species(delay::Distribution, prefix::Symbol, moment_match::Bool)
-    stages = linear_chain_stages(delay; moment_match)
+    stages = compartment_stages(delay; moment_match)
     t = default_t()
     species = Any[]
     rates = Float64[]
@@ -59,7 +59,11 @@ function linear_chain_reactions(
         prefix::Symbol = :stage, moment_match::Bool = false)
     species, rates = _chain_species(delay, prefix, moment_match)
     rxs = _chain_reactions(from, rates[1], species, rates, to)
-    return (species = species, reactions = rxs)
+    # Split the entry (`from -> species[1]`) from the interior hops + exit so a
+    # model builder can swap the entry (e.g. for a force of infection) and reuse
+    # `internal` directly, instead of slicing `reactions[2:end]` by hand.
+    return (species = species, reactions = rxs,
+        entry = rxs[1], internal = rxs[2:end])
 end
 
 end

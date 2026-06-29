@@ -24,7 +24,7 @@
 # We do four things:
 #
 # 1. Take a composed Exp/Erlang delay and read off its linear-chain
-#    `(rate, stages)` structure with [`linear_chain_stages`](@ref).
+#    `(rate, stages)` structure with [`compartment_stages`](@ref).
 # 2. Slot a composed delay onto a single transition of a reaction network with
 #    [`linear_chain_reactions`](@ref).
 # 3. Build a whole SEIR reaction network from two composed delays using the
@@ -47,7 +47,7 @@
 # natural home for a chain of sub-compartments threaded between two species, and
 # turns straight into an `ODEProblem` for the SciML solvers.
 # The Catalyst bridge ships as a **package extension**: the
-# [`linear_chain_stages`](@ref) lowering is Catalyst-free and lives in the core,
+# [`compartment_stages`](@ref) lowering is Catalyst-free and lives in the core,
 # while [`linear_chain_reactions`](@ref) only has methods once Catalyst is
 # loaded.
 # This tutorial therefore needs `using Catalyst` to load the extension.
@@ -75,7 +75,7 @@
 # ## Packages used
 #
 # We use Distributions for the delay distributions, CensoredDistributions for
-# the composers, the [`linear_chain_stages`](@ref) lowering and the Catalyst
+# the composers, the [`compartment_stages`](@ref) lowering and the Catalyst
 # bridge (`using Catalyst` loads the extension), OrdinaryDiffEq to solve, and
 # CairoMakie for the plots.
 
@@ -99,15 +99,15 @@ infectious_period = Gamma(3.0, 1.5)    # Erlang(3, 1.5): mean 4.5 days
 
 # ## Reading the linear-chain structure
 #
-# [`linear_chain_stages`](@ref) reads the `(rate, stages)` structure off a delay,
+# [`compartment_stages`](@ref) reads the `(rate, stages)` structure off a delay,
 # one [`ChainStage`](@ref CensoredDistributions.ChainStage) per step.
 # The exposed period becomes 2 compartments and the infectious period 3, each
 # with its own per-stage rate.
 # This lowering is pure and Catalyst-free; it is the small, exact extraction the
 # reaction-network bridge consumes.
 
-e_stages = linear_chain_stages(latent_period; name = :exposed)
-i_stages = linear_chain_stages(infectious_period; name = :infectious)
+e_stages = compartment_stages(latent_period; name = :exposed)
+i_stages = compartment_stages(infectious_period; name = :infectious)
 
 # Each stage's `stages / rate` is the mean dwell time, matching the delay it
 # came from. This is the linear chain trick's exactness: the chain of
@@ -146,26 +146,36 @@ length(infectious_chain.species)
 # over the I sub-compartments), so the Erlang shape of the infectious period
 # shapes the dynamics, not just its mean.
 #
-# The helper below takes the two composed delays and returns a complete
-# `ReactionSystem` plus the E and I sub-compartment species, so we can seed and
-# read them back.
+# Both models share the same infectious chain and transmission, so we factor
+# that out once.
+# `transmission_scaffold` lowers the infectious delay onto the `I -> R` edge and
+# returns the time variable `t`, the `S`/`R` species and the `β` parameter, the
+# infectious sub-compartments `I`, the force of infection `foi` on the *total*
+# infectious count, and `i_internal`: the infectious chain's interior hops and
+# exit to `R`, with the auto-generated entry dropped.
+# We read `i_internal` straight off the bridge's `internal` field rather than
+# slicing `reactions[2:end]` by hand.
+# Each model then supplies only how an individual *enters* the infectious chain.
 
-function build_seir(latent, infectious; name = :seir)
+function transmission_scaffold(infectious)
     t = Catalyst.default_t()
     @species S(t) R(t)
     @parameters β
-    ## Build the infectious chain first so transmission can reference its
-    ## sub-compartments. linear_chain_reactions lowers each delay onto its edge.
     i_chain = linear_chain_reactions(infectious, S, R; prefix = :I)
     I = i_chain.species
+    return (; t, S, R, β, I, foi = β * sum(I), i_internal = i_chain.internal)
+end
+
+# The SEIR slots the `latent` delay onto an `S -> E` chain feeding the first
+# infectious sub-compartment; infection enters `E` at the force of infection,
+# and the exposed chain's interior reactions come straight off `internal`.
+
+function build_seir(latent, infectious; name = :seir)
+    (; t, S, R, β, I, foi, i_internal) = transmission_scaffold(infectious)
     e_chain = linear_chain_reactions(latent, S, I[1]; prefix = :E)
     E = e_chain.species
-    ## The E chain's entry reaction (S -> E1) is the infection event. Rebuild it
-    ## with the force of infection β * (total infectious) and keep the rest.
-    foi = β * sum(I)
     infection = Reaction(foi, [S], [E[1]])
-    e_internal = e_chain.reactions[2:end]
-    rxs = [infection; e_internal; i_chain.reactions[2:end]]
+    rxs = [infection; e_chain.internal; i_internal]
     species = [S; E; I; R]
     rn = complete(ReactionSystem(rxs, t, species, [β]; name = name))
     return (system = rn, exposed = E, infectious = I)
@@ -234,23 +244,19 @@ fig
 # To show this, we drop the exposed compartment and build an SIR from the *same*
 # two composed delays.
 # Here the latent delay is no longer a separate compartment but is folded into
-# the infectious onset, so we slot only the infectious delay onto the `I -> R`
-# edge and wire transmission straight from `S` into the infectious chain.
+# the infectious onset, so we reuse the same `transmission_scaffold` and only
+# change the entry: transmission now feeds `S` straight into the first infectious
+# sub-compartment instead of through an exposed chain.
 # The point is that the infectious-period delay drives both models through one
 # bridge call, with no change to the delay itself.
 
 function build_sir(infectious; name = :sir)
-    t = Catalyst.default_t()
-    @species S(t) R(t)
-    @parameters β
-    i_chain = linear_chain_reactions(infectious, S, R; prefix = :I)
-    I = i_chain.species
+    (; t, S, R, β, I, foi, i_internal) = transmission_scaffold(infectious)
     ## Transmission feeds S straight into the first infectious sub-compartment
-    ## at the force of infection; the chain's internal hops and exit to R are
-    ## reused unchanged.
-    foi = β * sum(I)
+    ## at the force of infection; the chain's interior hops and exit to R are
+    ## reused unchanged from the shared scaffold.
     infection = Reaction(foi, [S], [I[1]])
-    rxs = [infection; i_chain.reactions[2:end]]
+    rxs = [infection; i_internal]
     species = [S; I; R]
     rn = complete(ReactionSystem(rxs, t, species, [β]; name = name))
     return (system = rn, infectious = I)
@@ -309,9 +315,10 @@ println("SIR removed fraction:  ", round(sol_sir[R_sir][end]; digits = 3))
 # - The linear chain trick represents an Erlang(``k``, ``\theta``) delay as
 #   ``k`` Exponential compartments in series, each leaving at rate ``1/\theta``;
 #   an Exponential delay is the ``k = 1`` case.
-# - [`linear_chain_stages`](@ref) reads that `(rate, stages)` structure off a
-#   composed delay, peeling any censoring to the free delay. It is Catalyst-free,
-#   exact only for Exp/Erlang leaves, and throws for other families.
+# - [`compartment_stages`](@ref) reads that `(rate, stages)` structure off a
+#   composed delay, peeling any censoring to the free delay. It is Catalyst-free
+#   and exact for Exp/Erlang leaves; pass `moment_match = true` to lower an
+#   under-dispersed non-Erlang delay to its nearest Erlang chain instead.
 # - [`linear_chain_reactions`](@ref) slots a composed delay onto a single
 #   `from -> to` transition of a Catalyst reaction network. It is the bridge's
 #   one job; assembling transitions into a whole model is application work.

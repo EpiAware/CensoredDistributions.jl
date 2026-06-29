@@ -1,5 +1,5 @@
 # ============================================================================
-# linear_chain_stages: the distributions -> compartments bridge
+# compartment_stages: the distributions -> compartments bridge
 # ============================================================================
 #
 # The LINEAR CHAIN TRICK represents an Erlang(k, θ) (integer-shape Gamma) delay
@@ -9,7 +9,7 @@
 # stack lowers to a set of linear ODE compartments: every step becomes `k`
 # compartments in series with a single per-stage rate.
 #
-# `linear_chain_stages` reads that `(rate, stages)` structure off a leaf or a
+# `compartment_stages` reads that `(rate, stages)` structure off a leaf or a
 # `Sequential` chain of such leaves. It is the small, exact extraction the
 # downstream ODE/compartment view consumes; it does NOT build the ODE itself.
 # The Catalyst reaction-network bridge (`linear_chain_reactions`) lives in the
@@ -37,7 +37,7 @@ Exponential(``\theta``) delay is the `stages = 1` case. The mean dwell time is
 - `stages`: the integer number of sub-compartments ``k`` (the Erlang shape).
 
 # See also
-- [`linear_chain_stages`](@ref): build these from a delay or chain
+- [`compartment_stages`](@ref): build these from a delay or chain
 "
 struct ChainStage
     "Step name this stage was extracted from."
@@ -126,11 +126,14 @@ function _stage(d, moment_match::Bool)
 end
 
 @doc raw"
-Extract the linear-chain (Erlang-stage) representation of an Exp/Erlang delay.
+Lower a composed delay to the compartment-stage structure an ODE consumes.
 
-`linear_chain_stages(d)` returns the [`ChainStage`](@ref) vector that the linear
+`compartment_stages(d)` returns the [`ChainStage`](@ref) vector that the linear
 chain trick assigns to `d`, the exact `(rate, stages)` compartment structure an
-ODE/compartment model consumes:
+ODE/compartment model consumes. The name is deliberately representation-agnostic
+(`compartment_stages`, not `linear_chain_stages`): the linear chain trick is the
+only lowering today, but a future phase-type / Coxian representation can extend
+this same entry point rather than adding a parallel one.
 
 - an `Exponential(θ)` leaf gives one stage at rate ``1/\theta``;
 - an `Erlang(k, θ)` leaf (an integer-shape `Gamma`) gives `k` stages at rate
@@ -172,7 +175,7 @@ throws; a fuller phase-type representation is future work.
 using CensoredDistributions, Distributions
 
 # An Erlang(3, 1.5) incubation -> 3 compartments leaving at rate 1/1.5.
-linear_chain_stages(Gamma(3.0, 1.5))
+compartment_stages(Gamma(3.0, 1.5))
 ```
 
 ```@example
@@ -180,36 +183,36 @@ using CensoredDistributions, Distributions
 
 # A two-step E -> I -> R chain lowers step by step.
 chain = Sequential(Gamma(2.0, 1.0), Exponential(0.5))
-linear_chain_stages(chain)
+compartment_stages(chain)
 ```
 
 ```@example
 using CensoredDistributions, Distributions
 
 # A non-Erlang LogNormal delay lowers to its nearest Erlang chain.
-linear_chain_stages(LogNormal(1.0, 0.5); moment_match = true)
+compartment_stages(LogNormal(1.0, 0.5); moment_match = true)
 ```
 
 # See also
 - [`ChainStage`](@ref): the per-step record
 - [`Sequential`](@ref): the chain composer this reads
 "
-function linear_chain_stages(
+function compartment_stages(
         d::Distribution; name::Symbol = :delay, moment_match::Bool = false)
     inner = free_leaf(d)
     s = _stage(inner, moment_match)
     return [ChainStage(name, Float64(s.rate), s.stages)]
 end
 
-function linear_chain_stages(chain::Sequential; moment_match::Bool = false)
+function compartment_stages(chain::Sequential; moment_match::Bool = false)
     stages = ChainStage[]
     for (component, nm) in zip(chain.components, chain.names)
         component isa Sequential && throw(ArgumentError(
-            "linear_chain_stages handles a flat Sequential of Exp/Erlang " *
+            "compartment_stages handles a flat Sequential of Exp/Erlang " *
             "leaves; flatten nested chains before lowering (nested step " *
             "`$(nm)` is itself a Sequential)."))
         append!(stages,
-            linear_chain_stages(component; name = nm, moment_match))
+            compartment_stages(component; name = nm, moment_match))
     end
     return stages
 end
