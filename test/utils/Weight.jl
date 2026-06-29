@@ -616,3 +616,41 @@ end
     @test length(wd_single_vec) == 3
     @test all([wd_single_vec.v[i].weight == weights_single[i] for i in 1:3])
 end
+
+@testitem "weight is deprecated but still forwards correctly" begin
+    using Distributions
+    using Test: @test_deprecated
+
+    d = LogNormal(1.5, 0.5)
+
+    # Each `weight` constructor is deprecated (issue #128): the surface moves to
+    # the standalone ModifiedDistributions.jl package. Under `--depwarn=yes` the
+    # call warns; `@test_deprecated` adapts to the active `--depwarn` flag, so
+    # this checks the deprecation under `yes` and that the call still runs
+    # cleanly under the default `no`.
+    @test_deprecated weight(d, 2.5)
+    @test_deprecated weight(d, nothing)
+    @test_deprecated weight(d)
+    @test_deprecated weight([d, Normal(0, 1)], [1.0, 2.0])
+    @test_deprecated weight([d, Normal(0, 1)])
+    @test_deprecated weight(d, [1.0, 2.0])
+
+    # The deprecated verb forwards to the underlying (non-deprecated) `Weighted`
+    # type, so the result is identical to constructing it directly.
+    Weighted = CensoredDistributions.Weighted
+    wd = weight(d, 2.5)
+    direct = Weighted(d, 2.5)
+    @test wd isa Weighted
+    @test wd.dist === direct.dist
+    @test wd.weight == direct.weight
+    @test logpdf(wd, 2.0) == logpdf(direct, 2.0)
+
+    # The `nothing` weight still returns the distribution unchanged.
+    @test weight(d, nothing) === d
+
+    # The missing-weight and vector constructors still build the same products.
+    @test ismissing(weight(d).weight)
+    prod_vec = weight(d, [1.0, 2.0])
+    @test prod_vec isa Product
+    @test [c.weight for c in prod_vec.v] == [1.0, 2.0]
+end
