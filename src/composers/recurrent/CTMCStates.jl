@@ -115,45 +115,66 @@ transition_probability(model, 5.0)
 """
 function ctmc(specs::Pair...)
     isempty(specs) && throw(ArgumentError("ctmc needs at least one state spec"))
-    # State order: each `from` in spec order, then any absorbing `to` states.
+    # State order: each `from` in spec order, then any `to`-only absorbing
+    # states. This pass reads only the state Symbols, never a rate value.
     order = Symbol[]
-    for (from, _) in specs
+    for (from, transitions) in specs
         from isa Symbol ||
             throw(ArgumentError("each state name must be a Symbol; got $from"))
         from in order || push!(order, from)
-    end
-    # Collect `(from, to, rate)` edges, keeping the rate element type so a
-    # `Dual`/tracked rate flows into `Q` (the CTMC fit differentiates the
-    # generator). The matrix element type is promoted from the rates.
-    edges = Any[]
-    for (from, transitions) in specs
-        for (to, rate) in _ctmc_edges(transitions)
+        for (to, _rate) in _ctmc_edges(transitions)
             to isa Symbol ||
                 throw(ArgumentError("each edge destination must be a Symbol"))
-            rate >= 0 || throw(ArgumentError(
-                "transition rate $(from) -> $(to) must be non-negative; " *
-                "got $rate"))
             to in order || push!(order, to)
-            push!(edges, (from, to, rate))
         end
     end
     states = Tuple(order)
     idx = Dict(s => i for (i, s) in enumerate(states))
     n = length(states)
-    T = isempty(edges) ? Float64 :
-        promote_type(Float64, mapreduce(e -> typeof(e[3]), promote_type, edges))
-    # `T` comes from `typeof` over the untyped `edges` vector, so inference widens
-    # it to an abstract `Type`; assert the result is a 2-D `Matrix{T}` so the
-    # `CTMCStates(states, Q)` call below dispatches against `M <: AbstractMatrix`
-    # without a spurious higher-dimensional `Array` branch.
+    # Generator element type from the rate TYPES only -- a `Dual`/tracked rate
+    # widens `T` without its value ever entering an untyped container. The
+    # earlier code collected `(from, to, rate)` into `edges = Any[]` and read the
+    # rates back from that `Vector{Any}`. Boxing the active rate into the untyped
+    # array dropped its AD identity, and worst of all SILENTLY: Enzyme FORWARD
+    # returned a WRONG (finite) gradient and Enzyme REVERSE aborted on the `ctmc`
+    # MethodInstance (`EnzymeNoTypeError`, "copy untyped data"). Assembling `Q`
+    # straight from the typed spec tuple keeps the rate dataflow traceable for
+    # ForwardDiff / ReverseDiff / Mooncake (forward AND reverse), which all now
+    # match the ForwardDiff reference. Enzyme still cannot compile this builder
+    # (`EnzymeInternalError`, an upstream Enzyme compiler bug on the
+    # heterogeneous `Pair...` iteration / runtime-typed `Q`), but it now FAILS
+    # LOUDLY rather than silently returning a wrong gradient -- so both CTMC
+    # scenarios are honestly registered Enzyme-broken in the AD fixtures rather
+    # than trusted (see `test/ADFixtures` `backend_broken_scenarios`).
+    T = _ctmc_rate_type(Float64, specs...)
+    # Assert a 2-D `Matrix{T}` so `CTMCStates(states, Q)` dispatches against
+    # `M <: AbstractMatrix` without a spurious higher-dimensional `Array` branch.
     Q = zeros(T, n, n)::Matrix{T}
-    for (from, to, rate) in edges
-        Q[idx[from], idx[to]] += rate
+    for (from, transitions) in specs
+        i = idx[from]
+        for (to, rate) in _ctmc_edges(transitions)
+            rate >= 0 || throw(ArgumentError(
+                "transition rate $(from) -> $(to) must be non-negative; " *
+                "got $rate"))
+            Q[i, idx[to]] += rate
+        end
     end
     for i in 1:n
         Q[i, i] = -sum(Q[i, j] for j in 1:n if j != i; init = zero(T))
     end
     return CTMCStates(states, Q)
+end
+
+# Promote the generator element type from the edge rate TYPES, recursing over
+# the spec tuple so no active rate value is ever stored in an untyped container
+# (see `ctmc` for why that boxing breaks Enzyme). `typeof` is non-differentiable,
+# so reading each rate here contributes no tangent.
+_ctmc_rate_type(T::Type) = T
+function _ctmc_rate_type(T::Type, spec::Pair, rest::Pair...)
+    for (_to, rate) in _ctmc_edges(spec.second)
+        T = promote_type(T, typeof(rate))
+    end
+    return _ctmc_rate_type(T, rest...)
 end
 
 # Normalise a state's transition spec to an iterable of `to => rate` edges.
