@@ -1,3 +1,4 @@
+<!-- MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand. -->
 <!-- Custom VersionPicker for custom domains - loads versions.js from root -->
 <!-- Based on https://github.com/LuxDL/DocumenterVitepress.jl/blob/main/template/src/components/VersionPicker.vue -->
 

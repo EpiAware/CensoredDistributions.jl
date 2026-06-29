@@ -1,5 +1,9 @@
 name: AD
 
+# Drives the per-backend AD gradient matrix (the shipped `test/ad/` harness).
+# The backend matrix and per-flag coverage upload live in the reusable; this is
+# the thin caller. Without it the AD harness the kit ships never runs in CI.
+
 on:
   push:
     branches: [main]
