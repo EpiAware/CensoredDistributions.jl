@@ -211,6 +211,19 @@ its prior slot, e.g. via [`build_priors`](@ref)'s `fix` keyword.
 # Arguments
 - `prob`: an assembled [`ComposedLogDensity`](@ref).
 
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+tree = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+prob = CensoredDistributions.as_logdensity(
+    tree, build_priors(tree), [[0.5, 2.0]])
+# Every parameter is estimated here, so this equals `flat_dimension(tree)`.
+# Public but not exported; reach it by the qualified name.
+CensoredDistributions.free_dimension(prob)
+```
+
 # See also
 - [`flat_dimension`](@ref): the full row count (fixed included).
 - [`as_logdensity`](@ref): assemble `prob`; [`build_priors`](@ref): fix params.
@@ -300,6 +313,10 @@ this route to sample a composed model with a non-Turing sampler.
 - `priors`: nested prior `NamedTuple` keyed like [`build_priors`](@ref)`(dist)`.
 - `data`: the observed records scored by `loglik`.
 - `loglik`: a reducer `(d, data) -> Real` (default sums `logpdf(d, record)`).
+- `free`: the precomputed fix/estimate plan, built once at construction. It
+  records which [`params_table`](@ref) rows are estimated versus fixed, the
+  estimated rows' priors in order, and the prebuilt fully-fixed subtrees reused
+  on every evaluation. Its estimated-row count is [`free_dimension`](@ref)`(d)`.
 
 # See also
 - [`as_logdensity`](@ref): the assembler.
