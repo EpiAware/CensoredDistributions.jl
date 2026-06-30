@@ -283,8 +283,8 @@ end
 # this holds (h >= 0), so the closed form is used directly. For β < 0 the
 # hazard goes negative wherever h(t) < |β| — near the origin for any base with
 # h(0) = 0 (LogNormal, Gamma/Weibull shape > 1, ...) — and the closed-form
-# S* = S exp(-β t) would exceed 1, giving a negative, non-monotone cdf
-# (issue #670). The model is then the clamped additive hazard
+# S* = S exp(-β t) would exceed 1, giving a negative, non-monotone cdf.
+# The model is then the clamped additive hazard
 # h*(t) = max(h(t) + β, 0): we route logccdf/logpdf through the numeric
 # clamped cumulative-hazard integration so survival, cdf and pdf stay mutually
 # consistent and the cdf stays monotone in [0, 1]. (A large negative effect
@@ -378,7 +378,7 @@ function _modified_hazard(d::Modified, u::Real)
     return max(hstar, zero(hstar))
 end
 
-# The pre-clamp modified rate for the knot scan ONLY. Same value as
+# The pre-clamp modified rate for the knot scan only. Same value as
 # `_premodified_rate`, but computed on AD-stripped (primal) parameters so the
 # rate — and the `logpdf`/`logccdf` it calls — never runs under an AD trace. The
 # knots only locate where the additive-hazard clamp engages; they split the
@@ -388,7 +388,7 @@ end
 # the support edge, which is `-Inf` for a base whose density vanishes there
 # (Gamma shape > 1, LogNormal, ...). Reverse-mode AD then forms the discarded
 # `0 * (-Inf)` adjoint as a `NaN` that poisons the base distribution's first
-# parameter (#680). The element-wise `_primal` strips ForwardDiff `Dual`s and
+# parameter. The element-wise `_primal` strips ForwardDiff `Dual`s and
 # ReverseDiff `TrackedReal`s (each has a `_primal` method) to plain `Float64`
 # before any density is evaluated. Mooncake leaves `_primal` as identity, so it
 # additionally gets the explicit `@zero_derivative` rule in its extension, and
@@ -412,7 +412,7 @@ end
 # `max(rate, 0)` is continuous, so they introduce no boundary terms under
 # differentiation. Integrating each smooth panel between knots (rather than one
 # fixed rule over a kinked integrand) keeps the cumulative hazard, and so the
-# cdf, monotone to machine precision (#670).
+# cdf, monotone to machine precision.
 const _MODIFIED_KNOT_SCAN = 64
 
 function _modified_knots(d::Modified, lo::Real, t::Real)
@@ -445,7 +445,7 @@ end
 # bound is the base support minimum (≥ 0 for a delay); a non-positive `t`
 # carries no hazard. The clamped integrand `max(rate, 0)` is kinked wherever the
 # clamp engages, so a single fixed-node rule over the whole span loses
-# monotonicity in the tail (#670); split the integral at the clamp knots and
+# monotonicity in the tail; split the integral at the clamp knots and
 # integrate each smooth panel, summing the pieces.
 function _modified_cumhazard(d::Modified, t::Real)
     lo = max(minimum(d.dist), zero(t))
@@ -476,7 +476,7 @@ function _numeric_logpdf(d::Modified, x::Real)
 end
 
 # A general-link Modified on a continuous base: the union of all links that are
-# NOT the analytic log/identity specialisations. Dispatch picks this only when
+# not the analytic log/identity specialisations. Dispatch picks this only when
 # neither analytic method applies.
 const _NumericModified = Modified{<:UnivariateDistribution, E, L} where {
     E, L <: HazardLink}
@@ -550,7 +550,7 @@ sampler(d::_ContinuousModified) = d
 # The discrete path lifts `apply_hazard_effects` onto a distribution: the base
 # PMF over the interval grid is reshaped per bin through the link, then the
 # interval masses come straight from the reconstructed PMF. The `effect` is a
-# per-bin vector. Works for ANY link, including a user callable, since each bin
+# per-bin vector. Works for any link, including a user callable, since each bin
 # is the cheap scalar map g⁻¹(g(h_d) + effect_d).
 #
 # A per-bin vector effect (not a scalar or callable) is what selects this path,
@@ -571,7 +571,7 @@ function _discrete_grid(d::_DiscreteModified)
     n = length(d.effect)
     # Explicit comprehension, not `(0:(n-1)) .* w`: a float-stepped range
     # builds a `StepRangeLen`/`TwicePrecision` whose `floatrange`
-    # bit-twiddling Enzyme reverse cannot differentiate (#728).
+    # bit-twiddling Enzyme reverse cannot differentiate.
     grid = [i * w for i in 0:(n - 1)]
     return grid, w
 end

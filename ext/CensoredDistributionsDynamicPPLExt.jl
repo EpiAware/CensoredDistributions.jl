@@ -81,7 +81,6 @@ end
 # conditions each observed downstream event on it. Per-record latents are
 # namespaced by `prefix` at the call site, so chains stay readable and
 # groupable.
-# `prefix` at the call site, so chains stay readable and groupable.
 
 # --- Leaf delegation -------------------------------------------------------
 #
@@ -131,7 +130,7 @@ end
 # A `latent`-wrapped `double_interval_censored` pipeline leaf
 # (`Latent{<:IntervalCensored}` or `Latent{<:Truncated}` over a primary-censored
 # node) samples the primary and scores the interval-censored, truncated secondary
-# conditional on it (#723). This is the genuine single-leaf latent: the primary
+# conditional on it. This is the genuine single-leaf latent: the primary
 # event is realised, not analytically marginalised, and `PrimaryConditional`
 # keeps the secondary interval and truncation on the total `p + delay` (the joint
 # integrates over `p` to the analytic marginal). A pipeline with no primary event
@@ -289,7 +288,7 @@ _row_horizon(row::NamedTuple) = CensoredDistributions._row_horizon_field(row)
 # covariate CFR `logistic(Xβ)` flows in exactly as for the top-level node.
 @model function composed_distribution_model(
         d::Union{Sequential, Parallel}, row::NamedTuple; weight = nothing)
-    # A NamedTuple of equal-length columns IS a Tables.jl table (a `columntable`),
+    # A NamedTuple of equal-length columns is a Tables.jl table (a `columntable`),
     # not one record; route it to the vectorised table path. A scalar-valued row
     # NamedTuple is not a table and scores as one record below.
     if Tables.istable(row)
@@ -390,7 +389,7 @@ function composed_distribution_model(
 end
 
 # A whole Tables.jl table (e.g. a `DataFrame`) scores in one `~` like the vector
-# entry: a DataFrame IS a Tables.jl source, so the doc passes it straight in
+# entry: a DataFrame is a Tables.jl source, so the doc passes it straight in
 # instead of iterating rows. `record_distributions` consumes any Tables.jl source
 # directly, so the table flows through the same vectorised record path; a single
 # `NamedTuple` row and a `Vector` of rows keep their own (more specific) methods,
@@ -1166,7 +1165,7 @@ end
 # primary-sampling methods above: `Latent{<:PrimaryCensored}` (the separable
 # leaf) and `Latent{<:Union{IntervalCensored, Truncated}}` (the
 # `double_interval_censored` pipeline, which samples the primary and scores the
-# interval-censored, truncated secondary, #723). The composer methods
+# interval-censored, truncated secondary). The composer methods
 # (`Latent{<:Sequential/Parallel/Choose/AbstractOneOf}`) are more specific in `d`
 # and dispatch ahead of this. This is also what lets a top-level `Choose` route
 # to a primary-free leaf alternative's latent form (`latent(chosen)`) without a
@@ -1207,7 +1206,7 @@ function composed_distribution_model(
 end
 
 # Disambiguating batch entry for a `latent(primary_censored(...))` leaf over a
-# vector of rows (issue #673). The single-record latent primary-censored method
+# vector of rows. The single-record latent primary-censored method
 # (more specific in `d`: `Latent{<:PrimaryCensored}`) and the batch method above
 # (more specific in the second argument: `::AbstractVector`) each dominate on a
 # different argument, so a `Latent{<:PrimaryCensored}` + vector-of-rows call
@@ -1714,7 +1713,7 @@ end
 # --- per-stratum (varying / partially-pooled) parameter sampling -------------
 #
 # `composed_parameters_model(template, strata_priors)` with `strata_priors` a
-# VECTOR (one nested prior NamedTuple per stratum) returns the VECTOR `ds` of
+# vector (one nested prior NamedTuple per stratum) returns the vector `ds` of
 # reconstructed composed distributions, one per stratum, each sampled under a
 # `:stratumK` prefix so the chain names stay grouped and readable
 # (`d.stratum1.onset_admit.shape`, ...). It feeds straight into the grouped

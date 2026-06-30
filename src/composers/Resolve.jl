@@ -40,7 +40,7 @@ _n_branches(c::AbstractOneOf) = length(c.names)
 # `observed_distribution(node)` returns the one_of node's scalar marginal time-to-
 # resolution as a plain univariate leaf, so `modifier(observed_distribution(node))`
 # stays the scalar combine-then-censor lowering (vs the node-level wrap, which
-# distributes the modifier into the outcome slots, #655). This thin wrapper forwards
+# distributes the modifier into the outcome slots). This thin wrapper forwards
 # the univariate interface to the node's own scalar methods (a `Resolve`'s mixture
 # density, a `Compete`'s racing-hazard `min_k D_k` density). It is not an
 # `AbstractOneOf`, so a censoring/truncation modifier over it scalar-collapses

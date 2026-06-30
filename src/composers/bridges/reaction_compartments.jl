@@ -8,12 +8,10 @@
 # needs a reaction-network framework. We use Catalyst.jl, kept optional behind
 # a package extension so the core stays free of the heavy SciML stack.
 #
-# These are the user-facing entry points. They have NO methods until
+# These are the user-facing entry points. They have no methods until
 # Catalyst.jl is loaded; the methods live in `CensoredDistributionsCatalystExt`.
 # Calling one without Catalyst loaded raises an informative error telling the
 # user to `using Catalyst`.
-# See https://github.com/EpiAware/CensoredDistributions.jl/issues/400,
-# /177 and /125.
 
 @doc raw"
 Build the Catalyst reactions for a composed delay between two compartments.
@@ -34,7 +32,7 @@ composed delay (the linear chain trick is exact for Exp/Erlang leaves).
 
 This method is only defined when Catalyst.jl is loaded (`using Catalyst`); it
 lives in the package extension so the core stays free of the SciML stack.
-The bridge is a CONSUMER of the composers, not part of the composition engine:
+The bridge is a consumer of the composers, not part of the composition engine:
 it reads a finished composed delay and lowers it onto a reaction network, and it
 stays an intentional optional weak-dependency extension for that reason.
 

@@ -18,14 +18,14 @@ const _AbstractPPL = parentmodule(VarName)
 
 # Read a chain's free parameters into a `String`-keyed lookup, so the tree-walk
 # matches each template parameter by its dotted name instead of rebuilding a
-# `VarName` optic per parameter. The chain keys ARE the submodel-prefixed
+# `VarName` optic per parameter. The chain keys are the submodel-prefixed
 # `VarName`s (e.g. `d.onset_admit.shape`); their `string` is the dotted path the
 # walk forms.
 #
 # The reduction is configurable: `summary` is any `AbstractVector -> scalar`
 # (default `mean`, so `median`, `mode`, `x -> quantile(x, 0.9)` all work), applied
 # to each parameter's draws. `draw` keeps the single-iteration shortcut (an exact
-# index). `draws` selects a SUBSET of iterations to reduce over: a range / index
+# index). `draws` selects a subset of iterations to reduce over: a range / index
 # vector (positional), or a predicate `i -> Bool` over the iteration index (e.g.
 # warmup drop / thinning); `nothing` uses every draw.
 #
@@ -85,7 +85,7 @@ _read_value(lookup, key) = get(lookup, key, nothing)
 # Form the dotted name a submodel-sampled parameter carries: the `~`-bound
 # `prefix` then the edge path and parameter name (e.g. prefix `:d`, path
 # `(:onset_admit, :shape)` -> `"d.onset_admit.shape"`), matching `string(vn)`.
-# An EMPTY prefix (`Symbol("")`) drops the leading segment, so a `strip_prefix`ed
+# An empty prefix (`Symbol("")`) drops the leading segment, so a `strip_prefix`ed
 # chain reads back at the bare edge path (`"onset_admit.shape"`).
 function _dotted(prefix::Symbol, path::Tuple)
     prefix === Symbol("") && return join(string.(path), ".")
@@ -146,12 +146,12 @@ end
 # not match the template (wrong prefix, or not the chain that produced it);
 # error rather than build a NamedTuple with a `nothing` value.
 #
-# A SHARED-tagged leaf (`shared(:inc, ...)`) is deduped in the chain: it is
-# sampled ONCE under its tag (`<prefix>.<tag>.<param>`, e.g. `d.inc.shape`),
+# A shared-tagged leaf (`shared(:inc, ...)`) is deduped in the chain: it is
+# sampled once under its tag (`<prefix>.<tag>.<param>`, e.g. `d.inc.shape`),
 # not per occurrence, matching `params_table`'s tag edge and `_collect_shared`.
-# So an occurrence reads its values at the bare TAG (ignoring its branch path);
+# So an occurrence reads its values at the bare tag (ignoring its branch path);
 # every occurrence then maps to the one chain entry, and the nested NamedTuple
-# keys the group ONCE at the top level under its tag (read back by `update`).
+# keys the group once at the top level under its tag (read back by `update`).
 function _node_params(leaf, lookup, prefix, path)
     tag = CensoredDistributions._shared_tag(leaf)
     keypath = tag === nothing ? path : (tag,)
@@ -166,7 +166,7 @@ function _node_params(leaf, lookup, prefix, path)
     return NamedTuple{pnames}(Tuple(vals))
 end
 
-# Read every shared group ONCE from the chain into a top-level `tag => values`
+# Read every shared group once from the chain into a top-level `tag => values`
 # NamedTuple, mirroring how `composed_parameters_model` samples each group under
 # its tag (`<prefix>.<tag>.<param>`) and how the core `update` reads a shared
 # leaf from the top-level tag entry. `_collect_shared` gives the

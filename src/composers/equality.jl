@@ -1,5 +1,5 @@
-# STRUCTURAL equality for the composers (Option A): two front-ends that
-# build the same nested stack compare equal even if their node NAMES differ.
+# Structural equality for the composers (Option A): two front-ends that
+# build the same nested stack compare equal even if their node names differ.
 # Names are metadata labelling the structure for `params`/`params_table`/`show`,
 # so the NamedTuple, table, and matrix `compose` forms stay structurally `==`
 # while each carries its own names. `==`/`hash` therefore compare only

@@ -2,9 +2,9 @@
 # compose: the friendly front-end constructor for the composer stack
 # ============================================================================
 #
-# `compose` is a CONSTRUCTOR over the [`Sequential`](@ref) / [`Parallel`](@ref)
-# composers: it does NOT introduce a new monolithic tree type. Two
-# friendly inputs both lower to the SAME nested composer stack:
+# `compose` is a constructor over the [`Sequential`](@ref) / [`Parallel`](@ref)
+# composers: it does not introduce a new monolithic tree type. Two
+# friendly inputs both lower to the same nested composer stack:
 #
 # - a `NamedTuple` (named, recursive): a `Parallel` over the named children; a
 #   child that is itself a `NamedTuple` nests as a `Parallel`, a child that is a
@@ -46,10 +46,10 @@ composers, not a new tree type.
 
 # Contract
 
-`compose` ALWAYS returns a composer, never a bare univariate leaf.
+`compose` always returns a composer, never a bare univariate leaf.
 A single branch stays a [`Parallel`](@ref)-of-one and a single step a
 one-element [`Sequential`](@ref); the wrapper is never collapsed away.
-A bare leaf is used directly at the SCORING layer, where
+A bare leaf is used directly at the scoring layer, where
 [`record_distributions`](@ref) and [`composed_distribution_model`](@ref) accept
 a bare `UnivariateDistribution`, so callers do not need `compose` to pass one
 through.
@@ -76,12 +76,12 @@ function compose end
 
 # --- NamedTuple front-end --------------------------------------------------
 # A NamedTuple maps to a Parallel over its values, each value lowered by
-# `_compose_child`. The keys become the branch NAMES, threaded into the
+# `_compose_child`. The keys become the branch names, threaded into the
 # `Parallel` so `params`/`params_table`/`show` are name-keyed (Option A).
 # Structurally this still matches the table form (`==` ignores names); only the
 # labels differ.
 #
-# A NamedTuple is ALWAYS read structurally, even one whose keys happen to be
+# A NamedTuple is always read structurally, even one whose keys happen to be
 # `:name`/`:dist`: there is no column-table auto-detection. To build from a
 # `(name, dist, chain)` column table, pass a non-NamedTuple Tables.jl source
 # (a row table or DataFrame) to the `compose(table)` method.
@@ -139,7 +139,7 @@ function _compose_child(v::Union{AbstractVector, Tuple})
 end
 
 # --- repeated-leaf front-end -----------------------------------------------
-# `compose(dist, n)` repeats the SAME distribution (or pre-built composer
+# `compose(dist, n)` repeats the same distribution (or pre-built composer
 # subtree) `n` times, the clean replacement for spelling out `n` identical
 # steps / branches by hand. The default builds a [`Sequential`](@ref) chain of
 # `n` identical steps (`:step_1 … :step_n`); `chain = false` builds a
@@ -196,7 +196,7 @@ end
 # encodes with a vector value. An optional `compete`/`prob` column pair folds
 # the rows sharing a non-zero `compete` group id into one `Resolve` node (the
 # `prob` entries its branch probabilities), so the table can also express a
-# one_of-outcome set. This generic method accepts any Tables.jl source EXCEPT a
+# one_of-outcome set. This generic method accepts any Tables.jl source except a
 # NamedTuple, which the more specific NamedTuple method always reads structurally
 # (there is no column-table auto-detection); the `_compose_table` worker does the
 # table build.
@@ -246,9 +246,9 @@ end
 function _compose_table_one_of(dists, row_names, compete, prob, chain)
     all(g -> g === missing || g >= 0, compete) || throw(ArgumentError(
         "`compete` group ids must be non-negative or missing"))
-    # One first-seen pass assigns each row a branch KEY: a `compete:id` for a
+    # One first-seen pass assigns each row a branch key: a `compete:id` for a
     # one_of group, else `chain:id` for a chained leaf (a zero/`missing`
-    # `compete` AND `chain` both make a fresh singleton key). The branch order is
+    # `compete` and `chain` both make a fresh singleton key). The branch order is
     # the keys' first appearance, and `members` holds each key's rows in order.
     order = Any[]
     members = Dict{Any, Vector{Int}}()
@@ -303,7 +303,7 @@ end
 # Group rows by the `chain` column: rows sharing a non-zero group id fold into
 # one Sequential branch (in row order); a zero/`missing` group is a leaf branch.
 # Branches appear in first-seen group order, matching the NamedTuple value order.
-# Each branch is named by the FIRST row of its group; the steps within a chained
+# Each branch is named by the first row of its group; the steps within a chained
 # branch are named by their own rows' `name` entries (Option A).
 function _compose_table_chained(dists, row_names, groups)
     # Group ids must be non-negative: a zero/`missing` group is a unique leaf,

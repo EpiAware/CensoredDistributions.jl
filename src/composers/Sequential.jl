@@ -7,13 +7,13 @@
 # `[0, d1, d1 + d2, ...]`: the origin sits at zero and each step adds an
 # independent draw from the next component. The components are plain
 # distributions and may themselves be composers, so chains nest recursively;
-# that nesting is the tree. This layer adds NO censored-internal behaviour:
+# that nesting is the tree. This layer adds no censored-internal behaviour:
 # it is the generic composition only.
 
 # Lower a positional NamedTuple `(a = v1, b = v2, …)` to the `:a => v1, …` Pairs
-# the verb constructors take, so every verb accepts BOTH spellings from one
+# the verb constructors take, so every verb accepts both spellings from one
 # Pairs path. The NamedTuple is ordered, so the lowered Pairs keep field order;
-# it is positional (NOT kwargs), so it never clashes with a config keyword such
+# it is positional (not kwargs), so it never clashes with a config keyword such
 # as `choose`'s `selector`. Shared by `sequential`/`parallel`/`resolve`/
 # `compete`/`choose`.
 _nt_pairs(nt::NamedTuple) = map(=>, keys(nt), values(nt))
@@ -166,8 +166,8 @@ The child names of a composed distribution.
 
 Returns the tuple of names for a composer's direct children: the step names of a
 [`Sequential`](@ref) chain, the branch names of a [`Parallel`](@ref) set, or the
-outcome names of a [`Resolve`](@ref) node. These EDGE names key the parameter
-inventory, distinct from the flat EVENT names of `_flat_event_names`.
+outcome names of a [`Resolve`](@ref) node. These edge names key the parameter
+inventory, distinct from the flat event names of `_flat_event_names`.
 
 # Examples
 ```@example
@@ -180,8 +180,8 @@ CensoredDistributions.component_names(tree)
 ```
 
 # See also
-- [`event_names`](@ref): the public EDGE-name accessor
-- `_flat_event_names`: the flat EVENT names
+- [`event_names`](@ref): the public edge-name accessor
+- `_flat_event_names`: the flat event names
 "
 component_names(d::Sequential) = d.names
 
@@ -225,8 +225,8 @@ pdf(d::Sequential, x::AbstractVector) = exp(logpdf(d, x))
 Sample a chain realisation. For a plain chain this is the step-value vector
 (one value per step, nested children contributing their own sub-vectors). For a
 flat censored chain (its steps carry primary censoring) it is the full
-event-time path `[E_0, ...]` including the latent origin draw. For a NESTED tree
-(a step is itself a composer, or a [`Resolve`](@ref) step) it is a NAMED event
+event-time path `[E_0, ...]` including the latent origin draw. For a nested tree
+(a step is itself a composer, or a [`Resolve`](@ref) step) it is a named event
 record keyed by `_flat_event_names`: a shared origin draw, each Resolve
 outcome sampled (the unsampled outcomes `missing`), so the whole tree path is one
 `rand`. See the censored-specialisation [`rand`](@ref) method.

@@ -682,7 +682,7 @@ function example_fixtures()
     # no single observed endpoint).
     lat = latent(primary_censored(G(2.0, 1.0), Distributions.Uniform(0, 1)))
 
-    # --- distribution-modifier / derived leaves (issue #666 registry) -------
+    # --- distribution-modifier / derived leaves -----------------------------
     # Each is a UNIVARIATE leaf; the AD probe reconstructs it from a parameter
     # vector and scores a scalar logpdf, asserting differentiability.
     Uni = Distributions.Uniform
@@ -701,7 +701,7 @@ function example_fixtures()
     # modified hazard `h + β >= 0`, so the sub-survival stays in `[0, 1]` and the
     # cdf is monotone. A negative identity-link effect drives the cdf negative and
     # non-monotone (the hazard goes sub-zero near the origin) — a real model-
-    # validity bug tracked in issue #670, not a harness regression, so the fixture
+    # validity bug, not a harness regression, so the fixture
     # uses the valid positive-effect regime.
     mod_id = modify(LN(1.5, 0.5), 0.1; link = identity)
     mod_id_ad = (
@@ -714,7 +714,7 @@ function example_fixtures()
         interval_censored(LN(1.5, 0.5), 1.0), fill(0.2, 11); link = :logit)
     # weight: a per-record count weight on a leaf, no analytic moment. Built
     # via the underlying `Weighted` type directly: the `weight` verb is
-    # deprecated (issue #128), but the multiplicity behaviour it wraps is what
+    # deprecated, but the multiplicity behaviour it wraps is what
     # this fixture exercises.
     wtd = Weighted(G(2.0, 1.0), 3.0)
     wtd_ad = (θ -> Distributions.logpdf(Weighted(G(θ[1], θ[2]), 3.0), 3.0),
@@ -766,7 +766,7 @@ function example_fixtures()
         :none => (NoEvent(), 0.6))
     res_def = Parallel(dic(G(1.5, 2.0)), res_def_node)
 
-    # --- deep-nesting matrix (folds #645/#653 coverage into the harness) ----
+    # --- deep-nesting matrix ------------------------------------------------
     # A Sequential whose step is a Parallel: a chain whose first step fans out.
     seq_of_par = Sequential(
         (Parallel(dic(G(2.0, 1.0)), dic(G(1.5, 2.0))), dic(G(1.0, 3.0))),
@@ -791,7 +791,7 @@ function example_fixtures()
     # collapsed to its scalar combine-then-censor total via
     # `observed_distribution`, then right-truncated, giving a univariate
     # `Truncated` leaf. (A bare-node `truncated(seq; upper)` instead distributes
-    # the truncation into the leaf cores and stays multivariate, #655; this
+    # the truncation into the leaf cores and stays multivariate; this
     # fixture intends the scalar total, so it uses the explicit collapse form.)
     trunc_composed = truncated(observed_distribution(seq); upper = 20.0)
 
@@ -852,7 +852,7 @@ function example_fixtures()
         InterfaceFixture(; name = "latent-wrapped", dist = lat,
             draw = rand(lat), overall = :none, has_endpoint = false),
 
-        # --- distribution-modifier / derived leaves (issue #666) ------------
+        # --- distribution-modifier / derived leaves ------------------------
         # Affine: a deterministic shift+scale leaf with a closed-form moment.
         InterfaceFixture(; name = "affine", dist = aff, draw = 5.0,
             univariate = true, overall = :scalar, ad = aff_ad),
@@ -860,7 +860,7 @@ function example_fixtures()
         InterfaceFixture(; name = "modify (log link)", dist = mod_log,
             draw = 2.0, univariate = true, overall = :none, ad = mod_log_ad),
         # modify, identity link (additive hazards), positive effect (the valid
-        # regime; the negative-effect bug is #670).
+        # regime; the negative-effect regime is a known model-validity bug).
         InterfaceFixture(; name = "modify (identity link)", dist = mod_id,
             draw = 2.0, univariate = true, overall = :none, ad = mod_id_ad),
         # modify, logit link (discrete-time reporting hazard): the discrete path.
@@ -899,7 +899,7 @@ function example_fixtures()
             dist = res_def, draw = _insupport_event_draw(res_def),
             overall = :none, has_endpoint = false, missing_record = true),
 
-        # --- deep-nesting matrix (#645/#653 folded into the harness) --------
+        # --- deep-nesting matrix --------------------------------------------
         # A Sequential whose step is a Parallel (a chain that fans out).
         InterfaceFixture(; name = "deep: Sequential of Parallel",
             dist = seq_of_par, draw = _insupport_event_draw(seq_of_par),
@@ -1136,7 +1136,7 @@ end
 
 # --- abstract-hierarchy conformance -----------------------------------------
 #
-# One conformance entry per family supertype (#779). They wrap the existing
+# One conformance entry per family supertype. They wrap the existing
 # leaf / node checklists and add the abstract-specific contract: a composer is
 # an `AbstractComposedDistribution` exposing the node interface; a modifier is
 # an `AbstractModifiedDistribution` whose `free_leaf` / `rewrap_leaf` round-trip.
@@ -1260,7 +1260,7 @@ filed under the wrong family fails here. Returns the `@testset` object.
         for T in (Affine, Modified, Weighted, Transformed)
             @test T <: AbstractModifiedDistribution
         end
-        # Primary-censored family is its own supertype, NOT a modifier.
+        # Primary-censored family is its own supertype, not a modifier.
         for T in (PrimaryCensored, PrimaryConditional)
             @test T <: AbstractPrimaryCensored
             @test !(T <: AbstractModifiedDistribution)

@@ -1,10 +1,10 @@
 # PPL-neutral flat-vector <-> nested-NamedTuple codec and the assembled
-# `ComposedLogDensity` spec. The codec is the one genuinely-new core piece for
-# the LogDensityProblems layer (EpiAware/CensoredDistributions.jl#734): three of
-# the four LDP ingredients (`dimension`, distribution reconstruction, prior and
-# data log-density) already exist Turing-free; only the flat <-> nested bridge
-# is new. The library-specific glue (LogDensityProblems / DensityInterface /
-# Bijectors) stays in weakdep extensions; the codec and spec are core.
+# `ComposedLogDensity` spec. The codec is the one new core piece for the
+# LogDensityProblems layer: three of the four LDP ingredients (`dimension`,
+# distribution reconstruction, prior and data log-density) already exist
+# Turing-free; only the flat <-> nested bridge is new. The library-specific
+# glue (LogDensityProblems / DensityInterface / Bijectors) stays in weakdep
+# extensions; the codec and spec are core.
 
 # --- flat <-> nested codec --------------------------------------------------
 #
@@ -16,7 +16,7 @@
 
 # The flat layout: a vector of `(path, param)` keys, one per table row, in row
 # order. `path` is the `_edge_path` tuple of the row's edge; `param` the leaf
-# key. This list IS the bijection between flat index and named parameter.
+# key. This list is the bijection between flat index and named parameter.
 function _flat_layout(table)
     edges = Tables.getcolumn(table, :edge)
     params_col = Tables.getcolumn(table, :param)
@@ -139,13 +139,13 @@ end
 
 # --- fix / estimate plan: exclude fixed params, build fixed subtrees once ----
 #
-# A parameter slot in `priors` is ESTIMATED when it holds a `Distribution` and
-# FIXED when it holds a plain constant (the `_is_sampled_prior` classification
+# A parameter slot in `priors` is estimated when it holds a `Distribution` and
+# fixed when it holds a plain constant (the `_is_sampled_prior` classification
 # the Turing path already uses, so the two backends agree on free-vs-fixed). The
-# assembled problem's FREE vector covers only the estimated slots: a fixed param
-# is EXCLUDED from `flatten`/`unflatten`/`dimension`/the transform and baked
-# into the reconstruction. A subtree whose every slot is fixed has a CONSTANT
-# concrete distribution, so it is built ONCE here (`fixed_template`) and reused
+# assembled problem's free vector covers only the estimated slots: a fixed param
+# is excluded from `flatten`/`unflatten`/`dimension`/the transform and baked
+# into the reconstruction. A subtree whose every slot is fixed has a constant
+# concrete distribution, so it is built once here (`fixed_template`) and reused
 # on every `logdensity` evaluation rather than rebuilt (the performance point).
 
 # Whether every parameter slot under a prior (sub)tree is fixed: a leaf slot is
@@ -154,7 +154,7 @@ end
 _all_fixed(p) = !_is_sampled_prior(p)
 _all_fixed(nt::NamedTuple) = all(_all_fixed, nt)
 
-# The precomputed fix/estimate plan for a `ComposedLogDensity`, built ONCE at
+# The precomputed fix/estimate plan for a `ComposedLogDensity`, built once at
 # construction. `fixed_template` is the template with the fixed constants
 # substituted (its fully-fixed subtrees are the concrete distributions reused
 # every evaluation); `layout`/`est`/`fixed_vals` are the row-aligned codec
@@ -171,7 +171,7 @@ struct _FixPlan{FT, FV}
 end
 
 # Build the plan from a template and its priors: classify each table row as
-# estimated/fixed, collect the estimated priors, and build `fixed_template` ONCE
+# estimated/fixed, collect the estimated priors, and build `fixed_template` once
 # (the fixed constants substituted, estimated slots left at the table default
 # and overwritten per evaluation).
 function _fix_plan(dist, priors)
@@ -198,11 +198,11 @@ end
 
 @doc "
 
-The number of FREE (estimated) parameters of an assembled log-density.
+The number of free (estimated) parameters of an assembled log-density.
 
 `free_dimension(prob)` is the length of the flat vector [`logdensity`](@ref) and
 the prior-driven transform consume: the count of [`params_table`](@ref) rows
-whose prior is a distribution to estimate, EXCLUDING any row pinned to a
+whose prior is a distribution to estimate, excluding any row pinned to a
 constant (a fixed parameter). It is the `LogDensityProblems.dimension` of the
 problem and equals [`flat_dimension`](@ref)`(prob.dist)` only when nothing is
 fixed. Fix a parameter by placing a plain value (rather than a distribution) in
@@ -230,7 +230,7 @@ CensoredDistributions.free_dimension(prob)
 "
 free_dimension(prob) = count(prob.free.est)
 
-# The full nested parameter NamedTuple from the FREE vector `x`: estimated slots
+# The full nested parameter NamedTuple from the free vector `x`: estimated slots
 # take the next free value, fixed slots take their pinned constant, so the
 # result covers every table row (the shape `update` consumes).
 function _full_nt(prob, x::AbstractVector)
@@ -249,7 +249,7 @@ function _full_nt(prob, x::AbstractVector)
     return _freeze_tree(tree)
 end
 
-# Reconstruct `node` from the full values `nt`, REUSING the prebuilt `fixed`
+# Reconstruct `node` from the full values `nt`, reusing the prebuilt `fixed`
 # subtree wherever the prior subtree is fully fixed (built once, never rebuilt).
 # A partially-fixed `Sequential`/`Parallel` recurses so a deeper fully-fixed
 # subtree is still reused; any other partially-fixed node is rebuilt whole from
@@ -270,7 +270,7 @@ end
 
 _graft_node(node, priors, fixed, nt) = _update(node, nt, nt)
 
-# Reconstruct the scored distribution from the FREE vector `x`. With no fixed
+# Reconstruct the scored distribution from the free vector `x`. With no fixed
 # params (or any shared-tagged leaf, whose tie is handled by the whole-tree
 # `update`) this is the plain `update`; otherwise fully-fixed subtrees are
 # reused from the prebuilt `fixed_template` via `_graft`.
@@ -302,7 +302,7 @@ from `priors`, and `DensityInterfaceExt` marks it a density. The flat layout is
 [`params_table`](@ref)`(dist)`'s row order throughout, so a posterior draw maps
 back to named, constrained parameters interchangeable with the Turing path.
 
-This layer is an ORTHOGONAL alternative to the DynamicPPL
+This layer is an orthogonal alternative to the DynamicPPL
 [`composed_parameters_model`](@ref) route, not a wrapper or replacement: the two
 never interact at runtime, but evaluate the same log-posterior over the same
 shared core ([`build_priors`](@ref), [`update`](@ref), [`logpdf`](@ref)). Pick
@@ -332,7 +332,7 @@ struct ComposedLogDensity{D, P, T, L, F}
     free::F
 end
 
-# Outer constructor: precompute the fix/estimate plan ONCE here (classifying
+# Outer constructor: precompute the fix/estimate plan once here (classifying
 # free-vs-fixed slots and building every fully-fixed subtree's concrete
 # distribution), so each `logdensity` evaluation reuses it, not rebuilds it.
 function ComposedLogDensity(dist, priors, data, loglik)
@@ -405,15 +405,15 @@ end
 
 Evaluate a [`ComposedLogDensity`](@ref) on a flat (constrained) vector.
 
-`logdensity(prob, x)` is the (unnormalised) log-posterior at the flat FREE
+`logdensity(prob, x)` is the (unnormalised) log-posterior at the flat free
 vector `x` (the estimated parameters in [`params_table`](@ref)`(prob.dist)` row
-order, EXCLUDING any fixed parameter, on the constrained scale): the sum of the
+order, excluding any fixed parameter, on the constrained scale): the sum of the
 estimated priors' log-densities plus the data log-likelihood of the
 distribution reconstructed there. `x` is [`free_dimension`](@ref)`(prob)` long
 (the full row count only when nothing is fixed). Any parameter pinned to a
 constant in `priors` (see [`build_priors`](@ref)'s `fix` keyword) is held at its
 value, contributes no prior term, and is omitted from `x`. A subtree whose
-parameters are ALL fixed is built once when `prob` is assembled and reused on
+parameters are all fixed is built once when `prob` is assembled and reused on
 every evaluation rather than rebuilt.
 
 This is the constrained-scale density. The unconstrained log-density an HMC
@@ -446,7 +446,7 @@ function logdensity(prob::ComposedLogDensity, x::AbstractVector)
     return lp + prob.loglik(d, prob.data)
 end
 
-# Prior log-density of the FREE vector: sum each ESTIMATED row's prior `logpdf`
+# Prior log-density of the free vector: sum each estimated row's prior `logpdf`
 # at its value. Fixed params carry no prior term (they are not sampled), so the
 # estimated priors align index-for-index with `x` (both fixed-excluded). An
 # all-fixed model has no free term, returning a typed zero.
@@ -457,7 +457,7 @@ function _prior_logpdf_free(prob::ComposedLogDensity, x::AbstractVector)
 end
 
 # The estimated priors in row order: the per-row constraint registry the
-# transform layer reads (`bijector(prior)` per FREE parameter). Fixed params are
+# transform layer reads (`bijector(prior)` per free parameter). Fixed params are
 # excluded, so `BijectorsExt` builds the transform over the free vector only.
 flat_priors(prob::ComposedLogDensity) = prob.free.free_priors
 

@@ -158,7 +158,7 @@ export Shared, shared, tie
 # Exported composer-observed lowering used by the external censoring wrappers
 export observed_distribution
 
-# Exported utilities. `weight` is exported but DEPRECATED (issue #128): the
+# Exported utilities. `weight` is exported but deprecated: the
 # weighting surface moves to the standalone ModifiedDistributions.jl package in
 # a future breaking release. It stays functional and warns under `--depwarn`.
 export weight, get_dist, get_dist_recursive, get_primary_event
@@ -336,7 +336,7 @@ end
 # Precompile workload covering the double_interval_censored pipeline for
 # representative delay distributions, toggling the solver method to hit both
 # the analytical and numeric primary-censored CDF paths in a single entry
-# point. See https://github.com/EpiAware/CensoredDistributions.jl/issues/212.
+# point.
 @setup_workload begin
     delays = (
         Gamma(2.0, 1.5),

@@ -2,36 +2,35 @@
 # Grouped per-stratum assembly: a per-stratum composed distribution per record
 # ---------------------------------------------------------------------------
 #
-# The single-`d` `record_distributions(d, rows)` above assumes ONE shared
-# composed distribution with GLOBAL params: only the reserved metadata
-# (`obs_time`/`weight`) and the missingness pattern vary per record. The GROUPED
-# entry lifts that restriction so each record's edge can use DIFFERENT (sampled)
-# params: the caller supplies `ds`, a VECTOR of composed distributions (one per
-# STRATUM), and `group`, an INTEGER stratum id per record (a 1-based index into
-# `ds`). Record `i` is built from `ds[group[i]]`.
+# The single-`d` `record_distributions(d, rows)` above assumes one shared
+# composed distribution with global params. The grouped entry lifts that so each
+# record's edge can use different (sampled) params: the caller supplies `ds`, a
+# vector of composed distributions (one per stratum), and `group`, an integer
+# stratum id per record (a 1-based index into `ds`). Record `i` is built from
+# `ds[group[i]]`.
 #
-# AD-SAFETY (the Enzyme footgun): the group key is the INTEGER stratum id
-# from an AD-free data pass; the params arrive as `Dual`s INSIDE the `ds`
+# AD-safety (the Enzyme footgun): the group key is the integer stratum id from
+# an AD-free data pass; the params arrive as `Dual`s inside the `ds`
 # distributions and are built once per stratum, never keyed by a float. Records
-# are bucketed by their integer stratum, each stratum's records are built ONCE
-# through the single-`d` machinery (sharing that stratum's segment construction),
-# then scattered back to row order. One stratum (`length(ds) == 1`, all groups
-# `1`) reduces to `record_distributions(ds[1], rows)` exactly (regression-safe).
+# are bucketed by their integer stratum, each stratum's records built once
+# through the single-`d` machinery, then scattered back to row order. One
+# stratum (`length(ds) == 1`, all groups `1`) reduces to
+# `record_distributions(ds[1], rows)` exactly.
 
 @doc "
 
-Assemble per-record composed distributions from a PER-STRATUM distribution set.
+Assemble per-record composed distributions from a per-stratum distribution set.
 
 `record_distributions(ds, rows; group)` is the varying-parameter primitive: each
-record's edge may use DIFFERENT (e.g. sampled, partially-pooled) parameters,
-selected by an integer STRATUM id. `ds` is a vector of composed distributions,
+record's edge may use different (e.g. sampled, partially-pooled) parameters,
+selected by an integer stratum id. `ds` is a vector of composed distributions,
 one per stratum; `group` is a vector of 1-based stratum ids, one per record
 (`group[i]` indexes `ds`). Record `i`'s distribution is built from
 `ds[group[i]]`, baking the record's reserved metadata (`obs_time`/`weight`) and
 missingness pattern in exactly as the single-`d`
 [`record_distributions`](@ref)`(d, rows)` does.
 
-The build-once segment construction is shared WITHIN each stratum: records are
+The build-once segment construction is shared within each stratum: records are
 bucketed by their integer stratum, each stratum's records are assembled once,
 then scattered back to row order. The stratum id is an integer from an AD-free
 pass, so the sampled params (carried inside `ds`) never key a lookup - AD-safe.
@@ -39,14 +38,14 @@ A single stratum (`length(ds) == 1`, every `group[i] == 1`) is bit-identical to
 `record_distributions(ds[1], rows)`.
 
 A stratum's distribution may be a composer (a [`Sequential`](@ref) /
-[`Parallel`](@ref) / [`Choose`](@ref)) OR a BARE leaf (a univariate / censored
+[`Parallel`](@ref) / [`Choose`](@ref)) or a bare leaf (a univariate / censored
 leaf): a single-delay model can pass a vector of bare leaves and each record
 scores its leaf directly, with no one-edge `Sequential` wrapper. The bare-leaf
 record is density-equal to the one-edge-`Sequential`-wrapped form observed from a
 zero origin.
 
 # Arguments
-- `ds`: a vector of composed distributions OR bare leaves, one per stratum.
+- `ds`: a vector of composed distributions or bare leaves, one per stratum.
 - `rows`: a Tables.jl row source of records keyed by event name.
 
 # Keyword Arguments
@@ -82,8 +81,8 @@ function record_distributions(ds::AbstractVector, rows; group)
     if length(ds) == 1
         return record_distributions(ds[1], rowvec)
     end
-    # Bucket the row INDICES by integer stratum (the AD-free data pass), build
-    # each stratum's records ONCE (sharing that stratum's segment construction),
+    # Bucket the row indices by integer stratum (the AD-free data pass), build
+    # each stratum's records once (sharing that stratum's segment construction),
     # then scatter back to row order. The output element type is the promotion of
     # the per-stratum record types, so a heterogeneous `ds` still yields a typed
     # vector for `product_distribution`.
@@ -123,7 +122,7 @@ end
 The grouped (or shared-`d`) per-record log density as a direct value.
 
 `batched_event_logpdf(ds, rows; group)` scores a whole table of records under a
-PER-STRATUM distribution set: each record is built from `ds[group[i]]` (via
+per-stratum distribution set: each record is built from `ds[group[i]]` (via
 [`record_distributions`](@ref)`(ds, rows; group)`) and the result is the sum of
 the per-record log densities, equal to
 `sum(logpdf(record_distributions(ds, rows; group)[i], obs_i))` over the observed
@@ -135,8 +134,8 @@ This is the Turing-friendly grouped primitive: it is a plain `logpdf`-style
 scalar, so it drops straight into a `@model` with `@addlogprob!` (no submodel, no
 `product_distribution`, no `to_submodel`), and it differentiates under ForwardDiff
 and Mooncake because the `group` ids are integers from an AD-free data pass and
-the sampled params ride INSIDE `ds`. Use it when the data is fully observed and
-you only need to SCORE (the common partial-pooling likelihood):
+the sampled params ride inside `ds`. Use it when the data is fully observed and
+you only need to score (the common partial-pooling likelihood):
 
 ```julia
 @model function pooled(ds_template, rows, group)
@@ -150,9 +149,9 @@ end
 
 Prefer the submodel entry [`composed_distribution_model`](@ref)`(ds, table;
 group)` (the dual-purpose `obs ~ product_distribution(...)` form) when you also
-need to SAMPLE missing / fully-missing records; this scalar form scores only.
+need to sample missing / fully-missing records; this scalar form scores only.
 
-`ds` may be a vector of composed distributions OR a vector of BARE leaves (a
+`ds` may be a vector of composed distributions or a vector of bare leaves (a
 single-delay model scores each leaf directly, no one-edge `Sequential` wrapper);
 the bare and the wrapped forms give the same log density.
 
@@ -160,7 +159,7 @@ the bare and the wrapped forms give the same log density.
 [`record_distributions`](@ref)`(d, rows)`.
 
 # Arguments
-- `ds`: a vector of composed distributions OR bare leaves, one per stratum (or a
+- `ds`: a vector of composed distributions or bare leaves, one per stratum (or a
   single composed distribution / bare leaf `d` for the shared form).
 - `rows`: a Tables.jl row source of records keyed by event name.
 
@@ -196,7 +195,7 @@ function batched_event_logpdf(d, rows)
     return _batched_records_logpdf(recs)
 end
 
-# Sum each record's `logpdf` at its OWN observed event vector (missing slots
+# Sum each record's `logpdf` at its own observed event vector (missing slots
 # zeroed, ignored by the marginalising `logpdf`), the per-record-loop value the
 # vectorised `product_distribution` path reproduces.
 function _batched_records_logpdf(recs)
@@ -212,29 +211,25 @@ end
 # Public front-door: `logpdf(d, rows)` scores a table of records directly
 # ---------------------------------------------------------------------------
 #
-# `logpdf(d, rows)` is THE single public entry for scoring a whole table /
+# `logpdf(d, rows)` is the single public entry for scoring a whole table /
 # vector of records under a shared composed distribution `d`. It delegates to
-# the internal `batched_event_logpdf(d, rows)` (which assembles the per-record
-# distributions once, sharing the segment construction, and sums their per-
-# record log densities), so the value is byte-identical to the
-# `record_distributions` / `batched_event_logpdf` path. There is no separate
-# object to construct at the call site: a vector of NamedTuples or any Tables.jl
-# source of records is scored directly.
+# the internal `batched_event_logpdf(d, rows)`, so the value is byte-identical
+# to the `record_distributions` / `batched_event_logpdf` path; no separate
+# object is constructed at the call site.
 #
-# Dispatch: a SINGLE flat event vector (`[E_0, ..., E_k]`, possibly with
-# `missing`) keeps hitting the per-record event-vector scorer; a TABLE of records
-# is recognised by `Tables.istable` and routed here. A vector of NamedTuples is
-# an `AbstractVector` (so it would otherwise hit the step-value method) and a
-# column table is a `NamedTuple` (so it would otherwise hit the single-record
-# NamedTuple method); both are intercepted below and forwarded once
-# `Tables.istable` confirms a multi-record source.
+# Dispatch: a single flat event vector (`[E_0, ..., E_k]`, possibly with
+# `missing`) keeps hitting the per-record event-vector scorer; a table of
+# records is recognised by `Tables.istable` and routed here. A vector of
+# NamedTuples (an `AbstractVector`) and a column table (a `NamedTuple`) are both
+# intercepted below and forwarded once `Tables.istable` confirms a multi-record
+# source.
 
 @doc raw"
-Log density of a TABLE of records scored under a shared composed distribution.
+Log density of a table of records scored under a shared composed distribution.
 
 `logpdf(d, rows)` is the single public entry for vectorised scoring: it scores a
 whole table / vector of records (each keyed by event name) under the shared
-composed distribution `d`, returning the SUM of the per-record log densities. A
+composed distribution `d`, returning the sum of the per-record log densities. A
 record's reserved metadata (its `obs_time` horizon, `weight`/`count`, and
 missingness pattern) is read per row; the expensive segment construction is
 shared across records. The value equals
@@ -280,7 +275,7 @@ function logpdf(d::Choose, rows::AbstractVector{<:NamedTuple})
 end
 
 # A bare leaf delay (a foreign `UnivariateDistribution`, e.g. a `LogNormal`) is
-# NOT given a `logpdf(::leaf, rows)` method: dispatching on the abstract
+# not given a `logpdf(::leaf, rows)` method: dispatching on the abstract
 # `UnivariateDistribution` would be type piracy (the function, the dist type and
 # the row-vector type are all foreign). A single-delay model scores a table by
 # wrapping the leaf in a one-edge `Sequential` (the canonical composed form,

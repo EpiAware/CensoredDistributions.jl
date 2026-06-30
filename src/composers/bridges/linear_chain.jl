@@ -2,7 +2,7 @@
 # compartment_stages: the distributions -> compartments bridge
 # ============================================================================
 #
-# The LINEAR CHAIN TRICK represents an Erlang(k, θ) (integer-shape Gamma) delay
+# The linear chain trick represents an Erlang(k, θ) (integer-shape Gamma) delay
 # as a chain of `k` identical Exponential(θ) sub-stages, each leaving at rate
 # `1/θ`. An Exponential(θ) delay is the `k = 1` case. A waiting time built from
 # such a chain is exactly Erlang-distributed, so a composed Exp/Erlang delay
@@ -11,7 +11,7 @@
 #
 # `compartment_stages` reads that `(rate, stages)` structure off a leaf or a
 # `Sequential` chain of such leaves. It is the small, exact extraction the
-# downstream ODE/compartment view consumes; it does NOT build the ODE itself.
+# downstream ODE/compartment view consumes; it does not build the ODE itself.
 # The Catalyst reaction-network bridge (`linear_chain_reactions`) lives in the
 # package extension; this lowering stays Catalyst-free.
 # The lowering is exact only for Exponential / Erlang leaves; any other family
@@ -145,13 +145,13 @@ Censoring wrappers are peeled to the inner free delay first (via
 `free_leaf`), so a chain of censored Exp/Erlang delays still lowers
 cleanly. The total number of compartments is `sum(s.stages for s in stages)`.
 
-This is the distributions-to-compartments bridge: a CONSUMER of the composers,
+This is the distributions-to-compartments bridge: a consumer of the composers,
 not part of the composition engine. It reads a finished composed delay and hands
 its `(rate, stages)` structure to a downstream ODE/compartment view (the
 Catalyst reaction-network assembly is the optional weak-dependency extension on
 top); it does not build the ODE itself.
 
-The lowering is EXACT only for Exponential / Erlang leaves; any other family
+The lowering is exact only for Exponential / Erlang leaves; any other family
 (general Gamma, LogNormal, ...) throws unless `moment_match = true`, which lowers
 each leaf to the nearest Erlang chain by matching its mean and squared
 coefficient of variation `c² = var / mean²`. The Erlang stage count is

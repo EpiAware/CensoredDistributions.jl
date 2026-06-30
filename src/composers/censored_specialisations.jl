@@ -2,35 +2,22 @@
 # Censored specialisations of the generic composers
 # ============================================================================
 #
-# The generic `Sequential` / `Parallel` / `Resolve` composers score a
-# value vector with one entry per step/branch. When their internal nodes are our
-# censored distributions (`primary_censored` / `interval_censored` /
-# `double_interval_censored`), per-record marginalisation is AUTOMATIC and
-# data-driven, selected by MULTIPLE DISPATCH on the value vector's element type
-# (a `Missing`-admitting event vector) and on the node types. There is no
-# runtime predicate, no `mode` keyword, and no new node-type hierarchy.
-#
-# Evaluating a censored chain against an EVENT vector
-# `[E_0, E_1, ..., E_k]` (one entry per event, each a value or `missing`):
-#   - the origin's primary censoring is ALWAYS applied (first segment);
-#   - an OBSERVED intermediate -> CONDITION on its (censored) value: the
-#     adjacent delay is an independent factor at the observed gap;
-#   - an UNOBSERVED intermediate -> MARGINALISE by CONVOLVING the adjacent
-#     delays and DROPPING that intermediate's censoring (the latent is a
-#     continuous time, not a windowed observation), via `convolved`
-#     over the continuous cores recovered with `get_dist_recursive`.
-# For `Parallel` with censored branches the shared origin couples the branches:
-# a missing origin entry is marginalised by one 1-D origin integral, a present
-# origin conditions. `Resolve` already lowers to a `MixtureModel`
-# (`as_mixture`), so it needs no event-vector specialisation here.
+# When the generic `Sequential` / `Parallel` / `Resolve` composers wrap our
+# censored leaves, per-record marginalisation is selected by dispatch on the
+# event vector's element type (a `Missing`-admitting vector) and the node types,
+# with no runtime predicate or `mode` keyword. Scoring a censored chain against
+# an event vector `[E_0, ..., E_k]` (one entry per event, value or `missing`):
+#   - the origin's primary censoring is always applied (first segment);
+#   - an observed intermediate conditions on its (censored) value;
+#   - an unobserved intermediate is marginalised by convolving the adjacent
+#     continuous cores and dropping that intermediate's censoring.
+# A `Parallel` couples its branches through the shared origin (a missing origin
+# is one 1-D integral, a present origin conditions); `Resolve` lowers to a
+# `MixtureModel` (`as_mixture`), so needs no specialisation here.
 
 #
-# Shared recovery helpers used by the censored-composer scoring (flat in
-# `censored_scoring_flat.jl`, nested-tree in `censored_scoring_tree.jl`,
-# one_of-slice in `censored_one_of.jl`) and the full-path simulation in
-# `censored_rand.jl`. Those files are included AFTER this one (see the include
-# list in `src/CensoredDistributions.jl`) so the helpers and the `_Nested` /
-# `_Flat` traits are defined first.
+# Shared recovery helpers for the censored-composer scoring and the full-path
+# simulation, defined first so the later included files can use them.
 # ---------------------------------------------------------------------------
 # Origin primary-event recovery
 # ---------------------------------------------------------------------------
@@ -45,11 +32,11 @@ _origin_primary_event(d::PrimaryCensored) = d.primary_event
 _origin_primary_event(d::Truncated) = _origin_primary_event(d.untruncated)
 _origin_primary_event(d::IntervalCensored) = _origin_primary_event(d.dist)
 _origin_primary_event(d::Weighted) = _origin_primary_event(d.dist)
-# A `shared(:tag, ...)` leaf is TRANSPARENT to scoring, so a shared
+# A `shared(:tag, ...)` leaf is transparent to scoring, so a shared
 # censored leaf at a tree origin must surface its wrapped leaf's primary event
 # like the other censoring wrappers; without this the origin's latent primary is
 # lost and a `shared(:inc, primary_censored(...))` first step scores as an
-# UNCENSORED origin (the shared wrapper was stripped by
+# uncensored origin (the shared wrapper was stripped by
 # `_marginal_core` / `cdf` but not by the origin-primary traversal, diverging
 # from the untagged leaf).
 _origin_primary_event(d::Shared) = _origin_primary_event(d.dist)
@@ -70,9 +57,9 @@ _origin_primary_event(d::Latent) = _origin_primary_event(d.dist)
 # continuous sum and is left intact for the fold — including when it is nested
 # inside a censoring wrapper (e.g. `primary_censored(Sequential(...))`, whose
 # collapsed observed total is a `Convolved`). Stripping with `get_dist_recursive`
-# alone would over-unwrap that nested `Convolved` into its component VECTOR (via
+# alone would over-unwrap that nested `Convolved` into its component vector (via
 # `get_dist(::Convolved)`), and a vector is not a distribution: the downstream
-# `rand`/`logpdf`/`_param_eltype` machinery would then draw a random COMPONENT
+# `rand`/`logpdf`/`_param_eltype` machinery would then draw a random component
 # rather than the convolution sum and `params(::Vector)` would error. So
 # strip one wrapper layer at a time and stop at the first `Convolved`.
 _marginal_core(d::UnivariateDistribution) = _strip_to_core(d)
@@ -91,9 +78,9 @@ function _strip_to_core(d)
 end
 
 # The secondary interval censoring a leaf carries (its `IntervalCensored` layer),
-# recovered THROUGH the `Truncated` / `Weighted` wrappers, or `nothing` when the
+# recovered through the `Truncated` / `Weighted` wrappers, or `nothing` when the
 # leaf has none (uncensored or primary-only). The sim walk draws a continuous
-# delay from `_marginal_core` and then applies this interval to the RECORDED
+# delay from `_marginal_core` and then applies this interval to the recorded
 # event times, matching the scorer that floors each gap to its day. A
 # primary-only leaf returns `nothing`, so it stays continuous (no spurious
 # flooring). Dispatch on the node type is the whole selection.
@@ -101,25 +88,25 @@ _leaf_interval(d::IntervalCensored) = d
 _leaf_interval(d::Truncated) = _leaf_interval(d.untruncated)
 _leaf_interval(d::Weighted) = _leaf_interval(d.dist)
 # A `shared(:tag, ...)` leaf is transparent to scoring, so recover the
-# secondary interval THROUGH the shared wrapper like the other wrappers;
+# secondary interval through the shared wrapper like the other wrappers;
 # otherwise a `shared(:inc, double_interval_censored(...))` leaf drops its
 # interval discretisation and scores its gaps continuously, diverging from the
 # untagged leaf.
 _leaf_interval(d::Shared) = _leaf_interval(d.dist)
 _leaf_interval(::UnivariateDistribution) = nothing
 
-# The BARE continuous core of an edge for a SAMPLED-endpoint latent edge:
+# The bare continuous core of an edge for a sampled-endpoint latent edge:
 # every censoring layer stripped (the same `_marginal_core` the marginal scorer
-# uses), so NO primary AND no secondary interval. When an edge's predecessor or
+# uses), so no primary and no secondary interval. When an edge's predecessor or
 # target is a sampled continuous latent, the marginal form scores the edge on this
 # bare core — `_parallel_conditional_logpdf` conditions each flat branch on
 # `_marginal_core`, and `_sequential_segment` convolves the `_marginal_core`s
-# across a sampled-intermediate run. Re-applying ANY censoring (primary or the
+# across a sampled-intermediate run. Re-applying any censoring (primary or the
 # secondary interval) on a sampled-endpoint edge would diverge from the marginal
 # and double-count the within-window uncertainty already represented by the
 # sampled continuous time. Shared by the per-record latent scoring (the DynamicPPL
 # ext) and the vectorised endpoint-observed chain path so the two latent forms and
-# the marginal all agree. An OBSERVED-to-OBSERVED edge keeps its declared
+# the marginal all agree. An observed-to-observed edge keeps its declared
 # censoring and never reaches here.
 _bare_latent_edge(edge) = _marginal_core(edge)
 
@@ -133,7 +120,7 @@ function _apply_leaf_interval(value, d::IntervalCensored)
     return find_interval_boundary(value, d.boundaries)
 end
 
-# The secondary interval of the edge that ANCHORS a composer's origin: the first
+# The secondary interval of the edge that anchors a composer's origin: the first
 # step of a `Sequential` (recursing into a nested first step), the shared-origin
 # edge of a `Parallel`. The recorded origin slot is discretised to this interval
 # so a first-level gap (its event minus the origin) reflects `floor(target) -
@@ -167,27 +154,27 @@ end
 # Whether a component is itself a nested composer (a branch/step that recurses)
 # rather than a leaf edge. Dispatch on the type, so the recursion is selected at
 # compile time with no runtime type lookup. A `Resolve` is univariate (a single
-# marginal time-to-resolution leaf), so it is NOT a nested composer here.
+# marginal time-to-resolution leaf), so it is not a nested composer here.
 _is_nested_composer(::AbstractMultiChild) = true
 _is_nested_composer(::UnivariateDistribution) = false
 
 # Whether any of a composer's components is itself a nested composer. Picks the
 # recursive tree walk over the flat one-level scoring. Resolved on the component
-# TYPES (the `Tuple` element types), so it is a compile-time constant and the
+# types (the `Tuple` element types), so it is a compile-time constant and the
 # branch on it is eliminated, keeping the scoring type-stable.
 _any_nested_composer(components::Tuple) = any(_is_nested_composer, components)
 
-# A SINGLETON trait carrying the nested/flat choice in its TYPE, so the nested and
+# A singleton trait carrying the nested/flat choice in its type, so the nested and
 # flat scoring become separate dispatched methods. A plain `if _any_nested_...`
-# branch leaves BOTH branches in one method body, and the compiled AD backends
+# branch leaves both branches in one method body, and the compiled AD backends
 # (Mooncake) build a rule for every reachable branch -- including the flat
 # `convolved` marginalisation path that hard-crashes them
 # uncatchably. Splitting by dispatch keeps the flat path out of the nested
 # method entirely, so a nested tree differentiates without dragging in the
 # crashing convolution code.
 #
-# The trait is selected by DISPATCH on the component `Tuple` TYPE, returning a
-# concrete singleton -- NOT a runtime `cond ? _Nested() : _Flat()` ternary, whose
+# The trait is selected by dispatch on the component `Tuple` type, returning a
+# concrete singleton -- not a runtime `cond ? _Nested() : _Flat()` ternary, whose
 # result is a `Union{_Nested, _Flat}` value that forces a dynamic dispatch on the
 # trait. Mooncake's reverse-mode codegen crashes (uncatchable `signal 4`) on that
 # union-typed dispatch, so the trait must resolve to a single concrete type at

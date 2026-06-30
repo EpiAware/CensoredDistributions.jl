@@ -22,7 +22,7 @@ _primal(x::Dual) = _primal(value(x))
 # primal and analytical partials — the same helper the ChainRules and
 # Enzyme extensions use, so the formulas are not duplicated here.
 #
-# Two edge cases NOT handled (both extremely unlikely in single-pass
+# Two edge cases not handled (both extremely unlikely in single-pass
 # Turing sampling, the workload we target):
 # - Nested ForwardDiff (`V <: Dual` in the Dual's value field): `value`
 #   strips only one level, the inner `gamma_inc` call inside the helper
@@ -56,7 +56,7 @@ function _dual_impl(k, θ, x)
     return Dual{T}(Ω, new_partials)
 end
 
-# Cover every combination of (k, θ, x) where AT LEAST ONE argument is a
+# Cover every combination of (k, θ, x) where at least one argument is a
 # `Dual`, routing all of them to `_dual_impl`. `Dual <: Real`, so the
 # slots typed `::Real` already accept a `Dual`; the seven methods below
 # therefore overlap, and (as with any ForwardDiff multi-argument overload
@@ -64,16 +64,16 @@ end
 # methods resolve the pairwise intersections of the single-`Dual` methods,
 # and the all-`Dual` method resolves the triple intersection.
 #
-# The earlier version (issue #672) had exactly these seven methods but
-# carried a SHARED `{T, V, N}` parametrisation across the `Dual` slots, so
-# the resolvers only covered the SAME-tag intersection: the intersection
+# The earlier version had exactly these seven methods but
+# carried a shared `{T, V, N}` parametrisation across the `Dual` slots, so
+# the resolvers only covered the same-tag intersection: the intersection
 # of `(Dual{T₁}, Real, Real)` and `(Real, Dual{T₂}, Real)` is the
-# MIXED-tag `(Dual{T₁}, Dual{T₂}, Real)`, which the shared-tag resolver
-# `(Dual{T}, Dual{T}, Real)` does NOT dominate (it pins `T₁ == T₂`). That
+# mixed-tag `(Dual{T₁}, Dual{T₂}, Real)`, which the shared-tag resolver
+# `(Dual{T}, Dual{T}, Real)` does not dominate (it pins `T₁ == T₂`). That
 # left the mixed-tag corner uncovered, so `detect_ambiguities` flagged all
 # six partial pairs even though concrete same-tag calls resolved fine.
 #
-# Dropping the shared tag (each `Dual` slot is now an UNPARAMETRISED
+# Dropping the shared tag (each `Dual` slot is now an unparametrised
 # `Dual`) makes every resolver cover the mixed-tag intersection too, so
 # the method table is unambiguous. `_dual_impl` reads the tag/width from
 # the first `Dual` at run time. The same two edge cases remain unsupported
@@ -111,7 +111,7 @@ end
 # `_logccdf_ad_safe` (which evaluate `_gamma_cdf`, carrying the analytical
 # shape/scale partials) closes that gap. Methods are added only for `Dual` args
 # StatsFuns cannot handle, so the float path is untouched; the
-# `Gamma{<:Dual}` method catches `Dual` PARAMS with a constant evaluation point
+# `Gamma{<:Dual}` method catches `Dual` params with a constant evaluation point
 # (the truncation lower bound), the `::Dual` evaluation-point method catches a
 # `Dual` bound, and the both-`Dual` method resolves their overlap.
 Distributions.logcdf(d::Gamma{<:Dual}, x::Real) = _logcdf_ad_safe(d, x)

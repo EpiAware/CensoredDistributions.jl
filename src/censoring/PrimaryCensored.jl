@@ -175,7 +175,7 @@ end
 function Base.eltype(::Type{<:PrimaryCensored{D1, D2}}) where {D1, D2}
     return promote_type(eltype(D1), eltype(D2))
 end
-# Instance method promotes the PARAMETER element types of both inner
+# Instance method promotes the parameter element types of both inner
 # distributions: a distribution's `eltype` is its variate type (`Float64`)
 # and would drop an AD `Dual` carried by the parameters, so a Dual-typed
 # delay or primary event lifts the reported eltype here. Falls back to the

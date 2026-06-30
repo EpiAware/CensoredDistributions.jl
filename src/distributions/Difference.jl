@@ -11,7 +11,7 @@ signed gap between two events, so it arises as a derived observation
 rather than as a delay leaf.
 
 Because the subtraction reflects `Y`, the support of `Z` is in general
-two-sided and can be NEGATIVE: it runs from ``\\min(X) - \\max(Y)`` to
+two-sided and can be negative: it runs from ``\\min(X) - \\max(Y)`` to
 ``\\max(X) - \\min(Y)``, taking the value ``\\pm\\infty`` where a component
 is unbounded. `Z` is therefore not a non-negative delay distribution, and
 the delay-oriented censoring wrappers ([`primary_censored`](@ref),
@@ -147,7 +147,7 @@ sampler(d::Difference) = d
 # ---------------------------------------------------------------------------
 #
 # Z = X - Y with X ⟂ Y, so the mean is the difference of the means and the
-# variance the SUM of the variances (subtraction flips the sign of the mean
+# variance the sum of the variances (subtraction flips the sign of the mean
 # contribution but not of the variance). Both flow through the component
 # parameters via the components' own analytic `mean`/`var`, so the path is
 # AD-safe; a component without an analytic moment errors from its own call.
@@ -163,7 +163,7 @@ mean(d::Difference) = mean(d.x) - mean(d.y)
 
 @doc "
 
-Variance of the difference: the SUM of the component variances,
+Variance of the difference: the sum of the component variances,
 ``\\mathrm{Var}[X] + \\mathrm{Var}[Y]`` (independence makes the variance
 additive even though the means subtract).
 

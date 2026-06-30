@@ -1,17 +1,12 @@
 module CensoredDistributionsCatalystExt
 
-# Catalyst.jl bridge for the linear chain trick.
-#
-# `compartment_stages` (in core) lowers an Exp/Erlang composed delay to its
-# `(rate, stages)` Erlang sub-compartment structure without touching Catalyst.
-# This extension turns that structure into actual Catalyst `Reaction`s, so a
-# composed delay distribution can be slotted onto a transition of a reaction
-# network (`linear_chain_reactions`). Whole-model assembly (e.g. an SEIR or SIR
-# built from these edges) is application territory and lives in the linear-chain
-# tutorial. Without Catalyst loaded the core stays free of the SciML stack and
-# `linear_chain_reactions` has no methods.
-# See https://github.com/EpiAware/CensoredDistributions.jl/issues/400,
-# /177 and /125.
+# Catalyst.jl bridge for the linear chain trick. `compartment_stages` (in core)
+# lowers an Exp/Erlang composed delay to its `(rate, stages)` Erlang
+# sub-compartment structure, and this extension turns that into Catalyst
+# `Reaction`s, so a composed delay can be slotted onto a transition of a
+# reaction network (`linear_chain_reactions`). Whole-model assembly lives in the
+# linear-chain tutorial. Without Catalyst loaded `linear_chain_reactions` has no
+# methods.
 
 import CensoredDistributions: linear_chain_reactions, compartment_stages
 using Distributions: Distribution
