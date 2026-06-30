@@ -1,0 +1,12 @@
+# PACKAGE-OWNED: add this package's bespoke Task targets here. The managed
+# Taskfile.yml `includes:` this file (optional), so tasks defined here appear
+# under the `custom:` namespace — run them as `task custom:<name>`. Editing this
+# file never causes managed-template drift.
+version: '3'
+
+tasks:
+  # Example — delete or replace:
+  # hello:
+  #   desc: Package-specific example task
+  #   cmds:
+  #     - echo "hello from {{.PACKAGE}}"

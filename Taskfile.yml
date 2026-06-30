@@ -1,9 +1,20 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 version: '3'
 
 # Standard EpiAware package development tasks. Generalised from
 # CensoredDistributions.jl; package-specific assumptions (a particular
 # extension, a fixed package name) are kept out so this drops into any package.
 # A package can override `PACKAGE` below, otherwise it is read from Project.toml.
+#
+# Add PACKAGE-SPECIFIC tasks in `Taskfile.custom.yml` (package-owned, optional)
+# — they appear under the `custom:` namespace (e.g. `task custom:mytask`). That
+# keeps this managed file free of per-package edits, so a template-sync never
+# clobbers your tasks and never reports drift.
+
+includes:
+  custom:
+    taskfile: ./Taskfile.custom.yml
+    optional: true
 
 vars:
   PACKAGE:
