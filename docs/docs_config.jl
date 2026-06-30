@@ -81,11 +81,12 @@ const INDEX_REWRITES = Pair{String, String}[
 # page (the README's examples are real, runnable code).
 const README_EXECUTE = true
 
-# Drop raw markdown table rows when generating the home page. CD's README
-# carries a "Relationship to Distributions.jl" comparison table that the home
-# page omits (the same behaviour as the previous bespoke `make.jl`).
-const README_STRIP_TABLES = true
+# No README section is dropped from the home page. (The badge block is always
+# stripped via its `<!-- badges:start/end -->` markers.) In particular the
+# "Relationship to Distributions.jl" comparison table is KEPT on the home page;
+# the previous bespoke `make.jl` dropped it, which was a mistake.
+const INDEX_STRIP_SECTIONS = String[]
 
-# Generate the benchmark history page (`src/benchmarks.md`), splicing in the
-# package-owned `docs/benchmarks.md` prose.
+# Generate the benchmark page (`src/benchmarks.md`): the package-owned
+# `docs/benchmarks.md` prose hook plus the rendered performance history.
 const BENCHMARK_PAGE = true

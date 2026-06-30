@@ -1,9 +1,39 @@
-<!-- PACKAGE-OWNED — the prose hook spliced into the managed benchmark page. -->
+<!-- PACKAGE-OWNED — the benchmark narrative spliced into the managed benchmark
+page, between the page heading and the rendered `## Performance history`
+section. Mirrors `benchmark/README.md`. -->
 
-Benchmarks for distribution operation performance, comparing analytical and
-numerical methods where applicable.
+Benchmarks for testing distribution operation performance, comparing analytical
+vs numerical methods where applicable.
 
-## Benchmark structure
+## Quick Start
+
+### One-time Setup
+
+Install the `benchpkg` CLI to your global Julia environment:
+
+```bash
+task benchmark-install
+# Or: julia -e 'using Pkg; Pkg.add("AirspeedVelocity")'
+```
+
+Ensure `~/.julia/bin` is on your PATH.
+
+### Running Benchmarks
+
+```bash
+# Benchmark current state
+task benchmark
+
+# Compare main branch vs current state
+task benchmark-compare
+
+# Filter to specific benchmarks
+task benchmark -- --filter=PrimaryCensored
+task benchmark -- --filter=analytical
+task benchmark-compare -- --filter=Gamma
+```
+
+## Benchmark Structure
 
 ```
 PrimaryCensored/
@@ -33,10 +63,10 @@ DoubleIntervalCensored/
   Exponential+Uniform/ (cdf, pdf, logpdf, rand)
 ```
 
-## Analytical versus numerical methods
+## Analytical vs Numerical
 
 The `PrimaryCensored` distribution supports analytical solutions for certain
-distribution pairs with Uniform primary events.
+distribution pairs with Uniform primary events:
 
 - Gamma delay with Uniform primary
 - LogNormal delay with Uniform primary
@@ -45,15 +75,31 @@ distribution pairs with Uniform primary events.
 All other combinations use numerical integration.
 Pass `method = NumericSolver()` to force numerical integration.
 
-## Continuous integration
+## CI Integration
 
-Benchmarks run automatically on pull requests using the
+Benchmarks run automatically on PRs using the
 [AirspeedVelocity GitHub Action](https://github.com/MilesCranmer/AirspeedVelocity.jl),
-comparing the pull request head against the base branch.
+comparing the PR head against the base branch.
 
 The action's own flat table (every benchmark, including one row per AD
 scenario x backend pair) is written to the job summary rather than posted, as
 it is unreadable once the AD-gradient suite is included.
 `benchmark/comment/comment.jl` reads the same result JSON and posts a single
-pull request comment with a "most changed" summary, a compact AD scenario x
-backend ratio matrix, and the full results folded behind a `<details>` block.
+PR comment with a "most changed" summary, a compact AD scenario x backend
+ratio matrix, and the full results folded behind a `<details>` block.
+
+## Direct CLI Usage
+
+```bash
+# Run benchmarks
+benchpkg --rev=dirty --script=benchmark/benchmarks.jl
+
+# Compare specific revisions
+benchpkg --rev=main,dirty --script=benchmark/benchmarks.jl
+
+# Run with tuning (slower, more precise)
+benchpkg --rev=dirty --script=benchmark/benchmarks.jl --tune
+
+# View results
+benchpkgtable CensoredDistributions
+```
