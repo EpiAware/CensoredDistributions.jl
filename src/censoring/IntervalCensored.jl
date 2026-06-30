@@ -247,14 +247,14 @@ Collect all unique interval boundaries needed for vectorised PDF computation.
 Returns a sorted vector of unique boundaries with appropriate type promotion.
 The boundaries are functions of the (constant) lags and the interval spec, not
 the distribution's AD parameters, so AD rules mark this non-differentiable (the
-`unique`/sort internals are never traced); see the AD extensions (#699, #701).
+`unique`/sort internals are never traced); see the AD extensions.
 """
 function _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector{<:Real})
     T = promote_type(eltype(x), eltype(d.boundaries))
 
     # Push into a concretely-typed `T[]` buffer (rather than a `vcat`-splat of
     # per-lag tuples, which infers `Vector{Any}` and makes the downstream
-    # boundary-CDF `map` a `Union`-typed Generator that Enzyme rejects, #720).
+    # boundary-CDF `map` a `Union`-typed Generator that Enzyme rejects).
     boundaries = T[]
     if is_regular_intervals(d)
         interval = interval_width(d)
@@ -289,9 +289,9 @@ break gradients on the batched path. `eltype(d)` reports the support type
 enough; we promote in the actual CDF result type from `_cdf_ad_safe`.
 """
 function _interval_cdf_eltype(d::IntervalCensored, x::AbstractVector{<:Real})
-    # The CDF value type follows the distribution's PARAMETER type (carrying any
+    # The CDF value type follows the distribution's parameter type (carrying any
     # AD `Dual`/tracked number). `partype` reads it directly from the
-    # parameters without EVALUATING the CDF, so the type probe never traces a
+    # parameters without evaluating the CDF, so the type probe never traces a
     # computation onto the AD tape. An earlier probe that evaluated `cdf` at the
     # distribution minimum tripped ReverseDiff: `cdf(LogNormal, 0.0)` has a NaN
     # gradient at the support edge, and tracing it (even just for `typeof`)
@@ -311,7 +311,7 @@ the matching `cdf_values` entry. Using parallel concretely-typed arrays
 plus an index lookup (rather than a `Dict{Any,Any}`) keeps the boundary
 CDF cache type-stable so the AD tangent type is tracked through it. The
 `Dict{Any,Any}` version forced a `DynamicDerivedRule{Dict{Any,Any}}` and
-a bitcast Mooncake reverse-mode refuses to differentiate (#699).
+a bitcast Mooncake reverse-mode refuses to differentiate.
 """
 function _lookup_boundary_cdf(boundaries::AbstractVector, cdf_values::AbstractVector, b)
     idx = searchsortedfirst(boundaries, b)
@@ -347,10 +347,10 @@ function _compute_boundary_cdfs(d::IntervalCensored, boundaries::AbstractVector)
     # `partype(dist)` is the distribution's parameter type, which is the
     # AD-tracked number type (e.g. a `Dual`) under differentiation. A zero of
     # that type types the literal-branch `0`/`1` so the result vector stays
-    # type-stable and AD-aware WITHOUT evaluating `_cdf_ad_safe` at a
+    # type-stable and AD-aware without evaluating `_cdf_ad_safe` at a
     # degenerate boundary: doing so (e.g. `LogNormal` at `0`) produces a
     # `-Inf`/`NaN` reverse adjoint that poisons the sweep even though `zero`
-    # discards the primal (the derivative is still taped). See #699.
+    # discards the primal (the derivative is still taped).
     z = zero(float(Distributions.partype(dist)))
     return map(boundaries) do b
         if b <= dist_min
@@ -426,7 +426,7 @@ function pdf(d::IntervalCensored, x::AbstractVector{<:Real})
     # the sorted unique `boundaries`. A concretely-typed parallel array plus
     # a `searchsortedfirst` index lookup replaces the old `Dict{Any,Any}`
     # cache, which forced a dynamic rule and a bitcast Mooncake reverse-mode
-    # refuses to differentiate (#699). `_compute_boundary_cdfs` keeps the
+    # refuses to differentiate. `_compute_boundary_cdfs` keeps the
     # `Gamma` path differentiable and guards degenerate boundaries with typed
     # `0`/`1` seeds (so they are never evaluated and never missing).
     cdf_values = _compute_boundary_cdfs(d, boundaries)

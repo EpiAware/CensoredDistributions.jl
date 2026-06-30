@@ -6,8 +6,8 @@
 # independent branches sharing one origin. A realisation is the vector of branch
 # values `[v1, v2, ...]`, one per branch. The branches are plain, independent
 # distributions and may themselves be composers, so trees nest recursively; that
-# nesting is the tree. This layer adds NO censored-internal behaviour: in
-# particular it does NOT couple the branches through a shared latent origin (that
+# nesting is the tree. This layer adds no censored-internal behaviour: in
+# particular it does not couple the branches through a shared latent origin (that
 # shared-origin specialisation is layered elsewhere). Here the joint is simply
 # the product of the branch densities.
 
@@ -191,8 +191,8 @@ pdf(d::Parallel, x::AbstractVector) = exp(logpdf(d, x))
 Sample a branch realisation. For plain branches this is one value per branch
 (nested children contributing their sub-vectors). For flat censored branches
 sharing one latent origin it is the full event-time vector
-`[origin, observed_1, ...]`. For a NESTED tree (a branch is itself a composer, or
-a [`Resolve`](@ref) branch) it is a NAMED event record keyed by
+`[origin, observed_1, ...]`. For a nested tree (a branch is itself a composer, or
+a [`Resolve`](@ref) branch) it is a named event record keyed by
 `_flat_event_names`: one shared origin draw, each branch hung off it and
 each Resolve outcome sampled (the unsampled outcomes `missing`). See the
 censored-specialisation [`rand`](@ref) method.

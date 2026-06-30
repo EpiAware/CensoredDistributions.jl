@@ -1,28 +1,10 @@
-# Right-truncation across delay chains.
-#
-# Right-truncation of a delay depends on what is observed. When the
-# intermediate event in a delay chain is recorded, each segment is observed
-# on its own and the truncation denominator is the single-delay CDF up to
-# the remaining observation window. When the intermediate event is not
-# recorded, only the total delay across the chain is observed, so the
-# denominator must be the CDF of the convolution of the unobserved segments.
-# Mixing these up is a known, easy-to-make error (the andv truncation_model
-# carries both forms side by side). This file builds the correct
-# right-truncated object given the observation horizon and which splitting
-# events are observed, dispatching the single-delay denominator against the
-# convolved-chain denominator. It is pure Distributions.jl: the returned
-# object is an ordinary `truncated` distribution whose log-normaliser is the
-# right-truncation term `-logcdf(dist, window)`.
-#
-# There is ONE truncation verb, `truncated`. The single-delay and
-# convolved-chain right-truncations are both `truncated(dist; upper = window)`,
-# the dispatch picked by passing the single delay or the `Convolved` chain
-# total. The δ-bounded finite observation window is `truncated(dist; upper,
-# lower = upper - δ)`. The composed-node directions live in `composers/wrap.jl`
-# (`truncated(node; lower, upper)` distributes into the node's leaf cores). The
-# helpers below are the internal primitives the per-record scorers thread the
-# observation horizon through (`_truncate_window`, `_truncate_horizon`,
-# `_truncation_lognorm`); they add the AD-safe empty-support clamp and the
+# Right-truncation across delay chains. The denominator is the single-delay
+# CDF when the intermediate event is observed, and the CDF of the convolution
+# of the unobserved segments when it is not. There is one truncation verb,
+# `truncated`: both forms are `truncated(dist; upper = window)`, the dispatch
+# picked by passing the single delay or the `Convolved` chain total, and the
+# δ-bounded window adds `lower = upper - δ`. The helpers below thread the
+# observation horizon through and add the AD-safe empty-support clamp and
 # δ-bounded normaliser the bare `truncated` does not.
 
 # Right-truncate `dist` at `window`. Upper-only: no lower bound is added, so
@@ -68,7 +50,7 @@ end
 # The per-record observation horizon is threaded through the scorers as a single
 # value (`horizon`). The upper-only form is a plain `Real` (or `nothing`); the
 # δ-bounded form pairs the horizon with the window width δ in this carrier, so
-# the SAME threaded slot carries either form and every existing `horizon ===
+# the same threaded slot carries either form and every existing `horizon ===
 # nothing` / pass-through site is untouched. The three helpers below are the only
 # places the carrier is unpacked: `_horizon_time` (the scalar horizon for the
 # `horizon - anchor` arithmetic), `_horizon_delta` (the δ width, or `nothing`),

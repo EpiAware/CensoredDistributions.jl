@@ -12,7 +12,7 @@
 # ---------------------------------------------------------------------------
 
 # A `Sequential` chain of `k` steps spans `k + 1` events `E_0, ..., E_k`. Scored
-# against an EVENT vector (one entry per event, `missing` admitted) the chain
+# against an event vector (one entry per event, `missing` admitted) the chain
 # marginalises unobserved intermediates and conditions on observed ones. The
 # element-type dispatch (`>: Missing`) keeps the all-concrete one-value-per-step
 # generic path untouched: a `Vector{Float64}` of step gaps still hits the
@@ -21,7 +21,7 @@
 
 @doc raw"
 
-Log density of a [`Sequential`](@ref) chain scored against an EVENT vector.
+Log density of a [`Sequential`](@ref) chain scored against an event vector.
 
 `events` has one entry per event ``E_0, \dots, E_k`` (length `length(d) + 1`);
 each entry is a value (observed) or `missing` (unobserved). The chain is grouped
@@ -42,9 +42,9 @@ differentiate with `events` held constant.
 See also: [`Sequential`](@ref), [`Parallel`](@ref)
 "
 function logpdf(d::Sequential, events::AbstractVector{T}) where {T >: Missing}
-    # The flat event vector carries one entry per EVENT slot plus the root
+    # The flat event vector carries one entry per event slot plus the root
     # origin. A nested composer contributes its whole subtree; a `Resolve`
-    # contributes one slot per OUTCOME, so the count is
+    # contributes one slot per outcome, so the count is
     # `_event_nleaves(d.components) + 1`, not `length(d) + 1` (the value layout).
     n = _event_nleaves(d.components) + 1
     length(events) == n || throw(DimensionMismatch(
@@ -67,28 +67,24 @@ function _seq_event_logpdf(::_Flat, d::Sequential, events)
     return _seq_event_logpdf_h(d, events, nothing)
 end
 
-# Flat `Sequential` scoring with an OPTIONAL per-record observation horizon
-# `horizon` (real-time right-truncation). The WHOLE composed distribution is
+# Flat `Sequential` scoring with an optional per-record observation horizon
+# `horizon` (real-time right-truncation). The whole composed distribution is
 # truncated per record at the horizon (the same combine-then-censor semantics as
-# wrapping a chain in `double_interval_censored`): the record is included only if
-# its LAST OBSERVED event occurred by the horizon `D`. Resolved semantics
-# (maintainer decision): whole-compose TOTAL truncation.
+# wrapping a chain in `double_interval_censored`): the record is included only
+# if its last observed event occurred by the horizon `D`.
 #
-#   numerator   = the untruncated factorised per-segment density (unchanged): an
-#                 observed intermediate conditions on its own edge at the observed
-#                 gap; an unobserved-intermediate run convolves its cores.
-#   denominator = a SINGLE term `-logcdf(C, window)` where `C` is the convolution
-#                 of all components from the origin to the LAST OBSERVED event
-#                 (the origin primary reapplied) and `window = D - origin`.
+#   numerator   = the untruncated factorised per-segment density: an observed
+#                 intermediate conditions on its own edge at the observed gap;
+#                 an unobserved-intermediate run convolves its cores.
+#   denominator = a single term `-logcdf(C, window)` where `C` is the
+#                 convolution of all components from the origin to the last
+#                 observed event (the origin primary reapplied) and
+#                 `window = D - origin`.
 #
-# This is the standard real-time right-truncation (a record is in the sample iff
-# its last observed event has occurred by `D`) and is well-defined for ALL
-# observed patterns, so it covers BOTH the endpoint-observed hanta index/sourced
-# shape (a single collapsed total) and the observed-intermediate case (the
-# factorised numerator over the single conv-to-last-observed denominator). With a
-# single observed segment the denominator's `C` IS that segment, so the result
-# reduces to `truncated(seg; upper = window)`. `horizon === nothing` leaves the
-# scoring untruncated.
+# Well-defined for all observed patterns, covering both the endpoint-observed
+# shape (a single collapsed total) and the observed-intermediate case. With a
+# single observed segment `C` is that segment, so the result reduces to
+# `truncated(seg; upper = window)`. `horizon === nothing` leaves it untruncated.
 function _seq_event_logpdf_h(d::Sequential, events, horizon)
     horizon === nothing && return _seq_event_logpdf_untrunc(d, events)
     obs_idx, obs_val = _observed_indices_values(events)
@@ -108,11 +104,11 @@ function _seq_event_logpdf_h(d::Sequential, events, horizon)
         total += logpdf(seg, gap)
     end
     # Denominator: a single conv-to-last-observed right-truncation term. `C` is
-    # the convolution of every component from the origin to the LAST observed
+    # the convolution of every component from the origin to the last observed
     # event, truncated at the remaining window from the observed origin. With one
     # observed segment `C` is that segment, so this matches the endpoint-observed
     # term `-logcdf(seg, window)`. The origin primary is reapplied only when the
-    # first observed event IS the latent origin E_0 (`obs_idx[1] == 1`), matching
+    # first observed event is the latent origin E_0 (`obs_idx[1] == 1`), matching
     # `_sequential_segment`'s `a == 1` contract and the vectorised
     # `_build_seq_bundle` run; a denominator anchored at an observed intermediate
     # (origin unobserved) is an exact-time anchor, not the latent primary.
@@ -158,7 +154,7 @@ end
 
 @doc "
 
-Density of a [`Sequential`](@ref) chain scored against an EVENT vector.
+Density of a [`Sequential`](@ref) chain scored against an event vector.
 
 See also: [`logpdf`](@ref)
 "
@@ -184,15 +180,15 @@ end
 # Segment distribution spanning observed events at 1-based event indices `a` and
 # `b`. The steps linking them are `components[a:(b - 1)]`.
 #
-# A SINGLE observed-bounded edge conditions on its OWN declared censoring: the
-# edge's gap is scored through the edge distribution AS DECLARED ("condition
+# A single observed-bounded edge conditions on its own declared censoring: the
+# edge's gap is scored through the edge distribution as declared ("condition
 # on its (censored) value"). A `primary_censored` / `double_interval_censored` /
 # `interval_censored` edge therefore keeps that censoring (real linelist data is
 # day-resolution, so a day-observed edge delay is interval-censored, not an exact
 # continuous time); a plain continuous edge is conditioned on the continuous
 # value, which is correct for that edge.
 #
-# A RUN of two or more steps (one or more UNOBSERVED intermediate events between
+# A run of two or more steps (one or more unobserved intermediate events between
 # the two observed endpoints) is marginalised: the spanned steps' continuous
 # cores are convolved and the intermediates' own censoring is dropped (the latent
 # intermediate is a continuous time, not a windowed observation). When a primary
@@ -246,8 +242,8 @@ control flow, so this differentiates with the event vector held constant.
 See also: [`Parallel`](@ref), [`Sequential`](@ref)
 "
 function logpdf(d::Parallel, events::AbstractVector{T}) where {T >: Missing}
-    # One entry per EVENT slot plus the shared origin; a tree branch contributes
-    # its whole subtree's events and a `Resolve` one slot per OUTCOME,
+    # One entry per event slot plus the shared origin; a tree branch contributes
+    # its whole subtree's events and a `Resolve` one slot per outcome,
     # so the length is `_event_nleaves(d.components) + 1`.
     n = _event_nleaves(d.components) + 1
     length(events) == n || throw(DimensionMismatch(
@@ -272,7 +268,7 @@ function _par_event_logpdf(::_Flat, d::Parallel, events)
     primary === nothing && return _par_plain_logpdf(d, events)
 
     cores = map(_marginal_core, d.components)
-    # Promote over the PARAMETER types of the cores and primary (which carry any
+    # Promote over the parameter types of the cores and primary (which carry any
     # AD Dual from the leaf params; a distribution's `eltype` is its variate type,
     # not its parameter type, so it would drop the Dual) plus the event vector,
     # so the marginal/condition arithmetic stays on the differentiated type.
@@ -329,17 +325,15 @@ end
 # ---------------------------------------------------------------------------
 #
 # `event_logpdf(d, events; horizon)` is the horizon-aware event-vector log
-# density. With `horizon === nothing` it is exactly the censored composer
-# `logpdf(d, events)` (back-compat). With a per-record `horizon` the WHOLE
-# composed distribution is right-truncated at that observation time for the
-# record, the same combine-then-censor direction as wrapping the compose in
-# `double_interval_censored` (`wrap.jl`) but with the upper bound supplied PER
-# RECORD rather than baked in. For a `Sequential` the record's observed total
-# (origin -> terminal) is truncated at `horizon - origin` (the endpoint-observed
-# hanta index/sourced shape); for a `Parallel` each branch endpoint is truncated
-# at `horizon - origin` off the shared origin. `_truncate_window` is the
+# density. With `horizon === nothing` it is exactly `logpdf(d, events)`. With a
+# per-record `horizon` the whole composed distribution is right-truncated at that
+# observation time, the same combine-then-censor direction as wrapping the
+# compose in `double_interval_censored` but with the upper bound supplied per
+# record. For a `Sequential` the observed total (origin -> terminal) is truncated
+# at `horizon - origin`; for a `Parallel` each branch endpoint is truncated at
+# `horizon - origin` off the shared origin. `_truncate_window` is the
 # implementation primitive (upper-only, AD-safe, with the non-positive-window
-# empty-support guard); it is NOT a user-facing per-segment interface here.
+# empty-support guard).
 
 @doc raw"
 
@@ -347,14 +341,14 @@ Horizon-aware event-vector log density of a censored composer.
 
 `event_logpdf(d, events; horizon)` scores `events` exactly as
 `logpdf(d, events)` when `horizon === nothing`. With a per-record `horizon` the
-WHOLE composed distribution is right-truncated at that observation time for the
+whole composed distribution is right-truncated at that observation time for the
 record, the same combine-then-censor direction as wrapping the compose in
 [`double_interval_censored`](@ref) but with the upper bound supplied per record.
 
-For a [`Sequential`](@ref) the truncation is whole-compose TOTAL truncation:
+For a [`Sequential`](@ref) the truncation is whole-compose total truncation:
 the factorised per-segment numerator is divided by a single
 ``F(\text{window})`` denominator, where the denominator delay is the convolution
-of every component from the origin to the LAST OBSERVED event and
+of every component from the origin to the last observed event and
 ``\text{window} = \text{horizon} - \text{origin}``. A record is then included
 only if its last observed event occurred by the horizon. This is well-defined for
 all observed patterns, so observed intermediates are scored (their numerator
@@ -363,7 +357,7 @@ For a [`Parallel`](@ref) each branch endpoint is truncated at
 ``\text{horizon} - \text{origin}`` off the shared origin. The truncation
 contributes the ``-\log F(\text{window})`` correction, upper-only and AD-safe.
 
-For a NESTED tree (a chain/set whose step or branch is itself a composer) the
+For a nested tree (a chain/set whose step or branch is itself a composer) the
 per-record `horizon` threads down to the nested scorer: each nested
 [`Resolve`](@ref)/`Compete` node is right-truncated at the remaining
 window from its anchor (`horizon - anchor`), the same right-truncation the
@@ -398,8 +392,8 @@ function event_logpdf(
         d::Sequential, events::AbstractVector{T}; horizon = nothing
 ) where {T >: Missing}
     horizon === nothing && return logpdf(d, events)
-    # Dispatch on the nested/flat trait. A FLAT chain takes the whole-compose
-    # TOTAL truncation (the collapsed conv-to-last-observed denominator). A NESTED
+    # Dispatch on the nested/flat trait. A flat chain takes the whole-compose
+    # total truncation (the collapsed conv-to-last-observed denominator). A nested
     # tree threads the per-record horizon down to the now horizon-capable nested
     # scorer, which right-truncates each nested `Resolve`/`Compete`
     # node at the remaining window from its anchor, exactly as the top-level

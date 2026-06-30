@@ -194,7 +194,7 @@ const _ComposerLatent = Latent{<:AbstractMultiChild}
 Base.length(d::_ComposerLatent) = length(rand(d))
 Base.eltype(::Type{<:_ComposerLatent}) = Float64
 
-# The per-event realisation / score IS the wrapped composer's own multivariate
+# The per-event realisation / score is the wrapped composer's own multivariate
 # `rand`/`logpdf`.
 Base.rand(rng::AbstractRNG, d::_ComposerLatent) = rand(rng, d.dist)
 logpdf(d::_ComposerLatent, x::AbstractVector) = logpdf(d.dist, x)

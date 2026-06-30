@@ -13,7 +13,7 @@ prior front-door ([`params_table`](@ref), [`build_priors`](@ref),
 native ones.
 
 This couples priors that act on a derived quantity.
-A prior on a Gamma delay's MEAN, for example, cannot be expressed through the
+A prior on a Gamma delay's mean, for example, cannot be expressed through the
 native `Gamma(shape, scale)` leaf (an independent prior on `scale` cannot couple
 to a prior on the mean), but `from_moments(Gamma; mean = …, shape = …)` makes
 the mean a free parameter with the scale `mean / shape` derived.
@@ -253,7 +253,7 @@ var(d::MomentParams) = var(_native(d))
 
 # --- family registrations ---------------------------------------------------
 
-# Gamma by (mean, shape): scale = mean / shape (the #710 / bdbv use-case).
+# Gamma by (mean, shape): scale = mean / shape (the bdbv use-case).
 register_moment_params(Gamma, (:mean, :shape)) do (mean, shape)
     Gamma(shape, mean / shape; check_args = false)
 end

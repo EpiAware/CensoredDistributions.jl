@@ -7,7 +7,6 @@
 # adds an `integrate` method for any Integrals.jl algorithm
 # (e.g. `QuadGKJL()`, `HCubatureJL()`), so a user can pass an Integrals.jl
 # solver and have that integral routed through `IntegralProblem`/`solve`.
-# See https://github.com/EpiAware/CensoredDistributions.jl/issues/208.
 
 @doc "
 
@@ -96,7 +95,7 @@ end
 # construction, so `integrate` only reads `solver.rule`.
 GaussLegendre(; n::Int = _PRIMARY_NODES) = GaussLegendre(n, _gl_rule(n))
 
-# Show a Gauss-Legendre solver as its type and node COUNT, never its node and
+# Show a Gauss-Legendre solver as its type and node count, never its node and
 # weight arrays, so a leaf holding a solver (and any composed tree containing it)
 # prints compactly.
 function Base.show(io::IO, gl::GaussLegendre)

@@ -1,10 +1,9 @@
 module CensoredDistributionsDensityInterfaceExt
 
-# DensityInterface trait for the PPL-neutral log-density spec
-# (EpiAware/CensoredDistributions.jl#734). Marks a `ComposedLogDensity` as a
-# density object to the wider ecosystem; the evaluation is the core
-# `CensoredDistributions.logdensity`, so this is a one-liner per type. Loaded
-# only when DensityInterface is available, keeping the core dependency-free.
+# DensityInterface trait for the PPL-neutral log-density spec. Marks a
+# `ComposedLogDensity` as a density object to the wider ecosystem; the
+# evaluation is the core `CensoredDistributions.logdensity`. Loaded only when
+# DensityInterface is available, keeping the core dependency-free.
 
 using CensoredDistributions: CensoredDistributions, ComposedLogDensity
 using DensityInterface: DensityInterface

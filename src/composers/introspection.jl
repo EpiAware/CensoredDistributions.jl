@@ -3,33 +3,18 @@
 # ============================================================================
 #
 # After `compose(structure)`, these helpers read the composed distribution's
-# free parameters so a user can define priors discoverably, against the
-# structure rather than by hand-matching `lm_oa`/`ls_oa`/... :
-#
-# - `params(d)` (extended on the composers): a NESTED, NAME-keyed structure
-#   mirroring the tree, leaves delegating to the standard/extended
-#   `Distributions.params`.
-# - `params_table(d)`: that structure FLATTENED to a Tables.jl table, one row
-#   per scalar parameter, columns `edge | param | value | support` (the support
-#   being the edge distribution's variate support, the domain a prior respects).
-# - `event_names(d)` / `event(d, name)`: list the edge/event names of a
-#   composed distribution and fetch a child by name.
-#
-# Names come from the composers' `names` field, which every `compose` front-end
-# threads through (NamedTuple keys, table `name` column, matrix `names=`).
-#
-# IMPLEMENTATION NOTE (type stability): the `show` and `params`/`params_table`
-# traversals are HAND-ROLLED, type-stable recursion over the component tuples,
-# NOT generic tree iterators (whose traversal is not type-stable for the
-# heterogeneous composer tree). Structure introspection for external code is
-# provided by `event_names`/`event_tree`/`event`, not a tree-walking interface.
-#
-# Distributions-led: this reads structure + `params` + `support`; it is not a
-# model generator and stays Turing-free.
+# free parameters so priors can be defined against the structure: `params(d)`
+# gives a nested, name-keyed structure mirroring the tree; `params_table(d)`
+# flattens it to a Tables.jl table (one row per scalar parameter, columns
+# `edge | param | value | support`); `event_names(d)` / `event(d, name)` list
+# the edge/event names and fetch a child. Names come from the composers' `names`
+# field. The `show` and `params`/`params_table` traversals are hand-rolled,
+# type-stable recursion over the component tuples, not generic tree iterators.
+# Distributions-led and Turing-free: reads structure + `params` + `support`.
 
 # --- node headers ----------------------------------------------------------
 
-# Header label for a composer node (its TYPE plus a count).
+# Header label for a composer node (its type plus a count).
 _node_header(d::Sequential) = "Sequential ($(length(d.components)) steps)"
 _node_header(d::Parallel) = "Parallel ($(length(d.components)) branches)"
 _node_header(c::Resolve) = "Resolve ($(_n_branches(c)) outcomes)"
@@ -44,7 +29,7 @@ function _node_header(d::Choose)
 end
 
 # Is a child a composer (has named children) or a leaf? `Choose` is deliberately
-# NOT `<: AbstractOneOf`, so it is listed explicitly to take part in the shared
+# not `<: AbstractOneOf`, so it is listed explicitly to take part in the shared
 # tree render (recursing into a nested `Choose` rather than printing it flat).
 _is_composer_dist(::AbstractComposedDistribution) = true
 _is_composer_dist(::Any) = false
@@ -78,7 +63,7 @@ end
 
 # --- recursive indented-tree show (hand-rolled, type-stable) ---------------
 #
-# A nested composed distribution prints as ONE indented tree, recursing into
+# A nested composed distribution prints as one indented tree, recursing into
 # every child so the whole structure is visible at once. Shared `├─ / └─` glyphs
 # and indentation: a header line for the root, then each child indented one
 # level, composer children recursing and leaf delays printed inline. The compact
@@ -185,7 +170,7 @@ end
 # Print a leaf's detail, unwrapping any censoring layers onto their own lines so
 # every component (delay, primary event, truncation, interval, solver) is
 # visible, while still summarising a quadrature solver by its type and node
-# COUNT rather than dumping its node and weight arrays.
+# count rather than dumping its node and weight arrays.
 function _inspect_leaf(io::IO, leaf, prefix::String)
     for line in _leaf_detail_lines(leaf)
         println(io, prefix, line)
@@ -254,7 +239,7 @@ _child_params(c::Choose) = _choose_params(c)
 _child_params(c) = params(c)
 
 # A racing-hazard node's nested params: each outcome name -> its delay's params.
-# There is NO `branch_probs` entry (the winning probability is derived).
+# There is no `branch_probs` entry (the winning probability is derived).
 function _hazard_one_of_params(c::Compete)
     return NamedTuple{c.names}(map(params, c.delays))
 end
@@ -267,7 +252,7 @@ function _one_of_params(c::Resolve)
     return merge(outcomes, (; branch_probs = c.branch_probs))
 end
 
-# A `Choose` node's nested params: a NamedTuple keyed by the alternative NAMES,
+# A `Choose` node's nested params: a NamedTuple keyed by the alternative names,
 # each value the alternative's own `_child_params` (recursing into a nested
 # composer, delegating to `params` at a leaf). The public `params(::Choose)`
 # stays positional (mirroring `params(::Resolve)`), but this name-keyed form is
@@ -284,17 +269,15 @@ end
 
 # --- censoring-transparent leaves ------------------------------------------
 #
-# A composed leaf may itself be a censored delay (e.g. a
-# `double_interval_censored(Gamma(...))`, i.e. an
+# A composed leaf may itself be a censored delay (e.g.
 # `IntervalCensored{Truncated{PrimaryCensored{Gamma}}}`). The censoring bounds
-# (primary event, truncation, interval) are FIXED structure, not free
-# parameters; only the inner delay's parameters (the `Gamma` shape/scale) are
-# free. `_free_leaf` peels the fixed censoring off to the inner free delay, and
-# `_rewrap_leaf` rebuilds the same censoring around a new inner delay. The
-# introspection (`params_table`, names) and reconstruction layers go through
-# these, so a censored leaf is transparent: its rows show only the inner free
-# params and it round-trips by re-censoring the rebuilt delay. A plain leaf is
-# the identity for both. The public `Distributions.params` is unchanged.
+# (primary event, truncation, interval) are fixed structure, not free
+# parameters; only the inner delay's parameters are free. `free_leaf` peels the
+# fixed censoring off to the inner free delay and `rewrap_leaf` rebuilds it
+# around a new inner delay. The introspection and reconstruction layers go
+# through these, so a censored leaf is transparent: its rows show only the inner
+# free params and it round-trips by re-censoring. A plain leaf is the identity
+# for both; the public `Distributions.params` is unchanged.
 
 # Innermost free delay of a (possibly censored) leaf.
 free_leaf(leaf) = leaf
@@ -302,7 +285,7 @@ free_leaf(d::PrimaryCensored) = free_leaf(d.dist)
 free_leaf(d::IntervalCensored) = free_leaf(d.dist)
 free_leaf(d::Truncated) = free_leaf(d.untruncated)
 
-# Rebuild the SAME censoring around a new inner delay `inner`. Mirrors
+# Rebuild the same censoring around a new inner delay `inner`. Mirrors
 # `free_leaf`: each wrapper recurses inwards then re-applies its fixed spec.
 rewrap_leaf(leaf, inner) = inner
 function rewrap_leaf(d::PrimaryCensored, inner)
@@ -355,7 +338,7 @@ end
 
 # --- parameter-name introspection for leaves -------------------------------
 
-# Best-effort scalar parameter NAMES for a leaf distribution, matched
+# Best-effort scalar parameter names for a leaf distribution, matched
 # positionally to `params(leaf)`. Distributions.jl exposes parameter values via
 # `params` but not their names generically, so common families are mapped
 # explicitly; anything else falls back to `:param_1, :param_2, ...`.
@@ -495,7 +478,7 @@ distributions' support.
 For a [`Choose`](@ref) node the alternatives' independent per-branch params are
 namespaced per alternative (`index.…` / `sourced.…`), one row-group per
 alternative. A parameter tied across alternatives via [`shared`](@ref)`(:tag,
-...)` is inventoried ONCE under its `tag` edge and sampled once, so a value tied
+...)` is inventoried once under its `tag` edge and sampled once, so a value tied
 across the index and sourced branches appears as a single row-group.
 
 A bare leaf distribution (no composer wrapping it) is also accepted; its rows
@@ -592,7 +575,7 @@ function _walk_rows!(edges, params_col, values, supports, seen,
 end
 
 # A racing-hazard node emits only its outcome delays' parameter rows; there is
-# NO branch-probability block (the winning probability is derived, not free).
+# no branch-probability block (the winning probability is derived, not free).
 function _walk_rows!(edges, params_col, values, supports, seen,
         c::Compete, path)
     for (name, delay) in zip(c.names, c.delays)
@@ -602,10 +585,10 @@ function _walk_rows!(edges, params_col, values, supports, seen,
     return nothing
 end
 
-# Leaf distribution: one row per scalar FREE parameter. A censored leaf shows
+# Leaf distribution: one row per scalar free parameter. A censored leaf shows
 # only its inner free delay's params and that delay's support (the censoring
 # bounds are fixed structure, see `free_leaf`). A shared-tagged leaf
-# (`_shared_tag`) is inventoried ONCE under its TAG as the edge: the first
+# (`_shared_tag`) is inventoried once under its tag as the edge: the first
 # occurrence emits the rows, later occurrences with the same tag are skipped so
 # the tied parameter is listed once.
 function _walk_rows!(edges, params_col, values, supports, seen, leaf, path)
@@ -633,9 +616,9 @@ function _walk_rows!(edges, params_col, values, supports, seen, leaf, path)
 end
 
 # Join a name path to a single dotted `Symbol` (e.g. `(:a, :b)` -> `:a.b`); a
-# single-element path keeps its bare name. This is the DOTTED ("." separator)
-# PARAMETER-PATH namespace (params_table edges / priors), distinct from the
-# UNDERSCORED ("_" separator) event/value namespace (`_join_value_path`,
+# single-element path keeps its bare name. This is the dotted ("." separator)
+# parameter-path namespace (params_table edges / priors), distinct from the
+# underscored ("_" separator) event/value namespace (`_join_value_path`,
 # `_split_edge_name`).
 _join_path(path::Tuple) = Symbol(join(string.(path), "."))
 
@@ -663,7 +646,7 @@ end
 
 Update a composed distribution's free parameters from a nested `NamedTuple`.
 
-`update(d, params)` returns a new distribution of the SAME structure as `d` with
+`update(d, params)` returns a new distribution of the same structure as `d` with
 its free parameters replaced by the values in `params`. The `params` NamedTuple
 mirrors the tree: a [`Sequential`](@ref)/[`Parallel`](@ref) is keyed by its edge
 names, a leaf by its parameter names (as in [`params_table`](@ref)'s `param`
@@ -708,7 +691,7 @@ function update(leaf, params::NamedTuple)
 end
 
 # `_update` is the recursive worker. The whole top-level `params` is threaded down
-# as the `shared` source: a shared-tagged leaf is keyed at the TOP level by its
+# as the `shared` source: a shared-tagged leaf is keyed at the top level by its
 # tag (matching `params_table`'s tag edge), so every occurrence reads the one
 # entry; per-node keys are validated against the per-occurrence params with the
 # shared tags excluded.
@@ -787,9 +770,9 @@ function _shared_entry(shared::NamedTuple, tag::Symbol, leaf)
     return shared[tag]
 end
 
-# Validate a composer node's child keys. A child key may be ABSENT (a branch
+# Validate a composer node's child keys. A child key may be absent (a branch
 # whose only params are shared carries no per-occurrence entry; the leaf reads
-# the top-level shared entry), so missing names are tolerated; an UNEXPECTED key
+# the top-level shared entry), so missing names are tolerated; an unexpected key
 # (not a child name, a shared tag, or an `optional`) errors. With no shared tags
 # and no all-shared branch this is the same exact-cover check as before.
 function _check_child_keys(params::NamedTuple, names::Tuple, what, shared;
@@ -831,8 +814,8 @@ _rebuild(d::Parallel, components::Tuple) = Parallel(components, d.names)
 # --- build_priors: params_table + flat priors -> nested NamedTuple ----------
 
 # Split a dotted edge `Symbol` (`:a.b`) back into its name path (`(:a, :b)`).
-# The DOTTED ("." separator) PARAMETER-PATH namespace (inverse of `_join_path`),
-# distinct from the UNDERSCORED event/value namespace (`_split_edge_name`).
+# The dotted ("." separator) parameter-path namespace (inverse of `_join_path`),
+# distinct from the underscored event/value namespace (`_split_edge_name`).
 function _split_edge(edge::Symbol)
     parts = split(string(edge), '.')
     return Tuple(Symbol.(parts))
@@ -865,7 +848,7 @@ end
 
 # --- parameter-derived default priors (brms-style family defaults) ----------
 #
-# The default prior is classified from the PARAMETER's own natural domain, not
+# The default prior is classified from the parameter's own natural domain, not
 # the leaf's variate support: a location-family delay (`Normal`, `Affine(Normal)`)
 # has unbounded variate support, but its scale parameter still lives on the
 # positive half-line, so a `minimum(dist)`/`maximum(dist)` rule would wrongly
@@ -1105,7 +1088,7 @@ function param_priors(tree; kwargs...)
     return build_priors(tree; kwargs...)
 end
 
-# Whether a prior-slot entry is a distribution to SAMPLE (`true`) rather than a
+# Whether a prior-slot entry is a distribution to sample (`true`) rather than a
 # plain constant to substitute (`false`). A fixed parameter sits in the prior
 # NamedTuple as a non-distribution value, so the sampling models pin it with no
 # tilde and the read-back fills it from the same NamedTuple.
@@ -1200,7 +1183,7 @@ Override prior fields of a [`build_priors`](@ref) table by path.
 with the per-field priors in each `fields` `NamedTuple` merged in at the leaf
 addressed by `path`, leaving every other prior at its [`build_priors`](@ref)
 default. A `path` is a `Symbol` (a top-level name) or a tuple of names (a nested
-path), the SAME address convention [`update`](@ref)`(d, path => new_node)` uses
+path), the same address convention [`update`](@ref)`(d, path => new_node)` uses
 on a composed distribution. `fields` is a `NamedTuple` of the parameter priors
 to replace at that leaf (e.g. `(shape = prior,)`, `(mu = ..., sigma = ...)`); an
 unknown path or field errors clearly.
@@ -1246,24 +1229,24 @@ end
 The per-record key names of a composed distribution.
 
 `event_names(d)` returns the tuple of names keying one drawn/scored record,
-EXACTLY the keys of `rand(d)`, `rand(latent(d))`, and the `NamedTuple` a
+exactly the keys of `rand(d)`, `rand(latent(d))`, and the `NamedTuple` a
 `logpdf(d, ::NamedTuple)` accepts, in the same order. The names follow the
-RECORD SCHEMA the distribution actually realises:
+record schema the distribution actually realises:
 
-  - A CENSORED composer (one carrying a primary-censoring event) realises the
-    flat EVENT path — the root origin event then one target event per leaf edge
+  - A censored composer (one carrying a primary-censoring event) realises the
+    flat event path — the root origin event then one target event per leaf edge
     — so its keys are the flat event names. These are derived from the edge
     names (an edge `:onset_admit` gives origin `:onset` and target `:admit`); a
     positional default edge contributes `:event_i`.
-  - A PLAIN (uncensored) composer realises one value per leaf edge with no
-    latent origin, so its keys are the BRANCH/edge names themselves
+  - A plain (uncensored) composer realises one value per leaf edge with no
+    latent origin, so its keys are the branch/edge names themselves
     (`compose((a = ..., b = ...))` keys on `(:a, :b)`, a nested chain joining
-    with `_`). The edge names are NOT split here: a plain branch named `:a`
+    with `_`). The edge names are not split here: a plain branch named `:a`
     appears as `:a`, matching `keys(rand(d))`.
 
 An inner composer's events are exposed, so a nested `compose((path = [a, b],))`
 flattens the inner layout rather than stopping at the `(:path,)` edge. These
-record keys are distinct from the nested EDGE/child structure of
+record keys are distinct from the nested edge/child structure of
 [`event_tree`](@ref) (whose first level is the top-level child names).
 
 # Examples
@@ -1276,7 +1259,7 @@ event_names(tree)
 ```
 
 # See also
-- [`event_tree`](@ref): the NESTED tree of event names
+- [`event_tree`](@ref): the nested tree of event names
 - [`event`](@ref): fetch a child or subtree by name path
 - [`params_table`](@ref): the parameter table
 "
@@ -1285,7 +1268,7 @@ function event_names(d::AbstractMultiChild)
 end
 # A standalone disjunction (`Resolve` / `Compete`) realises the flat event
 # record directly (a positional origin slot then one slot per outcome), so its
-# record keys ARE the flat event names — `event_names == keys(rand(c))` already.
+# record keys are the flat event names — `event_names == keys(rand(c))` already.
 event_names(c::AbstractOneOf) = _flat_event_names(c)
 # A `Choose` has no single flat layout (the active alternative is data-selected),
 # so its flat event names are its alternative names.
@@ -1293,14 +1276,14 @@ event_names(d::Choose) = d.names
 
 @doc "
 
-The NESTED tree of event names of a composed distribution.
+The nested tree of event names of a composed distribution.
 
 `event_tree(d)` returns the event-name structure as data: a nested `NamedTuple`
-keyed by child name down to the leaves, mirroring the tree. Its FIRST level is
+keyed by child name down to the leaves, mirroring the tree. Its first level is
 the top-level child names (the old top-level `event_names` result); a
 [`Sequential`](@ref)/[`Parallel`](@ref)/[`Choose`](@ref) child recurses to its
 own nested NamedTuple, a [`Resolve`](@ref) child to its outcome names, and a
-leaf to its own name. Pair with [`event_names`](@ref) for the FLAT per-event
+leaf to its own name. Pair with [`event_names`](@ref) for the flat per-event
 layout that matches `rand`/`mean`/`var`.
 
 # Examples
@@ -1314,7 +1297,7 @@ event_tree(tree)
 ```
 
 # See also
-- [`event_names`](@ref): the FLAT per-event names
+- [`event_names`](@ref): the flat per-event names
 - [`event`](@ref): fetch a child or subtree by name path
 "
 function event_tree(d::AbstractMultiChild)

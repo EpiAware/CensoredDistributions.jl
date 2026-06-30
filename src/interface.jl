@@ -12,11 +12,11 @@
 #     and the univariate marginal one_of family (`AbstractOneOf`: `Resolve`,
 #     `Compete`).
 #
-#   AbstractModifiedDistribution{F, S} — wrap ONE inner base distribution and
+#   AbstractModifiedDistribution{F, S} — wrap one inner base distribution and
 #     modify it (the `free_leaf` / `rewrap_leaf` leaf interface): `Affine`,
 #     `TimeChange`, `Modified`, `Transformed`, `Weighted`, `Shared`. This is the
-#     family slated to be extracted to ModifiedDistributions.jl (#726), so the
-#     core CD censoring wrappers deliberately do NOT live here.
+#     family slated to be extracted to ModifiedDistributions.jl, so the
+#     core CD censoring wrappers deliberately do not live here.
 #
 #   AbstractPrimaryCensored — the primary-censored family the package dispatches
 #     on (`PrimaryCensored` and the latent `PrimaryConditional`). Core CD, stays
@@ -74,7 +74,7 @@ abstract type AbstractMultiChild{S <: ValueSupport} <:
 
 Supertype of the single-base modifier leaves that wrap one inner distribution
 and modify it: `Affine`, `TimeChange`, `Modified`, `Transformed`, `Weighted`,
-`Shared`. This is the family slated to move to ModifiedDistributions.jl (#726),
+`Shared`. This is the family slated to move to ModifiedDistributions.jl,
 so the core CD censoring wrappers are not here (`PrimaryCensored` lives under
 `AbstractPrimaryCensored`; `IntervalCensored` is standalone). Parametric on
 variate form for symmetry with the composed family.
@@ -139,7 +139,7 @@ abstract type AbstractPrimaryCensored <: UnivariateDistribution{Continuous} end
     AbstractCombinedDistribution{F<:VariateForm, S<:ValueSupport}
 
 Supertype of the multi-base algebraic combinations: `Convolved` (the sum of
-independent components) and `Difference` (`Z = X - Y`). These combine TWO or more
+independent components) and `Difference` (`Z = X - Y`). These combine two or more
 base distributions by an algebraic operation — distinct from the single-base
 modifier leaves (`AbstractModifiedDistribution`) and from the named-child
 event-tree composers (`AbstractComposedDistribution`). Parametric on variate form
@@ -155,7 +155,7 @@ Verify a subtype with
 `CensoredDistributions.TestUtils.test_combined_interface`.
 
 `MomentParams` (a reparameterised single-base leaf) and `ExponentiallyTilted` (a
-base family) are NOT combinations and stay plain `UnivariateDistribution`s.
+base family) are not combinations and stay plain `UnivariateDistribution`s.
 """
 abstract type AbstractCombinedDistribution{F <: VariateForm,
     S <: ValueSupport} <: Distribution{F, S} end

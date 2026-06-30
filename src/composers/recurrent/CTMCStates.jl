@@ -2,22 +2,11 @@
 # CTMCStates: the memoryless (generator-matrix) fast path
 # ============================================================================
 #
-# The default `RecurrentStates` mode is semi-Markov: any sojourn distribution,
-# scored from the jump chain plus sojourn times (a line list). When every
-# sojourn is EXPONENTIAL the process is a continuous-time Markov chain, and two
-# things become available that the general semi-Markov path cannot offer:
-#
-#   - a closed-form transition-probability matrix `P(t) = exp(Q t)`, so PANEL
-#     data (the state observed at fixed visit times, the transition times
-#     UNKNOWN) is scored directly by multiplying `P(Δt)` entries -- no
-#     marginalisation over the hidden jump chain;
-#   - the exact jump-chain likelihood is the same exponential-sojourn special
-#     case of the semi-Markov term, so a CTMC scores a line list too.
-#
-# `CTMCStates` holds the generator matrix `Q` (off-diagonal `q_ij >= 0` the rate
-# of `i -> j`, diagonal `q_ii = -sum_{j != i} q_ij`) over an ordered state set.
-# It is the memoryless FAST PATH, built with `ctmc(...)`; for non-exponential
-# dwell times use the semi-Markov `recur(...)` default.
+# When every sojourn is exponential the semi-Markov `RecurrentStates` process is
+# a continuous-time Markov chain, with a closed-form `P(t) = exp(Q t)` for panel
+# data and the exponential-sojourn special case of the jump-chain likelihood.
+# `CTMCStates` holds the generator matrix `Q` over an ordered state set, built
+# with `ctmc(...)`; for non-exponential dwells use the `recur(...)` default.
 
 @doc raw"""
 
@@ -27,7 +16,7 @@ A continuous-time Markov chain over states: the memoryless fast path.
 set of `states`. Off-diagonal `Q[i, j]` is the rate of the `i -> j` transition
 and each diagonal is `Q[i, i] = -sum_{j != i} Q[i, j]`. Holding times are
 exponential, so the transition-probability matrix is `P(t) = exp(Q t)` in closed
-form. This makes PANEL data (the state observed at fixed visit times, transition
+form. This makes panel data (the state observed at fixed visit times, transition
 times unknown) tractable through [`transition_probability`](@ref), and the exact
 jump-chain likelihood is the exponential-sojourn special case of the semi-Markov
 [`RecurrentStates`](@ref) path.
@@ -131,21 +120,13 @@ function ctmc(specs::Pair...)
     states = Tuple(order)
     idx = Dict(s => i for (i, s) in enumerate(states))
     n = length(states)
-    # Generator element type from the rate TYPES only -- a `Dual`/tracked rate
-    # widens `T` without its value ever entering an untyped container. The
-    # earlier code collected `(from, to, rate)` into `edges = Any[]` and read the
-    # rates back from that `Vector{Any}`. Boxing the active rate into the untyped
-    # array dropped its AD identity, and worst of all SILENTLY: Enzyme FORWARD
-    # returned a WRONG (finite) gradient and Enzyme REVERSE aborted on the `ctmc`
-    # MethodInstance (`EnzymeNoTypeError`, "copy untyped data"). Assembling `Q`
+    # Generator element type from the rate types only, so a `Dual`/tracked rate
+    # widens `T` without its value entering an untyped container. Assembling `Q`
     # straight from the typed spec tuple keeps the rate dataflow traceable for
-    # ForwardDiff / ReverseDiff / Mooncake (forward AND reverse), which all now
-    # match the ForwardDiff reference. Enzyme still cannot compile this builder
-    # (`EnzymeInternalError`, an upstream Enzyme compiler bug on the
-    # heterogeneous `Pair...` iteration / runtime-typed `Q`), but it now FAILS
-    # LOUDLY rather than silently returning a wrong gradient -- so both CTMC
-    # scenarios are honestly registered Enzyme-broken in the AD fixtures rather
-    # than trusted (see `test/ADFixtures` `backend_broken_scenarios`).
+    # ForwardDiff / ReverseDiff / Mooncake (forward and reverse); Enzyme still
+    # cannot compile this builder, but it fails loudly rather than returning a
+    # wrong gradient, so both CTMC scenarios are registered Enzyme-broken in the
+    # AD fixtures (`test/ADFixtures` `backend_broken_scenarios`).
     T = _ctmc_rate_type(Float64, specs...)
     # Assert a 2-D `Matrix{T}` so `CTMCStates(states, Q)` dispatches against
     # `M <: AbstractMatrix` without a spurious higher-dimensional `Array` branch.
@@ -165,7 +146,7 @@ function ctmc(specs::Pair...)
     return CTMCStates(states, Q)
 end
 
-# Promote the generator element type from the edge rate TYPES, recursing over
+# Promote the generator element type from the edge rate types, recursing over
 # the spec tuple so no active rate value is ever stored in an untyped container
 # (see `ctmc` for why that boxing breaks Enzyme). `typeof` is non-differentiable,
 # so reading each rate here contributes no tangent.
@@ -188,7 +169,7 @@ Convert a memoryless [`RecurrentStates`](@ref) model to its [`CTMCStates`](@ref)
 generator-matrix representation.
 
 A renewal-over-states model is a continuous-time Markov chain exactly when every
-edge sojourn is `Exponential` and every state RACES its edges (a [`Compete`](@ref)
+edge sojourn is `Exponential` and every state races its edges (a [`Compete`](@ref)
 node or a lone edge, never a fixed-probability [`Resolve`](@ref) split). For such
 a model the per-edge rate is `1 / scale` of its `Exponential`, and the generator
 `Q` collects those rates. This is the conversion [`recur`](@ref) performs
@@ -306,7 +287,7 @@ end
 # small dependency-free implementation (LinearAlgebra is not a hard dep of the
 # package); accurate for the small generators these models build and AD-friendly
 # (plain `+`/`*`, so rates differentiate through it). The squaring count `s` is
-# control flow derived from the NUMERIC norm (a plain Float64), so a `Dual`/
+# control flow derived from the numeric norm (a plain Float64), so a `Dual`/
 # tracked entry differentiates through the series and the squaring without `s`
 # itself becoming a tracked quantity.
 function _matrix_exp(A::AbstractMatrix)
@@ -348,14 +329,14 @@ end
 Log-likelihood of an observation under a [`CTMCStates`](@ref) model.
 
 `logpdf` is the single front door for both observation kinds a CTMC scores; it
-DISPATCHES on the shape of `obs`, so no bespoke per-kind scoring name is needed:
+dispatches on the shape of `obs`, so no bespoke per-kind scoring name is needed:
 
-- a PANEL — an iterable of `(time, state)` pairs (the state seen at fixed visit
-  times, the transition times UNKNOWN) — scores
+- a panel — an iterable of `(time, state)` pairs (the state seen at fixed visit
+  times, the transition times unknown) — scores
   `sum_v log P(Δt_v)[s_v, s_{v+1}]`, where `P(Δt) = exp(Q Δt)` marginalises over
   every hidden jump in the gap (the CTMC's advantage over the semi-Markov path);
-- a JUMP CHAIN — a [`StatePath`](@ref) or an iterable of `(from, to, dwell)`
-  jumps (the transition times KNOWN, a line list) — scores the exact
+- a jump chain — a [`StatePath`](@ref) or an iterable of `(from, to, dwell)`
+  jumps (the transition times known, a line list) — scores the exact
   exponential-sojourn term `sum log q_{from,to} - q_from * dwell`.
 
 A panel observation is recognised by its element shape (a `(time, state)` pair),
@@ -389,7 +370,7 @@ function logpdf(m::CTMCStates, obs)
     return _ctmc_jumps_logpdf(m, o)
 end
 
-# Whether an observation element is a PANEL `(time, state)` point rather than a
+# Whether an observation element is a panel `(time, state)` point rather than a
 # `(from, to, dwell)` jump. A panel point is a 2-tuple ending in a state Symbol,
 # or a NamedTuple carrying a `:state` field; a jump NamedTuple has no `:state`.
 _is_panel_obs(o::Tuple) = length(o) == 2 && o[2] isa Symbol
@@ -428,7 +409,7 @@ _panel_point(o::NamedTuple) = (o.time, o.state)
 
 Log-density of an exactly-observed jump chain ([`StatePath`](@ref) overload).
 
-When the transition times ARE known (a line list, not panel data) the CTMC
+When the transition times are known (a line list, not panel data) the CTMC
 likelihood is the exponential-sojourn special case of the semi-Markov path: each
 step contributes `log q_{from,to} - q_from * dwell` where `q_from` is the total
 exit rate of `from`. This [`StatePath`](@ref) overload adds, for a `:censored`

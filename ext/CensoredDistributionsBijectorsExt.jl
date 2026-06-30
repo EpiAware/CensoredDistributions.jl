@@ -1,13 +1,10 @@
 module CensoredDistributionsBijectorsExt
 
 # Prior-driven constrained<->unconstrained transform for the LogDensityProblems
-# layer (EpiAware/CensoredDistributions.jl#734). The per-parameter constraint is
-# carried by the PRIOR distribution itself (a `truncated(Normal; lower=0)` is
-# positive, a `Uniform(0,1)` the unit interval, a plain `Normal` unconstrained),
-# so `bijector(prior)` per row gives the whole flat transform with no bespoke
-# domain table -- and crucially NOT from the table's `support` column, which is
-# the edge's variate support, not the parameter's domain (per the
-# EpiAware/.github#16 correction). Loaded only when Bijectors is available.
+# layer. The per-parameter constraint is carried by the prior distribution
+# itself, so `bijector(prior)` per row gives the flat transform with no bespoke
+# domain table, not from the table's `support` column (the edge's variate
+# support, not the parameter's domain). Loaded only when Bijectors is available.
 
 using CensoredDistributions: CensoredDistributions, ComposedLogDensity
 using Bijectors: Bijectors, bijector, inverse, with_logabsdet_jacobian

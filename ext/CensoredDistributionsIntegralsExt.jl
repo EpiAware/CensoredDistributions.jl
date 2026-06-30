@@ -1,14 +1,11 @@
 module CensoredDistributionsIntegralsExt
 
-# Optional Integrals.jl backend for the pluggable integration interface.
-#
-# Loading Integrals.jl adds an `integrate` method for any Integrals.jl
-# algorithm, so a user can pass e.g. `QuadGKJL()` or `HCubatureJL()` as the
-# `solver` to `primary_censored`/`convolved` and have that
-# integral routed through an `IntegralProblem`/`solve`. Without this
-# extension the package uses its lightweight default `GaussLegendre`
-# solver and never touches Integrals.jl.
-# See https://github.com/EpiAware/CensoredDistributions.jl/issues/208.
+# Optional Integrals.jl backend for the pluggable integration interface. Loading
+# Integrals.jl adds an `integrate` method for any Integrals.jl algorithm, so a
+# user can pass e.g. `QuadGKJL()` or `HCubatureJL()` as the `solver` to
+# `primary_censored`/`convolved`, routed through an `IntegralProblem`/`solve`.
+# Without this extension the package uses its lightweight default
+# `GaussLegendre` solver and never touches Integrals.jl.
 
 import CensoredDistributions: integrate
 using Integrals: Integrals, IntegralProblem, solve

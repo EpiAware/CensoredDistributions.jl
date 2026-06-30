@@ -9,10 +9,10 @@ using Enzyme.EnzymeRules: EnzymeRules
 using SpecialFunctions: gamma, digamma
 
 # `_subevent_slice(events, o_idx, ev_idx, n)` gathers a nested tree node's
-# `[origin, leaf_events...]` sub-view from the CONSTANT event vector by pure
+# `[origin, leaf_events...]` sub-view from the constant event vector by pure
 # index bookkeeping (`src/composers/censored_specialisations.jl`). Its output is
-# a freshly-allocated `Vector{eltype(events)}` of event VALUES (data); the gradient
-# flows only through the leaf distribution PARAMS at each `_tree_step`, never
+# a freshly-allocated `Vector{eltype(events)}` of event values (data); the gradient
+# flows only through the leaf distribution params at each `_tree_step`, never
 # through these copied event times. On a multi-edge tree the event vector has a
 # non-bits `Union{Missing, Float64}` element type, and Enzyme's reverse type
 # analysis cannot statically prove the layout of that `Array` allocation inside the
@@ -31,7 +31,7 @@ EnzymeRules.inactive(::typeof(_subevent_slice), args...) = nothing
 # count), so it is marked `EnzymeRules.inactive`: Enzyme runs the primal
 # unchanged and treats the returned endpoint as a constant, contributing no
 # tangent / no cotangent in either mode. Crucially this stops Enzyme tracing
-# INTO the function at all, so it never reaches `quantile(::Gamma)` →
+# into the function at all, so it never reaches `quantile(::Gamma)` →
 # `SpecialFunctions.gamma_inc_inv_qsmall`, which it cannot differentiate
 # (`IllegalTypeAnalysisException`). `inactive` covers every
 # activity / batch-width / mode permutation uniformly — unlike a bespoke
@@ -46,16 +46,16 @@ EnzymeRules.inactive(::typeof(_subevent_slice), args...) = nothing
 EnzymeRules.inactive(::typeof(_window_quantile), args...) = nothing
 
 # `_collect_unique_boundaries(d, x)` returns the batched-pdf boundaries:
-# functions of the (constant) lags and interval spec, NOT the AD parameters,
+# functions of the (constant) lags and interval spec, not the AD parameters,
 # so they carry no tangent. Enzyme's strict type analysis otherwise rejects
-# the `unique`/sort `Union`-typed temporaries (`IllegalTypeAnalysisException`,
-# #701). `inactive` runs the primal unchanged; the parameter gradient flows
+# the `unique`/sort `Union`-typed temporaries (`IllegalTypeAnalysisException`).
+# `inactive` runs the primal unchanged; the parameter gradient flows
 # through the CDF evaluation in `_compute_boundary_cdfs`, not here.
 EnzymeRules.inactive(::typeof(_collect_unique_boundaries), args...) = nothing
 
-# `_weight_deprecation()` emits the `weight` soft-deprecation warning (issue
-# #128) via `Base.depwarn`, called from every `weight` constructor — which the
-# AD fixtures invoke INSIDE the differentiated closure. `depwarn` reads
+# `_weight_deprecation()` emits the `weight` soft-deprecation warning via
+# `Base.depwarn`, called from every `weight` constructor — which the
+# AD fixtures invoke inside the differentiated closure. `depwarn` reads
 # `Base.get_world_counter()`, i.e. the `@jl_world_counter` LLVM global, and
 # Enzyme cannot find a shadow for that global (`EnzymeNoShadowError`), erroring
 # every `weight` path on Enzyme forward and reverse. The warning is a pure

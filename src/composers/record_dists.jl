@@ -2,18 +2,14 @@
 # Per-record composed distributions for vectorised scoring + sampling
 # ============================================================================
 #
-# Scoring many records that share one composed distribution `d` is the standard
-# vectorised-distribution pattern: assemble a VECTOR of per-record distributions
-# (each record's reserved metadata - the `obs_time` horizon, the weight, and the
-# missingness pattern - baked into that record's distribution at ASSEMBLY) and
-# score/sample with `product_distribution`. This is dual-purpose: `logpdf` scores
-# present observations and `rand` samples missing ones, so ONE entry point fits
-# AND generates.
-#
-# The expensive convolution / collapsed-segment construction is shared: each
-# distinct segment run is built ONCE in an AD-free data pre-pass (keyed by the
-# integer observed-pattern run, never by a parameter value) and reused across the
-# records whose pattern needs it.
+# Scoring many records that share one composed distribution `d` assembles a
+# vector of per-record distributions (each record's reserved metadata - the
+# `obs_time` horizon, the weight, and the missingness pattern - baked in) and
+# scores/samples with `product_distribution`: dual-purpose, so `logpdf` scores
+# present observations and `rand` samples missing ones. The expensive
+# convolution / collapsed-segment construction is shared, each distinct segment
+# run built once in an AD-free data pre-pass keyed by the integer
+# observed-pattern run (never by a parameter value) and reused.
 
 # ---------------------------------------------------------------------------
 # EventRecord: one record's composed distribution
@@ -94,7 +90,7 @@ function _record_logpdf(r::EventRecord{<:Sequential}, x::AbstractVector)
     vals = [x[i] for i in obs]
     nseg = length(obs) - 1
     # Numerator: the untruncated factorised per-segment density. The accumulator
-    # is seeded with a `Float64` zero and left UNANNOTATED so each segment's
+    # is seeded with a `Float64` zero and left unannotated so each segment's
     # (possibly AD-tracked) log density widens it naturally, mirroring the flat
     # `_seq_event_logpdf_untrunc` pattern (the data is constant; the `Dual` comes
     # from the leaf params via the segments).
@@ -104,10 +100,10 @@ function _record_logpdf(r::EventRecord{<:Sequential}, x::AbstractVector)
         lp += logpdf(seg, vals[j + 1] - vals[j])
     end
     r.horizon === nothing && return _weight_lp(lp, r.weight)
-    # Denominator: whole-compose TOTAL truncation. A single
+    # Denominator: whole-compose total truncation. A single
     # conv-to-last-observed right-truncation term `-logcdf(C, window)`, where `C`
     # is the prebuilt origin->last-observed segment and `window = horizon -
-    # origin`. With one observed segment `C` IS that segment, reducing to the
+    # origin`. With one observed segment `C` is that segment, reducing to the
     # endpoint-observed term. A non-positive window is an empty-support truncation
     # (`-Inf`), matching `event_logpdf`'s guard.
     last_seg = _lookup_seg(bundle.segs, obs[1], obs[end])
@@ -143,7 +139,7 @@ function _record_logpdf(r::EventRecord{<:Parallel}, x::AbstractVector)
     cores = bundle.cores
     events = r.events
     # Promote over the leaf params (carrying any AD `Dual`) and the data, off the
-    # CONCRETE primary + cores types (a Tuple), so this is inferred.
+    # concrete primary + cores types (a Tuple), so this is inferred.
     T = float(promote_type(eltype(x), _param_eltype(primary),
         map(_param_eltype, cores)...))
     if events[1] === missing
@@ -244,7 +240,7 @@ Assemble a vector of per-record composed distributions from a table of records.
 [`EventRecord`](@ref) distribution over the flat event vector, baking the
 record's reserved metadata (the `obs_time` horizon, the `weight`/`count`, and the
 missingness pattern) into that record's distribution. The expensive convolution /
-collapsed-segment construction is SHARED: each distinct segment run is built once
+collapsed-segment construction is shared: each distinct segment run is built once
 and reused across the records that need it.
 
 The returned vector is the standard vectorised entry: score and sample with
@@ -300,14 +296,14 @@ function record_distributions(d::Parallel, rows)
     return [_par_record(d, p, bundle) for p in parsed]
 end
 
-# A BARE leaf (a univariate / censored leaf, no composer wrapper) as a vector of
+# A bare leaf (a univariate / censored leaf, no composer wrapper) as a vector of
 # one-event records: a single-delay model scores `d` directly without wrapping it
 # in a one-edge `Sequential`. Each row carries one observed event value (plus the
 # optional reserved `weight`/`count`/`obs_time`); the record scores through
-# `event_logpdf(::UnivariateDistribution, value; horizon) * weight`, the SAME
+# `event_logpdf(::UnivariateDistribution, value; horizon) * weight`, the same
 # `_GenericRecord` path a leaf `Choose` alternative uses. This is exactly the
 # density of the one-edge `Sequential(d)` wrapper observed from a zero origin (the
-# wrapper's single segment IS the leaf core), so the wrapped and bare forms give
+# wrapper's single segment is the leaf core), so the wrapped and bare forms give
 # the same logpdf; the bare form just drops the synthetic origin slot. A
 # fully-missing row contributes zero on `logpdf` and is sampled on `rand`.
 function record_distributions(d::UnivariateDistribution, rows)
@@ -318,7 +314,7 @@ function record_distributions(d::UnivariateDistribution, rows)
 end
 
 # Build per-record distributions for a tree that nests a `Choose`: each record
-# resolves its OWN (Choose-free) tree from the row's selector(s), strips the
+# resolves its own (Choose-free) tree from the row's selector(s), strips the
 # selector field(s) so they are not matched as events, then parses + builds a
 # generic record over the resolved tree. A record missing a needed selector field
 # errors in `_pick_choose`, so a data record never silently routes to the
@@ -341,7 +337,7 @@ function _choose_resolved_records(d::AbstractMultiChild, rows)
 end
 
 # The selector field names of every nested `Choose` in a tree (each Choose's
-# `selector`), so they are stripped from a row before event matching. RECURSES
+# `selector`), so they are stripped from a row before event matching. Recurses
 # through the same nesting as `_count_chooses`/`_pick_choose` (composer
 # components, an `AbstractOneOf`'s outcome `delays`, a Choose's alternatives, a
 # Latent's inner dist), so a Choose nested inside a one_of-outcome subtree has
@@ -397,7 +393,7 @@ end
 
 # The raw per-record `branch_probs` override carried by a row (a NamedTuple of
 # outcome -> prob or a scalar), or `nothing` when the row carries none. Read but
-# NOT coerced here; coercion is deferred to the per-record build, which has the
+# not coerced here; coercion is deferred to the per-record build, which has the
 # Resolve node to validate against.
 function _row_branch_probs_field(row::NamedTuple)
     haskey(row, :branch_probs) || return nothing
@@ -429,10 +425,10 @@ end
 # The distinct segment runs `(a, b)` across all records (the run-id is the
 # position). Pure integer/data: reads only the observed indices. A record with
 # fewer than two observed events contributes no run (a fully-missing record is
-# scored as zero and SAMPLED through `rand`, the generative path).
+# scored as zero and sampled through `rand`, the generative path).
 #
 # A record carrying a per-record horizon also needs the conv-to-last-observed run
-# `(obs[1], obs[end])` for its whole-compose TOTAL truncation denominator,
+# `(obs[1], obs[end])` for its whole-compose total truncation denominator,
 # so that origin->last-observed segment is registered (and built once, shared)
 # alongside the per-segment numerator runs. For an endpoint-observed record this
 # is the same run as its single segment.
@@ -472,11 +468,11 @@ end
 # Generic per-record build: nested trees, per-record branch_probs, Choose
 # ---------------------------------------------------------------------------
 #
-# A nested-Resolve tree (bdbv) and a Choose top need per-record handling the
-# flat shared-segment build cannot express: a nested tree scores through the
-# recursive `_tree_score`, a covariate-CFR `branch_probs` override is baked PER
-# RECORD into the record's Resolve node, and a Choose picks a different branch
-# (and obs_time) per row. Each such record holds its OWN (possibly overridden /
+# A nested-Resolve tree and a Choose top need per-record handling the flat
+# shared-segment build cannot express: a nested tree scores through the
+# recursive `_tree_score`, a covariate-CFR `branch_probs` override is baked per
+# record into the record's Resolve node, and a Choose picks a different branch
+# (and obs_time) per row. Each such record holds its own (possibly overridden /
 # selected) distribution and scores by `event_logpdf(dist, events; horizon)`,
 # exactly the per-record loop the vectorised path must equal. The shared-segment
 # dedup is skipped here (correctness first); the leaf cores are still cheap to
@@ -498,7 +494,7 @@ Base.length(r::_GenericRecord) = length(r.events)
 Base.eltype(::Type{<:_GenericRecord}) = Float64
 
 # Score a generic record: merge the supplied values into the record's missingness
-# pattern, then route through the shared `event_logpdf` (the SAME function the
+# pattern, then route through the shared `event_logpdf` (the same function the
 # per-record loop calls), scaled by the weight. A composer scores the event
 # vector; a univariate-leaf alternative scores its single observed value.
 function _record_logpdf(r::_GenericRecord, x::AbstractVector)
@@ -543,7 +539,7 @@ end
 function Distributions._rand!(
         rng::AbstractRNG, r::_GenericRecord, x::AbstractVector)
     path = _record_rand(rng, r)
-    # A nested tree's sampled path leaves the UNRESOLVED Resolve outcome slots
+    # A nested tree's sampled path leaves the unresolved Resolve outcome slots
     # `missing` (one outcome resolves per record); the dual-purpose generative
     # matrix is `Float64`, so an unresolved slot is filled with `NaN` (a sentinel
     # the scored slots never take).
@@ -584,14 +580,12 @@ end
 
 # The single Resolve node of a tree (for coercing a per-record override against
 # its outcome names), or `nothing` when there is none; errors if more than one.
-# RECURSES through the same nesting as `_count_one_of`/`_replace_one_of`
+# Recurses through the same nesting as `_count_one_of`/`_replace_one_of`
 # (composer components, an `AbstractOneOf`'s outcome `delays`, a `Choose`'s
 # alternatives, a `Latent`'s inner dist), so a Resolve nested inside a
-# one_of-outcome subtree or a Choose alternative is found and coerced against.
-# (Previously a nested `AbstractOneOf` hit the `::UnivariateDistribution`
-# fallback — they share that supertype — so a nested Resolve was missed, and
-# `Choose`/`Latent` hit no method.) A `Compete` is NOT branch-prob-
-# overridable, so it is not itself returned, but its delays are still searched.
+# one_of-outcome subtree or a Choose alternative is found and coerced against. A
+# `Compete` is not branch-prob-overridable, so it is not itself returned, but
+# its delays are still searched.
 _the_one_of_node(c::Resolve) = _merge_one_of(c,
     _the_one_of_node_in(c.delays))
 _the_one_of_node(c::Compete) = _the_one_of_node_in(c.delays)
@@ -621,7 +615,7 @@ end
 # Choose top: per-record branch selection
 # ---------------------------------------------------------------------------
 #
-# A `Choose` top routes each record to ONE of its independent alternatives, named
+# A `Choose` top routes each record to one of its independent alternatives, named
 # by the row's selector field (`row[d.selector]`, default `:kind`). The chosen
 # alternative is itself a leaf or a composer, so each record builds that
 # alternative's record distribution (with the record's own obs_time / weight),
@@ -635,7 +629,7 @@ function record_distributions(d::Choose, rows)
         "record_distributions needs at least one record; got an empty table"))
     recs = [_choose_record(d, _row_namedtuple(row)) for row in rowvec]
     # The records are scored together via `product_distribution`, which requires a
-    # rectangular event matrix: every record must have the SAME number of event
+    # rectangular event matrix: every record must have the same number of event
     # slots. Different alternatives may have different event-slot counts (a leaf is
     # one, a composer several), so a table whose rows select differing-length
     # alternatives has no rectangular layout. Distributions.jl would otherwise
@@ -674,8 +668,8 @@ end
 function _alternative_record(d::UnivariateDistribution, row::NamedTuple)
     return _leaf_record(d, row)
 end
-# A `latent`-wrapped alternative in the VECTORISED `product_distribution` path has
-# no place to sample its latent, so it scores through its MARGINAL equivalent (the
+# A `latent`-wrapped alternative in the vectorised `product_distribution` path has
+# no place to sample its latent, so it scores through its marginal equivalent (the
 # wrapped node), which is density-equal to the latent form. A latent leaf scores
 # its single observed value; a latent composer reuses the marginal record build.
 function _alternative_record(d::Latent, row::NamedTuple)

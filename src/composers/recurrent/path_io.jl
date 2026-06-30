@@ -2,19 +2,13 @@
 # Path simulation and scoring for RecurrentStates
 # ============================================================================
 #
-# A realisation of a `RecurrentStates` model is a PATH: a sequence of jumps.
-# `StatePath` is the self-describing record (the cyclic analogue of the acyclic
-# tree's named event record): the start state, the vector of `(from, to, dwell)`
-# jumps, the calendar time accumulated, and whether the path was right-CENSORED
-# at a horizon (it hit `horizon` mid-sojourn) rather than ABSORBED (it reached
-# an absorbing state) or truncated at the jump cap.
-#
-# `rand` simulates a path; `logpdf` scores one. Scoring sums the per-sojourn
-# transition log sub-densities -- exactly the `Compete` / `Resolve` cause-
-# resolved term -- plus, for a horizon-censored path, the survival term of the
-# final, still-running sojourn (the probability no edge fired by the remaining
-# time). The sum factorises over steps because each clock resets, so the path
-# likelihood is AD-safe and differentiates w.r.t. the edge parameters.
+# A realisation of a `RecurrentStates` model is a path of jumps, recorded by
+# `StatePath` (start state, `(from, to, dwell)` jumps, elapsed time, and the
+# stop reason: absorbed, horizon-censored, or jump-capped). `rand` simulates a
+# path; `logpdf` scores one by summing the per-sojourn `Compete` / `Resolve`
+# cause-resolved terms, plus the survival term of the final sojourn for a
+# censored path. The clock resets each step, so the sum factorises and is
+# AD-safe in the edge parameters.
 
 @doc """
 
@@ -212,7 +206,7 @@ end
 
 # Score a bare observation iterable. A jump chain (`(from, to, dwell)` items)
 # scores the semi-Markov per-sojourn term directly. A panel (`(time, state)`
-# items) needs the memoryless `exp(Q t)` kernel, so it DISPATCHES through the
+# items) needs the memoryless `exp(Q t)` kernel, so it dispatches through the
 # CTMC representation: `ctmc(m)` converts the model (and errors with a clear
 # message if it is not all-exponential), then scores the panel. This is the
 # state-at-visit likelihood the semi-Markov path cannot offer directly.
@@ -254,7 +248,7 @@ function _transition_logpdf(p::Pair, dest::Symbol, t::Real)
     return logpdf(p.second, t)
 end
 
-# The log survival of a node at `t`: the probability NO edge has fired by `t`.
+# The log survival of a node at `t`: the probability no edge has fired by `t`.
 # A racing node is the product survival `sum_k log S_k(t)`; a fixed split the
 # log of `1 - sum_k p_k F_k(t)`; a lone edge `logccdf`. The survival terms route
 # through the AD-safe `_logccdf_ad_safe` / `_cdf_ad_safe` helpers so a Gamma's

@@ -28,7 +28,7 @@ Mooncake.@from_chainrules Mooncake.DefaultCtx Tuple{typeof(_gamma_cdf), Real, Re
 # construction — and return Symbols / Bool / `Tuple{Symbol, Symbol}` / `nothing`.
 # The names are constant with respect to the sampled parameters; only the delay
 # parameters carry gradients. They are reached from `_flat_event_names` /
-# `_row_event_vector` INSIDE the differentiated record `logpdf` (the composed-tree
+# `_row_event_vector` inside the differentiated record `logpdf` (the composed-tree
 # / `convolved` scoring path in a Turing `@model`), and Mooncake
 # reverse cannot trace the underlying string foreigncalls (`startswith` calls
 # `memcmp`), so the path breaks without these rules. Declaring each as a
@@ -39,7 +39,7 @@ Mooncake.@from_chainrules Mooncake.DefaultCtx Tuple{typeof(_gamma_cdf), Real, Re
 # longer compile a `Regex`. They previously matched `r"^step_\d+$"` etc., and
 # `Base.compile(::Regex)` uses a try/catch Mooncake reverse cannot differentiate;
 # even shielded here, that try/catch broke Mooncake reverse wherever the helper
-# was reached UN-shielded (e.g. inlined into a traced caller), forcing the bdbv
+# was reached un-shielded (e.g. inlined into a traced caller), forcing the bdbv
 # tutorial to AutoForwardDiff. They now do a plain `startswith` + ASCII-digit
 # scan, so no `Regex` is compiled on the scored path; the zero-adjoint rules
 # remain for the residual `startswith`/`split` foreigncalls and the convolve path.
@@ -50,14 +50,14 @@ Mooncake.@from_chainrules Mooncake.DefaultCtx Tuple{typeof(_gamma_cdf), Real, Re
 # the mutation happens exactly as in the primal, and the integer counter is
 # non-differentiable, so a zero cotangent is correct.
 Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{typeof(_split_edge_name), Symbol}
-# `_split_edge` is the DOTTED parameter-path splitter (`:a.b -> (:a, :b)`), reached
-# from `event(d, name)` and `build_priors`/`composed_parameters_model` INSIDE the
+# `_split_edge` is the dotted parameter-path splitter (`:a.b -> (:a, :b)`), reached
+# from `event(d, name)` and `build_priors`/`composed_parameters_model` inside the
 # differentiated reconstruction (e.g. `event(delays, :index)` in the andv Choose
 # model). It does `split(string(edge), '.')` — pointer-arithmetic string search
 # (`findnext`/`thisind`/`codeunit`) that Mooncake reverse cannot trace, aborting
 # with the uncatchable `sub_ptr intrinsic hit`, which forced the andv tutorial to
 # `AutoForwardDiff`. The split is pure constant string -> `Tuple{Symbol...}` work
-# on the CONSTANT edge labels (zero derivative; only the sampled delay params carry
+# on the constant edge labels (zero derivative; only the sampled delay params carry
 # gradients), so a zero-adjoint primitive runs the primal unchanged and returns a
 # zero cotangent, letting the gradient flow through the delay parameters with no
 # behaviour change. Mirrors the underscored `_split_edge_name` rule above.
@@ -83,7 +83,7 @@ Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{
 # `_window_quantile(comp, p)` returns a quadrature-window endpoint: an extreme
 # quantile of an integration component used only to clamp an infinite bound to a
 # finite one. It is computed on AD-stripped (primal) parameters, so the window is
-# a non-differentiated hyperparameter (just WHERE to integrate), not a quantity
+# a non-differentiated hyperparameter (just where to integrate), not a quantity
 # carrying gradient. The `ChainRulesCore.@non_differentiable` mark in
 # `CensoredDistributionsChainRulesCoreExt` covers reverse-mode AD generally, but
 # Mooncake does not lift that mark automatically: without an explicit rule
@@ -91,7 +91,7 @@ Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{
 # returns a `NaN` shape derivative. Both modes need shielding, so
 # `@zero_derivative` (no mode argument: covers both ForwardMode and ReverseMode)
 # registers the primitive and generates a zero `frule!!` and a zero `rrule!!`,
-# each returning the correct ZERO tangent/rdata for its argument types (a
+# each returning the correct zero tangent/rdata for its argument types (a
 # hand-written `NoRData` would be wrong for the distribution argument, whose
 # rdata is a `NamedTuple` of its parameters). `@zero_adjoint` would cover reverse
 # only, leaving a forward `Difference` whose subtrahend is the differentiated,
@@ -101,29 +101,29 @@ Mooncake.@zero_adjoint Mooncake.DefaultCtx Tuple{
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_window_quantile), UnivariateDistribution, Real}
 
-# `_premodified_rate_primal(d, u)` is the pre-clamp modified rate used ONLY by
+# `_premodified_rate_primal(d, u)` is the pre-clamp modified rate used only by
 # the `Modified` knot scan (`_modified_knots`), which locates where the additive
 # hazard clamp engages. The knots carry no gradient — they split the
 # cumulative-hazard quadrature at a continuous kink — so the rate that finds them
 # must not be differentiated. Without a Mooncake rule, the reverse trace runs the
 # rate at the support edge, where `logpdf(base, lo) = -Inf` (Gamma shape > 1,
 # LogNormal, ...), and the discarded `0 * (-Inf)` adjoint becomes a `NaN` on the
-# base distribution's first parameter (#680: NaN on the modify negative-effect /
-# numeric-link gradient). `@zero_derivative` (both modes) generates the correct
-# zero tangent/rdata for the `Modified` argument (whose rdata is a `NamedTuple`
-# of its fields), cutting the trace at the scan while the quadrature integrand —
-# which DOES carry the gradient — is untouched. Mirrors the `_window_quantile`
-# rule above (the same primal-strip-not-lifted-by-Mooncake problem).
+# base distribution's first parameter. `@zero_derivative` (both modes) generates
+# the correct zero tangent/rdata for the `Modified` argument (whose rdata is a
+# `NamedTuple` of its fields), cutting the trace at the scan while the
+# quadrature integrand — which does carry the gradient — is untouched. Mirrors
+# the `_window_quantile` rule above (the same
+# primal-strip-not-lifted-by-Mooncake problem).
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_premodified_rate_primal), Modified, Real}
 
 # `_collect_unique_boundaries(d, x)` returns the batched-pdf boundaries:
-# functions of the (constant) lags `x` and interval spec, NOT the AD
+# functions of the (constant) lags `x` and interval spec, not the AD
 # parameters, so they carry no tangent. Without a rule Mooncake traces the
 # `unique`/sort internals (a `Dict` seen-set and a `Float64`->`UInt64` bitcast
-# it refuses, #699). `@zero_derivative` (both modes) runs the primal and
+# it refuses). `@zero_derivative` (both modes) runs the primal and
 # returns a zero tangent; the parameter gradient flows through the CDF
-# evaluation in `_compute_boundary_cdfs`, not here (#701).
+# evaluation in `_compute_boundary_cdfs`, not here.
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_collect_unique_boundaries), IntervalCensored, AbstractVector}
 

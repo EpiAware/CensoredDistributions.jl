@@ -20,7 +20,7 @@ ChainRulesCore.@non_differentiable _window_quantile(::Any, ::Any)
 # at a continuous kink. Differentiating it runs `logpdf(base, lo) = -Inf` at the
 # support edge (Gamma shape > 1, LogNormal, ...), and the discarded `0 * (-Inf)`
 # adjoint becomes a `NaN` on the base distribution's first parameter under
-# reverse mode (#680). `@non_differentiable` keeps ReverseDiff (and any
+# reverse mode. `@non_differentiable` keeps ReverseDiff (and any
 # ChainRules-based reverse mode) off it; Mooncake needs its own explicit
 # `@zero_derivative` (it does not lift this mark), declared in the Mooncake ext.
 ChainRulesCore.@non_differentiable _premodified_rate_primal(::Any, ::Any)
@@ -29,8 +29,7 @@ ChainRulesCore.@non_differentiable _premodified_rate_primal(::Any, ::Any)
 # functions of the (constant) lags and interval spec, not the AD parameters,
 # so they carry no tangent. `@non_differentiable` covers reverse-mode AD
 # (ReverseDiff) without tracing the `unique`/sort internals; the parameter
-# gradient flows through the CDF evaluation in `_compute_boundary_cdfs`
-# (#699, #701).
+# gradient flows through the CDF evaluation in `_compute_boundary_cdfs`.
 ChainRulesCore.@non_differentiable _collect_unique_boundaries(::Any, ::Any)
 
 # Reverse- and forward-mode rules for `_gamma_cdf(k, θ, x) = P(k, x/θ)`.

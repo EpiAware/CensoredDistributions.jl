@@ -32,7 +32,7 @@ import SurvivalDistributions as SD
 # `scale(d.G)`; the helpers below pull those out and the `_gamma_cdf` rules do
 # the rest.
 #
-# `SurvivalDistributions.LogLogistic` needs NO special AD routing here: its
+# `SurvivalDistributions.LogLogistic` needs no special AD routing here: its
 # `logccdf` is built from elementary operations (`log1p`/`exp`), so it
 # differentiates through the generic elementary `logccdf` fallback under every
 # backend without a `_*_ad_safe` method.
@@ -63,16 +63,16 @@ end
 
 # The public `logcdf(::GeneralizedGamma, t)` must be AD-safe too, not just the
 # package-internal `_*_ad_safe` helpers above. `SurvivalDistributions` defines
-# `logccdf(GG, t) = logccdf(d.G, t^gamma)` but NO `logcdf`, so a direct
+# `logccdf(GG, t) = logccdf(d.G, t^gamma)` but no `logcdf`, so a direct
 # `logcdf(GeneralizedGamma(θ...), t)` falls through to the generic
 # `Distributions.logcdf`, which evaluates the inner Gamma's `logcdf` →
-# `StatsFuns._gammalogcdf`. That has NO `ForwardDiff.Dual` /
+# `StatsFuns._gammalogcdf`. That has no `ForwardDiff.Dual` /
 # `ReverseDiff.TrackedReal` / Mooncake method, so under any AD backend it strips
 # the `Dual` and throws (`no method matching _gammalogccdf(::Dual, ...)`).
 # Routing `logcdf` through the `_gamma_cdf`-backed helper makes a bare `logcdf`
 # differentiate everywhere the censored pipelines already do, closing the gap a
 # user hits scoring a GeneralizedGamma leaf directly. `cdf`/`ccdf`/`logccdf` are
-# OWNED by `SurvivalDistributions` (redefining them here is method-overwriting
+# owned by `SurvivalDistributions` (redefining them here is method-overwriting
 # piracy and breaks precompilation), so they are left to the package's
 # `_cdf_ad_safe` / `_ccdf_ad_safe` / `_logccdf_ad_safe` helpers, which the
 # censoring pipelines already use and which the AD-parity testitem locks in.
@@ -83,22 +83,22 @@ logcdf(d::SD.GeneralizedGamma, t::Real) = _logcdf_ad_safe(d, t)
 # Hazard accessor interop with SurvivalDistributions
 # ============================================================================
 #
-# CensoredDistributions defines its OWN unexported `hazard` / `loghazard` /
+# CensoredDistributions defines its own unexported `hazard` / `loghazard` /
 # `cumhazard` / `survival` (see `src/utils/hazards.jl`) so they do not clash
-# with SurvivalDistributions' EXPORTED `hazard`/`loghazard`/`cumhazard` when
+# with SurvivalDistributions' exported `hazard`/`loghazard`/`cumhazard` when
 # both packages are loaded. The definitions are identical (the standard survival
 # identities `h = f/S`, `H = -log S`, `log h = log f - log S`), so the two agree
-# on every UNIVARIATE delay automatically: `SD.hazard` already reads
+# on every univariate delay automatically: `SD.hazard` already reads
 # `pdf`/`ccdf`, which every composed univariate delay defines, and
 # `CensoredDistributions.hazard` reads the same surface, so a tree of SD leaves
 # and an SD leaf in a tree both work under either entry.
 #
-# The only gap is the MULTIVARIATE verb composer (`Sequential`): SD's generic
+# The only gap is the multivariate verb composer (`Sequential`): SD's generic
 # `hazard(::UnivariateDistribution, t)` does not match a `Sequential` (which is
 # `Multivariate`), so `SD.hazard(tree, t)` would error where
 # `CensoredDistributions.hazard(tree, t)` reduces the chain to its marginal
 # time-to-event convolution. Forward SD's verbs to the package accessors for
-# the verb composers so the SAME tree-level hazard is reachable through EITHER
+# the verb composers so the same tree-level hazard is reachable through either
 # package's function name. A `Parallel` raises the same ambiguity error the
 # package accessor does (its `_hazard_marginal(::Parallel)` throws).
 for V in (Sequential, Parallel)

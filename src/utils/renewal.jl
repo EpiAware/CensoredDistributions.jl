@@ -2,34 +2,14 @@
 # renewal(Rt, gi, I0; modulator): the renewal recurrence as a composable scan
 # ============================================================================
 #
-# `convolved(stack, series)` pushes a fixed series through a delay
-# stack. The renewal recurrence feeds its own output back as input:
-#
-#   I[t] = R_t * m(t) * Σ_s g_s I[t-s]
-#
-# so it cannot be a single convolution call. This is a small forward scan that
-# reuses the same causal-convolution arithmetic one output step at a time: the
-# generation-weighted sum `Σ_s g_s I[t-s]` is `_renewal_force`, the per-step
-# analogue of `_causal_convolve`, evaluated against the infections built so far.
-#
-# The force of infection is then scaled by a composable modulator. A modulator
-# is any callable `m(state, t, force) -> (factor, state')`: it returns the
-# multiplicative factor at time `t` and an updated carry-state for the next
-# step. The default carries nothing and returns `1` (a bare renewal). The
-# shipped modulators are susceptibility depletion (a depleting susceptible
-# pool), transmissibility (a per-step deterministic factor) and immunity waning
-# (an immune pool that grows with infections and decays). Modulators compose:
-# `combine_modulators(a, b)` multiplies their factors and threads both
-# carry-states, so transmissibility, susceptibility and immunity terms stack
-# rather than living in one monolithic recurrence.
-#
-# AD-safety. The scan is linear in the infection history and the modulator
-# factors, and `gi` enters as a plain PMF vector (built by `interval_censored`
-# / `discretise_pmf`, the AD-safe discretisation), so gradients flow w.r.t. Rt,
-# the generation-interval parameters and the modulator parameters under
-# ForwardDiff / ReverseDiff / Mooncake. The accumulator element type is promoted
-# across Rt, the PMF, the seed and the modulator state so Dual / tracked numbers
-# propagate.
+# The renewal recurrence `I[t] = R_t * m(t) * Σ_s g_s I[t-s]` feeds its own
+# output back as input, so it runs as a forward scan that reuses the causal
+# convolution one output step at a time (`_renewal_force` is the per-step
+# `_causal_convolve`). A modulator `m(state, t, force) -> (factor, state')`
+# scales the force; the shipped ones are susceptibility depletion,
+# transmissibility and immunity waning, and `combine_modulators` stacks them.
+# The scan is linear in the history and the factors and `gi` enters as a plain
+# PMF, so gradients flow under ForwardDiff / ReverseDiff / Mooncake.
 
 # --- the per-step force of infection Σ_s g_s I[t-s] ------------------------
 
@@ -392,12 +372,12 @@ _state_eltype(x::Tuple) = promote_type(map(_state_eltype, x)...)
 #
 # A `nothing` carry-state means there is nothing to seed regardless of the
 # modulator, so it short-circuits to `nothing`. This is dispatched on the
-# stateless `::Nothing` SECOND argument, which overlaps the typed-modulator
+# stateless `::Nothing` second argument, which overlaps the typed-modulator
 # methods below (they accept any state, including `nothing`); the explicit
 # `::Nothing` methods for the three stateful modulators resolve that overlap
 # so dispatch stays unambiguous (otherwise a `(SusceptibilityDepletion,
 # nothing)` call matches both this catch-all and the typed method, and
-# `detect_ambiguities` flags every pair — see #775).
+# `detect_ambiguities` flags every pair).
 _seed_modulator(::Any, ::Nothing, I, seed) = nothing
 _seed_modulator(::SusceptibilityDepletion, ::Nothing, I, seed) = nothing
 _seed_modulator(::ImmunityWaning, ::Nothing, I, seed) = nothing

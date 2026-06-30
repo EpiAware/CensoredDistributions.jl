@@ -55,28 +55,18 @@ end
 # Deprecation: the weighting surface moves to ModifiedDistributions.jl
 # ============================================================================
 
-# `weight` / `Weighted` are slated to move out of CensoredDistributions.jl and
-# into the standalone ModifiedDistributions.jl package (issue #128). This is the
-# warning release: the surface stays fully functional, but the `weight`
-# constructors emit a deprecation warning so callers can migrate ahead of
-# removal in a later breaking release. As with the package's other soft
-# deprecations, the warning only surfaces under `--depwarn=yes`/`error`, so it
-# never spams normal use. The underlying `Weighted` type stays reachable (it is
-# `public`) for code that needs the multiplicity behaviour today.
+# `weight` / `Weighted` will move to the standalone ModifiedDistributions.jl
+# package; the constructors emit a deprecation warning under `--depwarn=yes` so
+# callers can migrate ahead of removal, and the `Weighted` type stays reachable
+# (it is `public`) meanwhile.
 #
-# The warning fires AT MOST ONCE per session, gated on a module-level flag. This
-# is not just cosmetic deduplication: the `weight` constructor is called inside
-# differentiated/sampled closures (the AD fixtures and any `~ weight(dist, w)`
-# model), so `_weight_deprecation` lands in the gradient hot path.
+# The warning fires at most once per session, gated on a module-level flag,
+# because the `weight` constructor runs inside differentiated/sampled closures:
 # `Base.depwarn` walks a `backtrace()` and reads the world counter on every
-# call, which under `--depwarn=yes` (forced by `Pkg.test`) turns a NUTS fit
-# pathological — a 50-parameter censored+latent fit stalled for ~1.5h because
-# the warning ran on every gradient evaluation. The cached flag makes every
-# call after the first a single `Bool` read and early return, taking
-# `depwarn`/`backtrace`/the world counter out of the hot path entirely. The
-# first call is additionally shielded from Enzyme (which cannot shadow the
-# `@jl_world_counter` global) by an `EnzymeRules.inactive` rule on this helper
-# in the Enzyme extension.
+# call, which under `--depwarn=yes` (forced by `Pkg.test`) stalls a NUTS fit.
+# The cached flag makes every call after the first a single `Bool` read, and the
+# first call is shielded from Enzyme by an `EnzymeRules.inactive` rule in the
+# Enzyme extension.
 const _WEIGHT_DEPRECATION_WARNED = Ref(false)
 
 function _weight_deprecation()
@@ -102,8 +92,7 @@ Create a weighted distribution where the log-probability is scaled by `w`.
 !!! warning \"Deprecated\"
     `weight` is deprecated and will move to the standalone
     ModifiedDistributions.jl package in a future breaking release. It still
-    works for now and emits a deprecation warning under `--depwarn=yes`. Track
-    the migration in issue #128.
+    works for now and emits a deprecation warning under `--depwarn=yes`.
 
 A `Weighted` distribution will contribute `w * logpdf(dist, x)` to the
 log-probability when evaluating `logpdf(weighted_dist, x)`.
@@ -342,10 +331,10 @@ function _logpdf_product(
         d::Product{<:ValueSupport, <:Weighted, <:AbstractVector{<:Weighted}},
         values, obs_weights)
     # Base (unweighted) logpdfs, one per component. When every component shares
-    # the SAME underlying distribution AND that distribution has a cached-CDF
+    # the same underlying distribution and that distribution has a cached-CDF
     # batched `logpdf` (the `weight(dist, weights)` aggregation pattern over an
     # `IntervalCensored`: many duplicate observation/window combinations against
-    # one distribution), these are scored in a SINGLE vectorised `logpdf(dist, x)`
+    # one distribution), these are scored in a single vectorised `logpdf(dist, x)`
     # call rather than a per-observation loop, reusing the batched PDF
     # methods. The vectorised call returns the same values as the per-element
     # loop (it just caches shared CDF evaluations), so the weighted sum is
@@ -364,13 +353,13 @@ function _logpdf_product(
 end
 
 # The unweighted base logpdfs of a vector of `Weighted` components at `values`.
-# The vectorised batched `logpdf(dist, values)` call is taken ONLY when every
-# component wraps the SAME distribution AND that distribution has a specialised
+# The vectorised batched `logpdf(dist, values)` call is taken only when every
+# component wraps the same distribution and that distribution has a specialised
 # batched `logpdf` over a vector of scalar observations (the cached-CDF
 # `IntervalCensored` path, `_has_batched_logpdf`); otherwise the per-component
-# loop is used. Both conditions are on the DATA (the wrapped distribution's type
+# loop is used. Both conditions are on the data (the wrapped distribution's type
 # and object identity), never on a sampled parameter value, so the branch is
-# AD-safe; and gating on `_has_batched_logpdf` keeps a PLAIN distribution (no
+# AD-safe; and gating on `_has_batched_logpdf` keeps a plain distribution (no
 # batched method, no CDF-cache win) on the loop, which avoids routing it through
 # the deprecated/AD-hostile generic `logpdf(d, ::AbstractVector)`.
 function _weighted_base_logpdfs(components, values)
@@ -384,15 +373,15 @@ end
 # `logpdf(d, ::AbstractVector{<:Real})` over a vector of scalar observations that
 # is worth a single vectorised call. Only `IntervalCensored` does (it caches the
 # shared interval CDFs); everything else falls back to the per-observation
-# loop. Composer `logpdf(::AbstractVector)` methods score a single MULTIVARIATE
+# loop. Composer `logpdf(::AbstractVector)` methods score a single multivariate
 # event, not a batch, so they are deliberately excluded.
 _has_batched_logpdf(::UnivariateDistribution) = false
 _has_batched_logpdf(::IntervalCensored) = true
 
 # The single underlying distribution shared by every `Weighted` component, or
 # `nothing` when they are not all the same object. Identity (`===`) keeps the
-# branch DATA-driven: it depends only on which distribution object each
-# component wraps, never on a (possibly `Dual`/sampled) parameter VALUE, so it is
+# branch data-driven: it depends only on which distribution object each
+# component wraps, never on a (possibly `Dual`/sampled) parameter value, so it is
 # AD-safe and matches the `weight(dist, weights)` aggregation pattern (one shared
 # `dist`, many weights). An empty vector has no shared distribution.
 function _shared_weighted_dist(components)

@@ -182,7 +182,7 @@ end
 # ---------------------------------------------------------------------------
 #
 # A `Convolved` is a sum of independent components, so the mean and variance
-# are EXACT and additive: `mean = sum(mean.(components))` and
+# are exact and additive: `mean = sum(mean.(components))` and
 # `var = sum(var.(components))`. No sampling, no discretisation. Each component
 # must provide an analytic `mean`/`var`; a component without one errors from
 # its own `mean`/`var` (no fallback). The moments flow through the component
@@ -311,7 +311,7 @@ end
 # Rebuild a distribution with its parameters stripped to primal `Float64`s
 # via the type's positional constructor (`params` round-trips through the
 # constructor for the Distributions.jl families used here). The
-# `check_args = false` keyword is intentionally NOT passed: the original
+# `check_args = false` keyword is intentionally not passed: the original
 # distribution already validated its parameters, and the primal copy uses
 # the identical (now plain-`Float64`) values.
 function _primal_distribution(d::UnivariateDistribution)
