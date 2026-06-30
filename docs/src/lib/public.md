@@ -1,8 +1,6 @@
 # [Public Documentation](@id public-api)
 
-Documentation for `CensoredDistributions.jl`'s public interface.
-
-See the Internals section of the manual for internal package docs covering all submodules.
+Documentation for `CensoredDistributions`'s public interface.
 
 ## Contents
 
@@ -19,7 +17,26 @@ Pages = ["public.md"]
 
 ## Public API
 
-```@autodocs
-Modules = [CensoredDistributions]
-Private = false
+```@docs
+CensoredDistributions.AbstractSolverMethod
+CensoredDistributions.AnalyticalSolver
+CensoredDistributions.Convolved
+CensoredDistributions.ExponentiallyTilted
+CensoredDistributions.GaussLegendre
+CensoredDistributions.IntervalCensored
+CensoredDistributions.NumericSolver
+CensoredDistributions.PrimaryCensored
+CensoredDistributions.Weighted
+CensoredDistributions.convolve_distributions
+CensoredDistributions.double_interval_censored
+CensoredDistributions.get_dist
+CensoredDistributions.get_dist_recursive
+CensoredDistributions.gl_integrate
+CensoredDistributions.integrate
+CensoredDistributions.interval_censored
+CensoredDistributions.primary_censored
+CensoredDistributions.primarycensored_cdf
+CensoredDistributions.primarycensored_logcdf
+CensoredDistributions.primarycensored_uniform_cdf_formula
+CensoredDistributions.weight
 ```
