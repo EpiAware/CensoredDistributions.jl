@@ -619,25 +619,35 @@ end
 
 @testitem "weight is deprecated but still forwards correctly" begin
     using Distributions
-    using Test: @test_deprecated
+    using Test: @test_deprecated, @test_logs
 
     d = LogNormal(1.5, 0.5)
-
-    # Each `weight` constructor is deprecated (issue #128): the surface moves to
-    # the standalone ModifiedDistributions.jl package. Under `--depwarn=yes` the
-    # call warns; `@test_deprecated` adapts to the active `--depwarn` flag, so
-    # this checks the deprecation under `yes` and that the call still runs
-    # cleanly under the default `no`.
-    @test_deprecated weight(d, 2.5)
-    @test_deprecated weight(d, nothing)
-    @test_deprecated weight(d)
-    @test_deprecated weight([d, Normal(0, 1)], [1.0, 2.0])
-    @test_deprecated weight([d, Normal(0, 1)])
-    @test_deprecated weight(d, [1.0, 2.0])
-
-    # The deprecated verb forwards to the underlying (non-deprecated) `Weighted`
-    # type, so the result is identical to constructing it directly.
     Weighted = CensoredDistributions.Weighted
+
+    # `weight` is deprecated (issue #128): the surface moves to the standalone
+    # ModifiedDistributions.jl package. The deprecation warning fires at most
+    # once per session, gated on a module-level flag (PR #799) so the
+    # constructor stays AD-safe inside differentiated closures. Reset the flag
+    # so the first call below is the one that warns; without this the gate may
+    # already be tripped by precompile or an earlier test, leaving the
+    # `@test_deprecated` check with no warning to see. Resetting also makes this
+    # testitem order-independent.
+    gate = CensoredDistributions._WEIGHT_DEPRECATION_WARNED
+    gate[] = false
+    @test gate[] == false
+
+    # The first call warns under `--depwarn=yes` (forced by `Pkg.test`);
+    # `@test_deprecated` adapts to the active flag, so under the default `no` it
+    # just checks the call runs cleanly.
+    @test_deprecated weight(d, 2.5)
+
+    # Once-only: the first call latched the gate, so the warning has fired and
+    # every later call is a single `Bool` read with no further warning.
+    @test gate[] == true
+
+    # Each deprecated constructor still FORWARDS to the underlying
+    # (non-deprecated) `Weighted`/`Product` types. The gate is tripped now, so
+    # these run without re-warning yet still build the right objects.
     wd = weight(d, 2.5)
     direct = Weighted(d, 2.5)
     @test wd isa Weighted
@@ -645,12 +655,32 @@ end
     @test wd.weight == direct.weight
     @test logpdf(wd, 2.0) == logpdf(direct, 2.0)
 
-    # The `nothing` weight still returns the distribution unchanged.
+    # The `nothing` weight returns the distribution unchanged.
     @test weight(d, nothing) === d
 
-    # The missing-weight and vector constructors still build the same products.
+    # The missing-weight scalar form.
     @test ismissing(weight(d).weight)
+
+    # The vector forms build `Product`s of `Weighted` leaves.
     prod_vec = weight(d, [1.0, 2.0])
     @test prod_vec isa Product
     @test [c.weight for c in prod_vec.v] == [1.0, 2.0]
+
+    prod_pair = weight([d, Normal(0, 1)], [1.0, 2.0])
+    @test prod_pair isa Product
+    @test [c.weight for c in prod_pair.v] == [1.0, 2.0]
+
+    prod_missing = weight([d, Normal(0, 1)])
+    @test prod_missing isa Product
+    @test all(ismissing(c.weight) for c in prod_missing.v)
+
+    # Explicit once-only behaviour: with a freshly reset gate the first call
+    # emits exactly one deprecation warning and the next call emits none. Only
+    # observable under `--depwarn=yes`, where `Base.depwarn` routes through the
+    # logging system that `@test_logs` captures.
+    if Base.JLOptions().depwarn == 1
+        gate[] = false
+        @test_logs (:warn,) weight(d, 2.5)
+        @test_logs weight(d, 2.5)
+    end
 end
