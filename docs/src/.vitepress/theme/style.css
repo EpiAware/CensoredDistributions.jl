@@ -1,3 +1,14 @@
 /* MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand. */
 /* Standard EpiAware docs theme overrides. Add site-specific styles in a
    separate, package-owned stylesheet imported from a custom theme if needed. */
+
+/* Org preference: hide the default VitePress nav social links (the GitHub
+   stars/social icons) so they do not appear in EpiAware docs navs. */
+.VPNavBarSocialLinks.social-links {
+  display: none !important;
+}
+
+/* Also hide them in the responsive "extra" menu. */
+.VPNavBarExtra .social-links-list {
+  display: none !important;
+}
