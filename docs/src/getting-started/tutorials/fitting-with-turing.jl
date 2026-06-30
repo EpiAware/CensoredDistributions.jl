@@ -435,23 +435,28 @@ md"""
 Every fit so far is marginal: the within-window primary event time is integrated
 out inside `logpdf`, leaving only the delay parameters in the chain.
 The latent form instead samples it.
-Wrapping a leaf in [`latent`](@ref) draws the within-window primary as a model
-variable `p ~ get_primary_event(d)`, then scores the observed delay against the
-conditional [`PrimaryConditional`](@ref)`(d, p)`, the delay measured from that
-sampled primary.
+Wrapping a leaf in [`latent`](@ref) makes the within-window primary a sampled
+model variable and scores the observed delay conditional on that draw, the delay
+measured from the sampled primary.
 The marginal and latent forms are one model scored two ways and agree in
 expectation, so the sampled-primary fit recovers the same parameters as the
 marginal double-censored fit above.
 
-We fit the bare double-censored leaf here rather than the one-step chain, so the
-leaf samples its own primary; the chain wrapper with both `onset` and `report`
-observed would keep the marginal leaf density.
-The latent form scores each record separately, with one sampled primary per
-record, so we fit a light subset of the untruncated reports and keep the chains
-short for the docs build.
+This is the same model in its latent form, not a new one: we reuse the exact
+double-censored leaf from the marginal `full_template` with
+[`event`](@ref)`(full_template, :onset_report)` and change only how it is scored,
+wrapping it in [`latent`](@ref).
+We fit the bare leaf rather than the one-step chain so the leaf samples its own
+primary; the chain wrapper with both `onset` and `report` observed would keep the
+marginal leaf density.
+The latent form adds one sampled primary per record to the chain, so it carries
+more parameters and samples more slowly than the marginal fit, the price of
+sampling the within-window primary rather than integrating it out.
+We keep it light, fitting a subset of the untruncated reports over short chains
+for the docs build.
 """
 
-latent_leaf = full_leaf(meanlog, sdlog)
+latent_leaf = event(full_template, :onset_report)
 
 latent_leaf_priors = build_priors(params_table(latent_leaf))
 
@@ -639,125 +644,7 @@ This path is covered end-to-end in the test suite (the LogDensityProblems
 log-density equals the Turing log-joint on the same parameters, and an
 AdvancedHMC fit recovers known parameters with no Turing in the path). A
 runnable standalone-fit tutorial is tracked as follow-up.
-
-## Fitting the same model in latent form
-
-Every fit so far has been marginal, with the primary event integrated out inside
-the leaf `logpdf`.
-The same composed object also has a latent form, reached by wrapping it in
-[`latent`](@ref).
-The latent form samples the event times rather than integrating them out, so the
-primary event of each record becomes an explicitly sampled latent variable that
-appears in the posterior chain.
-
-We can fit the full double-censored model from above in latent form on the same
-data by wrapping the leaf in [`latent`](@ref).
-The record model is otherwise identical; it dispatches on the wrapped type.
 """
-
-latent_leaf_template = full_leaf(meanlog, sdlog)
-
-latent_leaf_priors = build_priors(params_table(
-    delay_template(latent_leaf_template)))
-
-md"""
-The data is the same `report` column, scored as single-event records (the leaf
-is one censored delay, not a chain).
-"""
-
-latent_leaf_data = [(report = r,) for r in simulated_data.report]
-
-@model function latent_leaf_model(leaf, priors, data)
-    delay ~ to_submodel(composed_parameters_model(
-        delay_template(leaf), priors))
-    obs ~ to_submodel(composed_distribution_model(
-        latent(event(delay, :onset_report)), data))
-end
-
-latent_leaf_fit = sample(Xoshiro(1),
-    latent_leaf_model(latent_leaf_template, latent_leaf_priors,
-        latent_leaf_data),
-    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 300, 2;
-    chain_type = VNChain, progress = false)
-
-md"""
-The chain carries the delay parameters and one sampled primary event time per
-record, keyed `obs.recN.p`.
-The primary is realised as a latent, not analytically marginalised, and the
-secondary interval censoring is kept on its conditional.
-"""
-
-latent_leaf_parameters = parameters(latent_leaf_fit)
-
-md"""
-### A genuinely unobserved intermediate
-
-The leaf above samples the primary, the only latent a single censored delay
-carries.
-A composed chain with an intermediate event sampled per record needs that
-intermediate left unobserved.
-We add an exposure event between onset and report and drop its column, so the
-chain samples the exposure time for every record.
-The leaf type and the record model are otherwise unchanged.
-"""
-
-latent_template = sequential(
-    :onset_exposure => full_leaf(0.5, 0.5),
-    :exposure_report => full_leaf(1.2, 0.6))
-
-latent_priors = build_priors(params_table(latent_template))
-
-md"""
-We simulate full event paths from the template, then drop the intermediate
-`exposure` column so each record observes only onset and report.
-The fitting model is the marginal `fit_model` with one change, where the delays
-are wrapped in [`latent`](@ref) so the record model dispatches to the latent
-form.
-"""
-
-latent_paths = rand(MersenneTwister(99), latent_template,
-    fill((onset = missing, exposure = missing, report = missing), 50))
-
-latent_data = [(onset = 0.0, exposure = missing, report = p.report)
-               for p in latent_paths]
-
-@model function latent_fit_model(template, priors, data)
-    delays ~ to_submodel(composed_parameters_model(template, priors))
-    obs ~ to_submodel(composed_distribution_model(latent(delays), data))
-end
-
-latent_fit = sample(Xoshiro(1),
-    latent_fit_model(latent_template, latent_priors, latent_data),
-    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 300, 2;
-    chain_type = VNChain, progress = false)
-
-md"""
-The chain now carries two kinds of parameter.
-The delay parameters sit under the `delays` prefix, and one sampled latent
-exposure time per record sits under the `obs` prefix, keyed `obs.recN.e[2]` (the
-second event slot, the unobserved exposure).
-Listing the parameters shows the per-record latents explicitly, evidence that
-the intermediate event is sampled rather than marginalised.
-"""
-
-latent_parameters = parameters(latent_fit)
-
-md"""
-We can pull a single record's latent exposure time out of the chain by name and
-summarise its posterior, the per-record latent the marginal form never forms.
-"""
-
-exposure_1 = latent_fit[@varname(obs.rec1.e[2])]
-
-mean(exposure_1)
-
-md"""
-The delay parameters recover the truth as in the marginal fits, read back with
-[`update`](@ref) over the `delays` prefix.
-"""
-
-latent_recovered = params_table(
-    update(latent_template, latent_fit; prefix = :delays))
 
 md"""
 ## Summary
