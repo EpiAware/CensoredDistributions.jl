@@ -6,7 +6,9 @@ on:
     branches: [main]
     paths:
       - 'src/**'
+      - 'ext/**'
       - 'benchmark/**'
+      - 'test/ADFixtures/**'
 
 permissions:
   pull-requests: write
