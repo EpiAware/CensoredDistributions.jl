@@ -78,8 +78,8 @@ A valid composer node implements, per
 and
 [`test_interface`](@ref CensoredDistributions.TestUtils.test_interface)):
 
-- subtypes [`AbstractComposedDistribution`](@ref) (or, for a positional
-  multi-child node, [`AbstractMultiChild`](@ref));
+- subtypes [`AbstractComposedDistribution`](@ref CensoredDistributions.AbstractComposedDistribution) (or, for a positional
+  multi-child node, [`AbstractMultiChild`](@ref CensoredDistributions.AbstractMultiChild));
 - `component_names(c)` returns a `Tuple` of the child names;
 - the node interface walks the flat event vector:
   - `CensoredDistributions.child_nleaves(c)` — a positive `Int`, the flat-slot
@@ -98,8 +98,8 @@ and
 
 ### Adding a valid composer node
 
-1. Subtype [`AbstractComposedDistribution`](@ref) — or
-   [`AbstractMultiChild`](@ref) if the node stores `.components` / `.names` and
+1. Subtype [`AbstractComposedDistribution`](@ref CensoredDistributions.AbstractComposedDistribution) — or
+   [`AbstractMultiChild`](@ref CensoredDistributions.AbstractMultiChild) if the node stores `.components` / `.names` and
    is walked positionally like `Sequential` / `Parallel`.
 2. Implement the three `child_*` methods so they read and write only the node's
    own slice; a node delegates to each child by the same methods, passing each
@@ -126,13 +126,13 @@ node through the `child_*` contract in full.
 A modifier wraps one inner base distribution and modifies it: `Affine`,
 `TimeChange`, `Modified`, `Transformed`, `Weighted`, `Shared`.
 This family is slated to move to ModifiedDistributions.jl (issue #726), so the
-core censoring wrappers deliberately do not live here ([`PrimaryCensored`](@ref)
-is under `AbstractPrimaryCensored`; [`IntervalCensored`](@ref) is standalone).
+core censoring wrappers deliberately do not live here ([`PrimaryCensored`](@ref CensoredDistributions.PrimaryCensored)
+is under `AbstractPrimaryCensored`; [`IntervalCensored`](@ref CensoredDistributions.IntervalCensored) is standalone).
 
 A valid modifier implements, per
 [`test_modified_interface`](@ref CensoredDistributions.TestUtils.test_modified_interface):
 
-- subtypes [`AbstractModifiedDistribution`](@ref);
+- subtypes [`AbstractModifiedDistribution`](@ref CensoredDistributions.AbstractModifiedDistribution);
 - an inner base reachable as `.dist` (the default `show` accessor; a subtype
   that stores it elsewhere overrides `CensoredDistributions._modified_inner`);
 - `CensoredDistributions.free_leaf(d)` returns the free inner leaf (a
@@ -146,7 +146,7 @@ A valid modifier implements, per
 
 ### Adding a valid modifier
 
-1. Subtype [`AbstractModifiedDistribution`](@ref) and store the inner base as
+1. Subtype [`AbstractModifiedDistribution`](@ref CensoredDistributions.AbstractModifiedDistribution) and store the inner base as
    `.dist` (or override `_modified_inner`).
 2. Implement `free_leaf` / `rewrap_leaf` so peeling to the inner leaf and
    rebuilding round-trips the density, and `get_dist`.
@@ -163,7 +163,7 @@ test_modified_interface(d; x = 5.0)
 
 ## Primary censoring: `AbstractPrimaryCensored`
 
-The primary-censored family the package dispatches on: [`PrimaryCensored`](@ref)
+The primary-censored family the package dispatches on: [`PrimaryCensored`](@ref CensoredDistributions.PrimaryCensored)
 (the primary-event-censored delay) and the latent `PrimaryConditional` (the
 secondary conditioned on a realised primary).
 This is core to the package, distinct from interval censoring, and stays in it.
@@ -195,7 +195,7 @@ test_primary_censored_interface(d; x = 2.0)
 ## Multi-base combinations: `AbstractCombinedDistribution`
 
 A combination joins two or more base distributions by an algebraic operation:
-[`Convolved`](@ref) (the sum of independent components) and `Difference`
+[`Convolved`](@ref CensoredDistributions.Convolved) (the sum of independent components) and `Difference`
 (`Z = X - Y`).
 This is distinct from the single-base modifier leaves and from the named-child
 event-tree composers.
@@ -203,7 +203,7 @@ event-tree composers.
 A valid member implements, per
 [`test_combined_interface`](@ref CensoredDistributions.TestUtils.test_combined_interface):
 
-- subtypes [`AbstractCombinedDistribution`](@ref);
+- subtypes [`AbstractCombinedDistribution`](@ref CensoredDistributions.AbstractCombinedDistribution);
 - `params(d)` is a `Tuple`;
 - `logpdf(d, x)` is finite on its support;
 - `Base.show(io, d)` is non-empty.
@@ -223,7 +223,7 @@ test_combined_interface(d; x = 3.0)
 Three core types are standalone `UnivariateDistribution`s under no shared
 family abstract, each for a documented reason:
 
-- [`IntervalCensored`](@ref) — interval censoring is distinct from primary
+- [`IntervalCensored`](@ref CensoredDistributions.IntervalCensored) — interval censoring is distinct from primary
   censoring and stays in the package independently;
 - `MomentParams` — a `(mean, ...)`-reparameterised single-base leaf, a
   reparameterisation rather than a combination;

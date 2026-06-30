@@ -118,7 +118,7 @@ delay_stack = compose(incubation; case = onset_case, death = onset_death);
 md"""
 The maximum reporting delay caps the number of delay bins we track per reference
 date.
-We keep each branch's total delay as a single [`Convolved`](@ref) chain, the
+We keep each branch's total delay as a single [`Convolved`](@ref CensoredDistributions.Convolved) chain, the
 incubation chained with the branch tail, with [`convolved`](@ref).
 This composed two-delay distribution is the hazard layer's input directly: the
 reporting hazard modifies the composed delay's hazard per reference date (see

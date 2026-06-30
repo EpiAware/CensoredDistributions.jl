@@ -590,8 +590,8 @@ over the flat parameter vector, so a composed model can be sampled by
 AdvancedHMC / DynamicHMC / Pathfinder directly, with the DynamicPPL extension
 demoted to one consumer among several.
 
-[`as_logdensity`](@ref)`(template, priors, data)` builds the spec; the
-[`flatten`](@ref) / [`unflatten`](@ref) codec (ordered by the
+[`as_logdensity`](@ref CensoredDistributions.as_logdensity)`(template, priors, data)` builds the spec; the
+[`flatten`](@ref CensoredDistributions.flatten) / [`unflatten`](@ref CensoredDistributions.unflatten) codec (ordered by the
 [`params_table`](@ref) row walk)
 moves between the flat vector and the named, `update`-able `NamedTuple`, and the
 `Bijectors` extension derives the unconstrained transform from the priors. The
@@ -783,9 +783,9 @@ md"""
   [`mean`](@ref CensoredDistributions.mean) read
   the fitted delay back onto the composed object with no manual chain indexing,
   while the FlexiChains output exposes the raw `VarName`-keyed samples.
-- The same model fits without Turing: [`as_logdensity`](@ref) assembles a
+- The same model fits without Turing: [`as_logdensity`](@ref CensoredDistributions.as_logdensity) assembles a
   `LogDensityProblems` problem over the flat parameter vector (the
-  [`flatten`](@ref) / [`unflatten`](@ref) codec + a prior-driven `Bijectors`
+  [`flatten`](@ref CensoredDistributions.flatten) / [`unflatten`](@ref CensoredDistributions.unflatten) codec + a prior-driven `Bijectors`
   transform), sampled directly by AdvancedHMC / DynamicHMC, with a posterior
   interchangeable with the Turing chain above.
 """

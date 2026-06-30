@@ -9,7 +9,7 @@ A composed distribution carries everything a fit needs, none of it tied to a
 particular probabilistic programming language.
 [`params_table`](@ref) inventories the free parameters, [`build_priors`](@ref)
 supplies support-derived default priors, [`update`](@ref) rebuilds the
-distribution from a parameter `NamedTuple`, and [`logpdf`](@ref) scores a record.
+distribution from a parameter `NamedTuple`, and [`logpdf`](@ref CensoredDistributions.logpdf) scores a record.
 Both inference routes are thin front-ends onto that shared core.
 
 The **Turing route** wraps the core in a DynamicPPL submodel.
@@ -21,8 +21,8 @@ machinery: sampler choice, chain objects, and named, groupable parameters.
 
 The **LogDensityProblems route** wraps the same core in a flat-vector
 log-density with no DynamicPPL dependency.
-[`as_logdensity`](@ref)`(dist, priors, data)` assembles a
-[`ComposedLogDensity`](@ref) spec, and the `LogDensityProblemsExt` extension
+[`as_logdensity`](@ref CensoredDistributions.as_logdensity)`(dist, priors, data)` assembles a
+[`ComposedLogDensity`](@ref CensoredDistributions.ComposedLogDensity) spec, and the `LogDensityProblemsExt` extension
 turns it into a standard `LogDensityProblems` problem over the unconstrained
 parameter vector.
 That problem samples directly with AdvancedHMC, DynamicHMC, or Pathfinder, and
@@ -49,12 +49,13 @@ non-Turing sampler, or to hand the log-density to any tool that speaks the
 ## What the layer adds
 
 Three of the four `LogDensityProblems` ingredients already exist Turing-free:
-the parameter `dimension` ([`flat_dimension`](@ref)), distribution
+the parameter `dimension` ([`flat_dimension`](@ref CensoredDistributions.flat_dimension)), distribution
 reconstruction ([`update`](@ref)), and the prior and data log-density.
 The one genuinely new core piece is the flat-vector codec
-([`flatten`](@ref) / [`unflatten`](@ref)), which bridges the sampler's flat
+([`flatten`](@ref CensoredDistributions.flatten) /
+[`unflatten`](@ref CensoredDistributions.unflatten)), which bridges the sampler's flat
 vector and the nested parameter `NamedTuple` the rest of the stack consumes.
-The codec and the [`ComposedLogDensity`](@ref) spec are core (in
+The codec and the [`ComposedLogDensity`](@ref CensoredDistributions.ComposedLogDensity) spec are core (in
 `src/composers/logdensity.jl`); the library-specific glue stays in weakdep
 extensions:
 
@@ -80,5 +81,5 @@ LogDensityProblems.dimension(prob)           # the flat parameter count
 
 The public-but-not-exported layer is reached by its qualified name
 (`CensoredDistributions.as_logdensity`, ...).
-See [`as_logdensity`](@ref), [`logdensity`](@ref), and
-[`ComposedLogDensity`](@ref) for the per-function reference.
+See [`as_logdensity`](@ref CensoredDistributions.as_logdensity), [`logdensity`](@ref CensoredDistributions.logdensity), and
+[`ComposedLogDensity`](@ref CensoredDistributions.ComposedLogDensity) for the per-function reference.
