@@ -73,6 +73,60 @@ end
     @test isapprox(gp, refp; rtol = 1e-6, atol = 1e-8)
 end
 
+@testitem "scalar conditional latent density gradient: ForwardDiff" tags=[
+    :ad, :forwarddiff] begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent
+    using ADTypes: AutoForwardDiff
+    using DifferentiationInterface: gradient
+    using ForwardDiff: ForwardDiff
+
+    # The direct-call scalar density `logpdf(latent(d), y; primary = p)` is the
+    # conditional-on-passed-p path the differentiated sampler uses (deterministic,
+    # so AD-safe). It must differentiate w.r.t. the delay params AND the passed
+    # primary `p`, mirroring the vectorised conditional coverage above.
+    y = 4.0
+    p = 0.3
+
+    function f(θ)
+        d = latent(primary_censored(Gamma(θ[1], θ[2]), Uniform(0, 1)))
+        return logpdf(d, y; primary = p)
+    end
+    θ = [4.0, 1.5]
+    g = gradient(f, AutoForwardDiff(), θ)
+    @test g isa AbstractVector && length(g) == 2 && all(isfinite, g)
+
+    # The gradient w.r.t. the conditioning primary also flows.
+    function fp(pp)
+        d = latent(primary_censored(Gamma(4.0, 1.5), Uniform(0, 1)))
+        return logpdf(d, y; primary = pp[1])
+    end
+    gp = gradient(fp, AutoForwardDiff(), [p])
+    @test gp isa AbstractVector && length(gp) == 1 && all(isfinite, gp)
+end
+
+@testitem "scalar conditional latent density gradient: Mooncake reverse" tags=[
+    :ad, :mooncake, :mooncake_reverse] begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: latent
+    using ADTypes: AutoMooncake, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    using ForwardDiff: ForwardDiff
+    using Mooncake: Mooncake
+
+    y = 4.0
+    p = 0.3
+
+    function f(θ)
+        d = latent(primary_censored(Gamma(θ[1], θ[2]), Uniform(0, 1)))
+        return logpdf(d, y; primary = p)
+    end
+    θ = [4.0, 1.5]
+    ref = gradient(f, AutoForwardDiff(), θ)
+    g = gradient(f, AutoMooncake(; config = nothing), θ)
+    @test isapprox(g, ref; rtol = 1e-6, atol = 1e-8)
+end
+
 @testitem "vectorised mixed Choose latent gradient: ForwardDiff" tags=[
     :ad, :forwarddiff] begin
     using CensoredDistributions, Distributions

@@ -90,23 +90,99 @@ end
     end
 end
 
-@testitem "latent defines no scalar observed density" begin
+@testitem "latent scalar density: conditional on a passed primary" begin
     using Distributions
+    using CensoredDistributions: PrimaryConditional, marginal
 
-    # The latent form is genuinely latent: it does not re-marginalise the primary
-    # from a scalar observed value (that duplicates the marginal default and
-    # defeats latent mode). The observed marginal is the marginal node's job,
-    # recovered via `marginal(d)`. So a scalar density on `Latent` has no method.
+    # `latent(d)` scalar density is ALWAYS conditional on a primary, never the
+    # integrating marginal. With a primary passed it is the deterministic
+    # `PrimaryConditional(d, p)` kernel.
+    delay = LogNormal(1.5, 0.75)
+    pe = Uniform(0, 1)
+    d = primary_censored(delay, pe)
+    ld = latent(d)
+
+    for (p, y) in [(0.3, 2.7), (0.1, 1.0), (0.9, 5.4)]
+        cond = PrimaryConditional(d, p)
+        # Deterministic: equals the conditional kernel, repeatable.
+        @test logpdf(ld, y; primary = p) == logpdf(cond, y)
+        @test logpdf(ld, y; primary = p) == logpdf(ld, y; primary = p)
+        @test pdf(ld, y; primary = p) == pdf(cond, y)
+        @test cdf(ld, y; primary = p) == cdf(cond, y)
+        @test logcdf(ld, y; primary = p) == logcdf(cond, y)
+        @test ccdf(ld, y; primary = p) == ccdf(cond, y)
+        @test logccdf(ld, y; primary = p) == logccdf(cond, y)
+        # The bare-leaf conditional is the delay shifted by `p`, no quadrature.
+        @test logpdf(ld, y; primary = p) ≈ logpdf(delay, y - p)
+    end
+
+    # The conditional is NOT the marginal pointwise (the project invariant: the
+    # latent form never collapses to the integrating default).
+    @test logpdf(ld, 2.7; primary = 0.3) != logpdf(marginal(ld), 2.7)
+end
+
+@testitem "latent scalar density: MC-samples the primary when absent" begin
+    using Distributions, Random
+    using CensoredDistributions: get_primary_event
+
+    # With no primary passed, a single scalar density call MONTE-CARLO SAMPLES one
+    # `p ~ get_primary_event(d)` and conditions on it: a stochastic single-draw
+    # estimate, never the integrating marginal.
     ld = latent(primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1)))
 
-    @test_throws MethodError logpdf(ld, 2.5)
-    @test_throws MethodError pdf(ld, 2.5)
-    @test_throws MethodError cdf(ld, 2.5)
+    # Reproducible under a seeded rng; different seeds give different draws, the
+    # signature of a genuinely sampled (stochastic) primary.
+    a = logpdf(ld, 2.7; rng = MersenneTwister(1))
+    @test a == logpdf(ld, 2.7; rng = MersenneTwister(1))
+    @test a != logpdf(ld, 2.7; rng = MersenneTwister(2))
+    @test isfinite(a)
+end
 
-    # The marginal observed density is recovered from the unwrapped node.
-    d = marginal(ld)
-    @test logpdf(d, 2.5) isa Real
-    @test cdf(d, 2.5) isa Real
+@testitem "latent scalar density: equivalence in expectation only" begin
+    using Distributions, Random
+    using CensoredDistributions: get_primary_event, marginal
+
+    # E over sampled primaries of the conditional density equals the MARGINAL
+    # density (equivalence IN EXPECTATION), even though no single conditional call
+    # equals the marginal pointwise and nothing integrates by quadrature.
+    delay = LogNormal(1.0, 0.5)
+    pe = Uniform(0, 1)
+    d = primary_censored(delay, pe)
+    ld = latent(d)
+
+    rng = MersenneTwister(20260630)
+    for y in (1.5, 3.0, 5.0)
+        # Monte-Carlo mean of the conditional density over sampled primaries.
+        est = mean(pdf(ld, y; primary = rand(rng, pe)) for _ in 1:200_000)
+        @test isapprox(est, pdf(marginal(ld), y); rtol = 2e-2)
+        # No single conditional draw equals the marginal (it is a point, not the
+        # integral): the equivalence is only in expectation.
+        @test pdf(ld, y; primary = 0.5) != pdf(marginal(ld), y)
+    end
+end
+
+@testitem "latent scalar quantile and conditional draw" begin
+    using Distributions, Random
+    using CensoredDistributions: PrimaryConditional, rand_observed
+
+    delay = LogNormal(1.2, 0.4)
+    pe = Uniform(0, 1)
+    d = primary_censored(delay, pe)
+    ld = latent(d)
+
+    # Quantile conditional on a passed primary equals the kernel's quantile, the
+    # delay quantile shifted by `p` (closed form for the bare leaf).
+    p = 0.4
+    @test quantile(ld, 0.5; primary = p) ==
+          quantile(PrimaryConditional(d, p), 0.5)
+    @test quantile(ld, 0.5; primary = p) ≈ p + quantile(delay, 0.5)
+
+    # A conditional observed draw given `p` lands above `p` (observed = p + delay).
+    r = rand_observed(MersenneTwister(1), ld; primary = p)
+    @test r > p
+    # Reproducible under a seeded rng.
+    @test rand_observed(MersenneTwister(3), ld; primary = p) ==
+          rand_observed(MersenneTwister(3), ld; primary = p)
 end
 
 @testitem "PrimaryConditional scores the delay at the implied gap" begin

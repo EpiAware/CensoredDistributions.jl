@@ -62,6 +62,9 @@ logpdf(d::_ShiftedDelayCore, y::Real) = logpdf(d.delay, y - d.shift)
 pdf(d::_ShiftedDelayCore, y::Real) = pdf(d.delay, y - d.shift)
 cdf(d::_ShiftedDelayCore, y::Real) = cdf(d.delay, y - d.shift)
 logcdf(d::_ShiftedDelayCore, y::Real) = logcdf(d.delay, y - d.shift)
+ccdf(d::_ShiftedDelayCore, y::Real) = ccdf(d.delay, y - d.shift)
+logccdf(d::_ShiftedDelayCore, y::Real) = logccdf(d.delay, y - d.shift)
+quantile(d::_ShiftedDelayCore, q::Real) = d.shift + quantile(d.delay, q)
 Base.rand(rng::AbstractRNG, d::_ShiftedDelayCore) = d.shift + rand(rng, d.delay)
 
 minimum(d::PrimaryConditional) = minimum(_conditional(d))
@@ -105,6 +108,33 @@ Log cumulative distribution function.
 See also: [`cdf`](@ref)
 "
 logcdf(d::PrimaryConditional, y::Real) = logcdf(_conditional(d), y)
+
+@doc "
+
+Complementary cumulative distribution function of the observed time given the
+primary `p` (bare secondary only; the interval/truncation pipeline scores via
+`logpdf`).
+
+See also: [`cdf`](@ref)
+"
+ccdf(d::PrimaryConditional, y::Real) = ccdf(_conditional(d), y)
+
+@doc "
+
+Log complementary cumulative distribution function.
+
+See also: [`ccdf`](@ref)
+"
+logccdf(d::PrimaryConditional, y::Real) = logccdf(_conditional(d), y)
+
+@doc "
+
+Quantile (inverse CDF) of the observed time given the primary `p` (bare secondary
+only; the interval/truncation pipeline has no closed-form quantile).
+
+See also: [`cdf`](@ref)
+"
+quantile(d::PrimaryConditional, q::Real) = quantile(_conditional(d), q)
 
 @doc "
 

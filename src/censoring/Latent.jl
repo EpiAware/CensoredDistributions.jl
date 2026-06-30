@@ -128,9 +128,9 @@ the [`PrimaryConditional`](@ref) of the observed time given the primary,
 
 Accepts either the scored vector `[primary, observed]` or the labelled
 `NamedTuple` `(primary = ..., observed = ...)` (converted internally to the
-scored vector). The latent form does not define a scalar observed density, since
-the observed marginal is the marginal default's job, recovered by `marginal(d)`
-(see [`PrimaryCensored`](@ref)).
+scored vector). The scalar observed form `logpdf(d, y::Real)` is the conditional
+on a primary (see below), never the integrating marginal; the marginal is the
+separate [`PrimaryCensored`](@ref) default, recovered by `marginal(d)`.
 
 See also: [`PrimaryConditional`](@ref), [`rand`](@ref)
 "
@@ -154,9 +154,79 @@ function _latent_record_vector(x::NamedTuple)
     return [x.primary, x.observed]
 end
 
-# No scalar observed density (`logpdf(d::Latent, x::Real)`, `pdf`, `cdf`, ...).
-# Re-marginalising the primary from a scalar observed value duplicates the
-# marginal default and defeats latent mode; the observed marginal is the
-# marginal node's job, recovered via `marginal(d)` (see `PrimaryCensored`). The
-# latent scalar appears only as a sampled `~` event inside the composer models
-# (see the DynamicPPL extension), not as a closed-form density on `Latent`.
+# --- Scalar observed density, conditional on a primary --------------------
+#
+# `latent(d)` is ALWAYS conditional on a primary event: the scalar methods over
+# the observed time `y` NEVER reproduce the marginal and NEVER integrate the
+# primary out (no quadrature). Each takes an OPTIONAL `primary`:
+#   - `primary` PASSED  -> the deterministic conditional, the
+#     [`PrimaryConditional`](@ref)`(d, p)` kernel (the form the model glue and the
+#     differentiated NUTS path use, so it is AD-safe).
+#   - `primary` ABSENT  -> Monte-Carlo SAMPLE one `p ~ get_primary_event(d)` and
+#     condition on it, a stochastic single-draw estimate (NOT the marginal). The
+#     draw uses fresh randomness, so the no-primary form is for exploration and
+#     forward-simulation; pass `primary` on a differentiated path to stay
+#     deterministic.
+# The integrating marginal is the separate [`PrimaryCensored`](@ref), recovered
+# via `marginal(d)`; `Latent` never collapses to it.
+
+# Resolve the conditioning primary: the passed value, or a fresh MC draw from the
+# primary prior when none is given.
+_latent_primary(::AbstractRNG, ::Latent, primary::Real) = primary
+function _latent_primary(rng::AbstractRNG, d::Latent, ::Nothing)
+    return rand(rng, get_primary_event(d))
+end
+
+@doc "
+
+Scalar observed density / tail / quantile of a [`latent`](@ref) node, conditional
+on a primary event.
+
+`latent(d)` is always conditional, never the integrating marginal. With a primary
+passed (`logpdf(d, y; primary = p)`) the call is the deterministic
+[`PrimaryConditional`](@ref)`(d, p)` kernel; with no primary one is Monte-Carlo
+sampled from [`get_primary_event`](@ref)`(d)` and conditioned on, a stochastic
+single-draw estimate. The integrating marginal is the separate
+[`PrimaryCensored`](@ref), recovered via [`marginal`](@ref).
+
+See also: [`PrimaryConditional`](@ref), [`logpdf`](@ref)
+"
+function logpdf(d::Latent, y::Real; primary = nothing,
+        rng::AbstractRNG = default_rng())
+    return logpdf(PrimaryConditional(d, _latent_primary(rng, d, primary)), y)
+end
+
+for f in (:pdf, :cdf, :logcdf, :ccdf, :logccdf)
+    @eval function $f(d::Latent, y::Real; primary = nothing,
+            rng::AbstractRNG = default_rng())
+        return $f(PrimaryConditional(d, _latent_primary(rng, d, primary)), y)
+    end
+end
+
+# Quantile of the observed time given the primary (sampled when none passed). The
+# bare primary-censored leaf has a closed-form conditional quantile; an
+# interval/truncation pipeline conditional does not.
+function quantile(d::Latent, q::Real; primary = nothing,
+        rng::AbstractRNG = default_rng())
+    return quantile(PrimaryConditional(d, _latent_primary(rng, d, primary)), q)
+end
+
+@doc "
+
+Draw a single observed time from a [`latent`](@ref) node, conditional on a
+primary event.
+
+The conditional dual of the joint `rand(d)` record: with a primary passed
+(`rand(d; primary = p)`) the draw is `rand(`[`PrimaryConditional`](@ref)`(d, p))`;
+with none, one is Monte-Carlo sampled from [`get_primary_event`](@ref)`(d)` first.
+Returns the scalar observed time, where the joint `rand(d)` returns the labelled
+`(primary, observed)` record.
+
+See also: [`rand`](@ref), [`PrimaryConditional`](@ref)
+"
+function rand_observed(rng::AbstractRNG, d::Latent; primary = nothing)
+    return rand(rng, PrimaryConditional(d, _latent_primary(rng, d, primary)))
+end
+function rand_observed(d::Latent; primary = nothing)
+    return rand_observed(default_rng(), d; primary = primary)
+end
