@@ -659,14 +659,13 @@ end
     @test 5.0 in boundaries_arbitrary  # For value 3.0 in [2,5) and value 6.0 in [5,8)
     @test 8.0 in boundaries_arbitrary  # For value 6.0 in [5,8)
 
-    # Test _compute_pdfs_with_cache
-    cdf_pairs = map(boundaries_regular) do boundary
-        boundary => cdf(d, boundary)
-    end
-    cdf_lookup = Dict{Float64, Float64}(cdf_pairs)
+    # Test _compute_pdfs_with_cache with the parallel sorted-boundary /
+    # cdf-value arrays (replaces the old `Dict` cache, #699).
+    cdf_values_regular = CensoredDistributions._compute_boundary_cdfs(
+        ic_regular, boundaries_regular)
 
     pdfs_cached = CensoredDistributions._compute_pdfs_with_cache(
-        ic_regular, x_regular, cdf_lookup)
+        ic_regular, x_regular, boundaries_regular, cdf_values_regular)
     pdfs_direct = pdf.(ic_regular, x_regular)
 
     @test pdfs_cached ≈ pdfs_direct
