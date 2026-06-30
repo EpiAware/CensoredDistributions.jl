@@ -28,13 +28,73 @@ struct HazardLink{G, GI}
     invlink::GI
 end
 
-@doc "The log link (proportional hazards): `g = log`, `g⁻¹ = exp`."
+@doc raw"""
+    LogLink
+
+The log link (proportional hazards): `g = log`, `g⁻¹ = exp`.
+
+`LogLink` scales the survival function, ``S^{*} = S^{e^{\beta}}``, the
+proportional-hazards form, and is the default link of [`modify`](@ref).
+
+# Examples
+```@example
+using CensoredDistributions
+using Distributions
+
+# Proportional-hazards modification of an Exponential delay.
+modify(Exponential(1.0), 0.5; link = LogLink)
+```
+
+# See also
+- [`modify`](@ref): the verb that consumes a link.
+- [`HazardLink`](@ref): the underlying link type.
+"""
 const LogLink = HazardLink(log, exp)
 
-@doc "The identity link (additive hazards): `g = g⁻¹ = identity`."
+@doc raw"""
+    IdentityLink
+
+The identity link (additive hazards): `g = g⁻¹ = identity`.
+
+`IdentityLink` adds to the cumulative hazard, ``S^{*}(t) = S(t)\,e^{-\beta t}``,
+the additive-hazards form.
+
+# Examples
+```@example
+using CensoredDistributions
+using Distributions
+
+# Additive-hazards modification of an Exponential delay.
+modify(Exponential(1.0), 0.5; link = IdentityLink)
+```
+
+# See also
+- [`modify`](@ref): the verb that consumes a link.
+- [`HazardLink`](@ref): the underlying link type.
+"""
 const IdentityLink = HazardLink(identity, identity)
 
-@doc "The logit link (discrete-time reporting hazard): `g = logit`."
+@doc raw"""
+    LogitLink
+
+The logit link (discrete-time reporting hazard): `g = logit`.
+
+`LogitLink` pairs the logit with its logistic inverse, the link for a
+discrete-time reporting hazard on an interval-censored base.
+
+# Examples
+```@example
+using CensoredDistributions
+using Distributions
+
+# A reporting-hazard modification carried through LogitLink.
+modify(Exponential(1.0), 0.5; link = LogitLink)
+```
+
+# See also
+- [`modify`](@ref): the verb that consumes a link.
+- [`HazardLink`](@ref): the underlying link type.
+"""
 const LogitLink = HazardLink(_logit, _logistic)
 
 # Show the named links compactly rather than dumping the wrapped closures.

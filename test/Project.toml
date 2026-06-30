@@ -11,11 +11,13 @@ DensityInterface = "b429d917-457f-4dbc-8f4c-0cc954292b1d"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 DynamicPPL = "366bfd00-2699-11ea-058f-f148b4cae6d8"
+EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 FlexiChains = "4a37a8b9-6e57-4b92-8664-298d46e639f7"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 HypothesisTests = "09f84164-cd44-5f33-b23f-e6b0d136a0d5"
 Integrals = "de52edbc-65ea-441a-8357-d3a637375a31"
+JuliaFormatter = "98e50ef6-434e-11e9-1051-2b60c6c9e899"
 LogDensityProblems = "6fdf6af0-433a-55f7-b3ed-c6c6e0b8df7c"
 LogDensityProblemsAD = "996a588d-648d-4e1f-a8f0-a84b347e47b1"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
@@ -51,6 +53,10 @@ FlexiChains = "0.4, 0.5, 0.6"
 ForwardDiff = "0.10, 1"
 HypothesisTests = "0.11"
 Integrals = "4, 5.1"
+# JuliaFormatter is pinned exactly so the in-process formatting check (run by
+# the kit's quality.jl) matches the .pre-commit-config.yaml rev and the CI
+# format check across the Julia matrix; keep these in step.
+JuliaFormatter = "=2.5.5"
 LogDensityProblems = "2"
 LogDensityProblemsAD = "1"
 Mooncake = "0.5"
@@ -65,3 +71,7 @@ Turing = "0.42, 0.43, 0.44, 0.45"
 
 [sources]
 CensoredDistributions = {path = ".."}
+# EpiAwarePackageTools is not yet registered (EpiAware/EpiAwarePackageTools.jl#731),
+# so it is pinned via a git source on the kit's main branch. Flip this to a
+# [compat] entry once the kit is registered in the General registry.
+EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl", rev = "main"}
