@@ -426,7 +426,7 @@ event_names(primary_only_stack)
 # divided by one denominator, the CDF of the convolution from the origin to the
 # last observed event evaluated at `horizon - origin`.
 # The convolution itself is the sum-of-independent-delays primitive
-# [`convolved`](@ref), which returns a [`Convolved`](@ref); a chain
+# [`convolved`](@ref), which returns a [`Convolved`](@ref CensoredDistributions.Convolved); a chain
 # endpoint convolves its steps this way.
 # The [An Rt renewal model with delay convolution](@ref rt-renewal-convolution)
 # tutorial uses it directly.
@@ -798,7 +798,7 @@ event_names(event(spliced, :admit_death))
 # | `resolve(:a => (d1, p1), :b => (d2, p2))` | a [`Resolve`](@ref) node (one outcome occurs by fixed probability); the last prob may be omitted as the residual `1 - sum(others)` | builds |
 # | `compete(:a => d1, :b => d2)` | a [`Compete`](@ref) racing-hazard node (bare delays race, the first wins, the winning probability derived from the hazards) | builds |
 # | `choose(:a => d1, :b => d2)` | a [`Choose`](@ref) disjunction (data picks the branch) | builds |
-# | `convolved(d1, d2)` | a [`Convolved`](@ref) sum `X + Y` (delays add) | builds |
+# | `convolved(d1, d2)` | a [`Convolved`](@ref CensoredDistributions.Convolved) sum `X + Y` (delays add) | builds |
 # | `difference(d1, d2)` | a [`Difference`](@ref) `X - Y`, the dual of the sum; two-sided support, so an observation not a delay leaf | builds |
 # | `modify(d, effect; link)` | a [`Modified`](@ref) leaf; the hazard of `d` modified through a link (`log`/`identity`/`:logit`) | leaf wrap |
 # | `primary_censored(d, pe)` | primary-event censoring leaf | leaf wrap |

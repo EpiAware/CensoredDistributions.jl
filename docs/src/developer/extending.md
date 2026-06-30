@@ -396,5 +396,6 @@ CensoredDistributions.TestUtils.test_rejects_invalid
 CensoredDistributions.TestUtils.test_node_interface
 CensoredDistributions.TestUtils.test_ad_safety
 CensoredDistributions.TestUtils.test_registry_coverage
+CensoredDistributions.TestUtils.registry_types
 CensoredDistributions.TestUtils.example_fixtures
 ```
