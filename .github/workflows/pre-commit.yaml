@@ -1,3 +1,4 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 name: pre-commit
 
 on:

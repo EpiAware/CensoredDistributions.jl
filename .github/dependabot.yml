@@ -1,12 +1,6 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 # Configure Dependabot version updates
 # https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
-#
-# NOTE: no reviewer/assignee keys are set. GitHub cannot assign an organisation
-# as a reviewer or assignee — only a username or an `org/team` — so a bare org
-# makes every Dependabot PR error with "can't assign <org> as a reviewer". To
-# add them, set a real username or a team in `org/team` form (e.g. a user
-# "octocat", or a team "EpiAware/maintainers") under each update entry; never a
-# bare org. See the GitHub docs linked above for the exact keys.
 version: 2
 updates:
   # GitHub Actions: keeps the reusable-workflow pins (and any actions) current.
@@ -15,6 +9,8 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    reviewers:
+      - "seabbs"
     commit-message:
       prefix: "ci"
       include: "scope"
@@ -26,6 +22,8 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    reviewers:
+      - "seabbs"
     commit-message:
       prefix: "chore"
       include: "scope"
