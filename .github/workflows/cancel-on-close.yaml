@@ -1,0 +1,25 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
+name: Cancel on Close
+
+# Cancels in-progress and queued runs on a PR's head branch when the PR is
+# closed or merged, freeing runners that concurrency groups do not reclaim
+# (those only supersede on a new push, not on a plain close/merge).
+#
+# GitHub runs the version of a `pull_request` workflow from the PR's BASE
+# branch, so this caller only cancels runs for PRs whose base already
+# carries this file.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  # actions: write to cancel runs; contents: read so gh can resolve the
+  # repository. Capped by the caller, so they are set here too.
+  actions: write
+  contents: read
+
+jobs:
+  cancel-on-close:
+    uses: EpiAware/.github/.github/workflows/cancel-on-close.yml@6d4e35e2515f947acbf7d2a683cbf02b341005c7
+    secrets: inherit  # pragma: allowlist secret

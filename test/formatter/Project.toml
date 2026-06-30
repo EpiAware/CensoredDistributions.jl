@@ -1,9 +1,10 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 [deps]
 JuliaFormatter = "98e50ef6-434e-11e9-1051-2b60c6c9e899"
 
 [compat]
 # Pin exactly so the formatting check is reproducible across the CI Julia
-# matrix (lts/1/pre). Unpinned, the version floated per job, so `test (1)`
-# and `pre-commit` reformatted files that `test (lts)` left alone. Keep in
-# step with the `.pre-commit-config.yaml` JuliaFormatter `rev`.
+# matrix (lts/1/pre). Unpinned, the version floats per job, so `test (1)` and
+# `pre-commit` reformat files that `test (lts)` left alone. Keep in step with
+# the `.pre-commit-config.yaml` JuliaFormatter `rev` and the CI format-check.
 JuliaFormatter = "=2.5.5"

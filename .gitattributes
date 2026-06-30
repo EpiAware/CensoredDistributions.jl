@@ -1,0 +1,14 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
+# Normalise line endings so checkouts are byte-identical across platforms.
+# Without this, a Windows runner with core.autocrlf can check out source files
+# with CRLF, which makes JuliaFormatter's `overwrite = false` check (and other
+# line-sensitive tooling) report spurious differences.
+* text=auto eol=lf
+
+# Binary files: never normalise.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary

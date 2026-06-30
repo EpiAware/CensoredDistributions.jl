@@ -1,5 +1,6 @@
 [deps]
 ADFixtures = "f4c5db17-3a4c-4f8b-b1de-e1f76a5b8e84"
+EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 AlgebraOfGraphics = "cbdf2221-f076-402e-a563-3d30da359d67"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
@@ -37,3 +38,7 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 [sources]
 ADFixtures = {path = "../test/ADFixtures"}
 CensoredDistributions = {path = ".."}
+# Until EpiAwarePackageTools is registered, it is pinned by git so the docs env
+# resolves out of the box (its `DocsBuild.build_docs` runs the managed build).
+# Switch to a local path to develop the kit alongside this package.
+EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl", rev = "main"}
