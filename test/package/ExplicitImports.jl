@@ -27,11 +27,14 @@
         #   the ReverseDiff extension; @grad_from_chainrules is the standard
         #   ChainRules-to-ReverseDiff bridge macro and TrackedReal is the
         #   public-by-convention tape value type, neither marked `public`.
+        # - _collect_unique_boundaries: internal boundary builder the AD
+        #   extensions import to mark non-differentiable (zero-tangent rule).
         ignore = (
             :Censored, :_in_closed_interval, :_gamma_cdf, :_grad_p_a_series,
             :_gamma_cdf_value_and_partials,
             :Dual, :value, :partials,
-            Symbol("@grad_from_chainrules"), :TrackedReal
+            Symbol("@grad_from_chainrules"), :TrackedReal,
+            :_collect_unique_boundaries
         )
     ) === nothing
 

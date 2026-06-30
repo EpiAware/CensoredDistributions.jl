@@ -3,7 +3,22 @@ name: AD
 on:
   push:
     branches: [main]
+    # Don't fire the 6-backend AD sweep (the heaviest, slowest matrix)
+    # for changes that cannot alter a gradient result. Only clearly
+    # AD-irrelevant paths are ignored: prose docs and markdown. Anything
+    # touching src/, ext/, test/, Project.toml, benchmark/ or the
+    # workflow itself still triggers the full matrix. paths-ignore only
+    # skips when EVERY changed file matches, so a mixed docs+src PR still
+    # runs.
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
   merge_group:
 
 concurrency:
@@ -12,5 +27,5 @@ concurrency:
 
 jobs:
   ad:
-    uses: EpiAware/.github/.github/workflows/ad.yml@6d4e35e2515f947acbf7d2a683cbf02b341005c7
+    uses: EpiAware/.github/.github/workflows/ad.yml@9692b37b9127099d9c1a51db5034a084edaeb56e
     secrets: inherit  # pragma: allowlist secret

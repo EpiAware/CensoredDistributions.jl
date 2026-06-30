@@ -25,7 +25,7 @@ __precompile__(false)
 
 using CensoredDistributions
 using Distributions: Distributions, Gamma, LogNormal, Weibull, Uniform, Normal,
-                     truncated, logpdf, logccdf, cdf
+                     truncated, pdf, logpdf, logccdf, cdf
 using ADTypes: ADTypes, AutoForwardDiff, AutoReverseDiff, AutoMooncake,
                AutoMooncakeForward, AutoEnzyme
 using DifferentiationInterface: DifferentiationInterface, Constant
@@ -116,6 +116,8 @@ backend `name` from [`working_backends`](@ref).
 
 """
 function backend_broken_scenarios()
+    # Empty: every backend differentiates every scenario, including the batched
+    # `pdf(::IntervalCensored, ::AbstractVector)` path (#699, #701).
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
@@ -288,6 +290,43 @@ function scenarios(; with_reference::Bool = false)
                     upper = 10.0, interval = 1.0), x),
             obs),
         [1.0, 0.75], (Constant(obs_double),))
+
+    # Batched (vectorised) `pdf`/`logpdf` over a lag vector. These hit the
+    # `pdf(::IntervalCensored, ::AbstractVector)` boundary-cache path (#699,
+    # #701) that the scalar scenarios never exercise; batched `logpdf` routes
+    # through it too. All four cases score over a partial support, not the full
+    # `0:9`: `sum(pdf(dic, 0:9))` is identically 1.0, so its gradient is the
+    # zero vector and would match the reference even if AD silently zeroed the
+    # path. Partial support makes the reference genuinely non-zero. `obs` rides
+    # as a `Constant` so the gradient is w.r.t. the delay params only.
+    obs_batch = collect(0.0:1.0:5.0)
+    obs_double_batch = [1.0, 2.0, 4.0, 6.0]
+    _push!("IntervalCensored LogNormal regular batched pdf",
+        (θ, obs) -> sum(
+            pdf(interval_censored(LogNormal(θ[1], θ[2]), 1.0), obs)),
+        [1.0, 0.75], (Constant(obs_batch),))
+    _push!("IntervalCensored LogNormal regular batched logpdf",
+        (θ, obs) -> sum(
+            logpdf(interval_censored(LogNormal(θ[1], θ[2]), 1.0), obs)),
+        [1.0, 0.75], (Constant(obs_batch),))
+    _push!("DoubleIntervalCensored LogNormal batched pdf",
+        (θ,
+            obs) -> sum(
+            pdf(
+            double_interval_censored(LogNormal(θ[1], θ[2]);
+                primary_event = Uniform(0.0, 1.0),
+                upper = 10.0, interval = 1.0),
+            obs)),
+        [1.0, 0.75], (Constant(obs_batch),))
+    _push!("DoubleIntervalCensored LogNormal batched logpdf",
+        (θ,
+            obs) -> sum(
+            logpdf(
+            double_interval_censored(LogNormal(θ[1], θ[2]);
+                primary_event = Uniform(0.0, 1.0),
+                upper = 10.0, interval = 1.0),
+            obs)),
+        [1.0, 0.75], (Constant(obs_double_batch),))
 
     # Weighted scalar logpdf: a count/aggregated-data likelihood term
     # `n * logpdf(dist, x)`. The integer count is an inactive `Constant`
