@@ -98,7 +98,7 @@ priors = (
         dead = (shape = truncated(Normal(2, 0.5); lower = 0),
             scale = truncated(Normal(8, 2); lower = 0))),
     recovered = (susceptible = (shape = truncated(Normal(2, 0.5); lower = 0),
-        scale = truncated(Normal(30, 6); lower = 0))))
+        scale = truncated(Normal(30, 6); lower = 0)),))
 
 @model function fit_reinfection(template, priors, paths)
     m ~ to_submodel(recurrent_states_model(template, priors))
