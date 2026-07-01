@@ -473,6 +473,26 @@ function scenarios(; with_reference::Bool = false)
             [2.0, 1.5], (Constant(obs),))
     end
 
+    # Latent scalar conditional density `logpdf(latent(d), y; primary = p)`, the
+    # deterministic conditional-on-passed-p path the differentiated sampler uses
+    # (`PrimaryConditional(d, p)`, AD-safe, no quadrature). The gradient flows
+    # w.r.t. the delay params; the sampled primaries ride as an inactive
+    # `Constant` context (the sampler differentiates them elsewhere via the
+    # `p ~ prior` statement, not through this leaf). Guarded on `latent` existing
+    # so the AirspeedVelocity `main` baseline (which lacks it) skips the scenario.
+    if isdefined(CensoredDistributions, :latent)
+        primaries = [0.2, 0.5, 0.3, 0.7, 0.4]
+        _push!("Latent PrimaryConditional LogNormal scalar logpdf",
+            (θ, obs,
+                prim) -> sum(
+                i -> logpdf(
+                    latent(primary_censored(LogNormal(θ[1], θ[2]),
+                        Uniform(0.0, 1.0))),
+                    obs[i]; primary = prim[i]),
+                eachindex(obs)),
+            [1.0, 0.75], (Constant(obs), Constant(primaries)))
+    end
+
     # High-dimensional scenarios. Each observation carries its own delay
     # parameter, so the gradient is taken with respect to many inputs.
     # These give the reverse-mode backends (ReverseDiff, Enzyme reverse,
