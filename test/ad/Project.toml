@@ -6,6 +6,7 @@ ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
 DifferentiationInterfaceTest = "a82114a7-5aa3-49a8-9643-716bb13727a3"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
@@ -31,5 +32,10 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 Enzyme = "0.13.172"
 
 [sources]
+# EpiAwarePackageTools is not yet registered (EpiAware/EpiAwarePackageTools.jl#731),
+# so it is pinned via a git source on the kit's main branch; it provides the
+# shared ADRegistry harness (test_working_backend/test_partial_backend) that
+# test/ad/setup.jl now drives ADFixtures through.
+EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl", rev = "main"}
 ADFixtures = {path = "../ADFixtures"}
 CensoredDistributions = {path = "../.."}
