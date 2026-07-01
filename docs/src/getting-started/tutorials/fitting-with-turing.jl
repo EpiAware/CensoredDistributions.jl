@@ -618,7 +618,7 @@ latent_horizon = 12.0
 
 latent_obs = rand(Xoshiro(1),
     double_interval_censored(true_dist; primary_event = latent_pe,
-        upper = latent_horizon), 40);
+        upper = latent_horizon), 80);
 
 @model function latent_double_censored_model(y, primary_event, horizon)
     dist ~ to_submodel(latent_delay_dist())
