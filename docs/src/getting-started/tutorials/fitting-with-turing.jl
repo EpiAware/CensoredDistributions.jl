@@ -587,10 +587,13 @@ The marginal and latent forms are one model scored two ways and agree in
 expectation, so the sampled-primary fit recovers the same delay parameters as
 the marginal fits above.
 
-This is the same model in its latent form, not a new one.
+This is the same double-censored model as the marginal fit above, switched to
+latent form, not a new one.
 We reuse the `latent_delay_dist()` delay prior and the same
 [`double_interval_censored`](@ref) construction (primary censoring plus right
-truncation), and change only how it is scored, wrapping it in [`latent`](@ref).
+truncation), and change only how it is scored, wrapping it in [`latent`](@ref):
+the marginal fit integrates the primary out, the latent fit samples it per
+record.
 For each record we sample its within-window primary `p ~ Uniform(0, 1)` and add
 the conditional density `logpdf(latent(leaf), obs; primary = p)` to the log
 joint.
@@ -615,7 +618,7 @@ latent_horizon = 12.0
 
 latent_obs = rand(Xoshiro(1),
     double_interval_censored(true_dist; primary_event = latent_pe,
-        upper = latent_horizon), 100);
+        upper = latent_horizon), 40);
 
 @model function latent_double_censored_model(y, primary_event, horizon)
     dist ~ to_submodel(latent_delay_dist())
@@ -654,8 +657,12 @@ latent_fit = sample(
 summarystats(latent_fit)
 
 md"""
-The delay parameters recover their true values as in the marginal fits,
-confirming the latent and marginal forms describe one process.
+The latent fit recovers the delay parameters approximately at this small
+docs-scale `n`, with the true `mu` and `sigma` inside the posterior, as the
+pairplot below shows: the same recovery as the marginal double-censored fit,
+now with the primary sampled per record rather than integrated out.
+A fuller fit (more records, longer chains) sharpens the posterior; we keep it
+light here for the docs build.
 """
 
 plot_fit_with_truth(
