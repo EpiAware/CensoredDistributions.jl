@@ -3,7 +3,7 @@ module CensoredDistributions
 # Non-submodule imports
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS, TYPEDEF, TYPEDFIELDS,
                            TYPEDSIGNATURES
-using Random: AbstractRNG
+using Random: AbstractRNG, default_rng
 
 # Explicit imports approach for issue #121
 # Import functions that we extend (for method extension)
@@ -13,8 +13,9 @@ import Distributions: params, insupport, pdf, logpdf, cdf, logcdf,
 # Import from Base for functions we extend that are re-exported by Distributions
 import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
-using Distributions: Distributions, UnivariateDistribution, Continuous,
-                     ValueSupport, Truncated, Product, Censored, truncated,
+using Distributions: Distributions, UnivariateDistribution, Distribution,
+                     Continuous, Multivariate, ValueSupport, Truncated, Product,
+                     Censored, truncated,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
                      Weibull, Normal, shape, scale, meanlogx, stdlogx,
                      _in_closed_interval
@@ -46,6 +47,9 @@ export ExponentiallyTilted
 # Exported convolution constructor
 export convolve_distributions
 
+# Exported latent representation, its inverse, and the primary-event accessor
+export latent, marginal, get_primary_event
+
 # Exported utilities
 export weight, get_dist, get_dist_recursive
 
@@ -55,10 +59,19 @@ include("utils/gamma_ad.jl")
 
 include("integration/integration.jl")
 
+include("interface.jl")
+
 include("censoring/primarycensored_cdf.jl")
 include("censoring/PrimaryCensored.jl")
 include("censoring/IntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
+
+# Latent event-time form (conditional on a realised primary) and its kernel.
+# `Latent` is included first so `secondary_conditional.jl` can dispatch on it;
+# `PrimaryConditional.jl` defines the kernel `Latent` scores and samples.
+include("censoring/Latent.jl")
+include("censoring/PrimaryConditional.jl")
+include("censoring/secondary_conditional.jl")
 
 include("distributions/ExponentiallyTilted.jl")
 include("distributions/Convolved.jl")

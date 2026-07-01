@@ -6,6 +6,14 @@ public IntervalCensored
 public Weighted
 public Convolved
 
+# The latent conditional kernel: public for dispatch/extension but not
+# user-facing (constructed internally by `latent`; users reach it via the
+# `latent` scalar API with a passed `primary`).
+public PrimaryConditional
+
+# The primary-censored family supertype (public but not exported).
+public AbstractPrimaryCensored
+
 # Primary censoring solver supertype (public but not exported).
 # `AnalyticalSolver` and `NumericSolver` are exported in the main module.
 public AbstractSolverMethod
