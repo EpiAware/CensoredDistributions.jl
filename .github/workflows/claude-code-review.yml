@@ -1,3 +1,4 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 name: Claude Code Review
 
 on:
@@ -12,7 +13,7 @@ on:
 
 jobs:
   claude-review:
-    # Only run for PRs from seabbs
+    # Only run for PRs from the configured reviewer handle
     if: github.event.pull_request.user.login == 'seabbs'
 
     runs-on: ubuntu-latest

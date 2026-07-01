@@ -1,21 +1,17 @@
-# Run this checkout's benchmark suite and save the results to JSON.
+#!/usr/bin/env julia
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 #
-# Usage (from the repo root):
+# Run this checkout's benchmark suite and save the results to JSON, via the
+# shared EpiAwarePackageTools benchmark harness. The package owns `benchmarks.jl`
+# (which defines `SUITE`); this runner is standard.
+#
 #   julia --project=benchmark benchmark/run.jl [out.json]
-#
-# The CI benchmark workflow inlines an equivalent runner rather than
-# calling this file, so that it also works on the `main` baseline (which
-# predates this script). Kept here as a local convenience and as the
-# documented shape of what CI runs.
-using BenchmarkTools
+
+using EpiAwarePackageTools.Benchmarks: run_suite
 
 out_file = get(ARGS, 1, "results.json")
 
 include(joinpath(@__DIR__, "benchmarks.jl"))  # defines `SUITE`
 
-# A short per-benchmark budget keeps the run affordable; the
-# minimum-time estimator used in the comparison is stable well below the
-# default 5 s.
-results = run(SUITE; verbose = true, seconds = 1)
-BenchmarkTools.save(out_file, results)
+run_suite(SUITE; out_file = out_file, seconds = 1, verbose = true)
 println("Saved benchmark results to ", out_file)

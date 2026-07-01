@@ -1,3 +1,4 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 repos:
 #####
 # Basic file cleanliness
@@ -5,8 +6,14 @@ repos:
     rev: v5.0.0
     hooks:
     -   id: check-added-large-files
+    # `templates/` (in a kit that ships scaffold templates) holds files with
+    # `{{PLACEHOLDER}}` tokens that are not valid YAML/TOML until substituted,
+    # so exclude that tree from the structural parsers. Absent in a normal
+    # package, where these excludes are a no-op.
     -   id: check-yaml
+        exclude: '^templates/'
     -   id: check-toml
+        exclude: '^templates/'
     -   id: check-merge-conflict
     -   id: check-json
     -   id: debug-statements
@@ -15,12 +22,18 @@ repos:
     -   id: trailing-whitespace
 #####
 # Julia
-# Due to lack of first-class Julia support, this needs Julia local install
-#  and JuliaFormatter.jl installed in the library
+# Due to lack of first-class Julia support, this needs a local Julia install
+#  with JuliaFormatter.jl available. Keep `rev` in step with the pinned
+#  JuliaFormatter in the formatter test environment and `.JuliaFormatter.toml`.
 - repo: https://github.com/domluna/JuliaFormatter.jl
   rev: v2.5.5
   hooks:
   - id: julia-formatter
+    # A package that ships scaffold templates (e.g. EpiAwarePackageTools) keeps
+    # them under `templates/`; some carry `{{PLACEHOLDER}}` tokens that are not
+    # parseable Julia until substituted, so exclude that tree from formatting.
+    # The directory is absent in a normal package, where this is a no-op.
+    exclude: '^templates/'
 #####
 # Secrets
 -   repo: https://github.com/Yelp/detect-secrets

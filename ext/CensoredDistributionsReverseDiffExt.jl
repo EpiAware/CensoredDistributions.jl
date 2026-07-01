@@ -1,7 +1,14 @@
 module CensoredDistributionsReverseDiffExt
 
-import CensoredDistributions: _gamma_cdf
+import CensoredDistributions: _gamma_cdf, _primal
 using ReverseDiff: ReverseDiff, @grad_from_chainrules, TrackedReal
+
+# Strip a ReverseDiff `TrackedReal` to its primal value for the
+# non-differentiable quadrature-window quantile (`_finite_window` in
+# `src/distributions/Convolved.jl`). Reading `.value` off the
+# tape entry does not record an operation, so the window endpoint stays a
+# constant — exactly the intended behaviour for an integration bound.
+_primal(x::TrackedReal) = _primal(ReverseDiff.value(x))
 
 # Lift the `ChainRulesCore.rrule` defined in
 # `CensoredDistributionsChainRulesCoreExt` into ReverseDiff's gradient

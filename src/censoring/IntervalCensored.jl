@@ -92,6 +92,17 @@ end
 is_regular_intervals(d::IntervalCensored{D, <:Real}) where {D} = true
 is_regular_intervals(d::IntervalCensored{D, <:AbstractVector}) where {D} = false
 
+# Show an interval-censored distribution as a one-line summary of its inner
+# distribution and its interval spec, summarising an arbitrary-boundary vector by
+# its count so a long boundary array is never dumped. Detailed nested inspection
+# is available via `inspect`.
+function Base.show(io::IO, d::IntervalCensored)
+    spec = is_regular_intervals(d) ? "interval=$(d.boundaries)" :
+           "boundaries=$(length(d.boundaries))"
+    print(io, "IntervalCensored(", d.dist, "; ", spec, ")")
+    return nothing
+end
+
 # Get interval width for regular intervals
 interval_width(d::IntervalCensored{D, <:Real}) where {D} = d.boundaries
 
@@ -204,7 +215,7 @@ function pdf(d::IntervalCensored, x::Real)
     # For lower bound at or below distribution minimum, CDF is 0.
     # `_cdf_ad_safe` routes `Gamma` through `_gamma_cdf` so the boundary
     # CDF stays differentiable; stock `cdf(Gamma, x)` hits `gamma_inc`,
-    # which no AD backend can push `Dual`/tracked numbers through (#257).
+    # which no AD backend can push `Dual`/tracked numbers through.
     cdf_lower = lower <= dist_min ? 0.0 : _cdf_ad_safe(get_dist(d), lower)
 
     # For upper bound at or above distribution maximum, CDF is 1
@@ -236,11 +247,14 @@ Collect all unique interval boundaries needed for vectorised PDF computation.
 Returns a sorted vector of unique boundaries with appropriate type promotion.
 The boundaries are functions of the (constant) lags and the interval spec, not
 the distribution's AD parameters, so AD rules mark this non-differentiable (the
-`unique`/sort internals are never traced); see the AD extensions (#699, #701).
+`unique`/sort internals are never traced); see the AD extensions.
 """
 function _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector{<:Real})
     T = promote_type(eltype(x), eltype(d.boundaries))
 
+    # Push into a concretely-typed `T[]` buffer (rather than a `vcat`-splat of
+    # per-lag tuples, which infers `Vector{Any}` and makes the downstream
+    # boundary-CDF `map` a `Union`-typed Generator that Enzyme rejects).
     boundaries = T[]
     if is_regular_intervals(d)
         interval = interval_width(d)
@@ -261,12 +275,43 @@ function _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector{<:Rea
 end
 
 """
+    _interval_cdf_eltype(d::IntervalCensored, x::AbstractVector)
+
+Element type for the cached interval CDF values and the `0`/`1` boundary
+seeds in the batched PDF path.
+
+This must follow the underlying distribution's parameter type, not just the
+evaluation points. When the distribution carries AD `Dual`/tracked
+parameters but `x` and the boundaries are plain `Float64`, a type derived
+from the eval points alone (e.g. `Float64`) would strip the AD numbers and
+break gradients on the batched path. `eltype(d)` reports the support type
+(e.g. `Float64` for `Gamma` regardless of its parameter type), so it is not
+enough; we promote in the actual CDF result type from `_cdf_ad_safe`.
+"""
+function _interval_cdf_eltype(d::IntervalCensored, x::AbstractVector{<:Real})
+    # The CDF value type follows the distribution's parameter type (carrying any
+    # AD `Dual`/tracked number). `partype` reads it directly from the
+    # parameters without evaluating the CDF, so the type probe never traces a
+    # computation onto the AD tape. An earlier probe that evaluated `cdf` at the
+    # distribution minimum tripped ReverseDiff: `cdf(LogNormal, 0.0)` has a NaN
+    # gradient at the support edge, and tracing it (even just for `typeof`)
+    # poisoned the batched gradient with NaN.
+    cdf_t = float(Distributions.partype(get_dist(d)))
+    return promote_type(eltype(x), eltype(d.boundaries), cdf_t)
+end
+
+"""
     _lookup_boundary_cdf(boundaries, cdf_values, b)
 
-Look up the cached CDF for boundary `b` in the sorted, unique `boundaries`
-vector via `searchsortedfirst`, returning the matching `cdf_values` entry.
-The concretely-typed parallel arrays plus an index lookup keep the boundary
-CDF cache type-stable so the AD tangent is tracked through it (#699).
+Look up the cached CDF for boundary `b` in the sorted, unique
+`boundaries` vector via `searchsortedfirst`. `boundaries` and
+`cdf_values` are parallel arrays produced by
+[`_compute_boundary_cdfs`](@ref); the index found in `boundaries` selects
+the matching `cdf_values` entry. Using parallel concretely-typed arrays
+plus an index lookup (rather than a `Dict{Any,Any}`) keeps the boundary
+CDF cache type-stable so the AD tangent type is tracked through it. The
+`Dict{Any,Any}` version forced a `DynamicDerivedRule{Dict{Any,Any}}` and
+a bitcast Mooncake reverse-mode refuses to differentiate.
 """
 function _lookup_boundary_cdf(boundaries::AbstractVector, cdf_values::AbstractVector, b)
     idx = searchsortedfirst(boundaries, b)
@@ -278,18 +323,35 @@ end
 
 Evaluate the boundary CDF once per unique boundary, returning a vector
 parallel to the sorted unique `boundaries`. `_cdf_ad_safe` keeps the
-`Gamma` path differentiable (see #257). CDF values keep their natural type
-so the AD tangent is not stripped. Boundaries at or below `minimum(dist)` /
-at or above `maximum(dist)` get the literal `0` / `1` (typed via
-`partype`) instead of an evaluation, mirroring the scalar [`pdf`](@ref)
-guard; evaluating `_cdf_ad_safe` at a degenerate boundary (e.g. `LogNormal`
-at `0`) would poison the reverse sweep with a `-Inf`/`NaN` adjoint (#699).
+`Gamma` path differentiable.
+
+The CDF values are kept in their natural type rather than converted to the
+boundary/data element type. The CDF carries the AD tangent w.r.t. the
+distribution parameters; converting it to the (constant) data eltype would
+strip a `Dual`/tracked number and drop the gradient.
+
+Boundaries at or below `minimum(dist)` / at or above `maximum(dist)` get
+the literal CDF (`0` / `1`) instead of an evaluation, mirroring the scalar
+[`pdf`](@ref) method's boundary guard. This matters for reverse-mode AD:
+evaluating `_cdf_ad_safe` at a degenerate boundary (e.g. `LogNormal` at
+`0`) can produce a `-Inf`/`NaN` adjoint that poisons the reverse sweep even
+though the value itself is unused (the scalar path guards before the call).
+Keeping every boundary in the parallel arrays (with literal `0`/`1` seeds
+for the degenerate ones) also avoids the `KeyError` the old skip-and-`Dict`
+cache hit when a lag's interval bound landed exactly on `maximum(dist)`.
 """
 function _compute_boundary_cdfs(d::IntervalCensored, boundaries::AbstractVector)
     dist = get_dist(d)
     dist_min = minimum(dist)
     dist_max = maximum(dist)
-    z = zero(Distributions.partype(dist))
+    # `partype(dist)` is the distribution's parameter type, which is the
+    # AD-tracked number type (e.g. a `Dual`) under differentiation. A zero of
+    # that type types the literal-branch `0`/`1` so the result vector stays
+    # type-stable and AD-aware without evaluating `_cdf_ad_safe` at a
+    # degenerate boundary: doing so (e.g. `LogNormal` at `0`) produces a
+    # `-Inf`/`NaN` reverse adjoint that poisons the sweep even though `zero`
+    # discards the primal (the derivative is still taped).
+    z = zero(float(Distributions.partype(dist)))
     return map(boundaries) do b
         if b <= dist_min
             z
@@ -316,20 +378,24 @@ function _compute_pdfs_with_cache(
     dist_min = minimum(get_dist(d))
     dist_max = maximum(get_dist(d))
 
+    # Boundary `0`/`1` seeds must carry the distribution's (possibly AD)
+    # parameter type so gradients flow through the batched path.
+    T = _interval_cdf_eltype(d, x)
+
     return map(x) do xi
         lower, upper = get_interval_bounds(d, xi)
 
         if isnan(lower) || isnan(upper)
-            return zero(promote_type(eltype(x), eltype(d)))
+            return zero(T)
         end
 
         # Handle boundary cases for distributions with bounded support
         # For lower bound at or below distribution minimum, CDF is 0
-        cdf_lower = lower <= dist_min ? zero(promote_type(eltype(x), eltype(d))) :
+        cdf_lower = lower <= dist_min ? zero(T) :
                     _lookup_boundary_cdf(boundaries, cdf_values, lower)
 
         # For upper bound at or above distribution maximum, CDF is 1
-        cdf_upper = upper >= dist_max ? one(promote_type(eltype(x), eltype(d))) :
+        cdf_upper = upper >= dist_max ? one(T) :
                     _lookup_boundary_cdf(boundaries, cdf_values, upper)
 
         return max(cdf_upper - cdf_lower, zero(cdf_upper))
@@ -349,14 +415,20 @@ function pdf(d::IntervalCensored, x::AbstractVector{<:Real})
     # Collect all unique boundaries needed
     boundaries = _collect_unique_boundaries(d, x)
 
-    # Handle empty boundaries case (all x values outside intervals)
-    T = promote_type(eltype(x), eltype(d.boundaries))
+    # Element type for the CDF VALUES follows the distribution's parameter
+    # type so AD `Dual`/tracked numbers flow through the batched path.
+    Tval = _interval_cdf_eltype(d, x)
     if isempty(boundaries)
-        return fill(zero(T), length(x))
+        return fill(zero(Tval), length(x))
     end
 
-    # CDF once per unique boundary, stored parallel to `boundaries` for a
-    # `searchsortedfirst` lookup (concretely typed for AD, #699).
+    # Compute CDFs once per unique boundary, stored in an array parallel to
+    # the sorted unique `boundaries`. A concretely-typed parallel array plus
+    # a `searchsortedfirst` index lookup replaces the old `Dict{Any,Any}`
+    # cache, which forced a dynamic rule and a bitcast Mooncake reverse-mode
+    # refuses to differentiate. `_compute_boundary_cdfs` keeps the
+    # `Gamma` path differentiable and guards degenerate boundaries with typed
+    # `0`/`1` seeds (so they are never evaluated and never missing).
     cdf_values = _compute_boundary_cdfs(d, boundaries)
 
     # Use cached values to compute PDFs efficiently
@@ -373,13 +445,16 @@ function logpdf(d::IntervalCensored, x::AbstractVector{<:Real})
     # Use vectorised PDF computation then handle logs with proper error handling
     pdf_vals = pdf(d, x)
 
-    # Derive the log-pdf type from the pdf values, not `eltype(d)`: under AD
-    # `pdf_val` is a tracked number and the value type would strip it (#699).
+    # Follow the PDF value type (which carries any AD `Dual`/tracked parameter
+    # type) rather than the eval points, so `log`/`-Inf` conversions do
+    # not strip gradients on the batched path.
+    T = promote_type(eltype(x), eltype(pdf_vals))
+
     return map(zip(x, pdf_vals)) do (xi, pdf_val)
         if !insupport(d, xi)
-            oftype(log(pdf_val), -Inf)
+            T(-Inf)
         else
-            log(pdf_val)
+            T(log(pdf_val))
         end
     end
 end
@@ -394,7 +469,7 @@ function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
     end
 
     # Route through the AD-safe helpers so the `Gamma` path stays
-    # differentiable rather than hitting `gamma_inc` directly (#257).
+    # differentiable rather than hitting `gamma_inc` directly.
     f_safe = f === logcdf ? _logcdf_ad_safe : _cdf_ad_safe
 
     if is_regular_intervals(d)

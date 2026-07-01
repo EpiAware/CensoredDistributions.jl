@@ -1,3 +1,4 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 name: Code coverage
 
 on:
@@ -13,7 +14,13 @@ concurrency:
 
 jobs:
   coverage:
-    uses: EpiAware/.github/.github/workflows/coverage.yml@6d4e35e2515f947acbf7d2a683cbf02b341005c7
+    uses: EpiAware/.github/.github/workflows/coverage.yml@dc919e0d1674c16d1518df07eda5ee0be09b47e2
     with:
       julia_version: '1'
+      # Hard-fail the coverage check on an upload error. This is intentional:
+      # a repo with no CODECOV_TOKEN cannot upload on a protected branch
+      # ('Token required because branch is protected'), so CI goes red as a
+      # loud reminder to add the secret. Add CODECOV_TOKEN (repo or org secret)
+      # to make coverage upload — and report — for real.
+      fail_ci_if_error: true
     secrets: inherit  # pragma: allowlist secret

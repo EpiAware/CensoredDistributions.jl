@@ -44,7 +44,7 @@ end
     # Mooncake's canonical rule test, run for both reverse and forward
     # mode. `@from_chainrules` (default mode) lifts the `rrule` into an
     # `rrule!!` and the `frule` into an `frule!!`, so both interfaces are
-    # registered (#270). For each mode, verifies (a) the rule is actually
+    # registered. For each mode, verifies (a) the rule is actually
     # invoked (is_primitive = true asserts this) and (b) primal +
     # derivative match Richardson-extrapolated finite differences.
     using Random: MersenneTwister
@@ -71,7 +71,7 @@ end
     end
 end
 
-@testitem "Enzyme direct rule on _gamma_cdf (issue #259)" tags=[
+@testitem "Enzyme direct rule on _gamma_cdf" tags=[
     :ad, :enzyme, :enzyme_reverse] begin
     # Pins the fix in CensoredDistributionsEnzymeExt: the original
     # `Enzyme.@import_rrule` lift returned the wrong ∂P/∂k (~8% off). The
@@ -99,7 +99,7 @@ end
     end
 end
 
-@testitem "Enzyme gamma rule (issue #263)" tags=[:ad, :enzyme, :enzyme_reverse] begin
+@testitem "Enzyme gamma rule" tags=[:ad, :enzyme, :enzyme_reverse] begin
     # Pins the `SpecialFunctions.gamma` rule in
     # CensoredDistributionsEnzymeExt. With only EnzymeSpecialFunctionsExt
     # loaded, Enzyme mis-lowers `gamma` to the `loggamma` known-op and
@@ -121,6 +121,52 @@ end
         @test isapprox(g_rev[1], truth; rtol = 1e-10, atol = 1e-12)
         @test isapprox(g_fwd[1], truth; rtol = 1e-10, atol = 1e-12)
     end
+end
+
+@testitem "truncated(Gamma; lower) gradient: ForwardDiff (#742)" tags=[
+    :ad, :forwarddiff] begin
+    # Regression for #742: a fixed-bound `truncated(Gamma; lower)` normaliser is
+    # built eagerly from `logcdf(Gamma, lower)`, which the stock Distributions
+    # path routes through `StatsFuns._gammalogcdf` (no `Dual` method). When the
+    # Gamma shape/scale carry `Dual`s, that errors. Routing `logcdf(::Gamma)`
+    # through the AD-safe `_gamma_cdf` closes the gap; the gradient must be finite
+    # and match finite differences, and be non-degenerate.
+    using CensoredDistributions, Distributions
+    using FiniteDifferences: central_fdm, grad
+    using ForwardDiff: ForwardDiff
+
+    # Differentiate w.r.t. the Gamma shape/scale (constant lower bound).
+    f(p) = logpdf(truncated(Gamma(p[1], p[2]); lower = 0.5), 2.0)
+    p0 = [2.0, 1.5]
+    @test isfinite(f(p0))
+    g_ad = ForwardDiff.gradient(f, p0)
+    g_fd = grad(central_fdm(5, 1), f, p0)[1]
+    @test all(isfinite, g_ad)
+    @test all(!=(0), g_ad)
+    @test isapprox(g_ad, g_fd; rtol = 1e-6, atol = 1e-8)
+
+    # The lower bound itself as a parameter (a genuinely `Dual` lower bound).
+    h(p) = logpdf(truncated(Gamma(2.0, 1.5); lower = p[1]), 2.0)
+    gh_ad = ForwardDiff.gradient(h, [0.5])
+    gh_fd = grad(central_fdm(5, 1), h, [0.5])[1]
+    @test all(isfinite, gh_ad)
+    @test gh_ad[1] != 0
+    @test isapprox(gh_ad, gh_fd; rtol = 1e-6, atol = 1e-8)
+
+    # Node-level `truncated(node; lower)` over Gamma leaves (the issue path):
+    # the per-leaf truncation `logcdf` normaliser differentiates through the
+    # kept tree shape.
+    function fnode(θ)
+        seq = Sequential(Gamma(θ[1], θ[2]), Gamma(θ[3], θ[4]))
+        return logpdf(truncated(seq; lower = 0.5, upper = 12.0), [3.0, 5.0])
+    end
+    θ = [2.0, 1.0, 1.5, 2.0]
+    @test isfinite(fnode(θ))
+    gn_ad = ForwardDiff.gradient(fnode, θ)
+    gn_fd = grad(central_fdm(5, 1), fnode, θ)[1]
+    @test all(isfinite, gn_ad)
+    @test all(!=(0), gn_ad)
+    @test isapprox(gn_ad, gn_fd; rtol = 1e-6, atol = 1e-8)
 end
 
 @testitem "_gamma_cdf rrule and _make_weibull_g zero-input guards" tags=[:ad, :forwarddiff] begin

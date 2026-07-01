@@ -1,4 +1,14 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 version: '3'
+
+# Standard EpiAware package development tasks. Generalised from
+# CensoredDistributions.jl; package-specific assumptions (a particular
+# extension, a fixed package name) are kept out so this drops into any package.
+# A package can override `PACKAGE` below, otherwise it is read from Project.toml.
+
+vars:
+  PACKAGE:
+    sh: julia --project=. -e 'using Pkg; print(Pkg.project().name)'
 
 tasks:
   # Default task - show help
@@ -9,7 +19,7 @@ tasks:
 
   # === TESTING WORKFLOWS ===
   test:
-    desc: Run test suite including quality checks and AD gradient tests
+    desc: Run the full test suite including quality and AD gradient tests
     deps: [test-ad]
     cmds:
       - echo "🧪 Running test suite..."
@@ -31,15 +41,23 @@ tasks:
       - echo "✅ Quality checks completed"
 
   test-jet:
-    desc: Run JET static analysis directly
+    desc: Run JET static analysis directly (isolated environment)
     cmds:
       - echo "🔍 Running JET static analysis..."
       - julia --project=test/jet -e 'using Pkg; Pkg.instantiate()'
       - julia --project=test/jet test/jet/runtests.jl
       - echo "✅ JET analysis completed"
 
+  test-formatting:
+    desc: Run the JuliaFormatter check directly (isolated environment)
+    cmds:
+      - echo "🎨 Checking code formatting..."
+      - julia --project=test/formatter -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=test/formatter test/formatter/runtests.jl
+      - echo "✅ Formatting check completed"
+
   test-ad:
-    desc: Run AD gradient tests directly
+    desc: Run AD gradient tests directly (isolated environment)
     cmds:
       - echo "🔁 Running AD gradient tests..."
       - julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
@@ -48,43 +66,37 @@ tasks:
 
   test-ad-backend:
     desc: >-
-      Run AD gradient tests for a single backend tag, as the per-backend
-      CI does (e.g. TAG=enzyme_reverse task test-ad-backend)
+      Run AD gradient tests for a single backend tag, as the per-backend CI
+      does (e.g. TAG=enzyme_reverse task test-ad-backend)
     cmds:
       - echo "🔁 Running AD gradient tests for {{.TAG}}..."
       - julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
       - julia --project=test/ad test/ad/runtests.jl {{.TAG}}
       - echo "✅ AD gradient tests for {{.TAG}} completed"
 
-  test-formatting:
-    desc: Run JuliaFormatter check directly
-    cmds:
-      - echo "🎨 Checking code formatting..."
-      - julia --project=test/formatter -e 'using Pkg; Pkg.instantiate()'
-      - julia --project=test/formatter test/formatter/runtests.jl
-      - echo "✅ Formatting check completed"
-
   test-extensions:
-    desc: Test package extensions with OptimizationExt
+    desc: >-
+      Check package extensions load by importing the package in the docs env
+      (a package can customise which trigger packages to load here)
     cmds:
       - echo "🔧 Testing package extensions..."
-      - julia --project=docs --quiet -e 'using CensoredDistributions, Distributions, OptimizationOptimJL, Bijectors; println("✅ Extensions loaded successfully")'
+      - julia --project=docs --quiet -e 'using {{.PACKAGE}}; println("✅ Package + docs env loaded")'
 
   format:
     desc: Format code with JuliaFormatter (fixes formatting issues)
     cmds:
       - echo "🎨 Formatting code with JuliaFormatter..."
       - julia --project=test/formatter -e 'using Pkg; Pkg.instantiate()' 2>/dev/null
-      - julia --project=test/formatter --quiet -e 'using JuliaFormatter; format("src", verbose=false, overwrite=true); format("test", verbose=false, overwrite=true); format("docs", verbose=false, overwrite=true); format("benchmark", verbose=false, overwrite=true)'
+      - julia --project=test/formatter --quiet -e 'using JuliaFormatter; for d in ("src", "test", "docs", "benchmark"); isdir(d) && format(d; verbose=false, overwrite=true); end'
       - echo "✅ Code formatting completed"
 
   coverage:
-    desc: Run tests with coverage and generate coverage report
+    desc: Run tests with coverage and generate an lcov report
     cmds:
       - echo "📊 Running tests with coverage..."
       - julia --project=. --code-coverage=user -e 'using Pkg; Pkg.test(test_args=["skip_quality"])'
       - echo "📊 Processing coverage data..."
-      - julia --project=test -e 'using Pkg; Pkg.add("Coverage"); using Coverage; coverage = process_folder(); LCOV.writefile("lcov.info", coverage)'
+      - julia --project=test -e 'using Pkg; Pkg.add("Coverage"); using Coverage; LCOV.writefile("lcov.info", process_folder())'
       - echo "✅ Coverage report generated (lcov.info)"
 
   coverage-ad:
@@ -102,9 +114,9 @@ tasks:
 
   # === DOCUMENTATION WORKFLOWS ===
   docs:
-    desc: Build complete documentation including Literate tutorials (slow)
+    desc: Build the documentation
     cmds:
-      - echo "📚 Building complete documentation (including notebooks)..."
+      - echo "📚 Building documentation..."
       - julia --project=docs docs/make.jl
       - echo "✅ Documentation built successfully"
 
@@ -117,23 +129,16 @@ tasks:
 
   # === DEVELOPMENT SETUP ===
   setup:
-    desc: Set up development environment from scratch
+    desc: Set up the development environment from scratch
     cmds:
       - echo "🛠️  Setting up development environment..."
-      - echo "📦 Installing root environment dependencies..."
       - julia --project=. -e 'using Pkg; Pkg.instantiate()'
-      - echo "📦 Installing test environment dependencies..."
       - julia --project=test -e 'using Pkg; Pkg.instantiate()'
-      - echo "📦 Installing AD test environment dependencies..."
-      - julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
-      - echo "📦 Installing JET environment dependencies..."
-      - julia --project=test/jet -e 'using Pkg; Pkg.instantiate()'
-      - echo "📦 Installing formatter environment dependencies..."
-      - julia --project=test/formatter -e 'using Pkg; Pkg.instantiate()'
-      - echo "📦 Installing docs environment dependencies..."
-      - julia --project=docs -e 'using Pkg; Pkg.instantiate()'
-      - echo "📦 Installing benchmark environment dependencies..."
-      - julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
+      - >-
+        for d in test/ad test/jet test/formatter docs benchmark; do
+          [ -f "$d/Project.toml" ] &&
+            julia --project="$d" -e 'using Pkg; Pkg.instantiate()' || true;
+        done
       - echo "✅ Development environment ready"
 
   setup-precompile:
@@ -148,21 +153,13 @@ tasks:
 
   # === PACKAGE MANAGEMENT ===
   pkg-status:
-    desc: Show package status across all environments
+    desc: Show package status for the root and test environments
     cmds:
       - echo "📦 Package status overview:"
-      - echo ""
       - echo "=== Root Environment ==="
       - julia --project=. --quiet -e 'using Pkg; Pkg.status()'
-      - echo ""
       - echo "=== Test Environment ==="
       - julia --project=test --quiet -e 'using Pkg; Pkg.status()'
-      - echo ""
-      - echo "=== Docs Environment ==="
-      - julia --project=docs --quiet -e 'using Pkg; Pkg.status()'
-      - echo ""
-      - echo "=== Benchmark Environment ==="
-      - julia --project=benchmark --quiet -e 'using Pkg; Pkg.status()'
 
   pkg-update:
     desc: Update packages in all environments
@@ -187,14 +184,14 @@ tasks:
         fi
 
   pkg-add:
-    desc: "Add package to specified environment (usage: task pkg:add ENV=docs -- PackageName)"
+    desc: "Add package to specified environment (usage: task pkg-add ENV=docs -- PackageName)"
     cmds:
       - |
         ENV_VAR={{.ENV | default "."}}
         if [ -z "{{.CLI_ARGS}}" ]; then
-          echo "Usage: task pkg:add ENV=<environment> -- <PackageName>"
+          echo "Usage: task pkg-add ENV=<environment> -- <PackageName>"
           echo "Environments: . (root), test, docs, benchmark"
-          echo "Example: task pkg:add ENV=docs -- Literate"
+          echo "Example: task pkg-add ENV=docs -- Literate"
           exit 1
         fi
         echo "📦 Adding {{.CLI_ARGS}} to $ENV_VAR environment..."
@@ -216,7 +213,7 @@ tasks:
     silent: true
 
   benchmark:
-    desc: "Run benchmarks (usage: task benchmark -- --filter=PrimaryCensored)"
+    desc: "Run benchmarks (usage: task benchmark -- --filter=Foo)"
     cmds:
       - echo "⚡ Running benchmarks..."
       - |
@@ -229,7 +226,7 @@ tasks:
         ~/.julia/bin/benchpkg --rev=dirty --path="$REPO_PATH" --script="$(pwd)/benchmark/benchmarks.jl" {{.CLI_ARGS}}
 
   benchmark-compare:
-    desc: "Compare main vs current (usage: task benchmark-compare -- --filter=analytical)"
+    desc: "Compare main vs current (usage: task benchmark-compare -- --filter=Foo)"
     cmds:
       - echo "⚡ Comparing benchmarks (main vs current)..."
       - |
@@ -244,10 +241,10 @@ tasks:
   benchmark-table:
     desc: "Show benchmark results table (usage: task benchmark-table -- --rev=dirty)"
     cmds:
-      - ~/.julia/bin/benchpkgtable CensoredDistributions {{.CLI_ARGS}}
+      - ~/.julia/bin/benchpkgtable {{.PACKAGE}} {{.CLI_ARGS}}
 
   benchmark-install:
-    desc: Install benchpkg CLI to global environment (one-time)
+    desc: Install the benchpkg CLI to the global environment (one-time)
     cmds:
       - julia -e 'using Pkg; Pkg.add("AirspeedVelocity")'
       - echo "✅ benchpkg installed to ~/.julia/bin"
@@ -272,14 +269,14 @@ tasks:
       - echo "✅ Full development checks completed"
 
   precommit:
-    desc: Run pre-commit formatting hooks only
+    desc: Run the pre-commit hooks on all files
     cmds:
-      - echo "🎨 Running pre-commit formatting hooks..."
+      - echo "🎨 Running pre-commit hooks..."
       - pre-commit run --all-files
-      - echo "✅ Pre-commit formatting completed"
+      - echo "✅ Pre-commit completed"
 
   ci:
-    desc: Simulate CI pipeline locally
+    desc: Simulate the CI pipeline locally
     cmds:
       - echo "🤖 Running CI simulation..."
       - task: precommit
@@ -314,11 +311,7 @@ tasks:
   info:
     desc: Show project information and environment status
     cmds:
-      - echo "📋 CensoredDistributions.jl Project Information"
-      - echo "==============================================="
-      - |
-        julia --project=. -e 'using Pkg; println("Julia version: ", VERSION); pkg = Pkg.project(); println("Package: ", pkg.name, " v", pkg.version)'
-      - echo ""
+      - 'julia --project=. -e ''using Pkg; println("Julia version: ", VERSION); p = Pkg.project(); println("Package: ", p.name, " v", p.version)'''
       - task: pkg-status
 
   help:

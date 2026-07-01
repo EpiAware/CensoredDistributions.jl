@@ -11,10 +11,10 @@ Advice on choosing a backend and on debugging comes after the results.
 
 ## Backend support
 
-Each backend has its own AD gradient CI run, so a transiently unstable
-backend only reds its own badge.
-The badges below show the latest run of each on `main`, tested on Julia 1
+One AD gradient CI run exercises every backend on `main`, tested on Julia 1
 (the latest stable release).
+The badge below shows its aggregate status; the row under it shows each
+backend's coverage from that run.
 
 ```@raw html
 <table>
@@ -22,14 +22,8 @@ The badges below show the latest run of each on `main`, tested on Julia 1
 <th>ForwardDiff</th><th>ReverseDiff (tape)</th><th>Enzyme forward</th>
 <th>Enzyme reverse</th><th>Mooncake reverse</th><th>Mooncake forward</th>
 </tr></thead>
-<tbody><tr>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-forwarddiff.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-forwarddiff.yaml/badge.svg?branch=main" alt="AD ForwardDiff"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-reversediff.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-reversediff.yaml/badge.svg?branch=main" alt="AD ReverseDiff"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-forward.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-forward.yaml/badge.svg?branch=main" alt="AD Enzyme forward"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-reverse.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-reverse.yaml/badge.svg?branch=main" alt="AD Enzyme reverse"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-reverse.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-reverse.yaml/badge.svg?branch=main" alt="AD Mooncake reverse"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-forward.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-forward.yaml/badge.svg?branch=main" alt="AD Mooncake forward"></a></td>
-</tr>
+<tbody>
+<tr><td colspan="6" style="text-align: center"><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad.yaml/badge.svg?branch=main" alt="AD"></a></td></tr>
 <tr>
 <td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-forwarddiff"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-forwarddiff" alt="coverage ForwardDiff"></a></td>
 <td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-reversediff"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-reversediff" alt="coverage ReverseDiff"></a></td>
@@ -41,14 +35,28 @@ The badges below show the latest run of each on `main`, tested on Julia 1
 </table>
 ```
 
-The top row is each backend's latest CI run: a green badge means that
-backend differentiates the scenarios we test for it, which does not by
-itself mean full coverage.
-The second row is each backend's code coverage from the gradient suite
+The AD badge is the aggregate gradient CI run: green means every backend
+differentiates the scenarios we test for it, which does not by itself mean
+full coverage.
+The row below it is each backend's code coverage from the gradient suite
 (Codecov flag `ad-<backend>`), reporting which package lines that backend
 exercises.
-All six backends (ForwardDiff, ReverseDiff (tape), Enzyme forward, Enzyme
-reverse, Mooncake reverse, Mooncake forward) cover the whole scenario set.
+Coverage of the scenario set is not uniform.
+ForwardDiff and ReverseDiff (tape) differentiate every scenario.
+The compiled backends each drop some, tracked per backend in
+`ADFixtures.backend_broken_scenarios`.
+Mooncake reverse and Mooncake forward drop the three vectorised
+per-record scenarios, where the compiled backends trace into the AD-free
+row-collection pre-pass and crash on it.
+Enzyme forward drops those three plus the non-terminal whole-tree
+Resolve scenario.
+Enzyme reverse drops the most, adding the nested Resolve tree, the
+nested racing-hazard tree, the external censoring wrapper over a
+`Sequential`, and the whole-compose conv-to-last-observed truncation,
+each of which needs a reverse shadow Enzyme cannot build for a
+freshly-allocated `Convolved` or branch struct.
+The Scenarios column in the summary table below reports the count each
+backend covers.
 
 ### Configuring Enzyme
 
@@ -128,9 +136,17 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 set_theme!(theme_latexfonts(); fontsize = 14)
 
 scenarios = ADFixtures.scenarios()
-all_backends = [entry.backend for entry in ADFixtures.backends()]
 backend_name = Dict(entry.backend => entry.name
 for entry in ADFixtures.backends())
+
+## Enzyme gradients are correct and live-tested by their own per-backend AD CI
+## (the badges above), but `DifferentiationInterfaceTest.benchmark_differentiation`
+## has no `run_benchmark!` method for an `AutoEnzyme` backend in this DIT version,
+## so it errors on the timing path (not the gradient). Exclude Enzyme from the
+## benchmark run here; the prose and badge table still describe all backends.
+bench_backends = [entry.backend
+                  for entry in ADFixtures.backends()
+                  if !startswith(backend_name[entry.backend], "Enzyme")]
 
 md"""
 ```@raw html
@@ -143,7 +159,15 @@ md"""
 
 `DifferentiationInterfaceTest.benchmark_differentiation` runs every
 (backend, scenario) pair. We pass every backend and scenario so broken
-combinations show up as gaps rather than being hidden.
+combinations show up as gaps rather than being hidden, except for the
+per-backend scenarios `ADFixtures.backend_skip_scenarios()` flags as
+uncatchable crashes (Enzyme aborts the whole process on the vectorised
+per-record tree-rebuild scenario); those pairs are dropped before
+the run so the benchmark cannot take the process down with it.
+The Enzyme backends are left out of the timings here because the benchmark
+harness has no Enzyme path in this version; their gradients are correct and
+live-tested by the per-backend AD CI (the badges above).
+
 The figures are the prepared per-call cost.
 DifferentiationInterface prepares each backend once, recording a tape for
 ReverseDiff and compiling a rule for Enzyme and Mooncake, and we time the
@@ -169,11 +193,21 @@ md"""
 ```
 """
 
-raw_bench = DIT.benchmark_differentiation(
-    all_backends, scenarios;
-    logging = false,
-    benchmark_test = false
-)
+## Some (backend, scenario) pairs crash the process uncatchably (Enzyme on the
+## vectorised per-record tree-rebuild scenario), so a `try`/`catch` cannot
+## save the build. We therefore drop those pairs per backend before timing, mirroring
+## `test/ad/setup.jl`, and benchmark each backend over only its runnable
+## scenarios. Backends with no skip list still see the full scenario set.
+skip_map = ADFixtures.backend_skip_scenarios()
+raw_bench = mapreduce(vcat, bench_backends) do backend
+    skip = get(skip_map, backend_name[backend], Set{String}())
+    runnable = filter(s -> !(s.name in skip), scenarios)
+    DataFrame(DIT.benchmark_differentiation(
+        [backend], runnable;
+        logging = false,
+        benchmark_test = false
+    ))
+end
 
 ## `replace` order matters because `DoubleIntervalCensored` contains
 ## `IntervalCensored`; the longer key is matched first.
@@ -403,6 +437,18 @@ or, equivalently:
 julia --project=docs docs/make.jl
 ```
 
+## Benchmark history
+
+The numbers on this page are a single snapshot from the docs-build
+machine.
+For how these timings move across releases, the `benchmark-history`
+workflow runs the same suite over the last few tags plus the current
+`main` on every push and tag, and publishes per-benchmark timeline plots.
+These are published to the
+[benchmark history pages](https://EpiAware.github.io/CensoredDistributions.jl/history/),
+which resolve once the maintainer enables Pages for the benchmarks
+branch.
+
 ## See also
 
 - `test/ad/` holds the gradient tests as tagged `@testitem`s, validated
@@ -411,6 +457,5 @@ julia --project=docs docs/make.jl
   (e.g. `TAG=enzyme_reverse task test-ad-backend`) to run a single
   backend, as the per-backend CI does.
 - `benchmark/src/ad_gradients.jl` runs the same scenarios under
-  AirspeedVelocity. A benchmark history timeline is tracked in
-  [#224](https://github.com/EpiAware/CensoredDistributions.jl/issues/224).
+  AirspeedVelocity, the suite the benchmark history above is built from.
 """

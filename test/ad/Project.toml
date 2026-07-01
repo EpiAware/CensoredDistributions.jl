@@ -6,6 +6,7 @@ ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
 DifferentiationInterfaceTest = "a82114a7-5aa3-49a8-9643-716bb13727a3"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
@@ -14,10 +15,27 @@ Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+SurvivalDistributions = "7121986e-ae89-4673-ae4e-1cb822919a18"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 
+[compat]
+# Enzyme 0.13.170/0.13.171 raise an `EnzymeNoShadowError` on the
+# non-terminal Resolve whole-tree scenario (a `Sequential` subtree outcome
+# beside a `Gamma` leaf outcome) when building the reverse rule. CI on
+# 0.13.171 still hit it (run 28324040254); 0.13.172 resolves it. The
+# scenario differentiates correctly there (gradient finite and matching the
+# ForwardDiff reference, max abs diff ~4e-7), so the floor keeps CI on a
+# version where every ADFixtures scenario is genuinely supported rather than
+# registering a working scenario broken.
+Enzyme = "0.13.172"
+
 [sources]
+# EpiAwarePackageTools is not yet registered (EpiAware/EpiAwarePackageTools.jl#731),
+# so it is pinned via a git source on the kit's main branch; it provides the
+# shared ADRegistry harness (test_working_backend/test_partial_backend) that
+# test/ad/setup.jl now drives ADFixtures through.
+EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl", rev = "main"}
 ADFixtures = {path = "../ADFixtures"}
 CensoredDistributions = {path = "../.."}

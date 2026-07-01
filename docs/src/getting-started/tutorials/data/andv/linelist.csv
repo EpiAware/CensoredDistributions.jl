@@ -1,0 +1,38 @@
+patient_id,age,sex,residence,exposure_place,exposure_lower,exposure_upper,onset_date,source_case,relationship,wave,Z,notes
+1,68,M,Epuyen,Peridomestic,NA,NA,2018-11-03,NA,index,1,5,Zoonotic index; no human exposure date.
+2,61,M,Epuyen,Birthday party,2018-11-03,2018-11-03,2018-11-23,1,NA,2,6,
+3,15,M,Epuyen,Birthday party,2018-11-03,2018-11-03,2018-11-20,1,NA,2,0,
+4,16,M,Epuyen,Birthday party,2018-11-03,2018-11-03,2018-11-27,1,NA,2,0,
+5,46,F,Epuyen,Birthday party,2018-11-03,2018-11-03,2018-11-26,1,Daughter,2,1,
+6,14,F,Epuyen,Birthday party,2018-11-03,2018-11-03,2018-11-25,1,NA,2,0,
+7,57,M,Epuyen,Work,2018-11-23,2018-11-23,2018-12-07,2,Co-worker,3,0,
+8,72,M,Epuyen,Home,2018-11-23,2018-11-23,2018-12-13,2,Friend,3,1,
+9,43,F,Epuyen,Home,2018-11-23,2018-11-23,2018-12-12,2,Wife,3,10,
+10,38,M,Epuyen,HRE multiple,2018-11-20,2018-11-27,2018-12-10,2/3/4/5/6,NA,3,3,Five candidate sources from PDF table; window spans all listed exposure days.
+11,65,M,Epuyen,HRE,2018-11-23,2018-11-24,2018-12-15,2,Co-worker,3,0,
+12,30,F,Epuyen,Home/HRE,2018-11-23,2018-11-23,2018-12-19,2,Daughter,3,0,
+13,27,M,Epuyen,Home/HRE,2018-11-26,2018-11-26,2018-12-24,2,Son,3,1,
+14,65,F,Epuyen,HRE,2018-11-25,2018-11-25,2018-12-26,5,Mother,3,1,Exposure listed one day before source onset; possible pre-symptomatic transmission or household best-estimate.
+15,7,M,Epuyen,Patient 2 wake,2018-12-12,2018-12-12,2018-12-26,9,Nephew,4,0,
+16,44,F,Epuyen,Patient 2 wake shared drink,2018-12-12,2018-12-12,2018-12-28,9,Friend,4,0,Shared straw drinking tea with Patient 9.
+17,35,M,Epuyen,Patient 2 wake shared drink,2018-12-12,2018-12-12,2018-12-31,9,Brother in law,4,0,Shared straw drinking tea with Patient 9.
+18,24,F,Epuyen,Patient 2 wake shared drink,2018-12-12,2018-12-12,2018-12-31,9,Sister,4,0,Shared straw drinking tea with Patient 9.
+19,36,F,Epuyen,Patient 2 wake shared drink,2018-12-12,2018-12-12,2019-01-02,9,Sister,4,0,Shared straw drinking tea with Patient 9.
+20,34,F,Trevelin,Meeting Chile car trip,2018-12-10,2018-12-10,2019-01-01,10,Friend,4,0,
+21,34,F,Palena,Meeting Chile,2018-12-10,2018-12-10,2019-01-01,10,Friend,4,0,
+22,58,M,El Maiten,Car trip,2018-12-12,2018-12-12,2019-01-01,9,Neighbor,4,3,
+23,16,M,Epuyen,Patient 2 wake,2018-12-12,2018-12-12,2019-01-01,9,Son,4,0,
+24,41,F,El Maiten,Patient 2 wake,2018-12-12,2018-12-12,2019-01-03,9,Sister,4,0,
+25,32,F,Epuyen,Home/HZE,2018-12-24,2018-12-24,2019-01-06,13,Brother,4,0,
+26,90,F,Epuyen,Home,2018-12-26,2018-12-26,2019-01-04,14,Friend,4,0,
+27,46,F,El Maiten,Patient 2 wake,2018-12-12,2018-12-12,2019-01-08,9,Sister,4,0,
+28,38,F,El Bolson,Visited patient HZE,2018-12-15,2018-12-15,2019-01-07,8,Neighbor,4,1,
+29,49,F,Trevelin,Home,2018-12-10,2018-12-10,2019-01-14,10,Friend,4,0,Paper marks Patient 10 as the most likely source (caret in Table S2); alternative source Patient 20 in row 29_alt.
+29_alt,49,F,Trevelin,Home,2019-01-02,2019-01-02,2019-01-14,20,Mother,4,0,Alternative source for sensitivity; not used in main fit.
+30,30,M,Epuyen,Patient 2 wake home car,2018-12-12,2018-12-12,2019-01-21,9,Sister,4,0,Longest observed incubation (40 d).
+31,80,M,El Maiten,Car trip,2019-01-01,2019-01-01,2019-01-24,22,Neighbor,5,0,
+32,2,F,El Bolson,Home,2019-01-07,2019-01-07,2019-01-29,28,Granddaughter,5,0,
+33,26,F,El Maiten,Home,2019-01-01,2019-01-01,2019-02-06,22,Daughter,5,0,Paper marks Patient 22 as the most likely source (caret); alternative source Patient 31 in row 33_alt.
+33_alt,26,F,El Maiten,Home,2019-01-24,2019-01-24,2019-02-06,31,Neighbor,5,0,Alternative source for sensitivity; not used in main fit.
+34,59,F,El Maiten,Home,2019-01-01,2019-01-01,2019-02-06,22,Wife,5,0,Paper marks Patient 22 as the most likely source (caret); alternative source Patient 31 in row 34_alt.
+34_alt,59,F,El Maiten,Home,2019-01-24,2019-01-24,2019-02-06,31,Neighbor,5,0,Alternative source for sensitivity; not used in main fit.

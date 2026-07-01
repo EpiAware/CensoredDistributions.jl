@@ -43,8 +43,8 @@ censored_dist = primary_censored(delay_dist, primary_dist)
 
 **A:**
 - **Primary event censoring**: The timing of the initial event in a delay distribution is uncertain. See the [tutorials](@ref tutorials) for detailed examples.
-- **Interval censoring**: Continuous values are observed only within discrete intervals. See the [API documentation](@ref "Public API") for `interval_censored`.
-- **Double interval censoring**: Combines both types of censoring. See `double_interval_censored` in the [API documentation](@ref "Public API").
+- **Interval censoring**: Continuous values are observed only within discrete intervals. See the [API documentation](@ref public-api) for `interval_censored`.
+- **Double interval censoring**: Combines both types of censoring. See `double_interval_censored` in the [API documentation](@ref public-api).
 
 ### Q: How do I fit censored distributions to data?
 

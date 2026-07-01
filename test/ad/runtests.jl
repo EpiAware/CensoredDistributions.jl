@@ -7,7 +7,7 @@
 #
 # Per-backend tags (`forwarddiff`, `reversediff`, `enzyme_reverse`,
 # `enzyme_forward`, `mooncake_reverse`, `mooncake_forward`) let the
-# per-backend CI (#269) run a single backend, so a transiently unstable
+# per-backend CI run a single backend, so a transiently unstable
 # backend only reds its own badge. Group tags `enzyme` and `mooncake` are
 # also available. With no argument every AD item runs.
 

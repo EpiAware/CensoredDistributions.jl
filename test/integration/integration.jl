@@ -1,4 +1,4 @@
-# Tests for the pluggable integration interface (issue #208): the core
+# Tests for the pluggable integration interface: the core
 # default `GaussLegendre` solver, its numerical equivalence to the prior
 # Integrals.jl GaussLegendre path, and the optional Integrals.jl extension.
 
@@ -43,7 +43,7 @@ end
         @test cdf(d, x) ≈ reference_pc_cdf(dist, primary, x) atol=1e-13
     end
 
-    # Convolution numeric path: compare the package's `convolve_distributions`
+    # Convolution numeric path: compare the package's `convolved`
     # CDF against an independent Integrals.jl GaussLegendre solve of the
     # same convolution integral.
     function reference_conv_cdf(c1, c2, x; n = 192)
@@ -60,7 +60,7 @@ end
 
     c1 = Gamma(2.0, 1.0)
     c2 = LogNormal(0.5, 0.4)
-    dc = convolve_distributions(c1, c2)
+    dc = convolved(c1, c2)
     for x in (1.0, 2.0, 3.0, 5.0)
         @test cdf(dc, x) ≈ reference_conv_cdf(c1, c2, x) atol=1e-13
     end
