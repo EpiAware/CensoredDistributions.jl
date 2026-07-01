@@ -42,6 +42,7 @@ workflows, DataFramesMeta, Random, and StatsBase.
 using DataFramesMeta
 using Turing
 using DynamicPPL
+using DynamicPPL: InitFromParams, InitFromPrior
 using Distributions
 using Random
 using CairoMakie, PairPlots
@@ -573,67 +574,81 @@ mu_samples = CensoredDistributions_fit[Prefixed(@varname(mu))]
 size(mu_samples)
 
 md"""
-## Fitting the same delay in latent form
+## Fitting the same model in latent form
 
 Every fit so far is marginal: the within-window primary event time is
 integrated out inside the primary-censored `logpdf`, leaving only the delay
 parameters in the chain.
 The latent form instead samples it.
-Wrapping a leaf in [`latent`](@ref) makes the within-window primary a sampled
-model variable and scores the observed delay conditional on that draw, the delay
-measured from the sampled primary.
+Wrapping the same censored delay in [`latent`](@ref) makes the within-window
+primary a sampled model variable and scores the observed delay conditional on
+that draw, the delay measured from the sampled primary.
 The marginal and latent forms are one model scored two ways and agree in
 expectation, so the sampled-primary fit recovers the same delay parameters as
 the marginal fits above.
 
-This is the same delay distribution in its latent form, not a new model.
-We reuse the `latent_delay_dist()` delay prior, wrap the leaf in
-[`latent`](@ref), and for each record sample its within-window primary
-`p ~ Uniform(0, 1)` and add the conditional density
-`logpdf(latent(leaf), obs; primary = p)` to the log joint.
+This is the same model in its latent form, not a new one.
+We reuse the `latent_delay_dist()` delay prior and the same
+[`double_interval_censored`](@ref) construction (primary censoring plus right
+truncation), and change only how it is scored, wrapping it in [`latent`](@ref).
+For each record we sample its within-window primary `p ~ Uniform(0, 1)` and add
+the conditional density `logpdf(latent(leaf), obs; primary = p)` to the log
+joint.
 Scoring with a passed `primary` is the deterministic conditional the
 differentiated sampler uses, so it is AD-safe; the whole path uses only the
 public `latent` and the Distributions interface, no bespoke observation model.
 
-We fit the bare [`primary_censored`](@ref) leaf here rather than the full
-double-censored pipeline, so each record samples its own primary against a
-continuous observation.
-The primary must precede the observation, so we condition on the records
-observed after the primary window closes (`obs > 1`); a sampled `p ~ Uniform(0,
-1)` then always precedes the observation and the conditional stays finite.
+We keep the demo to primary censoring and truncation (no secondary interval),
+so each record's continuous observation is scored against one sampled primary.
 The latent form adds one sampled primary per record to the chain, so it carries
 more parameters and samples more slowly than the marginal fit, the price of
 sampling the within-window primary rather than integrating it out.
-We keep it light, fitting a subset over a short chain for the docs build, and
-check the delay parameters still recover their true values.
+Because every record's primary is a latent variable, we hand the sampler a
+feasible starting point (each primary inside its window, the delay parameters
+near the prior) via `InitFromParams`, and keep it light with a subset of records
+over a short chain for the docs build.
 """
 
 latent_pe = Uniform(0, 1)
 
-latent_obs = filter(
-    >(1.0), rand(Xoshiro(1), primary_censored(true_dist, latent_pe), 400));
+latent_horizon = 12.0
 
-@model function latent_leaf_model(y, primary_event)
+latent_obs = rand(Xoshiro(1),
+    double_interval_censored(true_dist; primary_event = latent_pe,
+        upper = latent_horizon), 100);
+
+@model function latent_double_censored_model(y, primary_event, horizon)
     dist ~ to_submodel(latent_delay_dist())
     ps ~ product_distribution([primary_event for _ in y])
-    leaf = latent(primary_censored(dist, primary_event))
+    # The same double_interval_censored leaf (primary censoring + truncation) in
+    # latent form, built once per evaluation and scored per record against its
+    # sampled primary.
+    leaf = latent(double_interval_censored(
+        dist; primary_event = primary_event, upper = horizon))
     for i in eachindex(y)
         Turing.@addlogprob! logpdf(leaf, y[i]; primary = ps[i])
     end
 end
 
-latent_mdl = latent_leaf_model(latent_obs, latent_pe);
+latent_mdl = latent_double_censored_model(latent_obs, latent_pe, latent_horizon);
 
 md"""
 The chain carries the shared delay parameters under the `dist` prefix and one
 sampled within-window primary per record under `ps`, the latent the marginal
 form never forms.
+The feasible initialisation seeds each primary inside its window (well below its
+observation) and the delay parameters near the prior mean.
 """
+
+latent_init = InitFromParams(
+    (dist = (mu = 1.5, sigma = 0.75),
+        ps = [min(0.5, 0.5 * y) for y in latent_obs]),
+    InitFromPrior())
 
 latent_fit = sample(
     latent_mdl,
-    NUTS(; adtype = AutoMooncakeForward()), 400;
-    chain_type = VNChain, progress = false
+    NUTS(; adtype = AutoMooncakeForward()), 600;
+    initial_params = latent_init, chain_type = VNChain, progress = false
 );
 
 summarystats(latent_fit)
