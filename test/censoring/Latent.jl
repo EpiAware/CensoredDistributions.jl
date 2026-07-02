@@ -408,6 +408,43 @@ end
     cond = PrimaryConditional(dtic, 0.3)
     @test logpdf(ltic, [0.3, 2.7]) ≈ logpdf(pe, 0.3) + logpdf(cond, 2.7)
 end
+
+@testitem "interval-of-latent conditional enforces secondary >= primary" begin
+    using Distributions, Random, Statistics
+    using CensoredDistributions: get_primary_event, marginal
+
+    # The interval-censored secondary conditional raises its lower integration
+    # bound to the primary (secondary >= primary), so a primary landing INSIDE a
+    # record's observed interval keeps positive mass and a finite log density
+    # rather than a stray `-Inf`; a primary at or after the whole interval is
+    # genuinely infeasible (a negative delay) and stays `-Inf`. This is the
+    # feasibility invariant the latent double_interval_censored fit relies on.
+    delay = LogNormal(1.5, 0.75)
+    # A wide primary window (0, 3) so a sampled primary can fall inside or past
+    # a unit interval, exercising the clamp; the record y = 1 sits in [1, 2).
+    dic = double_interval_censored(delay; primary_event = Uniform(0, 3),
+        upper = 12, interval = 1)
+    ld = latent(dic)
+
+    # Primary before the interval (normal), and primaries INSIDE [1, 2): all
+    # finite (feasible), the interior primaries kept in support by the clamp.
+    for p in (0.5, 1.0, 1.5, 1.99)
+        @test isfinite(logpdf(ld, 1.0; primary = p))
+    end
+    # Primary at or after the interval upper: genuinely infeasible, `-Inf`.
+    @test logpdf(ld, 1.0; primary = 2.0) == -Inf
+    @test logpdf(ld, 1.0; primary = 2.5) == -Inf
+
+    # The clamp is density-preserving: the latent conditional still matches the
+    # analytic marginal in expectation over the primary prior.
+    pe = get_primary_event(ld)
+    rng = MersenneTwister(20260702)
+    ps = rand(rng, pe, 400_000)
+    for y in (1.0, 3.0, 5.0)
+        est = mean(pdf(ld, y; primary = p) for p in ps)
+        @test isapprox(est, pdf(marginal(ld), y); atol = 5e-3)
+    end
+end
 # The parameter-gradient marginal==latent equivalence (`using ForwardDiff`) is
 # an AD test, so it lives in the AD environment at `test/ad/latent_ad.jl` (the
 # main test env deliberately does not depend on ForwardDiff). The latent scalar

@@ -491,6 +491,26 @@ function scenarios(; with_reference::Bool = false)
                     obs[i]; primary = prim[i]),
                 eachindex(obs)),
             [1.0, 0.75], (Constant(obs), Constant(primaries)))
+
+        # Interval-of-latent conditional: the latent double_interval_censored
+        # scored with a passed primary routes through `_SecondaryConditional`,
+        # the interval-censored + truncated secondary that keeps the secondary
+        # interval and enforces secondary >= primary (the lower integration
+        # bound is raised to `p`). The gradient w.r.t. the delay params flows via
+        # the interval-mass cdf difference (and the truncation constant `Z`),
+        # differing from the bare-leaf scalar scenario above. Data-integer obs
+        # with primaries inside the primary window keep every record in support.
+        dic_obs = [2.0, 3.0, 4.0, 5.0, 6.0]
+        _push!("Latent double_interval_censored LogNormal scalar logpdf",
+            (θ, obs,
+                prim) -> sum(
+                i -> logpdf(
+                    latent(double_interval_censored(LogNormal(θ[1], θ[2]);
+                        primary_event = Uniform(0.0, 1.0),
+                        upper = 10.0, interval = 1.0)),
+                    obs[i]; primary = prim[i]),
+                eachindex(obs)),
+            [1.0, 0.75], (Constant(dic_obs), Constant(primaries)))
     end
 
     # High-dimensional scenarios. Each observation carries its own delay

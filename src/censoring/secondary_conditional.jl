@@ -20,8 +20,10 @@ end
 # The continuous total is `p + delay`; the observed time `y` is interval-censored
 # on the absolute grid and the total is truncated to `[lower, upper]`. The
 # interval mass is `cdf(delay, hi - p) - cdf(delay, lo - p)` over the interval
-# `[lo, hi)` containing `y`, clamped to the truncation bounds, normalised by the
-# pipeline's truncation constant `Z = cdf(pc, upper) - cdf(pc, lower)` (with
+# `[lo, hi)` containing `y`, clamped to the truncation bounds and to the primary
+# (the lower bound cannot fall below `p`, so secondary >= primary), normalised
+# by the pipeline's truncation constant `Z = cdf(pc, upper) - cdf(pc, lower)`
+# (with
 # `pc = primary_censored(delay, primary_event)`), so the joint integrates over
 # `p` to the analytic `double_interval_censored` marginal. With no truncation
 # `Z = 1`. A `nothing` interval (truncated but not interval-censored) scores the
@@ -86,8 +88,16 @@ end
 function _secondary_logpdf(interval, d::_SecondaryConditional, y::Real)
     lo, hi = _interval_bounds(interval, y)
     # Clamp the interval to the truncation bounds (an interval may straddle a
-    # bound), then shift to delay space. No overlap gives zero mass / `-Inf`.
-    lo = max(lo, d.lower) - d.p
+    # bound) and to the primary, then shift to delay space. Raising the lower
+    # bound to `d.p` enforces secondary >= primary: the observed total cannot
+    # precede the sampled primary, so the delay stays non-negative and a primary
+    # landing inside a record's interval keeps positive mass rather than a stray
+    # `-Inf`. For the positive-support delays scored here this coincides with
+    # the delay cdf already vanishing below 0, so it is density-preserving (the
+    # latent/marginal equivalence in expectation is unchanged); it makes the
+    # secondary-after-primary invariant explicit. No overlap gives zero mass /
+    # `-Inf` (a primary at or after the whole interval is genuinely infeasible).
+    lo = max(lo, d.lower, d.p) - d.p
     hi = min(hi, d.upper) - d.p
     hi > lo || return oftype(float(y), -Inf)
     mass = cdf(d.delay, hi) - cdf(d.delay, lo)
