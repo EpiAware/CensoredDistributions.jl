@@ -587,22 +587,33 @@ The marginal and latent forms are one model scored two ways and agree in
 expectation, so the sampled-primary fit recovers the same delay parameters as
 the marginal fits above.
 
-This is the same double-censored model as the marginal fit above, switched to
+This is the full `double_interval_censored` model from the double-censored fit
+above, primary censoring, a secondary interval and right truncation, switched to
 latent form, not a new one.
 We reuse the `latent_delay_dist()` delay prior and the same
-[`double_interval_censored`](@ref) construction (primary censoring plus right
-truncation), and change only how it is scored, wrapping it in [`latent`](@ref):
+[`double_interval_censored`](@ref) construction, and change only how it is
+scored, wrapping it in [`latent`](@ref):
 the marginal fit integrates the primary out, the latent fit samples it per
 record.
 For each record we sample its within-window primary `p ~ Uniform(0, 1)` and add
 the conditional density `logpdf(latent(leaf), obs; primary = p)` to the log
-joint.
+joint, which keeps the secondary interval and the truncation on the total time
+`p + delay`.
 Scoring with a passed `primary` is the deterministic conditional the
 differentiated sampler uses, so it is AD-safe; the whole path uses only the
 public `latent` and the Distributions interface, no bespoke observation model.
 
-We keep the demo to primary censoring and truncation (no secondary interval),
-so each record's continuous observation is scored against one sampled primary.
+Keeping the secondary interval needs one feasibility check.
+The observed delay is `secondary - primary`, so a sampled primary that fell
+after its record's observed secondary interval would imply a negative delay,
+zero conditional mass and a `-Inf` log density the sampler cannot start from.
+We handle this by construction rather than by clamping the primary.
+The primary event window is one day (`Uniform(0, 1)`) and the secondary interval
+is one day, so a sampled primary is never wider than the interval and always
+precedes it, keeping every record in support.
+This is the daily double-censoring regime of the linelist case study; it needs
+no per-record primary bounds and no point-mass clamp, so the sampled primary
+stays unbiased.
 The latent form adds one sampled primary per record to the chain, so it carries
 more parameters and samples more slowly than the marginal fit, the price of
 sampling the within-window primary rather than integrating it out.
@@ -616,24 +627,29 @@ latent_pe = Uniform(0, 1)
 
 latent_horizon = 12.0
 
+latent_interval = 1
+
 latent_obs = rand(Xoshiro(1),
     double_interval_censored(true_dist; primary_event = latent_pe,
-        upper = latent_horizon), 80);
+        upper = latent_horizon, interval = latent_interval), 80);
 
-@model function latent_double_censored_model(y, primary_event, horizon)
+@model function latent_double_censored_model(
+        y, primary_event, horizon, interval)
     dist ~ to_submodel(latent_delay_dist())
     ps ~ product_distribution([primary_event for _ in y])
-    # The same double_interval_censored leaf (primary censoring + truncation) in
-    # latent form, built once per evaluation and scored per record against its
-    # sampled primary.
+    # The same double_interval_censored leaf (primary censoring, a secondary
+    # interval and truncation) in latent form, built once per evaluation and
+    # scored per record against its sampled primary.
     leaf = latent(double_interval_censored(
-        dist; primary_event = primary_event, upper = horizon))
+        dist; primary_event = primary_event, upper = horizon,
+        interval = interval))
     for i in eachindex(y)
         Turing.@addlogprob! logpdf(leaf, y[i]; primary = ps[i])
     end
 end
 
-latent_mdl = latent_double_censored_model(latent_obs, latent_pe, latent_horizon);
+latent_mdl = latent_double_censored_model(
+    latent_obs, latent_pe, latent_horizon, latent_interval);
 
 md"""
 The chain carries the shared delay parameters under the `dist` prefix and one
