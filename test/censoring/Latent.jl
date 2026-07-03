@@ -473,6 +473,17 @@ end
     @test logpdf(bare, yb; primary = pb) ≈
           sum(logpdf(bare, yb[i]; primary = pb[i]) for i in eachindex(yb))
 
+    # An arbitrary-boundaries secondary interval routes the batched path through
+    # the elementwise fallback (rather than the regular-width vectorised path); it
+    # still equals the per-record sum.
+    bnd = latent(interval_censored(
+        truncated(primary_censored(delay, Uniform(0, 1)); upper = 10.0),
+        [0.0, 1.0, 2.5, 5.0, 10.0]))
+    yb2 = [1.5, 3.0, 0.5]
+    pb2 = [0.2, 0.4, 0.1]
+    @test logpdf(bnd, yb2; primary = pb2) ≈
+          sum(logpdf(bnd, yb2[i]; primary = pb2[i]) for i in eachindex(yb2))
+
     # Unequal `ys`/`primary` lengths error rather than silently broadcasting.
     @test_throws DimensionMismatch logpdf(leaf, [1.0, 2.0]; primary = [0.1])
 
@@ -485,6 +496,18 @@ end
 
     # The joint `[primary, observed]` vector form is unaffected (no `primary`).
     @test isfinite(logpdf(leaf, [0.4, 3.0]))
+end
+
+@testitem "secondary conditional rand throws when bounds exclude the delay" begin
+    using Distributions, Random
+    using CensoredDistributions: _SecondaryConditional
+
+    # A conditional whose truncation bounds can never admit `p + delay` (the delay
+    # draws essentially zero, but the window is `[100, 101]`) exhausts the bounded
+    # resample and raises rather than looping forever.
+    sc = _SecondaryConditional(Uniform(0.0, 1e-9), Uniform(0, 1),
+        100.0, 101.0, 1.0, 0.0)
+    @test_throws ErrorException rand(Random.default_rng(), sc)
 end
 
 @testitem "PrimaryEvent is the product of the per-record primary priors" begin
