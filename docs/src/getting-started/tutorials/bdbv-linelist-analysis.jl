@@ -284,7 +284,7 @@ used for both the simulation fit and the real fit.
 adbackend = AutoMooncake(; config = nothing)
 
 sim_chain = sample(Xoshiro(1), bdbv(template, priors, sim_rows),
-    NUTS(0.8; adtype = adbackend), MCMCThreads(), 500, 2;
+    NUTS(0.8; adtype = adbackend), MCMCThreads(), 250, 2;
     progress = false)
 
 sim_fit = update(template, sim_chain; prefix = :delays);
@@ -463,7 +463,7 @@ The same model and priors fit the real records.
 """
 
 real_chain = sample(Xoshiro(20260609), bdbv(template, priors, real_rows),
-    NUTS(0.8; adtype = adbackend), MCMCThreads(), 600, 2;
+    NUTS(0.8; adtype = adbackend), MCMCThreads(), 300, 2;
     progress = false)
 
 real_fit = update(template, real_chain; prefix = :delays);
@@ -480,7 +480,7 @@ the shrinkage from prior to posterior is read directly.
 """
 
 prior_chain = sample(Xoshiro(3), bdbv(template, priors, real_rows),
-    Prior(), MCMCThreads(), 500, 2; progress = false)
+    Prior(), MCMCThreads(), 250, 2; progress = false)
 
 prior_means = delay_mean_draws(prior_chain)
 
@@ -565,7 +565,7 @@ marginal fit, since both share the one parameter block.
 
 latent_chain = sample(Xoshiro(20260609), bdbv_latent(template, priors,
         real_rows),
-    NUTS(0.8; adtype = adbackend), MCMCThreads(), 400, 2;
+    NUTS(0.8; adtype = adbackend), MCMCThreads(), 200, 2;
     progress = false)
 
 latent_means = delay_mean_draws(latent_chain)
@@ -684,7 +684,7 @@ end
 
 unobs_chain = sample(Xoshiro(20260609),
     bdbv_latent(template, priors, admit_masked_rows),
-    NUTS(0.8; adtype = adbackend), MCMCThreads(), 200, 2;
+    NUTS(0.8; adtype = adbackend), MCMCThreads(), 150, 2;
     progress = false)
 
 md"""

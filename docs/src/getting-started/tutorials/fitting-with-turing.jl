@@ -164,7 +164,7 @@ end
 
 Random.seed!(123);
 
-prior_chain = sample(params_model(full_template, full_priors), Prior(), 1000;
+prior_chain = sample(params_model(full_template, full_priors), Prior(), 500;
     chain_type = VNChain, progress = false)
 
 md"""
@@ -324,7 +324,7 @@ end
 
 naive_fit = sample(Xoshiro(1),
     fit_model(naive_template, naive_priors, naive_data),
-    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 300, 2;
+    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 200, 2;
     chain_type = VNChain, progress = false)
 
 md"""
@@ -374,7 +374,7 @@ end
 
 interval_fit = sample(Xoshiro(1),
     fit_model(interval_template, interval_priors, censored_data),
-    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 300, 2;
+    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 200, 2;
     chain_type = VNChain, progress = false)
 
 interval_recovered = params_table(
@@ -402,7 +402,7 @@ recovery when the censoring process is properly modelled.
 
 full_fit = sample(Xoshiro(1),
     fit_model(full_template, full_priors, censored_data),
-    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 300, 2;
+    NUTS(0.8; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 200, 2;
     chain_type = VNChain, progress = false)
 
 full_recovered = params_table(update(full_template, full_fit; prefix = :delays))
@@ -492,7 +492,7 @@ latent_init = InitFromParams(
 
 latent_fit = sample(Xoshiro(1),
     latent_fit_model(latent_leaf, latent_leaf_priors, latent_data),
-    NUTS(0.8; adtype = AutoForwardDiff()), MCMCThreads(), 250, 2;
+    NUTS(0.8; adtype = AutoForwardDiff()), MCMCThreads(), 150, 2;
     chain_type = VNChain, progress = false,
     initial_params = fill(latent_init, 2))
 
@@ -631,7 +631,7 @@ integrator = Leapfrog(find_good_stepsize(ham, z0))
 kernel = HMCKernel(Trajectory{MultinomialTS}(integrator, GeneralisedNoUTurn()))
 adaptor = StanHMCAdaptor(MassMatrixAdaptor(metric),
     StepSizeAdaptor(0.8, integrator))
-samples, _ = sample(ham, kernel, z0, 1000, adaptor, 500)
+samples, _ = sample(ham, kernel, z0, 400, adaptor, 200)
 
 ## Map unconstrained draws back to named, constrained parameters via the codec.
 post = [first(CensoredDistributions.to_constrained(prob, z))

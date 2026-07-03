@@ -353,8 +353,8 @@ end;
 (n = length(sim_records), districts = n_district, strata = length(sim_strata))
 
 md"""
-We fit the synthetic line list at a modest sampler budget (two chains, 300 warmup
-and 300 draws each) with Mooncake reverse-mode AD, and check the known
+We fit the synthetic line list at a modest sampler budget (two chains, 200 warmup
+and 200 draws each) with Mooncake reverse-mode AD, and check the known
 parameters come back.
 """
 
@@ -362,7 +362,7 @@ adbackend = AutoMooncake(; config = nothing)
 
 sim_chain = sample(Xoshiro(1),
     ebola_stratified(sim_records, sim_group, sim_strata),
-    NUTS(300, 0.8; adtype = adbackend), MCMCThreads(), 300, 2;
+    NUTS(200, 0.8; adtype = adbackend), MCMCThreads(), 200, 2;
     chain_type = VNChain, progress = false);
 
 md"""
@@ -440,7 +440,7 @@ The same model and priors fit the real Sierra Leone records.
 
 real_chain = sample(Xoshiro(20260614),
     ebola_stratified(records, group, strata),
-    NUTS(300, 0.8; adtype = adbackend), MCMCThreads(), 300, 2;
+    NUTS(200, 0.8; adtype = adbackend), MCMCThreads(), 200, 2;
     chain_type = VNChain, progress = false);
 
 md"""

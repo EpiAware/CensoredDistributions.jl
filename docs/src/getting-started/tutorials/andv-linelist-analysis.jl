@@ -450,8 +450,8 @@ Random.seed!(20260608)
 sim_model = andv(template, sim_index, sim_sourced, sim_Z, sim_source_onset,
     knots, sim_horizon)
 sim_chain = sample(sim_model,
-    NUTS(80, 0.95; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 80, 2;
+    NUTS(60, 0.95; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
+    MCMCThreads(), 60, 2;
     initial_params = fill(InitFromPrior(), 2), progress = false)
 nothing #hide
 
@@ -522,8 +522,8 @@ Random.seed!(20260608)
 model = andv(template, index_rows, sourced_rows, Z, source_onset_day,
     knots, horizon)
 chain = sample(model,
-    NUTS(100, 0.95; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 100, 2;
+    NUTS(80, 0.95; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
+    MCMCThreads(), 80, 2;
     initial_params = fill(InitFromPrior(), 2), progress = false)
 nothing #hide
 
@@ -540,7 +540,7 @@ fit = update(template, chain; prefix = :delays);
 # parameter block as the posterior and the shrinkage reads directly.
 
 Random.seed!(20260608)
-prior_chain = sample(model, Prior(), MCMCThreads(), 300, 2; progress = false)
+prior_chain = sample(model, Prior(), MCMCThreads(), 200, 2; progress = false)
 
 prior_draws = flat_params(template, prior_chain)
 post_draws = flat_params(template, chain)

@@ -349,7 +349,8 @@ md"""
 We fit with NUTS on Mooncake, taking a small number of post-warmup draws across
 two parallel chains, enough to show the well-identified parameters recover.
 Most of the runtime is the one-off gradient compilation rather than the draws,
-so the page sits with the heavy fitting tutorials.
+so the draw count is kept low to bound the documentation build; raise it for a
+production fit.
 """
 
 model = rt_renewal(cases_obs, deaths_obs, g, incubation, onset_report,
@@ -357,7 +358,7 @@ model = rt_renewal(cases_obs, deaths_obs, g, incubation, onset_report,
 
 chain = sample(Xoshiro(1), model,
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 100, 2; chain_type = VNChain, progress = false);
+    MCMCThreads(), 60, 2; chain_type = VNChain, progress = false);
 
 md"""
 ## Recovery

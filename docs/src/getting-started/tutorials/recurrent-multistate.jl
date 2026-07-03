@@ -109,7 +109,7 @@ end
 
 Random.seed!(1)
 chain = sample(
-    fit_reinfection(model, priors, paths), NUTS(), 500; progress = false)
+    fit_reinfection(model, priors, paths), NUTS(), 250; progress = false)
 
 # The posterior means recover the data-generating sojourn scales (truths 4, 3,
 # 8, 30). The chain names are namespaced by state and edge.

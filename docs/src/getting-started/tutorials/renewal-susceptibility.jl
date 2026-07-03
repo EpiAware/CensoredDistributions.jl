@@ -158,7 +158,7 @@ model = renewal_fit(g, I0, true_Rt, mod_priors, make_mod, onset_delay,
 
 chain = sample(Xoshiro(1), model,
     NUTS(0.95; adtype = AutoMooncake(; config = nothing)),
-    200; chain_type = VNChain, progress = false);
+    150; chain_type = VNChain, progress = false);
 
 md"""
 ## Recovery

@@ -498,10 +498,10 @@ n_cov = length(first(first(pairs)[2]))
 rng = MersenneTwister(2024)
 chain = sample(rng, hagelloch_pairwise(pairs, n_cov),
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 1000, 4; progress = false);
+    MCMCThreads(), 400, 2; progress = false);
 
 md"""
-We check the sampler before reading the estimands: across the four chains we
+We check the sampler before reading the estimands: across the two chains we
 take the worst-case ``\hat{R}`` (the between- over within-chain variance ratio,
 which should sit near one) and the smallest effective sample size over the model
 parameters, and count any divergent transitions flagged by NUTS.

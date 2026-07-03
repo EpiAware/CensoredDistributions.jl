@@ -468,7 +468,12 @@ end
 
 md"""
 We fit with NUTS on Mooncake, sampling a short run that is enough to recover the
-expectation path and the hazard effects at this size.
+expectation path and the hazard effects at this size. The two chains run
+serially (`MCMCSerial`) rather than in parallel: this high-dimensional hazard
+model peaks at several GB of gradient-tape memory per chain, so running chains
+side by side would exhaust the documentation runner. Serial sampling keeps the
+peak to a single chain's footprint. Raise the draw count and switch to
+`MCMCThreads()` for a production fit on a larger machine.
 """
 
 model = epinowcast_model(
@@ -476,7 +481,7 @@ model = epinowcast_model(
 
 chain = sample(Xoshiro(1), model,
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 300, 4; chain_type = VNChain, progress = false);
+    MCMCSerial(), 150, 2; chain_type = VNChain, progress = false);
 
 md"""
 ## Recovery
