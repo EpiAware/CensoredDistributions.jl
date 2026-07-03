@@ -682,6 +682,55 @@ end
     @test marginal(delay) == delay
 end
 
+@testitem "latent + conditional interface methods" begin
+    using Distributions, Random
+    using CensoredDistributions: PrimaryConditional, _pipeline_bounds
+
+    delay = LogNormal(1.5, 0.75)
+    dic = double_interval_censored(delay; primary_event = Uniform(0, 3),
+        upper = 10, interval = 1)
+    tr = truncated(primary_censored(delay, Uniform(0, 3)); upper = 10)
+    bnd = interval_censored(
+        truncated(primary_censored(delay, Uniform(0, 1)); upper = 10.0),
+        [0.0, 1.0, 2.5, 5.0, 10.0])
+
+    # `_SecondaryConditional` support: min/max and the interval `insupport`.
+    pc = PrimaryConditional(dic, 0.4)
+    @test minimum(pc) >= 0.4
+    @test maximum(pc) <= 10
+    @test insupport(pc, 3.0)
+    @test !insupport(pc, 100.0)
+
+    # The truncated-only (continuous) conditional: `insupport(::Nothing, ...)`
+    # and the `_floor_observed(::Nothing, total)` draw.
+    pct = PrimaryConditional(tr, 0.4)
+    @test insupport(pct, 3.0)
+    @test !insupport(pct, 100.0)
+    @test rand(Xoshiro(1), pct) > 0.4
+
+    # A scalar boundaries-interval logpdf hits `_interval_bounds(boundaries, y)`.
+    @test isfinite(logpdf(latent(bnd), 3.0; primary = 0.2))
+
+    # The generic `_pipeline_bounds` fallback for an unwrapped distribution.
+    @test _pipeline_bounds(LogNormal(1.0, 1.0)) == (-Inf, Inf)
+
+    # The batched `Truncated`-only method (continuous, no interval).
+    @test logpdf(latent(tr), [2.0, 3.0]; primary = [0.3, 0.5]) isa Real
+
+    # `Latent` distribution interface and the multi-draw `rand`.
+    ld = latent(dic)
+    @test length(ld) == 2
+    @test eltype(typeof(ld)) <: Real
+    @test length(params(ld)) >= 1
+    @test length(rand(Xoshiro(2), ld, 3)) == 3
+    @test length(rand(ld, 2)) == 2
+
+    # `PrimaryConditional` element type and the no-primary Monte-Carlo draw
+    # (`_latent_primary(rng, d, ::Nothing)`).
+    @test eltype(typeof(pc)) <: Real
+    @test isfinite(logpdf(ld, 3.0))
+end
+
 # The parameter-gradient marginal==latent equivalence (`using ForwardDiff`) is
 # an AD test, so it lives in the AD environment at `test/ad/latent_ad.jl` (the
 # main test env deliberately does not depend on ForwardDiff). The latent scalar

@@ -47,7 +47,7 @@ using Random
 using CairoMakie, PairPlots
 using StatsBase
 using FlexiChains
-using FlexiChains: Prefixed, parameters
+using FlexiChains: Parameter, Prefixed, parameters
 using CensoredDistributions
 using ADTypes: AutoMooncakeForward, AutoMooncake
 import Mooncake
@@ -589,11 +589,14 @@ the delay-parameter count rather than the record count, unlike the forward mode
 the low-dimensional marginal fits use.
 A prior draw lands in support often enough that `NUTS` initialises without a
 hand-built feasible start.
+The high-dimensional, per-record geometry makes the sampler prone to
+divergences, so we raise the target acceptance to `NUTS(0.9)` (a smaller step
+size) to suppress them while still recovering the delay parameters.
 """
 
 t_latent = @elapsed latent_fit = sample(
     latent_mdl,
-    NUTS(; adtype = AutoMooncake(; config = nothing)), 250;
+    NUTS(0.9; adtype = AutoMooncake(; config = nothing)), 250;
     chain_type = VNChain, progress = false
 );
 
@@ -606,16 +609,17 @@ subsampled record.
 length(latent_records.obs)
 
 md"""
-Printing the full summary would dump every one of those primaries, so we
-summarise just the delay parameters we set out to recover:
+Printing the full summary would dump every one of those primaries, so we index
+the chain down to the two delay parameters and pass that sub-chain to the
+built-in `summarystats`, which reports the posterior mean, standard deviation
+and the usual MCMC diagnostics (`mcse`, `ess`, `rhat`):
 """
 
-describe(
-    DataFrame(
-        mu = vec(latent_fit[Prefixed(@varname(mu))]),
-        sigma = vec(latent_fit[Prefixed(@varname(sigma))])
-    ),
-    :mean, :std, :min, :median, :max
+summarystats(
+    latent_fit[[
+    Parameter(@varname(dist.mu)),
+    Parameter(@varname(dist.sigma))
+]]
 )
 
 md"""
