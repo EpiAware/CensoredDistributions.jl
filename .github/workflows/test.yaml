@@ -15,6 +15,20 @@ concurrency:
 jobs:
   test:
     uses: EpiAware/.github/.github/workflows/tests.yml@dc919e0d1674c16d1518df07eda5ee0be09b47e2
+    with:
+      # Drop the Julia LTS (1.10) row: the test env pins the unregistered
+      # EpiAwarePackageTools kit via `[sources]` in test/Project.toml, and
+      # `[sources]` is only honoured from Julia 1.11+. On 1.10 the pin is
+      # ignored and Pkg.test fails to resolve ("expected package
+      # EpiAwarePackageTools to be registered"). Re-add "lts" once the kit is
+      # registered in General (EpiAware/EpiAwarePackageTools.jl#731), which
+      # lets the pin become a plain [compat] entry that resolves on every
+      # version. The package still declares 1.10 in [compat]; only the full
+      # QA suite cannot run there until then.
+      julia_versions: '["1", "pre"]'
+      # Do not let one version's failure cancel the others, so a single-row
+      # problem never masks the health of the rest of the matrix.
+      fail_fast: false
     secrets: inherit  # pragma: allowlist secret
 
   downgrade-compat:
