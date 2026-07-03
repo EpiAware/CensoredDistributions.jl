@@ -21,15 +21,21 @@ TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 
 [compat]
-# Enzyme 0.13.170/0.13.171 raise an `EnzymeNoShadowError` on the
-# non-terminal Resolve whole-tree scenario (a `Sequential` subtree outcome
-# beside a `Gamma` leaf outcome) when building the reverse rule. CI on
-# 0.13.171 still hit it (run 28324040254); 0.13.172 resolves it. The
-# scenario differentiates correctly there (gradient finite and matching the
-# ForwardDiff reference, max abs diff ~4e-7), so the floor keeps CI on a
-# version where every ADFixtures scenario is genuinely supported rather than
-# registering a working scenario broken.
-Enzyme = "0.13.172"
+# Enzyme reverse-mode building of the reverse rule for the "Non-terminal
+# Resolve whole-tree conditioned logpdf" scenario (a `Sequential` subtree
+# outcome beside a `Gamma` leaf outcome) is UNSTABLE across Enzyme patch
+# releases: it raised an `EnzymeNoShadowError` on 0.13.170/0.13.171, was fixed
+# on 0.13.172 (gradient finite and matching the ForwardDiff reference, max abs
+# diff ~4e-7), then regressed AGAIN on 0.13.173 (run 28534116465, the same
+# `EnzymeNoShadowError` on the `Constant{Vector{Union{Missing,Float64}}}`
+# context). A `>=` floor therefore does not hold — CI resolves the newest
+# patch and re-hits the bug. Pin EXACTLY to the last version where every
+# ADFixtures scenario is genuinely supported, so the scenario stays hard-tested
+# (not masked `@test_broken`, which would itself go red as an "unexpected pass"
+# whenever a future Enzyme patch fixes it). Bump this pin deliberately once an
+# Enzyme release keeps the scenario green. This freeze is safe: the AD test env
+# is self-contained and nothing here requires a newer Enzyme.
+Enzyme = "=0.13.172"
 
 [sources]
 # EpiAwarePackageTools is not yet registered (EpiAware/EpiAwarePackageTools.jl#731),
