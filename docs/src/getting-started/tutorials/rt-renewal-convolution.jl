@@ -220,14 +220,14 @@ through the combined stack.
 This exercises the full observation machinery with no Turing in sight.
 
 The Rt path changes level on the same day boundaries the fitted block model
-uses (every 18 days), so the four blocks can represent the truth exactly and
+uses (every 8 days), so the four blocks can represent the truth exactly and
 the per-block truth we score against later is not a simplification.
 """
 
-n_days = 70
+n_days = 32
 
-true_Rt = vcat(fill(1.6, 18), fill(0.7, 18), fill(1.3, 18),
-    fill(1.0, n_days - 54))
+true_Rt = vcat(fill(1.6, 8), fill(0.7, 8), fill(1.3, 8),
+    fill(1.0, n_days - 24))
 
 true_alpha = 0.3
 
@@ -358,7 +358,7 @@ model = rt_renewal(cases_obs, deaths_obs, g, incubation, onset_report,
 
 chain = sample(Xoshiro(1), model,
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
-    MCMCThreads(), 60, 2; chain_type = VNChain, progress = false);
+    MCMCThreads(), 40, 2; chain_type = VNChain, progress = false);
 
 md"""
 ## Recovery

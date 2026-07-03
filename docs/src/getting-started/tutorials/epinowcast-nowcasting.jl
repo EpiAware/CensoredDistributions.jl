@@ -128,7 +128,7 @@ We also truncate and thin this composed delay below, showing right-truncation an
 ascertainment acting on the composed stack itself.
 """
 
-max_delay = 14
+max_delay = 7
 
 composed_case = convolved(incubation, onset_case)
 
@@ -200,7 +200,7 @@ day-of-week pattern, and form the full (untruncated) and right-truncated
 reference-by-report matrices for both streams.
 """
 
-n_days = 35
+n_days = 14
 
 now = n_days        # the real-time horizon: we observe up to day `n_days`
 
@@ -468,12 +468,12 @@ end
 
 md"""
 We fit with NUTS on Mooncake, sampling a short run that is enough to recover the
-expectation path and the hazard effects at this size. The two chains run
-serially (`MCMCSerial`) rather than in parallel: this high-dimensional hazard
-model peaks at several GB of gradient-tape memory per chain, so running chains
-side by side would exhaust the documentation runner. Serial sampling keeps the
-peak to a single chain's footprint. Raise the draw count and switch to
-`MCMCThreads()` for a production fit on a larger machine.
+expectation path and the hazard effects at this size. This tutorial uses a
+deliberately small nowcast (a two-week horizon and a one-week maximum delay) and
+a tiny sampler budget so the documentation build stays fast and light; the two
+chains run serially (`MCMCSerial`). For a production fit, enlarge the horizon and
+delay support, raise the draw count, and switch to `MCMCThreads()` on a larger
+machine.
 """
 
 model = epinowcast_model(
@@ -481,7 +481,7 @@ model = epinowcast_model(
 
 chain = sample(Xoshiro(1), model,
     NUTS(0.8; adtype = AutoMooncake(; config = nothing)),
-    MCMCSerial(), 150, 2; chain_type = VNChain, progress = false);
+    MCMCSerial(), 40, 2; chain_type = VNChain, progress = false);
 
 md"""
 ## Recovery
