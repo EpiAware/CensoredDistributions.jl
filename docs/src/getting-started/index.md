@@ -220,6 +220,8 @@ or do any of the other common distribution operations.
 
 In addition to these main functions, the package also includes:
 
+- **Marginal and latent event-time forms:** By default a censored delay is *marginal* — each within-window primary event time is integrated out inside the likelihood, leaving only the delay parameters to infer. The package also provides a *latent* form that instead samples the primary event times as model variables through [`PrimaryEvent`](@ref) and [`PrimaryConditional`](@ref). The two score the same model and agree in expectation: prefer the marginal form for speed, and reach for the latent form when you want the per-record primary event times in the posterior. See [the latent section](@ref "Fitting the same model in latent form") of the Fitting with Turing.jl tutorial.
+
 - **Distributions.jl integration:** Full compatibility with the Distributions.jl ecosystem, supporting all standard distribution methods (`pdf`, `cdf`, `quantile`, `rand`, etc.).
 
 - **Analytical solutions:** For common combinations of primary event and delay distributions (e.g., uniform primary events with gamma, lognormal, or Weibull delays), analytical solutions provide significant computational speedups compared to numerical integration.

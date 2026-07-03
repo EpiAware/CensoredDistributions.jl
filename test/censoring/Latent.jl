@@ -556,6 +556,71 @@ end
         PrimaryConditional([LogNormal(1.5, 0.75)], [0.5]), [3.0])
 end
 
+@testitem "scalar PrimaryConditional exposes the Distributions interface" begin
+    using Distributions, Random
+    using CensoredDistributions: PrimaryConditional, get_dist
+
+    delay = LogNormal(1.5, 0.75)
+    # A bare primary-censored leaf's conditional is the delay shifted by the
+    # primary, so it carries the full continuous cdf/quantile/rand interface (the
+    # interval/truncation pipeline form instead scores via `logpdf`).
+    sc = PrimaryConditional(primary_censored(delay, Uniform(0, 1)), 0.3)
+    @test isfinite(logpdf(sc, 3.0))
+    @test pdf(sc, 3.0) ≈ exp(logpdf(sc, 3.0))
+    @test 0 <= cdf(sc, 3.0) <= 1
+    @test logcdf(sc, 3.0) ≈ log(cdf(sc, 3.0)) atol = 1e-8
+    @test ccdf(sc, 3.0) ≈ 1 - cdf(sc, 3.0)
+    @test logccdf(sc, 3.0) ≈ log(ccdf(sc, 3.0)) atol = 1e-8
+    @test quantile(sc, 0.5) > 0.3
+    @test rand(Xoshiro(1), sc) > 0.3
+    @test minimum(sc) ≈ 0.3
+    @test maximum(sc) == Inf
+    @test insupport(sc, 3.0)
+    @test length(params(sc)) >= 1
+
+    # The interval/truncation pipeline form scores via `logpdf`; `cdf` is an
+    # explicit error rather than a bare MethodError.
+    pc = PrimaryConditional(
+        double_interval_censored(delay; primary_event = Uniform(0, 1),
+            upper = 10, interval = 1), 0.4)
+    @test isfinite(logpdf(pc, 3.0))
+    @test_throws ArgumentError cdf(pc, 3.0)
+
+    # `get_dist` reaches the bare continuous delay through the latent wrapper.
+    @test get_dist(latent(primary_censored(delay, Uniform(0, 1)))) == delay
+end
+
+@testitem "latent scalar no-primary draw and rand cover the sampling paths" begin
+    using Distributions, Random
+    using CensoredDistributions: rand_observed
+
+    delay = LogNormal(1.5, 0.75)
+    ld = latent(primary_censored(delay, Uniform(0, 1)))
+
+    # With no `primary` passed each scalar method samples one internally (a
+    # stochastic single-draw estimate, not the marginal), so it still returns a
+    # finite/in-range value.
+    @test isfinite(logpdf(ld, 3.0))
+    @test isfinite(pdf(ld, 3.0))
+    @test 0 <= cdf(ld, 3.0) <= 1
+    @test isfinite(logcdf(ld, 3.0))
+    @test 0 <= ccdf(ld, 3.0) <= 1
+    @test isfinite(logccdf(ld, 3.0))
+    @test isfinite(quantile(ld, 0.5))
+    @test rand_observed(Xoshiro(1), ld) isa Real
+    @test rand_observed(ld; primary = 0.3) isa Real
+
+    # Joint and batched draws return labelled records.
+    r = rand(Xoshiro(1), ld)
+    @test r isa NamedTuple && Set(keys(r)) == Set((:primary, :observed))
+    @test length(rand(Xoshiro(1), ld, 3)) == 3
+    @test length(rand(ld, 2)) == 2
+
+    # `marginal` inverts `latent`.
+    @test marginal(ld) == primary_censored(delay, Uniform(0, 1))
+    @test marginal(delay) == delay
+end
+
 # The parameter-gradient marginal==latent equivalence (`using ForwardDiff`) is
 # an AD test, so it lives in the AD environment at `test/ad/latent_ad.jl` (the
 # main test env deliberately does not depend on ForwardDiff). The latent scalar
