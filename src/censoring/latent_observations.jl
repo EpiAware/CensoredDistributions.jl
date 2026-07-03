@@ -6,50 +6,32 @@
 
 @doc "
 
-Prior over the per-record within-window primary event times of a latent fit.
+Prior over the within-window primary event time(s) of a latent fit, extracted
+from the censored distribution(s) with [`get_primary_event`](@ref) so the user
+feeds the delay distribution and `PrimaryEvent` pulls out the primary.
 
-`PrimaryEvent(dists)` is the product of each record's primary event prior, read
-from its distribution with [`get_primary_event`](@ref), so the per-record windows
-may differ. Sampling `ps ~ PrimaryEvent(dists)` in a Turing model makes the
-within-window primaries named latent variables; the product form links natively
-under NUTS. Returns a `Distributions.product_distribution`.
+- `PrimaryEvent(d)` (scalar): the single record's primary prior,
+  `get_primary_event(d)`; `ps ~ PrimaryEvent(d)` samples its one primary.
+- `PrimaryEvent(dists)` (vector): the product of the per-record primary priors,
+  so the per-record windows may differ and `ps ~ PrimaryEvent(dists)` samples one
+  primary per record as named latent variables. The product form links natively
+  under NUTS (returns a `Distributions.product_distribution`).
 
 # Arguments
-- `dists`: a vector of per-record censored distributions (for example
+- `d` / `dists`: a censored distribution or a vector of them (for example
   [`double_interval_censored`](@ref) nodes, optionally [`latent`](@ref)-wrapped).
 
 # See also
 - [`PrimaryConditional`](@ref): scores the observed delays given these primaries.
 - [`get_primary_event`](@ref): the per-record primary prior read here.
 "
+PrimaryEvent(d::Distribution) = get_primary_event(d)
 function PrimaryEvent(dists::AbstractVector)
     return product_distribution([get_primary_event(d) for d in dists])
 end
 
-@doc "
-
-Conditional distribution of observed delays given realised primary events.
-
-Two forms:
-- scalar `PrimaryConditional(dist, p::Real)`: the univariate observed-time
-  conditional of a single record given its primary `p` (the kernel [`latent`](@ref)
-  scores and samples); see the struct docstring below.
-- batched `PrimaryConditional(dists, ps)`: a multivariate distribution over a
-  vector of records, scoring each observed delay against its own primary in one
-  pass, so a Turing model can write `obs ~ PrimaryConditional(dists, ps)` instead
-  of a per-record loop. Per-record windows may differ.
-
-Each record's observed delay cannot precede its primary, so the secondary is
-truncated below by the primary (see [`get_primary_event`](@ref)); a primary at or
-after its whole interval is infeasible and scores `-Inf`.
-
-# Arguments
-- `dists`: a vector of per-record censored distributions.
-- `ps`: the realised primary event time per record.
-
-# See also
-- [`PrimaryEvent`](@ref): the prior these primaries are sampled from.
-"
+# Internal multivariate type backing the batched `PrimaryConditional(dists, ps)`;
+# users construct it through that public constructor, not directly.
 struct BatchedPrimaryConditional{DS <: AbstractVector, PS <: AbstractVector} <:
        Distribution{Multivariate, Continuous}
     dists::DS
@@ -62,10 +44,29 @@ struct BatchedPrimaryConditional{DS <: AbstractVector, PS <: AbstractVector} <:
     end
 end
 
-# `PrimaryConditional(dists, ps)` (vector args) builds the batched multivariate
-# form; `PrimaryConditional(dist, p::Real)` stays the scalar kernel.
+@doc "
+
+Batched conditional distribution of observed delays given realised primaries.
+
+`PrimaryConditional(dists, ps)` is a multivariate distribution over a vector of
+per-record distributions, scoring each observed delay against its own primary in
+one pass, so a Turing model can write `obs ~ PrimaryConditional(dists, ps)`
+instead of a per-record loop. Per-record windows may differ. This complements the
+scalar `PrimaryConditional(dist, p::Real)` kernel (see the struct docstring).
+
+Each record's observed delay cannot precede its primary, so the secondary is
+truncated below by the primary (see [`get_primary_event`](@ref)); a primary at or
+after its whole interval is infeasible and scores `-Inf`.
+
+# Arguments
+- `dists`: a vector of per-record censored distributions.
+- `ps`: the realised primary event time per record.
+
+# See also
+- [`PrimaryEvent`](@ref): the prior these primaries are sampled from.
+"
 function PrimaryConditional(dists::AbstractVector, ps::AbstractVector)
-    BatchedPrimaryConditional(dists, ps)
+    return BatchedPrimaryConditional(dists, ps)
 end
 
 Base.length(d::BatchedPrimaryConditional) = length(d.dists)

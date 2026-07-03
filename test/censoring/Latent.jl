@@ -509,6 +509,9 @@ end
     @test length(r) == 2 && 0 <= r[1] <= 1 && 0 <= r[2] <= 3
     # A single-record vector still gives a valid product prior.
     @test length(PrimaryEvent(dists[1:1])) == 1
+    # The scalar form extracts a single distribution's primary event.
+    @test PrimaryEvent(dists[1]) == get_primary_event(dists[1])
+    @test PrimaryEvent(dists[2]) == get_primary_event(dists[2])
 end
 
 @testitem "batched PrimaryConditional sums the per-record conditional" begin
