@@ -182,22 +182,6 @@ function _latent_record_vector(x::NamedTuple)
     return [x.primary, x.observed]
 end
 
-# --- Scalar observed density, conditional on a primary --------------------
-#
-# `latent(d)` is ALWAYS conditional on a primary event: the scalar methods over
-# the observed time `y` NEVER reproduce the marginal and NEVER integrate the
-# primary out (no quadrature). Each takes an OPTIONAL `primary`:
-#   - `primary` PASSED  -> the deterministic conditional, the
-#     [`PrimaryConditional`](@ref)`(d, p)` kernel (the form the model glue and the
-#     differentiated NUTS path use, so it is AD-safe).
-#   - `primary` ABSENT  -> Monte-Carlo SAMPLE one `p ~ get_primary_event(d)` and
-#     condition on it, a stochastic single-draw estimate (NOT the marginal). The
-#     draw uses fresh randomness, so the no-primary form is for exploration and
-#     forward-simulation; pass `primary` on a differentiated path to stay
-#     deterministic.
-# The integrating marginal is the separate [`PrimaryCensored`](@ref), recovered
-# via `marginal(d)`; `Latent` never collapses to it.
-
 # Resolve the conditioning primary: the passed value, or a fresh MC draw from the
 # primary prior when none is given.
 _latent_primary(::AbstractRNG, ::Latent, primary::Real) = primary
