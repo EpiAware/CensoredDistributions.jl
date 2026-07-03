@@ -515,7 +515,7 @@ end
 end
 
 @testitem "batched PrimaryConditional sums the per-record conditional" begin
-    using Distributions
+    using Distributions, Random
     using CensoredDistributions: PrimaryConditional
 
     dists = [
@@ -531,9 +531,13 @@ end
 
     bc = PrimaryConditional(dists, ps)
     @test length(bc) == 3
+    @test eltype(bc) == Float64
     # Batched multivariate logpdf equals the sum of the scalar conditionals.
     @test logpdf(bc, ys) ≈
           sum(logpdf(PrimaryConditional(dists[i], ps[i]), ys[i]) for i in 1:3)
+    # `rand` draws one observed delay per record.
+    r = rand(Xoshiro(3), bc)
+    @test length(r) == 3 && all(isfinite, r)
     # The scalar kernel still scores a single record.
     @test isfinite(logpdf(PrimaryConditional(dists[1], 0.3), 3.0))
     # Unequal lengths error at construction and at scoring.

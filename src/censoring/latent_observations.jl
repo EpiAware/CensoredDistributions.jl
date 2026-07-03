@@ -21,6 +21,18 @@ feeds the delay distribution and `PrimaryEvent` pulls out the primary.
 - `d` / `dists`: a censored distribution or a vector of them (for example
   [`double_interval_censored`](@ref) nodes, optionally [`latent`](@ref)-wrapped).
 
+# Examples
+```@example
+using CensoredDistributions, Distributions
+
+dists = [double_interval_censored(LogNormal(1.5, 0.75);
+             primary_event = Uniform(0, 1), upper = 8, interval = 1),
+    double_interval_censored(LogNormal(1.5, 0.75);
+        primary_event = Uniform(0, 3), upper = 12, interval = 3)]
+PrimaryEvent(dists)       # product over the per-record primary priors
+PrimaryEvent(dists[1])    # scalar: one record's primary prior
+```
+
 # See also
 - [`PrimaryConditional`](@ref): scores the observed delays given these primaries.
 - [`get_primary_event`](@ref): the per-record primary prior read here.
