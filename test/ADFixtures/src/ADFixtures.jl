@@ -121,7 +121,7 @@ function backend_broken_scenarios()
     # prove the type through the vector-of-distributions construction. The value
     # is correct and ForwardDiff, ReverseDiff and Mooncake (reverse + forward)
     # all differentiate it; the latent fit uses Mooncake reverse. The per-record
-    # scalar conditional and the single-leaf batched `logpdf(latent(d), ys;
+    # scalar conditional and the single-dist batched `logpdf(latent(d), ys;
     # primary)` path are Enzyme-clean, so this is specific to the vector-of-dists
     # wrapper.
     enzyme_broken = Set(["PrimaryConditional batched double_interval_censored " *
@@ -486,7 +486,7 @@ function scenarios(; with_reference::Bool = false)
     # (`PrimaryConditional(d, p)`, AD-safe, no quadrature). The gradient flows
     # w.r.t. the delay params; the sampled primaries ride as an inactive
     # `Constant` context (the sampler differentiates them elsewhere via the
-    # `p ~ prior` statement, not through this leaf). Guarded on `latent` existing
+    # `p ~ prior` statement, not through this dist). Guarded on `latent` existing
     # so the AirspeedVelocity `main` baseline (which lacks it) skips the scenario.
     if isdefined(CensoredDistributions, :latent)
         primaries = [0.2, 0.5, 0.3, 0.7, 0.4]
@@ -506,7 +506,7 @@ function scenarios(; with_reference::Bool = false)
         # interval and enforces secondary >= primary (the lower integration
         # bound is raised to `p`). The gradient w.r.t. the delay params flows via
         # the interval-mass cdf difference (and the truncation constant `Z`),
-        # differing from the bare-leaf scalar scenario above. Data-integer obs
+        # differing from the bare-dist scalar scenario above. Data-integer obs
         # with primaries inside the primary window keep every record in support.
         dic_obs = [2.0, 3.0, 4.0, 5.0, 6.0]
         _push!("Latent double_interval_censored LogNormal scalar logpdf",
@@ -542,7 +542,7 @@ function scenarios(; with_reference::Bool = false)
             [1.0, 0.75], (Constant(zero_obs), Constant(zero_prim)))
 
         # Batched interval-of-latent conditional: the single vectorised public
-        # path `logpdf(latent(leaf), ys; primary = ps)`. The gradient is taken
+        # path `logpdf(latent(d), ys; primary = ps)`. The gradient is taken
         # wrt the delay parameters AND the whole primary vector (`θ` carries
         # both), covering the batched kernel's reverse-mode use in the latent
         # fit. A zero-delay record keeps the sub-support guard on the

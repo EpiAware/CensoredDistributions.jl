@@ -1,36 +1,45 @@
 # The interval-censored, truncated secondary conditional of a
 # `double_interval_censored` pipeline, given a sampled primary `p`. Split from
-# `PrimaryConditional.jl` so it can reference the pipeline node types
+# `PrimaryConditional.jl` so it can reference the pipeline distribution types
 # (`IntervalCensored`, `Truncated`) and the helpers `get_primary_event`,
 # `get_dist_recursive`, `floor_to_interval`, `find_interval_index`, all defined in
 # files included later than `PrimaryConditional.jl`.
 
-# Unwrap a `Latent` to its node before selecting the conditional form.
-_conditional(node::Latent, p) = _conditional(node.dist, p)
+# Unwrap a `Latent` to its wrapped distribution before selecting the conditional.
+_conditional(d::Latent, p) = _conditional(d.dist, p)
 
-# An interval/truncation pipeline over a primary-censored node keeps its
-# modifiers on the secondary, built from the pipeline pieces and `p`.
-function _conditional(node::Union{IntervalCensored, Truncated}, p)
+# Dedicated per-wrapper methods (mirroring `_pipeline_bounds`), so the interval-
+# censored and truncated-only pipelines each dispatch to their own handler with
+# no `Union`. Both keep the AD-stable below-support handling downstream (the
+# interval mass and the truncation constant go through `_delay_cdf`; see there
+# for why a stock `truncated(delay, ...)` is not used).
+# Interval-censored pipeline: the conditional scores the interval-censored,
+# truncated mass of the total `p + delay`.
+_conditional(d::IntervalCensored, p) = _secondary_conditional(d, p)
+# Truncated-only pipeline: the conditional is the continuous shifted delay inside
+# the truncation window (no interval spec).
+_conditional(d::Truncated, p) = _secondary_conditional(d, p)
+# Shared builder: read the delay, primary prior, truncation bounds and interval
+# spec (`nothing` when truncated-only) off the pipeline and carry `p`.
+function _secondary_conditional(d, p)
     return _SecondaryConditional(
-        get_dist_recursive(node), get_primary_event(node),
-        _pipeline_bounds(node)..., _pipeline_interval(node), p)
+        get_dist_recursive(d), get_primary_event(d),
+        _pipeline_bounds(d)..., _pipeline_interval(d), p)
 end
 
-# The interval-censored, truncated secondary conditional given the primary `p`.
-# The continuous total is `p + delay`; the observed time `y` is interval-censored
-# on the absolute grid and the total is truncated to `[lower, upper]`. The
-# interval mass is `cdf(delay, hi - p) - cdf(delay, lo - p)` over the interval
-# `[lo, hi)` containing `y`, restricted to the truncation bounds and truncated
-# below by the primary event time (the secondary cannot precede the primary, so
-# the secondary's support is `[p, ...)` and the lower edge is raised to `p`),
-# normalised by the pipeline's truncation constant
-# `Z = cdf(pc, upper) - cdf(pc, lower)` (with
-# `pc = primary_censored(delay, primary_event)`), so the joint integrates over
-# `p` to the analytic `double_interval_censored` marginal. With no truncation
-# `Z = 1`. A `nothing` interval (truncated but not interval-censored) scores the
-# continuous shifted delay inside the window instead of the interval mass; the
-# bare `PrimaryCensored` method (no interval and no truncation) is handled in
-# `PrimaryConditional.jl`, so this type always carries truncation or an interval.
+"""
+The distribution of the observed time under a `double_interval_censored`
+pipeline given a realised primary `p`: the continuous total `p + delay`
+truncated to `[lower, upper]` and interval-censored on the absolute grid. Scored
+with `logpdf`/`rand` (no closed-form `cdf`/`quantile`) and normalised by the
+pipeline truncation constant so the joint over `p` integrates to the analytic
+`double_interval_censored` marginal. A `nothing` `interval` is the
+truncated-only continuous case.
+
+Fields `delay`, `primary_event`, `lower`, `upper`, `interval`, `p`. Always
+carries a truncation or an interval; the bare untruncated case is a
+`_ShiftedDelayCore` instead.
+"""
 struct _SecondaryConditional{D, E, B, I, P <: Real} <:
        UnivariateDistribution{Continuous}
     delay::D
@@ -72,15 +81,26 @@ function logpdf(d::_SecondaryConditional, y::Real)
 end
 pdf(d::_SecondaryConditional, y::Real) = exp(logpdf(d, y))
 
-# An interval-censored / truncated pipeline secondary has no closed-form CDF; it
-# is scored through `logpdf` (and `pdf`). Defining `cdf` here keeps the
-# `cdf(::PrimaryConditional)` dispatch total -- the bare `_ShiftedDelayCore` form
-# carries a real CDF, this pipeline form raises an explanatory error instead of a
-# bare `MethodError`. `logcdf` falls through to the `log(cdf(...))` generic.
+# An interval-censored / truncated pipeline secondary has no closed-form CDF,
+# quantile or mean; it is scored through `logpdf`/`pdf` and drawn with `rand`.
+# Defining these here keeps the `PrimaryConditional` dispatch total -- the bare
+# `_ShiftedDelayCore` form carries real versions, this pipeline form raises an
+# explanatory error instead of a bare `MethodError`. `logcdf`/`ccdf` fall through
+# to the generics over `cdf`.
 function cdf(d::_SecondaryConditional, ::Real)
     throw(ArgumentError(
         "cdf is undefined for an interval-censored / truncated " *
         "primary-conditional pipeline; score it with `logpdf` instead"))
+end
+function quantile(d::_SecondaryConditional, ::Real)
+    throw(ArgumentError(
+        "quantile is undefined for an interval-censored / truncated " *
+        "primary-conditional pipeline; sample it with `rand` instead"))
+end
+function mean(d::_SecondaryConditional)
+    throw(ArgumentError(
+        "mean is undefined for an interval-censored / truncated " *
+        "primary-conditional pipeline; estimate it from `rand` draws instead"))
 end
 
 # Interval-censored secondary: the mass of the total `p + delay` over the
@@ -101,7 +121,12 @@ end
 # Delay cdf contributing zero below its support (the below-primary truncation can
 # put the lower edge at the boundary). Omitting the sub-support term rather than
 # calling `cdf` there keeps the value and gives a finite AD gradient (`d/dσ
-# cdf(LogNormal, 0)` is `0 * Inf = NaN`).
+# cdf(LogNormal, 0)` is `0 * Inf = NaN`). This is why the interval mass is built
+# by hand instead of via `truncated(delay, lower, upper)`: for the zero-delay
+# records the lower edge lands at `minimum(delay)`, and `truncated`'s
+# normalisation evaluates `cdf(delay, lower)` there ungarded, reintroducing the
+# NaN gradient (verified: FD and Mooncake give NaN through `truncated`, finite
+# here).
 _delay_cdf(delay, x) = x <= minimum(delay) ? zero(float(x)) : cdf(delay, x)
 
 # Continuous secondary (truncated but not interval-censored): the shifted delay
@@ -160,31 +185,40 @@ _pipeline_interval(d::Truncated) = _pipeline_interval(d.untruncated)
 _pipeline_interval(d) = nothing
 
 # --- Batched latent conditional -------------------------------------------
-# Score a vector of observed times `ys` against a single latent leaf, each with
-# its own primary in `ps`, and sum the per-record log densities in one vectorised
-# pass (one AD tape) so a model can add a single
-# `logpdf(latent(leaf), ys; primary = ps)` term instead of a per-record loop.
-# Dispatched on the wrapped node, mirroring `_conditional`. The public entry is
-# `logpdf(d::Latent, ys; primary)` in `Latent.jl`.
+# Score a vector of observed times `ys` against a single latent distribution,
+# each with its own primary in `ps`, and sum the per-record log densities in one
+# vectorised pass (one AD tape) so a model can add a single
+# `logpdf(latent(d), ys; primary = ps)` term instead of a per-record loop.
+# Dispatched on the wrapped distribution, mirroring `_conditional`. The public
+# entry is `logpdf(d::Latent, ys; primary)` in `Latent.jl`.
 
-# Bare primary-censored leaf: the secondary is the continuous delay shifted by the
-# primary, so the summed score is `sum(logpdf(delay, y - p))`, vectorised.
-function _latent_batched_logpdf(node::PrimaryCensored, ys::AbstractVector,
+# Bare primary-censored distribution: the secondary is the continuous delay
+# shifted by the primary, so the summed score is `sum(logpdf(delay, y - p))`.
+function _latent_batched_logpdf(d::PrimaryCensored, ys::AbstractVector,
         ps::AbstractVector)
-    return sum(logpdf.(node.dist, ys .- ps))
+    return sum(logpdf.(d.dist, ys .- ps))
 end
 
-# Interval / truncation pipeline: the interval-censored, truncated secondary mass
-# per record, truncated below by each primary. A regular-width interval takes the
+# Interval-censored pipeline: the interval-censored, truncated secondary mass per
+# record, truncated below by each primary. A regular-width interval takes the
 # one-tape array path; arbitrary boundaries fall back to the per-record scalar
 # conditional (correctness over the one-tape path for that rarer spec).
-function _latent_batched_logpdf(node::Union{IntervalCensored, Truncated},
-        ys::AbstractVector, ps::AbstractVector)
-    delay = get_dist_recursive(node)
-    pe = get_primary_event(node)
-    lower, upper = _pipeline_bounds(node)
-    interval = _pipeline_interval(node)
-    return _batched_pipeline_logpdf(interval, delay, pe, lower, upper, ys, ps)
+function _latent_batched_logpdf(d::IntervalCensored, ys::AbstractVector,
+        ps::AbstractVector)
+    return _batched_secondary(d, ys, ps)
+end
+# Truncated-only pipeline: the continuous shifted-delay secondary per record
+# (interval `nothing`), mirroring the interval-censored method.
+function _latent_batched_logpdf(d::Truncated, ys::AbstractVector,
+        ps::AbstractVector)
+    return _batched_secondary(d, ys, ps)
+end
+function _batched_secondary(d, ys::AbstractVector, ps::AbstractVector)
+    delay = get_dist_recursive(d)
+    pe = get_primary_event(d)
+    lower, upper = _pipeline_bounds(d)
+    return _batched_pipeline_logpdf(
+        _pipeline_interval(d), delay, pe, lower, upper, ys, ps)
 end
 
 # Regular-width interval: one vectorised pass. The interval `[lo, hi)` containing

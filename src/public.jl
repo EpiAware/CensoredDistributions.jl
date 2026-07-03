@@ -6,9 +6,16 @@ public IntervalCensored
 public Weighted
 public Convolved
 
+# The latent event-time wrapper (public but not exported; `latent` builds it).
+public Latent
+
+# The scalar conditional draw of a latent observed time (public but not exported).
+public rand_observed
+
 # `PrimaryConditional` and `PrimaryEvent` are exported from the main module (the
-# latent-form observation distributions). `_SecondaryConditional`, the internal
-# per-record kernel underneath them, stays private.
+# latent-form observation distributions). `_SecondaryConditional` and
+# `_BatchedPrimaryConditional`, the internal kernels underneath them, stay
+# private.
 
 # The primary-censored family supertype (public but not exported).
 public AbstractPrimaryCensored

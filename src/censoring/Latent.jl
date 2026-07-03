@@ -13,27 +13,29 @@ Marginal versus latent is dispatch on the type: the plain
 [`PrimaryCensored`](@ref) is the univariate marginal default, and wrapping it in
 `Latent` selects the latent representation. Construct via [`latent`](@ref).
 
-The `dist` field holds the wrapped primary-censored node.
+The `dist` field holds the wrapped primary-censored distribution.
 
 # See also
 - [`latent`](@ref): constructor
-- [`PrimaryConditional`](@ref): the conditional scored and sampled here
+- [`PrimaryConditional`](@ref): the distribution of the observed time given the
+  primary, scored and sampled here
 - [`get_primary_event`](@ref): the primary prior sampled here
 "
 struct Latent{D} <: Distribution{Multivariate, Continuous}
-    "The wrapped primary-censored node."
+    "The wrapped primary-censored distribution."
     dist::D
 end
 
 @doc "
 
-Turn a primary-censored node into its latent representation.
+Turn a primary-censored distribution into its latent representation.
 
 Returns a [`Latent`](@ref) multivariate distribution over `[primary, observed]`.
 A draw is a labelled `NamedTuple` `(primary = ..., observed = ...)`.
 
 # Arguments
-- `d`: A primary-censored node (for example from [`primary_censored`](@ref)).
+- `d`: A primary-censored distribution (for example from
+  [`primary_censored`](@ref)).
 
 # Examples
 ```@example
@@ -45,22 +47,25 @@ rand(ld)
 ```
 
 # See also
-- [`marginal`](@ref): the inverse, recovering the wrapped marginal node.
+- [`marginal`](@ref): the inverse, recovering the wrapped marginal
+  distribution.
 "
 latent(d) = Latent(d)
 
 @doc "
 
-Recover the marginal node a [`latent`](@ref) wraps (the inverse of `latent`).
+Recover the marginal distribution a [`latent`](@ref) wraps (the inverse of
+`latent`).
 
 `marginal(d)` is the inverse of [`latent`](@ref): it unwraps a [`Latent`](@ref)
-back to the marginal node it carries, so `marginal(latent(d)) == d`. It is
-idempotent, so a node that is not a `Latent` is returned unchanged, giving
+back to the marginal distribution it carries, so `marginal(latent(d)) == d`. It
+is idempotent, so a distribution that is not a `Latent` is returned unchanged,
+giving
 `marginal(d) == d` and `marginal(marginal(x)) == marginal(x)`. Use it to move
 from the per-event latent view back to the collapsed marginal observed view.
 
 # Arguments
-- `d`: A [`Latent`](@ref) to unwrap, or any node (returned unchanged).
+- `d`: A [`Latent`](@ref) to unwrap, or any distribution (returned unchanged).
 
 # Examples
 ```@example
@@ -122,8 +127,8 @@ Base.rand(d::Latent, n::Int) = rand(default_rng(), d, n)
 
 @doc "
 
-Log density of a [`latent`](@ref) node over a vector argument, in two forms
-selected by the `primary` keyword.
+Log density of a [`latent`](@ref) distribution over a vector argument, in two
+forms selected by the `primary` keyword.
 
 Without `primary`, the vector `x` is a single scored joint record
 `[primary, observed]` and the result is the joint log density, the primary prior
@@ -134,10 +139,10 @@ converted internally.
 
 With a `primary` vector, `x` is a vector of observed times and the result is the
 *batched* conditional log density: each observed time is scored against its own
-primary for the single leaf and the per-record log densities are summed, in one
-vectorised pass so a Turing model can add
-`Turing.@addlogprob! logpdf(latent(leaf), ys; primary = ps)` in place of a
-per-record loop. `ys` and `primary` must have equal length. Each record is
+primary for the single distribution and the per-record log densities are summed,
+in one vectorised pass, so `logpdf(latent(d), ys; primary = ps)` scores a whole
+vector of records in place of a per-record loop. `ys` and `primary` must have
+equal length. Each record is
 truncated below by its own primary (see [`get_primary_event`](@ref)); a record
 whose primary falls at or after its whole interval is infeasible and contributes
 `-Inf`. This scales the latent form to many records; the marginal is the separate
@@ -157,8 +162,9 @@ function _latent_vector_logpdf(d::Latent, x::AbstractVector, ::Nothing)
 end
 
 # A `primary` vector: `x` is a vector of observed times scored per record against
-# its own primary for the single leaf, summed (the batched conditional). Delegates
-# to `_latent_batched_logpdf`, dispatched on the wrapped node so the interval /
+# its own primary for the single distribution, summed (the batched conditional).
+# Delegates
+# to `_latent_batched_logpdf`, dispatched on the wrapped distribution so the
 # truncation pipeline scores in one vectorised pass (see `secondary_conditional`).
 function _latent_vector_logpdf(d::Latent, ys::AbstractVector,
         primary::AbstractVector)
@@ -191,8 +197,8 @@ end
 
 @doc "
 
-Scalar observed density / tail / quantile of a [`latent`](@ref) node, conditional
-on a primary event.
+Scalar observed density / tail / quantile of a [`latent`](@ref) distribution,
+conditional on a primary event.
 
 `latent(d)` is always conditional, never the integrating marginal. With a primary
 passed (`logpdf(d, y; primary = p)`) the call is the deterministic
@@ -216,7 +222,7 @@ for f in (:pdf, :cdf, :logcdf, :ccdf, :logccdf)
 end
 
 # Quantile of the observed time given the primary (sampled when none passed). The
-# bare primary-censored leaf has a closed-form conditional quantile; an
+# bare primary-censored distribution has a closed-form conditional quantile; an
 # interval/truncation pipeline conditional does not.
 function quantile(d::Latent, q::Real; primary = nothing,
         rng::AbstractRNG = default_rng())
@@ -225,16 +231,33 @@ end
 
 @doc "
 
-Draw a single observed time from a [`latent`](@ref) node, conditional on a
-primary event.
+Draw a single observed time from a [`latent`](@ref) distribution, conditional on
+a primary event.
 
-The conditional dual of the joint `rand(d)` record: with a primary passed
-(`rand(d; primary = p)`) the draw is `rand(`[`PrimaryConditional`](@ref)`(d, p))`;
-with none, one is Monte-Carlo sampled from [`get_primary_event`](@ref)`(d)` first.
-Returns the scalar observed time, where the joint `rand(d)` returns the labelled
+`rand_observed` is the conditional dual of the joint `rand(d)` record: with a
+primary passed (`rand_observed(d; primary = p)`) the draw is
+`rand(`[`PrimaryConditional`](@ref)`(d, p))`; with none, one primary is
+Monte-Carlo sampled from [`get_primary_event`](@ref)`(d)` first. It returns the
+scalar observed time, where the joint `rand(d)` returns the labelled
 `(primary, observed)` record.
 
-See also: [`rand`](@ref), [`PrimaryConditional`](@ref)
+# Arguments
+- `d`: A [`latent`](@ref) distribution.
+- `primary`: The primary event time to condition on; sampled from the primary
+  prior when omitted.
+
+# Examples
+```@example
+using CensoredDistributions, Distributions
+using CensoredDistributions: rand_observed
+
+ld = latent(primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1)))
+rand_observed(ld; primary = 0.5)
+```
+
+# See also
+- [`rand`](@ref): the joint `(primary, observed)` draw.
+- [`PrimaryConditional`](@ref): the conditional this samples from.
 "
 function rand_observed(rng::AbstractRNG, d::Latent; primary = nothing)
     return rand(rng, PrimaryConditional(d, _latent_primary(rng, d, primary)))

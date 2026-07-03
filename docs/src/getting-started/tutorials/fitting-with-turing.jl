@@ -564,9 +564,10 @@ end
 
 md"""
 Where the marginal model ends in `obs ~ weight(dists)`, integrating each primary
-out, the latent model samples one within-window primary per record with
-`ps ~ PrimaryEvent(dists)` and scores every observed delay against its primary
-in one `obs ~ PrimaryConditional(dists, ps)`.
+out, the latent model draws one within-window primary per record from
+`ps ~ PrimaryEvent(dists)`, the distribution of the primary event times, and the
+observed delays follow `obs ~ PrimaryConditional(dists, ps)`, their distribution
+given those primaries.
 It conditions on the *same* observed records; the primary is latent either way,
 so there is no separate latent dataset.
 We fit a subsample of the shared records to keep the docs build light.
