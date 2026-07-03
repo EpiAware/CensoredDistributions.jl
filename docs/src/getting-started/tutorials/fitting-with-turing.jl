@@ -590,78 +590,80 @@ the marginal fits above.
 This is the full `double_interval_censored` model from the double-censored fit
 above, primary censoring, a secondary interval and right truncation, switched to
 latent form, not a new one.
-We reuse the `latent_delay_dist()` delay prior and the same
-[`double_interval_censored`](@ref) construction, and change only how it is
-scored, wrapping it in [`latent`](@ref):
-the marginal fit integrates the primary out, the latent fit samples it per
-record.
-For each record we sample its within-window primary `p ~ Uniform(0, 1)` and add
-the conditional density `logpdf(latent(leaf), obs; primary = p)` to the log
-joint, which keeps the secondary interval and the truncation on the total time
-`p + delay`.
+Crucially it conditions on the *same observed records* as the marginal fits: the
+primary event is latent either way, so there is no separate latent dataset, only
+a different treatment of the same primary.
+The marginal fit integrates it out, the latent fit samples it per record.
+We reuse the `latent_delay_dist()` delay prior and rebuild the same per-record
+[`double_interval_censored`](@ref) leaf from each record's own primary window,
+secondary interval and observation time, changing only how it is scored by
+wrapping it in [`latent`](@ref).
+For each record we sample its within-window primary `p ~ Uniform(0, pwindow)`
+and add the conditional density `logpdf(latent(leaf), obs; primary = p)` to the
+log joint, which keeps the secondary interval and the truncation on the total
+time `p + delay`.
 Scoring with a passed `primary` is the deterministic conditional the
 differentiated sampler uses, so it is AD-safe; the whole path uses only the
 public `latent` and the Distributions interface, no bespoke observation model.
 
-Keeping the secondary interval needs one feasibility check.
-The observed delay is `secondary - primary`, so a sampled primary that fell
-after its record's observed secondary interval would imply a negative delay,
-zero conditional mass and a `-Inf` log density the sampler cannot start from.
-We handle this by construction rather than by clamping the primary.
-The primary event window is one day (`Uniform(0, 1)`) and the secondary interval
-is one day, so a sampled primary is never wider than the interval and always
-precedes it, keeping every record in support.
-This is the daily double-censoring regime of the linelist case study; it needs
-no per-record primary bounds and no point-mass clamp, so the sampled primary
-stays unbiased.
+The latent form scales with the record count, so for the docs build we condition
+on a subsample of the simulated records rather than the full data the marginal
+fits use.
+The primary windows and secondary intervals vary per record, so a sampled
+primary can in principle land after its record's observed secondary interval,
+which would imply a negative delay.
+The interval-of-latent conditional handles this by enforcing secondary >=
+primary: a primary at or after the whole observed interval is genuinely
+infeasible and scores `-Inf`, while a primary inside the interval keeps positive
+mass, so no per-record primary bounds or point-mass clamp are needed and the
+sampled primary stays unbiased.
 The latent form adds one sampled primary per record to the chain, so it carries
 more parameters and samples more slowly than the marginal fit, the price of
 sampling the within-window primary rather than integrating it out.
 Because every record's primary is a latent variable, we hand the sampler a
-feasible starting point (each primary inside its window, the delay parameters
-near the prior) via `InitFromParams`, and keep it light with a subset of records
-over a short chain for the docs build.
+feasible starting point (each primary well inside its window, the delay
+parameters near the prior) via `InitFromParams`.
 """
 
-latent_pe = Uniform(0, 1)
+## Condition the latent fit on the SAME observed records as the marginal fits,
+## subsampled for tractability (the latent form scales with the record count).
+latent_n = 150
 
-latent_horizon = 12.0
-
-latent_interval = 1
-
-latent_obs = rand(Xoshiro(1),
-    double_interval_censored(true_dist; primary_event = latent_pe,
-        upper = latent_horizon, interval = latent_interval), 80);
+latent_records = simulated_data[1:latent_n, :]
 
 @model function latent_double_censored_model(
-        y, primary_event, horizon, interval)
+        obs, pwindows, swindows, obs_times)
     dist ~ to_submodel(latent_delay_dist())
-    ps ~ product_distribution([primary_event for _ in y])
-    # The same double_interval_censored leaf (primary censoring, a secondary
-    # interval and truncation) in latent form, built once per evaluation and
-    # scored per record against its sampled primary.
-    leaf = latent(double_interval_censored(
-        dist; primary_event = primary_event, upper = horizon,
-        interval = interval))
-    for i in eachindex(y)
-        Turing.@addlogprob! logpdf(leaf, y[i]; primary = ps[i])
+    # One within-window primary per record, matching the simulation's per-record
+    # `Uniform(0, pwindow)` primary event.
+    ps ~ product_distribution([Uniform(0, pw) for pw in pwindows])
+    for i in eachindex(obs)
+        # The same per-record double_interval_censored leaf the marginal fit
+        # scores (primary censoring, a secondary interval and right truncation),
+        # in latent form and scored against its sampled primary.
+        leaf = latent(double_interval_censored(
+            dist; primary_event = Uniform(0, pwindows[i]),
+            upper = obs_times[i], interval = swindows[i]))
+        Turing.@addlogprob! logpdf(leaf, obs[i]; primary = ps[i])
     end
 end
 
 latent_mdl = latent_double_censored_model(
-    latent_obs, latent_pe, latent_horizon, latent_interval);
+    latent_records.obs, latent_records.pwindows,
+    latent_records.swindows, latent_records.obs_times);
 
 md"""
 The chain carries the shared delay parameters under the `dist` prefix and one
 sampled within-window primary per record under `ps`, the latent the marginal
 form never forms.
-The feasible initialisation seeds each primary inside its window (well below its
-observation) and the delay parameters near the prior mean.
+The feasible initialisation seeds each primary a quarter of the way into its
+window (comfortably inside its record's observed interval) and the delay
+parameters near the prior mean.
 """
 
 latent_init = InitFromParams(
     (dist = (mu = 1.5, sigma = 0.75),
-        ps = [min(0.5, 0.5 * y) for y in latent_obs]),
+        ps = 0.25 .* latent_records.pwindows),
     InitFromPrior())
 
 latent_fit = sample(
@@ -673,12 +675,12 @@ latent_fit = sample(
 summarystats(latent_fit)
 
 md"""
-The latent fit recovers the delay parameters approximately at this small
-docs-scale `n`, with the true `mu` and `sigma` inside the posterior, as the
-pairplot below shows: the same recovery as the marginal double-censored fit,
-now with the primary sampled per record rather than integrated out.
-A fuller fit (more records, longer chains) sharpens the posterior; we keep it
-light here for the docs build.
+The latent fit recovers the delay parameters on the same observed records as the
+marginal double-censored fit, with the true `mu` and `sigma` inside the
+posterior, as the pairplot below shows, now with the primary sampled per record
+rather than integrated out.
+We fit a subsample here to keep the docs build light; the full data the marginal
+fits use (over longer chains) sharpens the posterior further.
 """
 
 plot_fit_with_truth(

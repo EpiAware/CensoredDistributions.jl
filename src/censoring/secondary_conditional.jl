@@ -100,9 +100,18 @@ function _secondary_logpdf(interval, d::_SecondaryConditional, y::Real)
     lo = max(lo, d.lower, d.p) - d.p
     hi = min(hi, d.upper) - d.p
     hi > lo || return oftype(float(y), -Inf)
-    mass = cdf(d.delay, hi) - cdf(d.delay, lo)
+    mass = _delay_cdf(d.delay, hi) - _delay_cdf(d.delay, lo)
     return log(max(mass, zero(mass))) - _secondary_logZ(d)
 end
+
+# `cdf` of the delay at an interval endpoint, guarded at the support lower bound.
+# The clamp above can push an interval edge down to the delay's minimum (an
+# observed delay floored to zero shifts to `lo == 0` for a positive-support
+# delay). There the cdf is exactly zero, but calling `cdf` at the boundary can
+# hand AD a `0 * Inf = NaN` derivative (`d/dσ cdf(LogNormal, 0)` is one such
+# case), which would poison the gradient for every zero-delay record. Returning a
+# hard zero below the support keeps the density identical and the gradient finite.
+_delay_cdf(delay, x) = x <= minimum(delay) ? zero(float(x)) : cdf(delay, x)
 
 # Continuous secondary (truncated but not interval-censored): the shifted delay
 # density inside the truncation window, normalised by Z.

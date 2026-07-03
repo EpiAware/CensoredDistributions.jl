@@ -32,3 +32,26 @@
     @test all(isfinite, gl)
     @test isapprox(gm, gl; rtol = 1e-3)
 end
+
+@testitem "interval-of-latent conditional gradient is finite at a zero delay" tags=[
+    :ad, :forwarddiff] begin
+    using CensoredDistributions, Distributions
+    using ForwardDiff: gradient
+
+    # A record whose observed delay floors to zero clamps the interval's lower
+    # edge to the delay's support boundary, so the conditional evaluates the
+    # delay cdf at that boundary. There `cdf(LogNormal, 0)` is exactly 0 but its
+    # naive parameter derivative is `0 * Inf = NaN`; guarding the boundary keeps
+    # the gradient finite so the latent double_interval_censored fit stays
+    # AD-safe on real data (many records floor to a zero delay).
+    function zero_delay_logpdf(θ; p = 0.5)
+        ld = latent(double_interval_censored(LogNormal(θ[1], θ[2]);
+            primary_event = Uniform(0, 3), upper = 12, interval = 1))
+        return logpdf(ld, 0.0; primary = p)
+    end
+
+    θ = [1.5, 0.75]
+    @test isfinite(zero_delay_logpdf(θ))
+    g = gradient(zero_delay_logpdf, θ)
+    @test all(isfinite, g)
+end
