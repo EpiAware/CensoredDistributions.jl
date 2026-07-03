@@ -88,13 +88,9 @@ end
 # normalised by Z.
 function _secondary_logpdf(interval, d::_SecondaryConditional, y::Real)
     lo, hi = _interval_bounds(interval, y)
-    # Restrict the interval to the truncation bounds (an interval may straddle a
-    # bound) and truncate it below by the primary event time, then shift to delay
-    # space. The secondary cannot precede the primary, so its support is
-    # `[p, ...)`; raising the lower edge to `d.p` is that below-truncation. A
-    # primary landing inside a record's interval keeps positive mass; a primary
-    # at or after the whole interval leaves no overlap, so the mass is zero and
-    # the log density `-Inf` (a genuinely infeasible secondary-before-primary).
+    # Truncate the observed interval below by the primary event time (secondary >=
+    # primary), then shift to delay space. A primary at/after the interval leaves
+    # no overlap -> zero mass, -Inf.
     lo = max(lo, d.lower, d.p) - d.p
     hi = min(hi, d.upper) - d.p
     hi > lo || return oftype(float(y), -Inf)
@@ -102,14 +98,10 @@ function _secondary_logpdf(interval, d::_SecondaryConditional, y::Real)
     return log(max(mass, zero(mass))) - _secondary_logZ(d)
 end
 
-# `cdf` of the delay at an interval endpoint, contributing zero below the delay's
-# support. Truncating the secondary below by the primary can leave the lower edge
-# at the delay's support boundary (an observed delay floored to zero shifts to
-# `lo == 0` for a positive-support delay). Below the support the cdf is zero and
-# contributes no mass, so the lower term is omitted rather than evaluated: calling
-# `cdf` at the boundary keeps the value (zero) but can hand AD a `0 * Inf = NaN`
-# parameter derivative (`d/dσ cdf(LogNormal, 0)` is one such case), so omitting it
-# keeps the value identical and the gradient finite on every AD backend.
+# Delay cdf contributing zero below its support (the below-primary truncation can
+# put the lower edge at the boundary). Omitting the sub-support term rather than
+# calling `cdf` there keeps the value and gives a finite AD gradient (`d/dσ
+# cdf(LogNormal, 0)` is `0 * Inf = NaN`).
 _delay_cdf(delay, x) = x <= minimum(delay) ? zero(float(x)) : cdf(delay, x)
 
 # Continuous secondary (truncated but not interval-censored): the shifted delay
@@ -166,3 +158,59 @@ _bound_or(x, _) = x
 _pipeline_interval(d::IntervalCensored) = d.boundaries
 _pipeline_interval(d::Truncated) = _pipeline_interval(d.untruncated)
 _pipeline_interval(d) = nothing
+
+# --- Batched latent conditional -------------------------------------------
+# Score a vector of observed times `ys` against a single latent leaf, each with
+# its own primary in `ps`, and sum the per-record log densities in one vectorised
+# pass (one AD tape) so a model can add a single
+# `logpdf(latent(leaf), ys; primary = ps)` term instead of a per-record loop.
+# Dispatched on the wrapped node, mirroring `_conditional`. The public entry is
+# `logpdf(d::Latent, ys; primary)` in `Latent.jl`.
+
+# Bare primary-censored leaf: the secondary is the continuous delay shifted by the
+# primary, so the summed score is `sum(logpdf(delay, y - p))`, vectorised.
+function _latent_batched_logpdf(node::PrimaryCensored, ys::AbstractVector,
+        ps::AbstractVector)
+    return sum(logpdf.(node.dist, ys .- ps))
+end
+
+# Interval / truncation pipeline: the interval-censored, truncated secondary mass
+# per record, truncated below by each primary. A regular-width interval takes the
+# one-tape array path; arbitrary boundaries fall back to the per-record scalar
+# conditional (correctness over the one-tape path for that rarer spec).
+function _latent_batched_logpdf(node::Union{IntervalCensored, Truncated},
+        ys::AbstractVector, ps::AbstractVector)
+    delay = get_dist_recursive(node)
+    pe = get_primary_event(node)
+    lower, upper = _pipeline_bounds(node)
+    interval = _pipeline_interval(node)
+    return _batched_pipeline_logpdf(interval, delay, pe, lower, upper, ys, ps)
+end
+
+# Regular-width interval: one vectorised pass. The interval `[lo, hi)` containing
+# each `y` is truncated to the bounds and below by that record's primary (the
+# `_delay_cdf` guard omits the lower term at/below the support), and the shared
+# truncation constant `Z` is subtracted once per record. An infeasible record
+# (primary at/after its interval, `hi <= lo`) contributes `-Inf` without
+# evaluating a bad log: `max(mass, tiny)` keeps the unselected branch finite and
+# the `ifelse` selects `-Inf` with a zero gradient.
+function _batched_pipeline_logpdf(width::Real, delay, pe, lower, upper, ys, ps)
+    logZ = _secondary_logZ(_SecondaryConditional(
+        delay, pe, lower, upper, width, zero(eltype(ps))))
+    los = floor_to_interval.(ys, width)
+    his = los .+ width
+    lo = max.(los, lower, ps) .- ps
+    hi = min.(his, upper) .- ps
+    mass = _delay_cdf.(Ref(delay), hi) .- _delay_cdf.(Ref(delay), lo)
+    tiny = floatmin(float(eltype(ys)))
+    logterms = @. ifelse(hi > lo, log(max(mass, tiny)), oftype(mass, -Inf))
+    return sum(logterms) - length(ys) * logZ
+end
+
+# Arbitrary boundaries or a continuous (no-interval) window: score each record via
+# the scalar secondary conditional and sum.
+function _batched_pipeline_logpdf(interval, delay, pe, lower, upper, ys, ps)
+    return sum(_secondary_logpdf(interval,
+                   _SecondaryConditional(delay, pe, lower, upper, interval, ps[i]), ys[i])
+    for i in eachindex(ys))
+end

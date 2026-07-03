@@ -50,6 +50,9 @@ export convolve_distributions
 # Exported latent representation, its inverse, and the primary-event accessor
 export latent, marginal, get_primary_event
 
+# Exported latent-form observation distributions (primary prior + conditional)
+export PrimaryEvent, PrimaryConditional
+
 # Exported utilities
 export weight, get_dist, get_dist_recursive
 
@@ -72,6 +75,9 @@ include("censoring/double_interval_censored.jl")
 include("censoring/Latent.jl")
 include("censoring/PrimaryConditional.jl")
 include("censoring/secondary_conditional.jl")
+# Batched latent-form observation distributions over a vector of records; needs
+# the `_conditional` methods from the files above.
+include("censoring/latent_observations.jl")
 
 include("distributions/ExponentiallyTilted.jl")
 include("distributions/Convolved.jl")

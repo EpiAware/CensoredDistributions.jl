@@ -122,22 +122,50 @@ Base.rand(d::Latent, n::Int) = rand(default_rng(), d, n)
 
 @doc "
 
-Joint log density of the latent event record: the primary prior density plus
-the [`PrimaryConditional`](@ref) of the observed time given the primary,
-`logpdf(get_primary_event(d), p) + logpdf(PrimaryConditional(d, p), y)`.
+Log density of a [`latent`](@ref) node over a vector argument, in two forms
+selected by the `primary` keyword.
 
-Accepts either the scored vector `[primary, observed]` or the labelled
-`NamedTuple` `(primary = ..., observed = ...)` (converted internally to the
-scored vector). The scalar observed form `logpdf(d, y::Real)` is the conditional
-on a primary (see below), never the integrating marginal; the marginal is the
-separate [`PrimaryCensored`](@ref) default, recovered by `marginal(d)`.
+Without `primary`, the vector `x` is a single scored joint record
+`[primary, observed]` and the result is the joint log density, the primary prior
+density plus the [`PrimaryConditional`](@ref) of the observed time given the
+primary, `logpdf(get_primary_event(d), p) + logpdf(PrimaryConditional(d, p), y)`.
+The labelled `NamedTuple` `(primary = ..., observed = ...)` is also accepted and
+converted internally.
+
+With a `primary` vector, `x` is a vector of observed times and the result is the
+*batched* conditional log density: each observed time is scored against its own
+primary for the single leaf and the per-record log densities are summed, in one
+vectorised pass so a Turing model can add
+`Turing.@addlogprob! logpdf(latent(leaf), ys; primary = ps)` in place of a
+per-record loop. `ys` and `primary` must have equal length. Each record is
+truncated below by its own primary (see [`get_primary_event`](@ref)); a record
+whose primary falls at or after its whole interval is infeasible and contributes
+`-Inf`. This scales the latent form to many records; the marginal is the separate
+[`PrimaryCensored`](@ref) default, recovered by `marginal(d)`.
 
 See also: [`PrimaryConditional`](@ref), [`rand`](@ref)
 "
-function logpdf(d::Latent, x::AbstractVector)
+function logpdf(d::Latent, x::AbstractVector; primary = nothing)
+    return _latent_vector_logpdf(d, x, primary)
+end
+
+# No `primary`: `x` is the scored joint record `[primary, observed]`.
+function _latent_vector_logpdf(d::Latent, x::AbstractVector, ::Nothing)
     p = x[1]
     y = x[2]
     return logpdf(get_primary_event(d), p) + logpdf(PrimaryConditional(d, p), y)
+end
+
+# A `primary` vector: `x` is a vector of observed times scored per record against
+# its own primary for the single leaf, summed (the batched conditional). Delegates
+# to `_latent_batched_logpdf`, dispatched on the wrapped node so the interval /
+# truncation pipeline scores in one vectorised pass (see `secondary_conditional`).
+function _latent_vector_logpdf(d::Latent, ys::AbstractVector,
+        primary::AbstractVector)
+    length(ys) == length(primary) || throw(DimensionMismatch(
+        "ys and primary must have equal length; got $(length(ys)) and " *
+        "$(length(primary))"))
+    return _latent_batched_logpdf(d.dist, ys, primary)
 end
 
 # Accept the labelled NamedTuple draw, converting to the scored `[primary,

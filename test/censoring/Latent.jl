@@ -454,8 +454,103 @@ end
         @test isapprox(est, pdf(marginal(ld), y); atol = 5e-3)
     end
 end
+@testitem "batched latent logpdf sums the per-record conditional" begin
+    using Distributions
+
+    delay = LogNormal(1.5, 0.75)
+    leaf = latent(double_interval_censored(delay; primary_event = Uniform(0, 3),
+        upper = 10, interval = 1))
+    ys = [0.0, 1.0, 2.0, 3.0, 5.0, 0.0, 4.0]
+    ps = [0.2, 0.4, 0.6, 0.8, 0.5, 0.9, 0.3]
+
+    # The batched vector form equals the sum of the scalar conditional, for both
+    # the interval/truncation pipeline leaf and a bare primary-censored leaf.
+    @test logpdf(leaf, ys; primary = ps) ≈
+          sum(logpdf(leaf, ys[i]; primary = ps[i]) for i in eachindex(ys))
+    bare = latent(primary_censored(delay, Uniform(0, 1)))
+    yb = [2.5, 3.0, 4.0]
+    pb = [0.2, 0.5, 0.3]
+    @test logpdf(bare, yb; primary = pb) ≈
+          sum(logpdf(bare, yb[i]; primary = pb[i]) for i in eachindex(yb))
+
+    # Unequal `ys`/`primary` lengths error rather than silently broadcasting.
+    @test_throws DimensionMismatch logpdf(leaf, [1.0, 2.0]; primary = [0.1])
+
+    # An infeasible primary (at/after its whole interval) makes the batch `-Inf`.
+    @test logpdf(leaf, [0.0, 5.0]; primary = [2.5, 0.3]) == -Inf
+
+    # Records whose observed delay floors to zero score finitely (the
+    # sub-support term is omitted, see the guard above).
+    @test isfinite(logpdf(leaf, [0.0, 0.0, 0.0]; primary = [0.2, 0.5, 0.9]))
+
+    # The joint `[primary, observed]` vector form is unaffected (no `primary`).
+    @test isfinite(logpdf(leaf, [0.4, 3.0]))
+end
+
+@testitem "PrimaryEvent is the product of the per-record primary priors" begin
+    using Distributions, Random
+    using CensoredDistributions: get_primary_event
+
+    # Heterogeneous per-record windows: the prior is the product of each
+    # record's own primary event distribution.
+    dists = [
+        double_interval_censored(LogNormal(1.5, 0.75);
+            primary_event = Uniform(0, 1), upper = 8, interval = 1),
+        double_interval_censored(LogNormal(1.5, 0.75);
+            primary_event = Uniform(0, 3), upper = 12, interval = 3)
+    ]
+    pe = PrimaryEvent(dists)
+    @test length(pe) == 2
+    ps = [0.4, 1.7]
+    @test logpdf(pe, ps) ≈
+          sum(logpdf(get_primary_event(dists[i]), ps[i]) for i in 1:2)
+    # A draw sits inside each record's window.
+    r = rand(Xoshiro(1), pe)
+    @test length(r) == 2 && 0 <= r[1] <= 1 && 0 <= r[2] <= 3
+    # A single-record vector still gives a valid product prior.
+    @test length(PrimaryEvent(dists[1:1])) == 1
+end
+
+@testitem "batched PrimaryConditional sums the per-record conditional" begin
+    using Distributions
+    using CensoredDistributions: PrimaryConditional
+
+    dists = [
+        double_interval_censored(LogNormal(1.5, 0.75);
+            primary_event = Uniform(0, 1), upper = 8, interval = 1),
+        double_interval_censored(LogNormal(1.5, 0.75);
+            primary_event = Uniform(0, 3), upper = 12, interval = 3),
+        double_interval_censored(LogNormal(1.5, 0.75);
+            primary_event = Uniform(0, 2), upper = 10, interval = 2)
+    ]
+    ys = [0.0, 6.0, 4.0]
+    ps = [0.3, 1.2, 0.8]
+
+    bc = PrimaryConditional(dists, ps)
+    @test length(bc) == 3
+    # Batched multivariate logpdf equals the sum of the scalar conditionals.
+    @test logpdf(bc, ys) ≈
+          sum(logpdf(PrimaryConditional(dists[i], ps[i]), ys[i]) for i in 1:3)
+    # The scalar kernel still scores a single record.
+    @test isfinite(logpdf(PrimaryConditional(dists[1], 0.3), 3.0))
+    # Unequal lengths error at construction and at scoring.
+    @test_throws DimensionMismatch PrimaryConditional(dists, [0.1, 0.2])
+    @test_throws DimensionMismatch logpdf(bc, [1.0, 2.0])
+end
+
+@testitem "primary-conditional fails loud on an unsupported inner node" begin
+    using Distributions
+    using CensoredDistributions: PrimaryConditional
+
+    # A wrapper that changes the delay density (here a bare distribution) has no
+    # defined primary-conditional; it must raise an explanatory ArgumentError,
+    # not a MethodError and not a silently-wrong finite value.
+    @test_throws ArgumentError logpdf(
+        PrimaryConditional([LogNormal(1.5, 0.75)], [0.5]), [3.0])
+end
+
 # The parameter-gradient marginal==latent equivalence (`using ForwardDiff`) is
 # an AD test, so it lives in the AD environment at `test/ad/latent_ad.jl` (the
 # main test env deliberately does not depend on ForwardDiff). The latent scalar
-# conditional gradient is additionally covered across the full backend matrix by
-# the `Latent PrimaryConditional` scenario in `test/ADFixtures`.
+# and batched conditional gradients are additionally covered across the full
+# backend matrix by the `Latent ...` scenarios in `test/ADFixtures`.

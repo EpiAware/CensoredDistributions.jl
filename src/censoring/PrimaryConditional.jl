@@ -49,6 +49,20 @@ _conditional(d::PrimaryConditional) = _conditional(d.dist, d.p)
 # `p` (the sampled-origin rule the joint already uses).
 _conditional(node::PrimaryCensored, p) = _ShiftedDelayCore(node.dist, p)
 
+# Fail loud on an unknown inner node: a wrapper that changes the delay density
+# (e.g. weighting, reparameterisation) has no defined primary-conditional, and
+# silently unwrapping it would score a wrong density. The `Latent`,
+# `IntervalCensored`/`Truncated` and `PrimaryCensored` methods are more specific,
+# so only genuinely-unsupported nodes reach this.
+function _conditional(node, p)
+    throw(ArgumentError(
+        "conditioning a latent observation on its primary event is not defined " *
+        "for $(typeof(node)); supported inner distributions are PrimaryCensored, " *
+        "IntervalCensored, Truncated (and their combinations). A wrapper that " *
+        "changes the delay density has no defined primary-conditional — use the " *
+        "marginal form or unwrap it."))
+end
+
 # A continuous delay shifted by the primary, the bare conditional secondary.
 # `logpdf(delay, y - shift)` with support `y > shift + minimum(delay)`.
 struct _ShiftedDelayCore{D, S} <: UnivariateDistribution{Continuous}

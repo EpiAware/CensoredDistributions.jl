@@ -6,10 +6,9 @@ public IntervalCensored
 public Weighted
 public Convolved
 
-# The latent conditional kernel: public for dispatch/extension but not
-# user-facing (constructed internally by `latent`; users reach it via the
-# `latent` scalar API with a passed `primary`).
-public PrimaryConditional
+# `PrimaryConditional` and `PrimaryEvent` are exported from the main module (the
+# latent-form observation distributions). `_SecondaryConditional`, the internal
+# per-record kernel underneath them, stays private.
 
 # The primary-censored family supertype (public but not exported).
 public AbstractPrimaryCensored
