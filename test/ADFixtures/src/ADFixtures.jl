@@ -511,6 +511,27 @@ function scenarios(; with_reference::Bool = false)
                     obs[i]; primary = prim[i]),
                 eachindex(obs)),
             [1.0, 0.75], (Constant(dic_obs), Constant(primaries)))
+
+        # Zero-delay interval-of-latent conditional: an observed delay floored
+        # to zero puts the interval's lower edge at the delay's support boundary,
+        # where the secondary-truncated-below-by-primary form contributes zero
+        # mass but must not evaluate/differentiate the delay cdf out of support (a
+        # naive `cdf(LogNormal, 0)` has a `0 * Inf = NaN` parameter derivative).
+        # A wide primary window (0, 3) over unit intervals with primaries inside
+        # the zeroth interval keeps every record feasible. Regresses that the
+        # value and the delay-parameter gradient stay finite on every backend.
+        zero_obs = [0.0, 0.0, 0.0, 1.0, 2.0]
+        zero_prim = [0.2, 0.4, 0.6, 0.3, 0.5]
+        _push!("Latent double_interval_censored LogNormal zero-delay logpdf",
+            (θ, obs,
+                prim) -> sum(
+                i -> logpdf(
+                    latent(double_interval_censored(LogNormal(θ[1], θ[2]);
+                        primary_event = Uniform(0.0, 3.0),
+                        upper = 10.0, interval = 1.0)),
+                    obs[i]; primary = prim[i]),
+                eachindex(obs)),
+            [1.0, 0.75], (Constant(zero_obs), Constant(zero_prim)))
     end
 
     # High-dimensional scenarios. Each observation carries its own delay

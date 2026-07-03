@@ -435,6 +435,15 @@ end
     @test logpdf(ld, 1.0; primary = 2.0) == -Inf
     @test logpdf(ld, 1.0; primary = 2.5) == -Inf
 
+    # A record whose observed delay floors to zero sits in `[0, 1)`, putting the
+    # interval's lower edge at the delay's support boundary. The below-support
+    # term contributes no mass and is omitted rather than evaluated, so the log
+    # density stays finite (the gradient safety of this is covered in the AD
+    # suite).
+    for p in (0.0, 0.3, 0.7, 0.99)
+        @test isfinite(logpdf(ld, 0.0; primary = p))
+    end
+
     # The clamp is density-preserving: the latent conditional still matches the
     # analytic marginal in expectation over the primary prior.
     pe = get_primary_event(ld)

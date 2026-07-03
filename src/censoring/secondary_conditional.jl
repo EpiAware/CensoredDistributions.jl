@@ -20,10 +20,11 @@ end
 # The continuous total is `p + delay`; the observed time `y` is interval-censored
 # on the absolute grid and the total is truncated to `[lower, upper]`. The
 # interval mass is `cdf(delay, hi - p) - cdf(delay, lo - p)` over the interval
-# `[lo, hi)` containing `y`, clamped to the truncation bounds and to the primary
-# (the lower bound cannot fall below `p`, so secondary >= primary), normalised
-# by the pipeline's truncation constant `Z = cdf(pc, upper) - cdf(pc, lower)`
-# (with
+# `[lo, hi)` containing `y`, restricted to the truncation bounds and truncated
+# below by the primary event time (the secondary cannot precede the primary, so
+# the secondary's support is `[p, ...)` and the lower edge is raised to `p`),
+# normalised by the pipeline's truncation constant
+# `Z = cdf(pc, upper) - cdf(pc, lower)` (with
 # `pc = primary_censored(delay, primary_event)`), so the joint integrates over
 # `p` to the analytic `double_interval_censored` marginal. With no truncation
 # `Z = 1`. A `nothing` interval (truncated but not interval-censored) scores the
@@ -87,16 +88,13 @@ end
 # normalised by Z.
 function _secondary_logpdf(interval, d::_SecondaryConditional, y::Real)
     lo, hi = _interval_bounds(interval, y)
-    # Clamp the interval to the truncation bounds (an interval may straddle a
-    # bound) and to the primary, then shift to delay space. Raising the lower
-    # bound to `d.p` enforces secondary >= primary: the observed total cannot
-    # precede the sampled primary, so the delay stays non-negative and a primary
-    # landing inside a record's interval keeps positive mass rather than a stray
-    # `-Inf`. For the positive-support delays scored here this coincides with
-    # the delay cdf already vanishing below 0, so it is density-preserving (the
-    # latent/marginal equivalence in expectation is unchanged); it makes the
-    # secondary-after-primary invariant explicit. No overlap gives zero mass /
-    # `-Inf` (a primary at or after the whole interval is genuinely infeasible).
+    # Restrict the interval to the truncation bounds (an interval may straddle a
+    # bound) and truncate it below by the primary event time, then shift to delay
+    # space. The secondary cannot precede the primary, so its support is
+    # `[p, ...)`; raising the lower edge to `d.p` is that below-truncation. A
+    # primary landing inside a record's interval keeps positive mass; a primary
+    # at or after the whole interval leaves no overlap, so the mass is zero and
+    # the log density `-Inf` (a genuinely infeasible secondary-before-primary).
     lo = max(lo, d.lower, d.p) - d.p
     hi = min(hi, d.upper) - d.p
     hi > lo || return oftype(float(y), -Inf)
@@ -104,13 +102,14 @@ function _secondary_logpdf(interval, d::_SecondaryConditional, y::Real)
     return log(max(mass, zero(mass))) - _secondary_logZ(d)
 end
 
-# `cdf` of the delay at an interval endpoint, guarded at the support lower bound.
-# The clamp above can push an interval edge down to the delay's minimum (an
-# observed delay floored to zero shifts to `lo == 0` for a positive-support
-# delay). There the cdf is exactly zero, but calling `cdf` at the boundary can
-# hand AD a `0 * Inf = NaN` derivative (`d/dσ cdf(LogNormal, 0)` is one such
-# case), which would poison the gradient for every zero-delay record. Returning a
-# hard zero below the support keeps the density identical and the gradient finite.
+# `cdf` of the delay at an interval endpoint, contributing zero below the delay's
+# support. Truncating the secondary below by the primary can leave the lower edge
+# at the delay's support boundary (an observed delay floored to zero shifts to
+# `lo == 0` for a positive-support delay). Below the support the cdf is zero and
+# contributes no mass, so the lower term is omitted rather than evaluated: calling
+# `cdf` at the boundary keeps the value (zero) but can hand AD a `0 * Inf = NaN`
+# parameter derivative (`d/dσ cdf(LogNormal, 0)` is one such case), so omitting it
+# keeps the value identical and the gradient finite on every AD backend.
 _delay_cdf(delay, x) = x <= minimum(delay) ? zero(float(x)) : cdf(delay, x)
 
 # Continuous secondary (truncated but not interval-censored): the shifted delay
