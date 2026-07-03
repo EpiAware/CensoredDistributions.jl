@@ -292,6 +292,17 @@ function backend_broken_scenarios()
     # ForwardDiff / ReverseDiff / Mooncake forward+reverse compute all three
     # correctly (Mooncake reverse excepted on `recur_path`, above).
     enzyme_forward_recurrent = Set{String}([recur_path, ctmc_jump, ctmc_panel])
+    # Enzyme REVERSE marginal gap: the non-terminal Resolve whole-tree scenario
+    # (a `Sequential` subtree outcome beside a `Gamma` leaf outcome) fails when
+    # Enzyme builds the reverse rule — `EnzymeNoShadowError` on the `Resolve`
+    # inner struct (`src/composers/Resolve.jl`). This is a STABLE Enzyme-reverse
+    # limitation on the current code, reproduced identically on Enzyme 0.13.172
+    # AND 0.13.173 (runs 28534116465, 28665919409); it is not the earlier
+    # patch-level flip-flop. Enzyme FORWARD differentiates it correctly, as do
+    # ForwardDiff / ReverseDiff / Mooncake (both modes), so it is registered
+    # broken for Enzyme reverse only. Its gradient correctness is covered there.
+    enzyme_reverse_resolve = Set{String}(
+        ["Non-terminal Resolve whole-tree conditioned logpdf"])
 
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
@@ -299,12 +310,13 @@ function backend_broken_scenarios()
         "Mooncake reverse" => union(
             copy(compiled_broken), mooncake_reverse_recurrent),
         "Mooncake forward" => copy(compiled_broken),
-        # Enzyme REVERSE: the marginal/latent trees are all fixed now (the
-        # one_of/Choose constructors build concrete tuples, #760), so only the
-        # vectorised pre-pass scenarios (`compiled_broken`) plus the two
-        # recurrent CTMC builder compile failures above remain broken.
+        # Enzyme REVERSE: the vectorised pre-pass scenarios (`compiled_broken`),
+        # the two recurrent CTMC builder compile failures, and the non-terminal
+        # Resolve whole-tree scenario (EnzymeNoShadowError on the Resolve inner
+        # struct, stable on 0.13.172/0.13.173) remain broken.
         "Enzyme reverse" => union(
-            copy(compiled_broken), enzyme_reverse_recurrent),
+            copy(compiled_broken), enzyme_reverse_recurrent,
+            enzyme_reverse_resolve),
         # Enzyme FORWARD: the marginal/latent trees are all fixed now; only the
         # vectorised pre-pass scenarios plus the recurrent CTMC builder failures
         # and the boxed-`Compete` reinfection path remain broken.
