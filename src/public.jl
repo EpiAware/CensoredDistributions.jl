@@ -123,7 +123,7 @@ public log_completeness_probability, log_thin_by_completeness
 # Marked `public` so they are documented, their docstring `@ref`s resolve, and
 # the weakdep extensions import them from a public name.
 public flatten, unflatten, flat_dimension, as_logdensity, ComposedLogDensity
-public logdensity, to_constrained, free_dimension
+public logdensity, to_constrained, free_dimension, as_turing
 
 # Recurrent / cyclic multi-state accessors (public but not exported). The state-
 # graph readers (`transient_states`, `absorbing_states`, `is_absorbing`) and the

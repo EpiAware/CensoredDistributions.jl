@@ -83,3 +83,36 @@ The public-but-not-exported layer is reached by its qualified name
 (`CensoredDistributions.as_logdensity`, ...).
 See [`as_logdensity`](@ref CensoredDistributions.as_logdensity), [`logdensity`](@ref CensoredDistributions.logdensity), and
 [`ComposedLogDensity`](@ref CensoredDistributions.ComposedLogDensity) for the per-function reference.
+
+## Driving the Turing route from the spec: `as_turing`
+
+The same [`ComposedLogDensity`](@ref CensoredDistributions.ComposedLogDensity)
+spec can also be turned into a Turing model, so one object drives both routes.
+[`as_turing`](@ref CensoredDistributions.as_turing)`(prob)` wraps the spec as a
+DynamicPPL model: it samples the free parameters through
+[`composed_parameters_model`](@ref) (under the `d` prefix, so the chain records
+`d.<edge>.<param>` and the default [`chain_to_params`](@ref) /
+[`param_draws`](@ref) read applies) and scores the data with the spec's own
+`loglik`.
+
+```julia
+using CensoredDistributions, Distributions, DynamicPPL, Turing
+
+tree = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+data = [[0.5, 2.0], [1.0, 3.0]]
+prob = CensoredDistributions.as_logdensity(tree, build_priors(tree), data)
+
+chain = sample(CensoredDistributions.as_turing(prob), NUTS(), 1000)
+param_draws(tree, chain)   # every parameter is a named, recorded site
+```
+
+Because the model reuses the spec's `dist` / `priors` / `data` / `loglik`, its
+log-joint equals [`logdensity`](@ref CensoredDistributions.logdensity)`(prob, x)`
+on the constrained scale — the two routes score the same target. `as_turing` is
+the adaptor that keeps every parameter a **named** chain site, which a raw
+`LogDensityProblems` problem handed to Turing (via `externalsampler`) does not;
+a parameter fixed in `priors` is substituted and never sampled, matching the
+`LogDensityProblems` path. The convenience forms `as_turing(dist, priors, data)`
+and `as_turing(dist, data)` mirror [`as_logdensity`](@ref CensoredDistributions.as_logdensity)'s
+signatures.

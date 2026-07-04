@@ -265,6 +265,71 @@ function composed_parameters_model end
 
 @doc "
 
+Adapt a composed model into a ready-to-sample Turing/DynamicPPL model.
+
+`as_turing(prob)` turns the PPL-neutral [`ComposedLogDensity`](@ref) spec (from
+[`as_logdensity`](@ref)) into a DynamicPPL `@model`, so the *same* spec drives
+both the Turing path and the sampler-agnostic `LogDensityProblems` path. The
+returned model samples every free parameter as a named site and scores the data
+with the spec's own `loglik`, so its (unnormalised) log-posterior is identical to
+[`logdensity`](@ref)`(prob, ...)` on the constrained scale — the Turing route and
+the `LogDensityProblems` route evaluate the same target.
+
+The parameters are sampled through [`composed_parameters_model`](@ref) under the
+submodel variable `d`, so a multi-edge chain records readable, groupable names
+(`d.onset_admit.shape`, `d.resolution.death.scale`) — every parameter is visible
+in the chain, which a raw `LogDensityProblems` problem handed to Turing does not
+give. The `d` prefix is the default [`chain_to_params`](@ref) / [`param_draws`](@ref)
+read, so the fitted chain maps straight back onto the template. A parameter fixed
+in `priors` (a plain value rather than a distribution; see [`build_priors`](@ref)'s
+`fix` keyword) is substituted directly and never sampled, exactly as on the
+`LogDensityProblems` path.
+
+The convenience forms `as_turing(dist, priors, data; loglik)` and
+`as_turing(dist, data; loglik)` assemble the spec with [`as_logdensity`](@ref)
+first, mirroring its signatures.
+
+This function has no methods until `DynamicPPL` (or `Turing`) is loaded; the
+methods live in the package extension so the core stays free of `DynamicPPL`. It
+is public but not exported — reach it by the qualified name
+(`CensoredDistributions.as_turing`), matching [`as_logdensity`](@ref).
+
+# Arguments
+- `prob`: an assembled [`ComposedLogDensity`](@ref) (the headline form), or the
+  `dist` / `priors` / `data` the convenience forms pass to [`as_logdensity`](@ref).
+
+# Keyword Arguments
+- `loglik`: (convenience forms only) a reducer `(d, data) -> Real` scoring `data`
+  against the reconstructed distribution (default: sum of `logpdf(d, record)`),
+  forwarded to [`as_logdensity`](@ref).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, DynamicPPL, Turing, Random
+
+template = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+data = [[0.5, 2.0], [1.0, 3.0]]
+prob = CensoredDistributions.as_logdensity(template, build_priors(template), data)
+
+# The same spec, now as a Turing model.
+Random.seed!(1)
+chain = sample(CensoredDistributions.as_turing(prob), NUTS(), 20; progress = false)
+# Every parameter is a named site, read back onto the template.
+draws = param_draws(template, chain)
+first(draws).onset_admit.shape
+```
+
+# See also
+- [`as_logdensity`](@ref): the PPL-neutral sibling this adapts (same target).
+- [`composed_parameters_model`](@ref): the submodel it samples parameters through.
+- [`chain_to_params`](@ref), [`param_draws`](@ref): read the fitted chain back
+  (default `prefix = :d`, the prefix `as_turing` uses).
+"
+function as_turing end
+
+@doc "
+
 Read a fitted Turing chain into the nested NamedTuple that [`update`](@ref)
 consumes.
 

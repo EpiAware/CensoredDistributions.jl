@@ -12,7 +12,8 @@ import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model,
                               composed_distribution_model,
                               composed_parameters_model, renewal_model,
-                              recurrent_states_model
+                              recurrent_states_model, as_turing
+using CensoredDistributions: ComposedLogDensity, as_logdensity
 using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
 using Distributions: Distributions, UnivariateDistribution, Truncated, logpdf,
                      product_distribution
@@ -1857,6 +1858,45 @@ end
         Val(edge.first))
     leaf ~ to_submodel(sub, false)
     return edge.first => leaf
+end
+
+# ===========================================================================
+# as_turing: adapt a ComposedLogDensity spec into a Turing/DynamicPPL model
+# ===========================================================================
+#
+# `as_turing(prob)` wraps the PPL-neutral `ComposedLogDensity` (from
+# `as_logdensity`) as a DynamicPPL model, so a single spec drives both the Turing
+# route and the LogDensityProblems route. It samples the free parameters as named
+# sites via `composed_parameters_model` under the `d` prefix (so the chain records
+# `d.<edge>.<param>` and the default `chain_to_params`/`param_draws` read applies),
+# then scores the data with the spec's own `loglik` through `@addlogprob!`. Reusing
+# the spec's `dist`/`priors`/`data`/`loglik` makes the model's log-posterior equal
+# `logdensity(prob, x)` on the constrained scale, so both routes evaluate the same
+# target. A fixed parameter (a plain value in `priors`) is substituted inside
+# `composed_parameters_model` exactly as on the LDP path, so it never enters the
+# chain. The likelihood is added with `@addlogprob!` (the parameters are the only
+# `~` sites), matching the per-record contribution the LDP path's default `loglik`
+# sums, so the two are name- and value-identical.
+@model function _composed_turing_model(dist, priors, data, loglik)
+    d ~ to_submodel(composed_parameters_model(dist, priors))
+    DynamicPPL.@addlogprob! loglik(d, data)
+    return d
+end
+
+# The headline adaptor: build the model straight from the assembled spec.
+function as_turing(prob::ComposedLogDensity)
+    return _composed_turing_model(prob.dist, prob.priors, prob.data, prob.loglik)
+end
+
+# Convenience forms mirroring `as_logdensity`'s signatures: assemble the spec
+# first (default priors = `build_priors(dist)`, default `loglik` = summed
+# per-record `logpdf`), then adapt it. Keywords (`loglik`) forward to
+# `as_logdensity`, which owns the defaults.
+function as_turing(dist, priors, data; kwargs...)
+    return as_turing(as_logdensity(dist, priors, data; kwargs...))
+end
+function as_turing(dist, data; kwargs...)
+    return as_turing(as_logdensity(dist, data; kwargs...))
 end
 
 end
