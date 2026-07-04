@@ -8,8 +8,9 @@
 #
 # `build_docs`:
 #   - runs the Literate tutorial pipeline (light in-process, heavy one per
-#     subprocess) driven by `docs_config.jl`, with fast-build stubs on
-#     `--skip-notebooks`,
+#     subprocess) driven by `docs_config.jl`; under `--skip-notebooks` the
+#     light tutorials still render in-process (cheap) and only the heavy ones
+#     fall back to fast-build heading stubs,
 #   - generates `src/index.md` from the README (badges stripped, any
 #     `INDEX_STRIP_SECTIONS` removed, link rewrites applied),
 #   - generates `src/release-notes.md` from a project-root `NEWS.md`,
@@ -55,5 +56,5 @@ build_docs(
     index_rewrites = _cfg(:INDEX_REWRITES, Pair{String, String}[]),
     readme_execute = _cfg(:README_EXECUTE, true),
     index_strip_sections = _cfg(:INDEX_STRIP_SECTIONS, String[]),
-    benchmark_page = _cfg(:BENCHMARK_PAGE, true)
+    benchmark_page = _cfg(:BENCHMARK_PAGE, false)
 )

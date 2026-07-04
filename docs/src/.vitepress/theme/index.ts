@@ -11,6 +11,9 @@ import {
 } from '@nolebase/vitepress-plugin-enhanced-readabilities/client'
 
 import VersionPicker from "@/VersionPicker.vue"
+// GitHub-stars navbar widget (live star count + repo link). Mirrors
+// CensoredDistributions.jl.
+import StarUs from "@/StarUs.vue"
 
 import { enhanceAppWithTabs } from 'vitepress-plugin-tabs/client'
 
@@ -26,6 +29,7 @@ export const Theme: ThemeConfig = {
   Layout() {
     return h(DefaultTheme.Layout, null, {
       'nav-bar-content-after': () => [
+        h(StarUs),
         h(NolebaseEnhancedReadabilitiesMenu),
       ],
       'nav-screen-content-after': () => h(NolebaseEnhancedReadabilitiesScreenMenu),

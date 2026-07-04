@@ -7,4 +7,4 @@ JuliaFormatter = "98e50ef6-434e-11e9-1051-2b60c6c9e899"
 # matrix (lts/1/pre). Unpinned, the version floats per job, so `test (1)` and
 # `pre-commit` reformat files that `test (lts)` left alone. Keep in step with
 # the `.pre-commit-config.yaml` JuliaFormatter `rev` and the CI format-check.
-JuliaFormatter = "=2.5.5"
+JuliaFormatter = "=2.10.1"

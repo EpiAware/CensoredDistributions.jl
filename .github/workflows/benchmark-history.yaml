@@ -2,12 +2,12 @@
 name: Benchmark history
 
 # Persistent benchmark timeline. The PR-comparison workflow
-# (`benchmark.yaml`) runs on `pull_request_target` and only posts a
-# base-vs-head comment; it never records history. This workflow instead
-# runs on pushes to `main` and on tags, benchmarking the last few tagged
-# releases plus HEAD so a timeline accumulates. Triggers are disjoint from
-# `benchmark.yaml` (push/tags here vs pull_request_target there), so the
-# two never run on the same event.
+# (`benchmark.yaml`) runs on `pull_request` and only posts a base-vs-head
+# comment; it never records history. This workflow instead runs on pushes
+# to `main` and on tags, benchmarking the last few tagged releases plus
+# HEAD so a timeline accumulates. Triggers are disjoint from
+# `benchmark.yaml` (push/tags here vs pull_request there), so the two
+# never run on the same event.
 on:
   push:
     branches: [main]
@@ -46,9 +46,9 @@ jobs:
       # benchmark/Project.toml declares ADFixtures as a path source at
       # `../test/ADFixtures`. benchpkg copies `benchmark/Project.toml`
       # into a tempdir under `/tmp/` and Pkg resolves the relative source
-      # to `/tmp/test/ADFixtures`. Stage it there so resolution succeeds
-      # (same workaround as benchmark.yaml). Guarded so a non-AD package
-      # (no `test/ADFixtures`, no path source to stage) is a no-op.
+      # to `/tmp/test/ADFixtures`. Stage it there so resolution succeeds.
+      # Guarded so a non-AD package (no `test/ADFixtures`, no path source
+      # to stage) is a no-op.
       - name: Stage ADFixtures for AirspeedVelocity
         run: |
           if [ -d test/ADFixtures ]; then

@@ -1,5 +1,11 @@
 <!-- GitHub stars component for navbar -->
 <!-- Adapted from https://github.com/LuxDL/DocumenterVitepress.jl -->
+<!-- INTENTIONALLY KEPT at this repo's own version rather than the kit- -->
+<!-- managed one (#821): this file adds a compact icon-only fallback link -->
+<!-- (`.mobile`) shown under a 560px breakpoint, which the kit's current -->
+<!-- template does not yet have. Adopting the kit's version verbatim would -->
+<!-- drop that mobile affordance. Drop this override once the kit's -->
+<!-- StarUs.vue template gains equivalent mobile handling. -->
 <script setup>
 import {formatPrefix} from "d3-format";
 import {data} from "./stargazers.data";

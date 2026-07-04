@@ -20,6 +20,12 @@ end
     test_explicit_imports(QA_CONFIG.mod; ignore = QA_CONFIG.ei_ignore)
 end
 
+@testitem "Quality: import centralisation" tags=[:quality] begin
+    using EpiAwarePackageTools
+    include(joinpath(@__DIR__, "qa_config.jl"))
+    test_import_centralisation(QA_CONFIG.mod)
+end
+
 @testitem "Quality: docstring format" tags=[:quality] begin
     using EpiAwarePackageTools
     include(joinpath(@__DIR__, "qa_config.jl"))

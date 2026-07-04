@@ -16,7 +16,8 @@ updates:
       include: "scope"
 
   # Julia dependencies. Uses the workspace feature (Julia 1.12+) to coordinate
-  # updates across the main package, test/, docs/, and benchmark/ environments.
+  # updates across the main package, test/, docs/, and (when benchmarks are
+  # enabled) the benchmark/ environment.
   - package-ecosystem: "julia"
     directory: "/"
     schedule:

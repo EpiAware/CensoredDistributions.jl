@@ -4,6 +4,16 @@
 # docs tutorial. Correctness is driven by
 # `DifferentiationInterfaceTest.test_differentiation` against a ForwardDiff
 # reference stored in each scenario's `res1` field.
+#
+# INTENTIONALLY KEPT at this repo's own version rather than the kit-managed
+# one (#821): the kit's managed `test/ad/setup.jl` delegates to
+# `EpiAwarePackageTools.test_working_backend`/`test_partial_backend`, which
+# requires the package's `ADFixtures` registry to satisfy the kit's
+# `ADRegistry` contract (a `category`-keyed scenario/backend API). This
+# repo's `test/ADFixtures` predates that contract, so adopting the generic
+# driver verbatim would break every AD test. Once `ADFixtures` migrates to
+# the `ADRegistry` contract (kit issue #16 — done on `integration`, not yet
+# on `main`), drop this override and take the kit's managed version.
 
 @testsnippet ADHelpers begin
     using ADTypes

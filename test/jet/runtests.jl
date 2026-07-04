@@ -10,9 +10,9 @@
 # JET reports for every `~`/`:=` line (the tilde macro hides the assignment from
 # JET). To suppress exactly those, drop a package-owned `test/jet/jet_config.jl`
 # that defines `JET_REPORT_FILTER` (a `report -> Bool` predicate; a report is
-# KEPT when it returns `true`). `EpiAwarePackageTools.dynamicppl_model_filter`
+# kept when it returns `true`). `EpiAwarePackageTools.dynamicppl_model_filter`
 # is the ready-made filter for `@model` packages. Without the config the runner
-# fails on ANY report (the strict default).
+# fails on any report (the strict default).
 
 using JET
 using EpiAwarePackageTools: dynamicppl_model_filter

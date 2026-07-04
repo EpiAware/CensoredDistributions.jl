@@ -1,8 +1,9 @@
 # MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 # Tiny env for the benchmark-comment step: JSON3 (read AirspeedVelocity result
 # JSON) plus EpiAwarePackageTools (its `Benchmarks.asv_comment` builds the
-# comment). The package is pinned by path so the kit resolves when it dogfoods
-# itself; every other package also pulls the kit via the git `[sources]` pin.
+# comment). The package is pinned by path so the kit resolves when it
+# scaffolds itself; every other package also pulls the kit via the git
+# `[sources]` pin.
 [deps]
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"

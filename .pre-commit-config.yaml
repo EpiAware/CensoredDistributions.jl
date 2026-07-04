@@ -26,7 +26,7 @@ repos:
 #  with JuliaFormatter.jl available. Keep `rev` in step with the pinned
 #  JuliaFormatter in the formatter test environment and `.JuliaFormatter.toml`.
 - repo: https://github.com/domluna/JuliaFormatter.jl
-  rev: v2.5.5
+  rev: v2.10.1
   hooks:
   - id: julia-formatter
     # A package that ships scaffold templates (e.g. EpiAwarePackageTools) keeps
