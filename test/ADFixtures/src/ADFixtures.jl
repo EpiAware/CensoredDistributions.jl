@@ -116,14 +116,10 @@ backend `name` from [`working_backends`](@ref).
 
 """
 function backend_broken_scenarios()
-    # Both Enzyme modes hit `EnzymeNoTypeError` on the batched multivariate
-    # `PrimaryConditional(dists, ps)` path: Enzyme's static type analysis cannot
-    # prove the type through the vector-of-distributions construction. The value
-    # is correct and ForwardDiff, ReverseDiff and Mooncake (reverse + forward)
-    # all differentiate it; the latent fit uses Mooncake reverse. The per-record
-    # scalar conditional and the single-dist batched `logpdf(latent(d), ys;
-    # primary)` path are Enzyme-clean, so this is specific to the vector-of-dists
-    # wrapper.
+    # Enzyme (both modes) hits `EnzymeNoTypeError` on the batched multivariate
+    # `PrimaryConditional(dists, ps)` path (type analysis through the
+    # vector-of-dists construction); the value is correct and the other backends
+    # differentiate it. The per-record and single-dist batched paths are clean.
     enzyme_broken = Set(["PrimaryConditional batched double_interval_censored " *
                          "LogNormal"])
     return Dict{String, Set{String}}(
@@ -481,13 +477,10 @@ function scenarios(; with_reference::Bool = false)
             [2.0, 1.5], (Constant(obs),))
     end
 
-    # Latent scalar conditional density `logpdf(latent(d), y; primary = p)`, the
-    # deterministic conditional-on-passed-p path the differentiated sampler uses
-    # (`PrimaryConditional(d, p)`, AD-safe, no quadrature). The gradient flows
-    # w.r.t. the delay params; the sampled primaries ride as an inactive
-    # `Constant` context (the sampler differentiates them elsewhere via the
-    # `p ~ prior` statement, not through this dist). Guarded on `latent` existing
-    # so the AirspeedVelocity `main` baseline (which lacks it) skips the scenario.
+    # Latent scalar conditional `logpdf(latent(d), y; primary = p)`: the
+    # deterministic `PrimaryConditional(d, p)` path (AD-safe, no quadrature).
+    # Gradient flows w.r.t. the delay params; the primaries ride as inactive
+    # `Constant`. Guarded on `latent` so the AirspeedVelocity baseline skips it.
     if isdefined(CensoredDistributions, :latent)
         primaries = [0.2, 0.5, 0.3, 0.7, 0.4]
         _push!("Latent PrimaryConditional LogNormal scalar logpdf",
@@ -500,14 +493,9 @@ function scenarios(; with_reference::Bool = false)
                 eachindex(obs)),
             [1.0, 0.75], (Constant(obs), Constant(primaries)))
 
-        # Interval-of-latent conditional: the latent double_interval_censored
-        # scored with a passed primary routes through `_SecondaryConditional`,
-        # the interval-censored + truncated secondary that keeps the secondary
-        # interval and enforces secondary >= primary (the lower integration
-        # bound is raised to `p`). The gradient w.r.t. the delay params flows via
-        # the interval-mass cdf difference (and the truncation constant `Z`),
-        # differing from the bare-dist scalar scenario above. Data-integer obs
-        # with primaries inside the primary window keep every record in support.
+        # Interval-of-latent conditional: scored with a passed primary through
+        # `_SecondaryConditional` (interval + truncation, secondary >= primary).
+        # Gradient w.r.t. the delay params flows via the interval-mass cdf and Z.
         dic_obs = [2.0, 3.0, 4.0, 5.0, 6.0]
         _push!("Latent double_interval_censored LogNormal scalar logpdf",
             (θ, obs,
@@ -520,14 +508,10 @@ function scenarios(; with_reference::Bool = false)
                 eachindex(obs)),
             [1.0, 0.75], (Constant(dic_obs), Constant(primaries)))
 
-        # Zero-delay interval-of-latent conditional: an observed delay floored
-        # to zero puts the interval's lower edge at the delay's support boundary,
-        # where the secondary-truncated-below-by-primary form contributes zero
-        # mass but must not evaluate/differentiate the delay cdf out of support (a
-        # naive `cdf(LogNormal, 0)` has a `0 * Inf = NaN` parameter derivative).
-        # A wide primary window (0, 3) over unit intervals with primaries inside
-        # the zeroth interval keeps every record feasible. Regresses that the
-        # value and the delay-parameter gradient stay finite on every backend.
+        # Zero-delay interval-of-latent conditional: an obs floored to zero puts
+        # the interval's lower edge at the delay's support boundary, where a naive
+        # `cdf(LogNormal, 0)` has a `0 * Inf = NaN` derivative. Regresses that the
+        # value and delay-parameter gradient stay finite on every backend.
         zero_obs = [0.0, 0.0, 0.0, 1.0, 2.0]
         zero_prim = [0.2, 0.4, 0.6, 0.3, 0.5]
         _push!("Latent double_interval_censored LogNormal zero-delay logpdf",
@@ -541,12 +525,9 @@ function scenarios(; with_reference::Bool = false)
                 eachindex(obs)),
             [1.0, 0.75], (Constant(zero_obs), Constant(zero_prim)))
 
-        # Batched interval-of-latent conditional: the single vectorised public
-        # path `logpdf(latent(d), ys; primary = ps)`. The gradient is taken
-        # wrt the delay parameters AND the whole primary vector (`θ` carries
-        # both), covering the batched kernel's reverse-mode use in the latent
-        # fit. A zero-delay record keeps the sub-support guard on the
-        # differentiated path.
+        # Batched interval-of-latent conditional: the vectorised
+        # `logpdf(latent(d), ys; primary = ps)`. Gradient w.r.t. the delay params
+        # and the whole primary vector; a zero-delay record keeps the guard.
         batch_obs = [0.0, 1.0, 2.0, 0.0, 5.0, 3.0]
         _push!("Latent double_interval_censored LogNormal batched logpdf",
             (θ,
@@ -558,11 +539,9 @@ function scenarios(; with_reference::Bool = false)
             vcat(1.0, 0.75, [0.2, 0.4, 0.6, 0.9, 0.5, 0.3]),
             (Constant(batch_obs),))
 
-        # Batched multivariate `PrimaryConditional(dists, ps)` over a VECTOR of
-        # heterogeneous per-record distributions (different windows), the demo's
-        # observation scoring. Gradient wrt the delay params AND the per-record
-        # primaries (`θ` carries both), with zero-delay records on the guard.
-        # Literal constructors keep Enzyme forward working (#278).
+        # Batched multivariate `PrimaryConditional(dists, ps)` over heterogeneous
+        # per-record distributions. Gradient w.r.t. the delay params and the
+        # per-record primaries. Literal constructors keep Enzyme forward working.
         pc_obs = [0.0, 6.0, 4.0, 0.0]
         _push!("PrimaryConditional batched double_interval_censored LogNormal",
             (θ,

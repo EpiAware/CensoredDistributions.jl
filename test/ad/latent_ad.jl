@@ -1,9 +1,6 @@
-# AD coverage for the latent event-time form, run in the AD environment
-# (`test/ad/Project.toml`, which provides ForwardDiff). The latent scalar
-# conditional gradient is also exercised across the full backend matrix by the
-# `Latent PrimaryConditional LogNormal scalar logpdf` scenario in
-# `test/ADFixtures`; this item adds the parameter-level marginal==latent
-# equivalence proof that needs a trapezoidal integral over the primary window.
+# AD coverage for the latent event-time form (ForwardDiff, in the AD env). Adds
+# the parameter-level marginal==latent equivalence over a trapezoidal integral;
+# the backend matrix covers the scalar conditional gradient in `test/ADFixtures`.
 
 @testitem "latent joint logpdf is ForwardDiff-safe in the parameters" tags=[
     :ad, :forwarddiff] begin
@@ -11,8 +8,8 @@
     using ForwardDiff: gradient
 
     # The marginal == latent equivalence holds at the gradient level: the
-    # parameter gradient of the marginal logpdf equals the gradient of the latent
-    # joint integrated over the primary window.
+    # parameter gradient of the marginal logpdf equals that of the integrated
+    # latent joint.
     pe = Uniform(0.0, 1.0)
     y = 2.5
 
@@ -38,12 +35,9 @@ end
     using CensoredDistributions, Distributions
     using ForwardDiff: gradient
 
-    # A record whose observed delay floors to zero clamps the interval's lower
-    # edge to the delay's support boundary, so the conditional evaluates the
-    # delay cdf at that boundary. There `cdf(LogNormal, 0)` is exactly 0 but its
-    # naive parameter derivative is `0 * Inf = NaN`; guarding the boundary keeps
-    # the gradient finite so the latent double_interval_censored fit stays
-    # AD-safe on real data (many records floor to a zero delay).
+    # A record flooring to zero evaluates the delay cdf at its support boundary,
+    # where `cdf(LogNormal, 0)` is 0 but the naive derivative is `0 * Inf = NaN`;
+    # guarding the boundary keeps the gradient finite for the fit.
     function zero_delay_logpdf(θ; p = 0.5)
         ld = latent(double_interval_censored(LogNormal(θ[1], θ[2]);
             primary_event = Uniform(0, 3), upper = 12, interval = 1))

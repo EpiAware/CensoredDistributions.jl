@@ -24,15 +24,13 @@ end
 
     rng = MersenneTwister(42)
     x = rand(rng, ld)
-    # The latent draw is a labelled NamedTuple (the scored representation is
-    # the vector `[primary, observed]`).
+    # The draw is a labelled NamedTuple (scored as `[primary, observed]`).
     @test x isa NamedTuple
     @test keys(x) == (:primary, :observed)
     @test insupport(pe, x.primary)   # primary drawn from the primary prior
     @test x.observed >= x.primary    # observed = primary + non-negative delay
 
-    # The labelled record round-trips straight back through logpdf (matched by
-    # name; the scored representation is the `[primary, observed]` vector).
+    # The labelled record round-trips through logpdf, matched by field name.
     @test logpdf(ld, x) ≈ logpdf(ld, [x.primary, x.observed])
     # Field order does not matter; the names do.
     @test logpdf(ld, (observed = x.observed, primary = x.primary)) ≈
@@ -42,9 +40,8 @@ end
 @testitem "latent rand(d, n) batches n labelled records (no overflow)" begin
     using Distributions, Random
 
-    # Regression for #675: the count form `rand(d, n)` StackOverflowed on a
-    # Latent (multivariate but draws a NamedTuple, so the generic matrix
-    # fallback recursed). It must batch into n independent labelled records.
+    # Regression for #675: `rand(d, n)` StackOverflowed on a Latent; it must
+    # batch into n independent labelled records.
     pe = Uniform(0, 1)
     ld = latent(primary_censored(LogNormal(1.4, 0.5), pe))
 
@@ -95,9 +92,8 @@ end
     using Distributions
     using CensoredDistributions: PrimaryConditional, marginal
 
-    # `latent(d)` scalar density is ALWAYS conditional on a primary, never the
-    # integrating marginal. With a primary passed it is the deterministic
-    # `PrimaryConditional(d, p)` kernel.
+    # `latent(d)` scalar density is always conditional; with a primary passed it
+    # is the deterministic `PrimaryConditional(d, p)` kernel.
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0, 1)
     d = primary_censored(delay, pe)
@@ -117,8 +113,7 @@ end
         @test logpdf(ld, y; primary = p) ≈ logpdf(delay, y - p)
     end
 
-    # The conditional is NOT the marginal pointwise (the project invariant: the
-    # latent form never collapses to the integrating default).
+    # The conditional is not the marginal pointwise.
     @test logpdf(ld, 2.7; primary = 0.3) != logpdf(marginal(ld), 2.7)
 end
 
@@ -126,13 +121,11 @@ end
     using Distributions, Random
     using CensoredDistributions: get_primary_event
 
-    # With no primary passed, a single scalar density call MONTE-CARLO SAMPLES one
-    # `p ~ get_primary_event(d)` and conditions on it: a stochastic single-draw
-    # estimate, never the integrating marginal.
+    # With no primary passed, a scalar density call samples one
+    # `p ~ get_primary_event(d)` and conditions on it: a stochastic estimate.
     ld = latent(primary_censored(LogNormal(1.5, 0.75), Uniform(0, 1)))
 
-    # Reproducible under a seeded rng; different seeds give different draws, the
-    # signature of a genuinely sampled (stochastic) primary.
+    # Reproducible under a seeded rng; different seeds give different draws.
     a = logpdf(ld, 2.7; rng = MersenneTwister(1))
     @test a == logpdf(ld, 2.7; rng = MersenneTwister(1))
     @test a != logpdf(ld, 2.7; rng = MersenneTwister(2))
@@ -143,9 +136,8 @@ end
     using Distributions, Random
     using CensoredDistributions: get_primary_event, marginal
 
-    # E over sampled primaries of the conditional density equals the MARGINAL
-    # density (equivalence IN EXPECTATION), even though no single conditional call
-    # equals the marginal pointwise and nothing integrates by quadrature.
+    # The mean over sampled primaries of the conditional density equals the
+    # marginal density, though no single conditional call equals it pointwise.
     delay = LogNormal(1.0, 0.5)
     pe = Uniform(0, 1)
     d = primary_censored(delay, pe)
@@ -156,34 +148,34 @@ end
         # Monte-Carlo mean of the conditional density over sampled primaries.
         est = mean(pdf(ld, y; primary = rand(rng, pe)) for _ in 1:200_000)
         @test isapprox(est, pdf(marginal(ld), y); rtol = 2e-2)
-        # No single conditional draw equals the marginal (it is a point, not the
-        # integral): the equivalence is only in expectation.
+        # No single conditional draw equals the marginal; only the mean does.
         @test pdf(ld, y; primary = 0.5) != pdf(marginal(ld), y)
     end
 end
 
 @testitem "latent scalar quantile and conditional draw" begin
     using Distributions, Random
-    using CensoredDistributions: PrimaryConditional, rand_observed
+    using CensoredDistributions: PrimaryConditional
 
     delay = LogNormal(1.2, 0.4)
     pe = Uniform(0, 1)
     d = primary_censored(delay, pe)
     ld = latent(d)
 
-    # Quantile conditional on a passed primary equals the kernel's quantile, the
-    # delay quantile shifted by `p` (closed form for the bare distribution).
+    # Quantile given a passed primary equals the kernel's, the delay quantile
+    # shifted by `p`.
     p = 0.4
     @test quantile(ld, 0.5; primary = p) ==
           quantile(PrimaryConditional(d, p), 0.5)
     @test quantile(ld, 0.5; primary = p) ≈ p + quantile(delay, 0.5)
 
-    # A conditional observed draw given `p` lands above `p` (observed = p + delay).
-    r = rand_observed(MersenneTwister(1), ld; primary = p)
+    # A conditional draw given `p` lands above `p`; the observed-only draw is
+    # just `rand` on the conditional.
+    r = rand(MersenneTwister(1), PrimaryConditional(d, p))
     @test r > p
     # Reproducible under a seeded rng.
-    @test rand_observed(MersenneTwister(3), ld; primary = p) ==
-          rand_observed(MersenneTwister(3), ld; primary = p)
+    @test rand(MersenneTwister(3), PrimaryConditional(d, p)) ==
+          rand(MersenneTwister(3), PrimaryConditional(d, p))
 end
 
 @testitem "PrimaryConditional scores the delay at the implied gap" begin
@@ -205,9 +197,8 @@ end
 @testitem "latent rand observed times round-trip to the marginal cdf" begin
     using Distributions, Random
 
-    # Drawing many latent records and keeping the observed component must
-    # recover the marginal observed-delay cdf (the marginal dist's analytic cdf),
-    # confirming the latent draw and the marginal density describe one process.
+    # Keeping the observed component of many latent draws recovers the marginal
+    # observed-delay cdf.
     d = primary_censored(LogNormal(1.4, 0.5), Uniform(0, 1))
     ld = latent(d)
 
@@ -222,11 +213,8 @@ end
 @testitem "latent joint integrates over the primary to the marginal density" begin
     using Distributions
 
-    # Density-correctness proof. A high-resolution trapezoidal integration of the
-    # latent joint over the primary window must reproduce the analytic marginal
-    # pdf/cdf. The latent joint and the marginal density therefore describe one
-    # process; the joint adds the explicit primary, the marginal integrates it
-    # out. If they disagree the latent density is wrong.
+    # A high-resolution trapezoidal integration of the latent joint over the
+    # primary window reproduces the analytic marginal pdf/cdf.
     for (delay,
         pe) in [
         (LogNormal(1.5, 0.75), Uniform(0.0, 1.0)),
@@ -243,8 +231,7 @@ end
             vals = map(p -> exp(logpdf(ld, [p, y])), ps)
             return sum((vals[1:(end - 1)] .+ vals[2:end]) ./ 2) * step(ps)
         end
-        # ∫ pdf(prior, p) * cdf(conditional, x) dp recovers the cdf: the primary
-        # prior weighting the conditional cdf at each primary.
+        # ∫ pdf(prior, p) * cdf(conditional, x) dp recovers the cdf.
         function integrate_cdf(x; n = 200_000)
             ps = range(lo, hi; length = n)
             vals = map(ps) do p
@@ -267,15 +254,10 @@ end
     using Distributions, Random, Statistics
     using CensoredDistributions: PrimaryConditional, get_primary_event
 
-    # The latent form conditions on a sampled primary (`PrimaryConditional` at
-    # a `rand`-drawn `p`); it does not integrate the primary out and defines no
-    # scalar observed density. So it matches the marginal only in expectation
-    # over the primary prior,
+    # The latent form conditions on a sampled primary, so it matches the marginal
+    # only in expectation over the primary prior,
     #   E_p[cdf(PrimaryConditional(d, p), x)] = cdf(marginal(d), x),
-    # estimated here by Monte Carlo over genuine `rand` draws of the primary,
-    # never by the latent itself integrating. This is the equivalence-in-
-    # expectation that underwrites the latent and marginal fits recovering the
-    # same parameters.
+    # estimated here by Monte Carlo over `rand` draws of the primary.
     rng = MersenneTwister(20260629)
     n = 400_000
 
@@ -293,8 +275,8 @@ end
             @test isapprox(mc_cdf, cdf(dm, x); atol = 5e-3)
             @test isapprox(mc_pdf, pdf(dm, x); atol = 5e-3)
         end
-        # A single draw is genuinely conditional, not the marginal: one
-        # realised primary gives a shifted conditional, not the marginal cdf.
+        # A single draw is genuinely conditional: one realised primary gives a
+        # shifted conditional, not the marginal cdf.
         one_p = rand(rng, get_primary_event(ld))
         @test cdf(PrimaryConditional(ld, one_p), 2.5) != cdf(dm, 2.5)
     end
@@ -303,13 +285,10 @@ end
 @testitem "double_interval_censored works in both marginal and latent forms" begin
     using Distributions
 
-    # The censoring wrappers must work for both forms. The latent form samples
-    # the primary and keeps the secondary interval (and truncation) on the
-    # conditional: the primary is realised, not marginalised, and the modifiers
-    # stay on the total `p + delay` (#723). So the conditional is NOT the bare
-    # delay, and integrating the joint over the primary reproduces the analytic
-    # `double_interval_censored` marginal (the interval-censored dist), not the
-    # continuous primary-censored one.
+    # The censoring wrappers work for both forms. The latent form samples the
+    # primary and keeps the secondary interval/truncation on the total
+    # `p + delay` (#723), so the conditional is not the bare delay and the joint
+    # integrates to the analytic double_interval_censored marginal.
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0, 1)
 
@@ -319,7 +298,7 @@ end
     @test marginal(ld) === dm
     for (p, y) in [(0.3, 2.7), (0.1, 1.0), (0.9, 5.4)]
         # The conditional keeps the secondary interval, so it differs from the
-        # bare-delay shift (the #723 fix; stripping the interval was the bug).
+        # bare-delay shift (the #723 fix).
         @test logpdf(ld, [p, y]) != logpdf(pe, p) + logpdf(delay, y - p)
         cond = CensoredDistributions.PrimaryConditional(dm, p)
         @test logpdf(ld, [p, y]) ≈ logpdf(pe, p) + logpdf(cond, y)
@@ -341,10 +320,8 @@ end
     using CensoredDistributions: PrimaryConditional, get_primary_event
 
     # The latent `double_interval_censored` joint, integrated over the primary,
-    # must reproduce the analytic interval-censored (and truncated) marginal: the
-    # primary is sampled and the secondary modifiers kept, so the latent and
-    # marginal describe one process. Covers interval-only, interval+upper, and
-    # interval+lower+upper.
+    # reproduces the analytic interval-censored (and truncated) marginal. Covers
+    # interval-only, interval+upper, interval+lower+upper.
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0, 1)
 
@@ -375,11 +352,9 @@ end
     using Distributions
     using CensoredDistributions: get_primary_event, get_dist, PrimaryConditional
 
-    # A bare double_interval_censored distribution wraps its PrimaryCensored
-    # distribution in an IntervalCensored (and a Truncated when bounds are given).
-    # latent over such a distribution must build, sample and score, reaching the
-    # primary event through the wrappers while keeping the secondary interval on
-    # the conditional.
+    # A bare double_interval_censored wraps its PrimaryCensored in an
+    # IntervalCensored (and Truncated when bounds are given); latent over it must
+    # build, sample and score through the wrappers, keeping the secondary interval.
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0, 1)
 
@@ -389,7 +364,7 @@ end
     lic = latent(dic)
     @test get_primary_event(lic) === pe
     # The latent conditional keeps the secondary interval, so it differs from the
-    # bare-delay shift (the separable `primary_censored` dist still scores bare).
+    # bare-delay shift.
     lpc = latent(primary_censored(delay, pe))
     for (p, y) in [(0.3, 2.7), (0.1, 1.0), (0.9, 5.4)]
         @test logpdf(lic, [p, y]) != logpdf(lpc, [p, y])
@@ -414,21 +389,19 @@ end
     using Distributions, Random, Statistics
     using CensoredDistributions: get_primary_event, marginal
 
-    # The interval-censored secondary conditional raises its lower integration
-    # bound to the primary (secondary >= primary), so a primary landing INSIDE a
-    # record's observed interval keeps positive mass and a finite log density
-    # rather than a stray `-Inf`; a primary at or after the whole interval is
-    # genuinely infeasible (a negative delay) and stays `-Inf`. This is the
-    # feasibility invariant the latent double_interval_censored fit relies on.
+    # The interval-censored conditional raises its lower bound to the primary
+    # (secondary >= primary), so a primary inside a record's interval keeps
+    # positive mass and a finite log density; a primary at or after the whole
+    # interval is infeasible and stays `-Inf`.
     delay = LogNormal(1.5, 0.75)
-    # A wide primary window (0, 3) so a sampled primary can fall inside or past
-    # a unit interval, exercising the clamp; the record y = 1 sits in [1, 2).
+    # A wide primary window (0, 3) lets a sampled primary fall inside or past the
+    # unit interval containing y = 1 ([1, 2)).
     dic = double_interval_censored(delay; primary_event = Uniform(0, 3),
         upper = 12, interval = 1)
     ld = latent(dic)
 
-    # Primary before the interval (normal), and primaries INSIDE [1, 2): all
-    # finite (feasible), the interior primaries kept in support by the clamp.
+    # Primary before the interval and primaries inside [1, 2): all finite, the
+    # interior primaries kept in support by the clamp.
     for p in (0.5, 1.0, 1.5, 1.99)
         @test isfinite(logpdf(ld, 1.0; primary = p))
     end
@@ -436,17 +409,15 @@ end
     @test logpdf(ld, 1.0; primary = 2.0) == -Inf
     @test logpdf(ld, 1.0; primary = 2.5) == -Inf
 
-    # A record whose observed delay floors to zero sits in `[0, 1)`, putting the
-    # interval's lower edge at the delay's support boundary. The below-support
-    # term contributes no mass and is omitted rather than evaluated, so the log
-    # density stays finite (the gradient safety of this is covered in the AD
-    # suite).
+    # A record flooring to zero sits in `[0, 1)`, with the interval's lower edge
+    # at the delay's support boundary; the below-support term is omitted so the
+    # log density stays finite (gradient safety covered in the AD suite).
     for p in (0.0, 0.3, 0.7, 0.99)
         @test isfinite(logpdf(ld, 0.0; primary = p))
     end
 
-    # The clamp is density-preserving: the latent conditional still matches the
-    # analytic marginal in expectation over the primary prior.
+    # The clamp is density-preserving: the conditional still matches the marginal
+    # in expectation.
     pe = get_primary_event(ld)
     rng = MersenneTwister(20260702)
     ps = rand(rng, pe, 400_000)
@@ -464,9 +435,8 @@ end
     ys = [0.0, 1.0, 2.0, 3.0, 5.0, 0.0, 4.0]
     ps = [0.2, 0.4, 0.6, 0.8, 0.5, 0.9, 0.3]
 
-    # The batched vector form equals the sum of the scalar conditional, for both
-    # the interval/truncation pipeline distribution and a bare primary-censored
-    # distribution.
+    # The batched form equals the sum of the scalar conditional, for both the
+    # pipeline and a bare primary-censored distribution.
     @test logpdf(dist, ys; primary = ps) ≈
           sum(logpdf(dist, ys[i]; primary = ps[i]) for i in eachindex(ys))
     bare = latent(primary_censored(delay, Uniform(0, 1)))
@@ -475,18 +445,16 @@ end
     @test logpdf(bare, yb; primary = pb) ≈
           sum(logpdf(bare, yb[i]; primary = pb[i]) for i in eachindex(yb))
 
-    # A truncated-only pipeline (no interval) dispatches to the dedicated
-    # `Truncated` conditional/batched methods (the continuous shifted-delay form);
-    # the batched score still equals the per-record sum.
+    # A truncated-only pipeline dispatches to the `Truncated` methods; the batched
+    # score still equals the per-record sum.
     tr = latent(truncated(primary_censored(delay, Uniform(0, 1)); upper = 10.0))
     yt = [2.5, 3.0, 4.0]
     pt = [0.2, 0.5, 0.3]
     @test logpdf(tr, yt; primary = pt) ≈
           sum(logpdf(tr, yt[i]; primary = pt[i]) for i in eachindex(yt))
 
-    # An arbitrary-boundaries secondary interval routes the batched path through
-    # the elementwise fallback (rather than the regular-width vectorised path); it
-    # still equals the per-record sum.
+    # Arbitrary interval boundaries route through the elementwise fallback; still
+    # equal to the per-record sum.
     bnd = latent(interval_censored(
         truncated(primary_censored(delay, Uniform(0, 1)); upper = 10.0),
         [0.0, 1.0, 2.5, 5.0, 10.0]))
@@ -501,8 +469,7 @@ end
     # An infeasible primary (at/after its whole interval) makes the batch `-Inf`.
     @test logpdf(dist, [0.0, 5.0]; primary = [2.5, 0.3]) == -Inf
 
-    # Records whose observed delay floors to zero score finitely (the
-    # sub-support term is omitted, see the guard above).
+    # Records flooring to zero score finitely (the sub-support term is omitted).
     @test isfinite(logpdf(dist, [0.0, 0.0, 0.0]; primary = [0.2, 0.5, 0.9]))
 
     # The joint `[primary, observed]` vector form is unaffected (no `primary`).
@@ -513,9 +480,8 @@ end
     using Distributions, Random
     using CensoredDistributions: _SecondaryConditional
 
-    # A conditional whose truncation bounds can never admit `p + delay` (the delay
-    # draws essentially zero, but the window is `[100, 101]`) exhausts the bounded
-    # resample and raises rather than looping forever.
+    # Truncation bounds that can never admit `p + delay` exhaust the bounded
+    # resample and raise rather than looping forever.
     sc = _SecondaryConditional(Uniform(0.0, 1e-9), Uniform(0, 1),
         100.0, 101.0, 1.0, 0.0)
     @test_throws ErrorException rand(Random.default_rng(), sc)
@@ -583,9 +549,8 @@ end
     using Distributions
     using CensoredDistributions: PrimaryConditional
 
-    # A wrapper that changes the delay density (here a bare distribution) has no
-    # defined primary-conditional; it must raise an explanatory ArgumentError,
-    # not a MethodError and not a silently-wrong finite value.
+    # A wrapper that changes the delay density has no defined primary-conditional;
+    # it raises an explanatory ArgumentError, not a MethodError.
     @test_throws ArgumentError logpdf(
         PrimaryConditional([LogNormal(1.5, 0.75)], [0.5]), [3.0])
 end
@@ -596,8 +561,8 @@ end
 
     delay = LogNormal(1.5, 0.75)
     # A bare primary-censored conditional is the delay shifted by the primary, so
-    # it carries the full continuous cdf/quantile/mean/rand interface (the
-    # interval/truncation pipeline form instead scores via `logpdf`).
+    # it carries the full continuous interface (the pipeline form scores via
+    # `logpdf`).
     sc = PrimaryConditional(primary_censored(delay, Uniform(0, 1)), 0.3)
     @test isfinite(logpdf(sc, 3.0))
     @test pdf(sc, 3.0) ≈ exp(logpdf(sc, 3.0))
@@ -653,14 +618,13 @@ end
 
 @testitem "latent scalar no-primary draw and rand cover the sampling paths" begin
     using Distributions, Random
-    using CensoredDistributions: rand_observed
+    using CensoredDistributions: PrimaryConditional
 
     delay = LogNormal(1.5, 0.75)
     ld = latent(primary_censored(delay, Uniform(0, 1)))
 
-    # With no `primary` passed each scalar method samples one internally (a
-    # stochastic single-draw estimate, not the marginal), so it still returns a
-    # finite/in-range value.
+    # With no `primary` each scalar method samples one internally, so it still
+    # returns a finite/in-range value.
     @test isfinite(logpdf(ld, 3.0))
     @test isfinite(pdf(ld, 3.0))
     @test 0 <= cdf(ld, 3.0) <= 1
@@ -668,8 +632,9 @@ end
     @test 0 <= ccdf(ld, 3.0) <= 1
     @test isfinite(logccdf(ld, 3.0))
     @test isfinite(quantile(ld, 0.5))
-    @test rand_observed(Xoshiro(1), ld) isa Real
-    @test rand_observed(ld; primary = 0.3) isa Real
+    # The observed-only draw is just `rand` on the joint record or the conditional.
+    @test rand(Xoshiro(1), ld).observed isa Real
+    @test rand(PrimaryConditional(ld, 0.3)) isa Real
 
     # Joint and batched draws return labelled records.
     r = rand(Xoshiro(1), ld)
@@ -731,8 +696,7 @@ end
     @test isfinite(logpdf(ld, 3.0))
 end
 
-# The parameter-gradient marginal==latent equivalence (`using ForwardDiff`) is
-# an AD test, so it lives in the AD environment at `test/ad/latent_ad.jl` (the
-# main test env deliberately does not depend on ForwardDiff). The latent scalar
-# and batched conditional gradients are additionally covered across the full
-# backend matrix by the `Latent ...` scenarios in `test/ADFixtures`.
+# The parameter-gradient marginal==latent equivalence needs `using ForwardDiff`,
+# so it lives in the AD environment at `test/ad/latent_ad.jl`; the scalar and
+# batched conditional gradients are also covered by the `Latent` scenarios in
+# `test/ADFixtures`.

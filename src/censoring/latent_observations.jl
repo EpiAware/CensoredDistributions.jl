@@ -1,9 +1,5 @@
-# Batched latent-form observation distributions over a vector of per-record
-# censored distributions (`dists`), each carrying its own primary event window,
-# secondary interval and truncation. A latent fit draws one primary per record
-# from `PrimaryEvent(dists)`, the distribution of the primary event times, and
-# the observed delays follow `PrimaryConditional(dists, ps)`, their distribution
-# given those primaries.
+# Batched latent-form observation distributions: `PrimaryEvent` (the per-record
+# primary prior) and `PrimaryConditional` (observed delays given the primaries).
 
 @doc "
 

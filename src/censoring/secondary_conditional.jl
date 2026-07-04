@@ -1,9 +1,6 @@
-# The interval-censored, truncated secondary conditional of a
-# `double_interval_censored` pipeline, given a sampled primary `p`. Split from
-# `PrimaryConditional.jl` so it can reference the pipeline distribution types
-# (`IntervalCensored`, `Truncated`) and the helpers `get_primary_event`,
-# `get_dist_recursive`, `floor_to_interval`, `find_interval_index`, all defined in
-# files included later than `PrimaryConditional.jl`.
+# Interval-censored, truncated secondary conditional of a
+# `double_interval_censored` pipeline given a sampled primary. Split from
+# `PrimaryConditional.jl` to reference pipeline types and helpers included later.
 
 # Unwrap a `Latent` to its wrapped distribution before selecting the conditional.
 _conditional(d::Latent, p) = _conditional(d.dist, p)
