@@ -78,8 +78,7 @@ using CensoredDistributions, Distributions
 using CensoredDistributions: latent, shared, get_dist_recursive
 using Turing, Random, Statistics
 using DynamicPPL: to_submodel, prefix, InitFromPrior
-using ADTypes: AutoMooncake
-import Mooncake
+using ADTypes: AutoForwardDiff
 using CairoMakie, PairPlots
 
 # ## Data
@@ -445,12 +444,14 @@ sim_Z = [rand(nb_logmean(log(k_true), log(R_true) + sim_log_p[i]))
 # real-time truncation creates a second, spurious mode at a near-zero incubation
 # period (where every delay is trivially complete), and a prior-centred start
 # keeps the sampler in the basin that carries the data. The model is
-# differentiated with Mooncake reverse mode (`AutoMooncake`).
+# differentiated with ForwardDiff forward mode (`AutoForwardDiff`) — the
+# per-record parameter count is small enough that forward mode avoids paying
+# Mooncake's rule-compilation cost per fit.
 Random.seed!(20260608)
 sim_model = andv(template, sim_index, sim_sourced, sim_Z, sim_source_onset,
     knots, sim_horizon)
 sim_chain = sample(sim_model,
-    NUTS(60, 0.95; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
+    NUTS(60, 0.95; max_depth = 6, adtype = AutoForwardDiff()),
     MCMCThreads(), 60, 2;
     initial_params = fill(InitFromPrior(), 2), progress = false)
 nothing #hide
@@ -522,7 +523,7 @@ Random.seed!(20260608)
 model = andv(template, index_rows, sourced_rows, Z, source_onset_day,
     knots, horizon)
 chain = sample(model,
-    NUTS(80, 0.95; max_depth = 6, adtype = AutoMooncake(; config = nothing)),
+    NUTS(80, 0.95; max_depth = 6, adtype = AutoForwardDiff()),
     MCMCThreads(), 80, 2;
     initial_params = fill(InitFromPrior(), 2), progress = false)
 nothing #hide

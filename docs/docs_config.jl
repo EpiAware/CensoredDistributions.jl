@@ -5,21 +5,15 @@
 # the linkcheck URLs to ignore. These values reproduce CensoredDistributions.jl's
 # documentation build exactly; edit them as the docs grow.
 
-# TEMPORARY (integration #363): force the fast-build path so the Documenter CI
-# job is GREEN. The heavy MCMC tutorials collectively exceed the 6h CI limit —
-# measured on run 28679021067: epinowcast-nowcasting ran >2h40m WITHOUT
-# finishing (its toy posterior is under-identified, so NUTS explores to max
-# tree depth every iteration), andv-linelist ~78m, bdbv-linelist ~46m,
-# ad-backends ~34m. `SKIP_NOTEBOOKS=true` renders every tutorial from its
-# `TUTORIAL_STUBS` heading (cross-refs preserved via `@id`) so the docs build
-# completes in minutes. This is a stop-gap to unblock #363; the proper fix
-# (bound NUTS `max_depth`, switch the heavy fits to ForwardDiff which has no
-# Mooncake-compile cost, and right-size the tutorial data so the posteriors
-# stay identified) is tracked for a follow-up. DELETE this block to restore the
-# fully executed tutorials once they build within the limit.
-if get(ENV, "SKIP_NOTEBOOKS", "") == ""
-    ENV["SKIP_NOTEBOOKS"] = "true"
-end
+# Restored (#827) from the #363 whole-build SKIP_NOTEBOOKS stop-gap: the
+# heavy MCMC tutorials no longer collectively need to be stubbed. andv/bdbv
+# linelist switched from AutoMooncake to AutoForwardDiff (compile-cost only,
+# not an AD-demo change) and now render in well under the 6h CI limit;
+# linear-chain-sir, branching-competing, pairwise-survival-transmission and
+# recurrent-multistate were never actually slow (never measured before #363's
+# stop-gap); ad-backends is untouched (a genuine multi-backend AD demo,
+# ~30-45m, fits comfortably). `epinowcast-nowcasting` alone is
+# FORCE_STUB_TUTORIALS below, not SKIP_NOTEBOOKS — see that comment.
 
 # Light tutorials: Literate emits `@example` blocks that Documenter runs
 # in-process. They are cheap and accumulate no native/memory state.
@@ -50,6 +44,18 @@ const HEAVY_TUTORIALS = String[
     "recurrent-multistate.jl"
 ]
 
+# `epinowcast-nowcasting` alone never renders, independent of
+# `--skip-notebooks`/`SKIP_NOTEBOOKS` (kit `force_stub_tutorials`, #111): even
+# right-sized (`max_delay = 10`, `n_days = 28`) with a `NUTS(...; max_depth =
+# 8)` backstop, it did not complete a single 60-draw/2-chain serial fit in
+# 2.5h locally (#827) — a genuine weak-identifiability signal (the
+# expectation random walk and the reference-date hazard random walk trade
+# off), not a toy-data or compile-cost artefact like its siblings above. This
+# is a maintainer modelling decision (non-centred parameterisation, tighter
+# RW-scale priors, or fewer effect families), not something to paper over
+# here; see #827 for the investigation.
+const FORCE_STUB_TUTORIALS = String["epinowcast-nowcasting.jl"]
+
 # Where the tutorial `.jl` sources and rendered `.md` pages live, relative to
 # `docs/src`.
 const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
@@ -70,7 +76,15 @@ const TUTORIAL_STUBS = Pair{String, String}[
     "rt-renewal-convolution.md" => "# [An Rt renewal model with delay convolution](@id rt-renewal-convolution)",
     "renewal-susceptibility.md" => "# [A susceptibility-depleting renewal model](@id renewal-susceptibility)",
     "linear-chain-sir.md" => "# [A composed delay as ODE compartments: the linear chain trick](@id linear-chain-sir)",
-    "epinowcast-nowcasting.md" => "# [An epinowcast-style hazard nowcasting model](@id epinowcast-nowcasting)",
+    "epinowcast-nowcasting.md" => """
+    # [An epinowcast-style hazard nowcasting model](@id epinowcast-nowcasting)
+
+    !!! note "Stubbed: known weak identifiability, not a build-speed issue"
+        Right-sizing the toy data alone does not make this fit terminate
+        in reasonable time — a genuine identifiability signal under
+        investigation, not a toy-data or compile-cost artefact. See
+        [issue #827](https://github.com/EpiAware/CensoredDistributions.jl/issues/827).
+    """,
     "branching-competing.md" => "# [A branching-process-like natural history with competing outcomes](@id branching-competing)",
     "recurrent-multistate.md" => "# [Recurrent multi-state transitions: waning and reinfection](@id recurrent-multistate)",
     "pairwise-survival-transmission.md" => "# [Pairwise survival analysis of transmission (Kenah)](@id pairwise-survival-transmission)"
