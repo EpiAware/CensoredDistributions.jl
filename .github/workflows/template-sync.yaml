@@ -45,7 +45,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-      - uses: julia-actions/setup-julia@v2
+      - uses: julia-actions/setup-julia@v3
         with:
           version: '1'
       - uses: julia-actions/cache@v2
@@ -75,7 +75,7 @@ jobs:
       # Schedule / manual: open or refresh a sync PR when the standard drifted.
       - name: Open a PR if the standard drifted
         if: github.event_name != 'pull_request'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: chore/template-sync

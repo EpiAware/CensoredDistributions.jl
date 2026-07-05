@@ -96,20 +96,27 @@ jobs:
         with:
           path: artifacts
       - name: Build comparison comment
-        # `compare.jl` only needs the kit (for `compare_comment`), not the
-        # package's own benchmark deps, so it runs in a scratch env that
-        # always installs the kit from git rather than depending on
-        # `benchmark/Project.toml` having it pinned. That file is
-        # package-owned and, for an adopter that already had a `benchmark/`
-        # dir before opting into this workflow, scaffold never overwrites it
-        # — so the kit dependency can be silently missing (the #821 gap: this
-        # job failed with "Package EpiAwarePackageTools not found").
+        # `compare.jl` only needs the kit (for `compare_comment`) and
+        # `BenchmarkTools` (which `compare_comment` lazily `Base.require`s to
+        # load the saved result files), not the package's own benchmark
+        # deps, so it runs in a scratch env that always installs both from
+        # scratch rather than depending on `benchmark/Project.toml` having
+        # them pinned. That file is package-owned and, for an adopter that
+        # already had a `benchmark/` dir before opting into this workflow,
+        # scaffold never overwrites it — so either dependency can be
+        # silently missing (the #821 gap: this job first failed with
+        # "Package EpiAwarePackageTools not found", then, once that was
+        # fixed, with "Package BenchmarkTools ... is required but does not
+        # seem to be installed").
         run: |
           julia -e '
             using Pkg
             Pkg.activate(; temp = true)
-            Pkg.add(url = "https://github.com/EpiAware/EpiAwarePackageTools.jl",
-                rev = "main")
+            Pkg.add([
+                Pkg.PackageSpec(
+                    url = "https://github.com/EpiAware/EpiAwarePackageTools.jl",
+                    rev = "main"),
+                Pkg.PackageSpec(name = "BenchmarkTools")])
             include("benchmark/compare.jl")' \
             artifacts/bench-pr/results-pr.json \
             artifacts/bench-main/results-main.json comment.md
