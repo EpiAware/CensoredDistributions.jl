@@ -14,4 +14,10 @@ concurrency:
 jobs:
   pre-commit:
     uses: EpiAware/.github/.github/workflows/format-check.yml@6d4e35e2515f947acbf7d2a683cbf02b341005c7
+    # Pin the CI formatter to the same version as the local pre-commit hook and
+    # the isolated formatter env (single source: `2.10.1`).
+    # Without this the shared workflow installs its own default and reformats
+    # code the pinned local formatter left intact, failing the check (#114).
+    with:
+      juliaformatter_version: '2.10.1'
     secrets: inherit  # pragma: allowlist secret

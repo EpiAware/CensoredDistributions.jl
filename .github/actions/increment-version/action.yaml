@@ -14,7 +14,11 @@ inputs:
     required: false
     default: 'chore: increment version'
   assignee:
-    description: 'GitHub username to assign PR to'
+    description: >-
+      GitHub username/bot to assign the PR to, or empty for no assignee. Must
+      not be a bare org: GitHub rejects assigning an org and the update path
+      fails with replaceActorsForAssignable. Defaults to the reviewer handle,
+      or empty when none was configured.
     required: false
     default: 'seabbs'
 outputs:
@@ -123,6 +127,14 @@ runs:
         # Push branch
         git push origin "$BRANCH_NAME"
 
+        # Only assign when a handle was configured. Assigning a bare org (the
+        # fallback when no reviewer is set) errors on the update-existing-PR
+        # path, so skip the flag entirely when empty (#122).
+        ASSIGNEE_ARGS=()
+        if [ -n "${{ inputs.assignee }}" ]; then
+          ASSIGNEE_ARGS=(--assignee "${{ inputs.assignee }}")
+        fi
+
         # Create PR using GitHub CLI
         PR_OUTPUT=$(gh pr create \
           --title "${{ inputs.pr-title-prefix }} to $NEW_VERSION" \
@@ -145,7 +157,7 @@ runs:
         *This PR was created automatically by the Version Increment workflow.*" \
           --base main \
           --head "$BRANCH_NAME" \
-          --assignee "${{ inputs.assignee }}")
+          "${ASSIGNEE_ARGS[@]}")
 
         # Extract PR number
         PR_NUMBER=$(echo "$PR_OUTPUT" | grep -o '/pull/[0-9]*' | grep -o '[0-9]*')

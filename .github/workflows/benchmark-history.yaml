@@ -70,17 +70,29 @@ jobs:
         id: revs
         run: |
           TAGS=$(git tag --sort=-v:refname | head -5 | paste -sd, -)
-          echo "revs=${TAGS},${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          if [ -n "$TAGS" ]; then
+            echo "revs=${TAGS},${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          else
+            # Pre-first-tag bootstrap: with no tags the timeline is just
+            # HEAD. Emit the bare SHA so the revs list carries no leading
+            # comma, which benchpkg rejects (#125).
+            echo "revs=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          fi
 
       # benchpkg benchmarks each rev against benchmark/benchmarks.jl
       # (the default script benchpkg discovers in benchmark/). --bench-on
       # pins the benchmark *script* to HEAD so older revs are measured
       # with the current suite definition. --tune re-tunes parameters per
       # run to quieten run-to-run noise on shared runners.
+      # --url points benchpkg at this repo directly so it resolves an
+      # unregistered package (otherwise `benchpkg <name>` looks it up in
+      # General and errors "not found ... in registry"). Harmless for a
+      # registered package. (#125)
       - name: Run benchmarks
         run: |
           mkdir -p results
           benchpkg CensoredDistributions \
+            --url="https://github.com/${{ github.repository }}" \
             --rev="${{ steps.revs.outputs.revs }}" \
             --bench-on="${{ github.sha }}" \
             --output-dir=results \
