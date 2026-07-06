@@ -229,33 +229,36 @@ function quantile(d::Latent, q::Real; primary = nothing,
     return quantile(PrimaryConditional(d, _latent_primary(rng, d, primary)), q)
 end
 
+# The observed marginal of a censored/truncated delay has no closed-form mean or
+# variance, so estimate them from a fixed-seed Monte Carlo sample of it. The fixed
+# seed keeps `mean`/`var`/`std` deterministic and mutually consistent.
+const _MOMENT_MC_SEED = 20260706
+const _MOMENT_MC_SAMPLES = 100_000
+function _observed_moment_sample(d::Latent)
+    return rand(Xoshiro(_MOMENT_MC_SEED), marginal(d), _MOMENT_MC_SAMPLES)
+end
+
 @doc "
 
-Median of a [`latent`](@ref) distribution as the length-2 vector of its
-`[primary, observed]` marginal medians: `median(get_primary_event(d))` and
-`median(marginal(d))`. Both marginals expose a (numeric) quantile, so the median
-is available even for a censored observed marginal.
+Moments of a [`latent`](@ref) distribution as the length-2 vector over its
+`[primary, observed]` marginals, covering `mean`, `var`, `std` and `median`.
 
-The observed marginal of a censored delay has no closed-form mean or variance, so
-[`mean`](@ref), `var` and `std` on a `Latent` raise rather than guess, matching
-the peer censored distributions; estimate them from `rand` draws instead. The
-per-primary conditional accessors (`quantile(d, q; primary)` and the scalar
+The primary component is the closed-form moment of the primary event
+distribution [`get_primary_event`](@ref). The observed component is the censored
+observed marginal [`marginal`](@ref): its `median` is the numeric marginal
+median, and because it has no closed-form mean or variance its `mean`/`var` are a
+fixed-seed Monte Carlo estimate (deterministic and reproducible). `std` is the
+elementwise square root of `var`.
+
+The per-primary conditional accessors (`quantile(d, q; primary)` and the scalar
 density/tail) are the separate conditional view.
 
 See also: [`quantile`](@ref), [`marginal`](@ref)
 "
-median(d::Latent) = [median(get_primary_event(d)), median(marginal(d))]
+mean(d::Latent) = [mean(get_primary_event(d)), mean(_observed_moment_sample(d))]
 
-# The observed marginal of a censored delay has no closed-form moment (only a
-# numeric quantile, hence `median`), so a full `[primary, observed]` mean/variance
-# is unavailable. Raise an explanatory error rather than a bare `MethodError`,
-# matching the peer `_SecondaryConditional` moment methods.
-for f in (:mean, :var, :std)
-    fname = string(f)
-    @eval function $f(d::Latent)
-        throw(ArgumentError(
-            $fname * " is undefined for a latent censored delay: the observed " *
-            "marginal has no closed-form moment. Use `median` for a central " *
-            "summary or estimate it from `rand` draws."))
-    end
-end
+var(d::Latent) = [var(get_primary_event(d)), var(_observed_moment_sample(d))]
+
+std(d::Latent) = sqrt.(var(d))
+
+median(d::Latent) = [median(get_primary_event(d)), median(marginal(d))]

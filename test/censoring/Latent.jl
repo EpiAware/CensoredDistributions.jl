@@ -178,27 +178,45 @@ end
           rand(MersenneTwister(3), PrimaryConditional(d, p))
 end
 
-@testitem "latent moments: marginal median vector, mean/var raise" begin
-    using Distributions
+@testitem "latent moments: [primary, observed] vector, observed numeric" begin
+    using Distributions, Random, Statistics
 
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0, 1)
 
-    for marg in (primary_censored(delay, pe),
-        double_interval_censored(delay; primary_event = pe, upper = 10,
-            interval = 1))
-        ld = latent(marg)
-        # median is the [primary, observed] marginal-median vector.
-        m = median(ld)
-        @test length(m) == 2
-        @test m[1] ≈ median(pe)
-        @test m[2] ≈ median(marginal(ld))
-
-        # No closed-form moment for the censored observed marginal.
-        @test_throws ArgumentError mean(ld)
-        @test_throws ArgumentError var(ld)
-        @test_throws ArgumentError std(ld)
+    # Every moment is the length-2 vector over the [primary, observed] marginals.
+    # The primary entry is closed-form; the observed entry is numeric (median via
+    # the marginal quantile, mean/var via a fixed-seed Monte Carlo estimate).
+    bare = latent(primary_censored(delay, pe))
+    mb, vb, sb, medb = mean(bare), var(bare), std(bare), median(bare)
+    for x in (mb, vb, sb, medb)
+        @test length(x) == 2
     end
+    @test mb[1] ≈ mean(pe)
+    @test vb[1] ≈ var(pe)
+    @test sb ≈ sqrt.(vb)
+    @test medb[1] ≈ median(pe)
+    @test medb[2] ≈ median(marginal(bare))
+
+    # Bare observed = primary + delay (independent), so the observed mean/var have
+    # a closed form to check the Monte Carlo estimate against.
+    @test isapprox(mb[2], mean(pe) + mean(delay); rtol = 3e-2)
+    @test isapprox(vb[2], var(pe) + var(delay); rtol = 5e-2)
+
+    # Fixed-seed: deterministic across repeated calls.
+    @test mean(bare) == mean(bare)
+    @test var(bare) == var(bare)
+
+    # Interval-censored + truncated pipeline: the observed entry matches an
+    # independent Monte Carlo estimate of the observed marginal.
+    pipe = latent(double_interval_censored(delay; primary_event = pe,
+        upper = 10, interval = 1))
+    mp, vp = mean(pipe), var(pipe)
+    @test mp[1] ≈ mean(pe)
+    ref = rand(Xoshiro(11), marginal(pipe), 2_000_000)
+    @test isapprox(mp[2], mean(ref); rtol = 3e-2)
+    @test isapprox(vp[2], var(ref); rtol = 5e-2)
+    @test median(pipe)[2] ≈ median(marginal(pipe))
 end
 
 @testitem "PrimaryConditional scores the delay at the implied gap" begin
