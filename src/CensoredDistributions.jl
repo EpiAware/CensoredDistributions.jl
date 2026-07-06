@@ -69,14 +69,9 @@ include("censoring/PrimaryCensored.jl")
 include("censoring/IntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
 
-# Latent event-time form (conditional on a realised primary) and its kernel.
-# `Latent` is included first so `secondary_conditional.jl` can dispatch on it;
-# `PrimaryConditional.jl` defines the kernel `Latent` scores and samples.
 include("censoring/Latent.jl")
 include("censoring/PrimaryConditional.jl")
 include("censoring/secondary_conditional.jl")
-# Batched latent-form observation distributions over a vector of records; needs
-# the `_conditional` methods from the files above.
 include("censoring/latent_observations.jl")
 
 include("distributions/ExponentiallyTilted.jl")
