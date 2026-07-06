@@ -130,13 +130,13 @@ marginal_leaf = primary_censored(
 latent_leaf = latent(marginal_leaf)
 
 function target_cdf(x)
-    delay = LogNormal(post_draw.mu, post_draw.sigma)
+    delay = get_dist(marginal_leaf)
     problem = IntegralProblem((p, _) -> cdf(delay, x - p), (0.0, 1.0))
     return solve(problem, QuadGKJL(); reltol = 1e-12, abstol = 1e-12).u
 end
 
 function latent_cdf(x; rng = MersenneTwister(7), draws = 200_000)
-    delay = LogNormal(post_draw.mu, post_draw.sigma)
+    delay = get_dist(marginal_leaf)
     paths = (rand(rng, latent_leaf) for _ in 1:draws)
     return mean(cdf(delay, x - p.primary) for p in paths)
 end
