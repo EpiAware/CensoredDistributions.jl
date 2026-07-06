@@ -587,7 +587,6 @@ parameters, so it is high-dimensional where the marginal fit is not.
 We fit it with reverse-mode Mooncake (`AutoMooncake`), whose cost scales with
 the delay-parameter count rather than the record count, unlike the forward mode
 the low-dimensional marginal fits use.
-A prior draw lands in support often enough that `NUTS` initialises without a
 hand-built feasible start.
 The high-dimensional, per-record geometry makes the sampler prone to
 divergences, so we raise the target acceptance to `NUTS(0.9)` (a smaller step
