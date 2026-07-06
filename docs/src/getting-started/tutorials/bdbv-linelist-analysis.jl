@@ -74,8 +74,7 @@ using CensoredDistributions, Distributions
 using Turing, Random, Statistics
 using DynamicPPL: to_submodel, @varname
 using FlexiChains: Parameter, parameters
-using ADTypes: AutoMooncake
-import Mooncake
+using ADTypes: AutoForwardDiff
 using PairPlots, CairoMakie
 
 md"""
@@ -277,11 +276,13 @@ md"""
 
 We fit the synthetic line list and read the posterior back onto the composed
 object with [`update`](@ref), passing the fitted chain directly.
-The likelihood is differentiated with Mooncake reverse mode (`AutoMooncake`),
-used for both the simulation fit and the real fit.
+The likelihood is differentiated with ForwardDiff forward mode
+(`AutoForwardDiff`), used for both the simulation fit and the real fit — the
+per-record parameter count is small enough that forward mode is both simpler
+and faster here than paying Mooncake's rule-compilation cost per fit.
 """
 
-adbackend = AutoMooncake(; config = nothing)
+adbackend = AutoForwardDiff()
 
 sim_chain = sample(Xoshiro(1), bdbv(template, priors, sim_rows),
     NUTS(0.8; adtype = adbackend), MCMCThreads(), 250, 2;
