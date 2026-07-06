@@ -200,7 +200,7 @@ end
 Scalar observed density / tail / quantile of a [`latent`](@ref) distribution,
 conditional on a primary event.
 
-`latent(d)` is always conditional, never the integrating marginal. With a primary
+These scalar accessors are the latent conditional form. With a primary
 passed (`logpdf(d, y; primary = p)`) the call is the deterministic
 [`PrimaryConditional`](@ref)`(d, p)` kernel; with no primary one is Monte-Carlo
 sampled from [`get_primary_event`](@ref)`(d)` and conditioned on, a stochastic
@@ -227,4 +227,35 @@ end
 function quantile(d::Latent, q::Real; primary = nothing,
         rng::AbstractRNG = default_rng())
     return quantile(PrimaryConditional(d, _latent_primary(rng, d, primary)), q)
+end
+
+@doc "
+
+Median of a [`latent`](@ref) distribution as the length-2 vector of its
+`[primary, observed]` marginal medians: `median(get_primary_event(d))` and
+`median(marginal(d))`. Both marginals expose a (numeric) quantile, so the median
+is available even for a censored observed marginal.
+
+The observed marginal of a censored delay has no closed-form mean or variance, so
+[`mean`](@ref), `var` and `std` on a `Latent` raise rather than guess, matching
+the peer censored distributions; estimate them from `rand` draws instead. The
+per-primary conditional accessors (`quantile(d, q; primary)` and the scalar
+density/tail) are the separate conditional view.
+
+See also: [`quantile`](@ref), [`marginal`](@ref)
+"
+median(d::Latent) = [median(get_primary_event(d)), median(marginal(d))]
+
+# The observed marginal of a censored delay has no closed-form moment (only a
+# numeric quantile, hence `median`), so a full `[primary, observed]` mean/variance
+# is unavailable. Raise an explanatory error rather than a bare `MethodError`,
+# matching the peer `_SecondaryConditional` moment methods.
+for f in (:mean, :var, :std)
+    fname = string(f)
+    @eval function $f(d::Latent)
+        throw(ArgumentError(
+            $fname * " is undefined for a latent censored delay: the observed " *
+            "marginal has no closed-form moment. Use `median` for a central " *
+            "summary or estimate it from `rand` draws."))
+    end
 end

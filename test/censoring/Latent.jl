@@ -92,8 +92,8 @@ end
     using Distributions
     using CensoredDistributions: PrimaryConditional, marginal
 
-    # `latent(d)` scalar density is always conditional; with a primary passed it
-    # is the deterministic `PrimaryConditional(d, p)` kernel.
+    # `latent(d)` scalar density is the latent conditional form; with a primary
+    # passed it is the deterministic `PrimaryConditional(d, p)` kernel.
     delay = LogNormal(1.5, 0.75)
     pe = Uniform(0, 1)
     d = primary_censored(delay, pe)
@@ -176,6 +176,29 @@ end
     # Reproducible under a seeded rng.
     @test rand(MersenneTwister(3), PrimaryConditional(d, p)) ==
           rand(MersenneTwister(3), PrimaryConditional(d, p))
+end
+
+@testitem "latent moments: marginal median vector, mean/var raise" begin
+    using Distributions
+
+    delay = LogNormal(1.5, 0.75)
+    pe = Uniform(0, 1)
+
+    for marg in (primary_censored(delay, pe),
+        double_interval_censored(delay; primary_event = pe, upper = 10,
+            interval = 1))
+        ld = latent(marg)
+        # median is the [primary, observed] marginal-median vector.
+        m = median(ld)
+        @test length(m) == 2
+        @test m[1] ≈ median(pe)
+        @test m[2] ≈ median(marginal(ld))
+
+        # No closed-form moment for the censored observed marginal.
+        @test_throws ArgumentError mean(ld)
+        @test_throws ArgumentError var(ld)
+        @test_throws ArgumentError std(ld)
+    end
 end
 
 @testitem "PrimaryConditional scores the delay at the implied gap" begin
