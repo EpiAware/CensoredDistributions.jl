@@ -5,10 +5,13 @@ authors = ["Sam Abbott", "Damon Bayer", "Sam Brand", "Michael DeWitt", "Joseph L
 version = "0.2.22"
 
 [deps]
+ComposedDistributions = "2f642b71-32a9-4f47-97c4-6deb7517f7a7"
+ConvolvedDistributions = "f5b942c9-bc5b-4664-8486-7f531bb06742"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 FastGaussQuadrature = "442a2c76-b920-505d-bb47-c5924d526838"
 LogExpFunctions = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
+ModifiedDistributions = "664e6f8c-d74f-44d3-9f37-f82699103046"
 Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"
 OptimizationOptimJL = "36348300-93cb-4f02-beb5-3c3902f8871e"
 PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
@@ -53,6 +56,8 @@ CensoredDistributionsSurvivalDistributionsExt = "SurvivalDistributions"
 Bijectors = "0.13, 0.14, 0.15, 0.16"
 Catalyst = "16"
 ChainRulesCore = "1"
+ComposedDistributions = "0.1"
+ConvolvedDistributions = "0.1"
 DensityInterface = "0.4"
 Distributions = "0.25"
 DocStringExtensions = "0.9"
@@ -64,6 +69,7 @@ ForwardDiff = "0.10, 1"
 Integrals = "4, 5.1"
 LogDensityProblems = "2"
 LogExpFunctions = "0.3, 1.0"
+ModifiedDistributions = "0.1"
 Mooncake = "0.5"
 Optimization = "4, 5"
 OptimizationOptimJL = "0.4.3"
@@ -77,6 +83,17 @@ Tables = "1"
 Test = "1"
 Turing = "0.42, 0.43, 0.44, 0.45"
 julia = "1.10, 1.11, 1.12"
+
+# Dev (unregistered) git sources for the standalone EpiAware distribution-ops
+# packages. This is experimentation on integration/composed-stack, not a
+# registered release, so CD tracks the packages' `main` directly. All three are
+# listed because `[sources]` is not honoured transitively: ComposedDistributions
+# depends on the (unregistered) ConvolvedDistributions, so CD's own manifest
+# must locate it here.
+[sources]
+ComposedDistributions = {url = "https://github.com/EpiAware/ComposedDistributions.jl", rev = "main"}
+ConvolvedDistributions = {url = "https://github.com/EpiAware/ConvolvedDistributions.jl", rev = "main"}
+ModifiedDistributions = {url = "https://github.com/EpiAware/ModifiedDistributions.jl", rev = "main"}
 
 [workspace]
 projects = ["test", "docs"]
