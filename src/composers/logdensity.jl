@@ -497,3 +497,45 @@ x
 - [`logdensity`](@ref): the constrained-scale density this transform feeds.
 "
 function to_constrained end
+
+# --- generative: prior-predictive forward simulation ------------------------
+
+@doc "
+
+Forward-simulate a record from a [`ComposedLogDensity`](@ref) (the prior
+predictive).
+
+`rand(prob)` draws each estimated parameter from its prior, reconstructs the
+composed distribution at that draw (fixed parameters held at their pinned value,
+exactly as [`logdensity`](@ref) reconstructs it), and returns one simulated
+record. It is the generative counterpart of [`logdensity`](@ref), which scores
+data under the spec while `rand` generates data from it, so the same PPL-neutral
+spec that fits a model also simulates from it. Pass an `AbstractRNG` as the first
+argument for a reproducible draw; the reconstructed distribution `rand`s like any
+composed distribution, so `rand(prob, n)` is a comprehension over `n` prior
+draws.
+
+# Arguments
+- `prob`: the assembled [`ComposedLogDensity`](@ref).
+
+# Examples
+```@example
+using CensoredDistributions, Distributions, Random
+
+tree = compose((onset_admit = Gamma(2.0, 1.0),
+    admit_death = LogNormal(0.5, 0.4)))
+prob = CensoredDistributions.as_logdensity(
+    tree, build_priors(tree), [[0.5, 2.0]])
+rand(Random.MersenneTwister(1), prob)
+```
+
+# See also
+- [`logdensity`](@ref): the scoring counterpart (same spec, opposite direction).
+- [`as_logdensity`](@ref): assemble `prob`.
+"
+function Base.rand(rng::AbstractRNG, prob::ComposedLogDensity)
+    x = [rand(rng, p) for p in prob.free.free_priors]
+    return rand(rng, _reconstruct(prob, x))
+end
+
+Base.rand(prob::ComposedLogDensity) = rand(default_rng(), prob)

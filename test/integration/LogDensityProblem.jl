@@ -447,3 +447,44 @@ end
     # The reconstructed distribution holds the fixed value.
     @test params(event(m(), :admit_death))[2] == 0.4
 end
+
+# ---------------------------------------------------------------------------
+# rand: the LDP spec forward-simulates (the prior predictive). It is the
+# generative counterpart of `logdensity` (which scores data under the spec) and
+# needs no Turing: the same PPL-neutral spec both fits and simulates.
+# ---------------------------------------------------------------------------
+
+@testitem "rand: LDP spec forward-simulates a record" begin
+    using CensoredDistributions, Distributions, Random
+    using CensoredDistributions: as_logdensity
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    data = [[0.5, 2.0], [1.0, 3.0]]
+    prob = as_logdensity(tree, build_priors(tree), data)
+
+    # A draw is reproducible under a seeded RNG and shaped like a data record
+    # (one value per event of the composed distribution).
+    r = rand(MersenneTwister(1), prob)
+    @test r == rand(MersenneTwister(1), prob)
+    @test keys(r) == (:onset_admit, :admit_death)
+    @test all(isfinite, values(r))
+    # The zero-arg form draws (a different record) without erroring.
+    @test rand(prob) isa typeof(r)
+end
+
+@testitem "rand: a fully-fixed leaf still forward-simulates" begin
+    using CensoredDistributions, Distributions, Random
+    using CensoredDistributions: as_logdensity, free_dimension
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    # Fix one leaf entirely: only the two `onset_admit` params stay free, so the
+    # prior draw covers fewer parameters yet `rand` still returns a full record.
+    priors = build_priors(tree; fix = (admit_death = (mu = 0.5, sigma = 0.4),))
+    prob = as_logdensity(tree, priors, [[0.5, 2.0]])
+    @test free_dimension(prob) == 2
+    r = rand(MersenneTwister(1), prob)
+    @test keys(r) == (:onset_admit, :admit_death)
+    @test all(isfinite, values(r))
+end

@@ -1,26 +1,19 @@
 # [The LogDensityProblems inference layer](@id logdensity-layer)
 
-A composed distribution can be fitted two ways.
-This page explains the second one and how it relates to the Turing path.
+`LogDensityProblems` is the primary inference interface for a composed
+distribution.
+This page explains that substrate and how the Turing bridge consumes it.
 
-## Two routes to the same posterior
+## The canonical substrate
 
 A composed distribution carries everything a fit needs, none of it tied to a
 particular probabilistic programming language.
 [`params_table`](@ref) inventories the free parameters, [`build_priors`](@ref)
 supplies support-derived default priors, [`update`](@ref) rebuilds the
 distribution from a parameter `NamedTuple`, and [`logpdf`](@ref CensoredDistributions.logpdf) scores a record.
-Both inference routes are thin front-ends onto that shared core.
 
-The **Turing route** wraps the core in a DynamicPPL submodel.
-[`composed_parameters_model`](@ref)`(template, priors)` samples each prior,
-rebuilds the structure with [`compose`](@ref), and is `to_submodel`-able, so a
-model scores records with `@addlogprob! logpdf(d, y)`.
-This route lives in the `DynamicPPLExt` extension and gives the full Turing
-machinery: sampler choice, chain objects, and named, groupable parameters.
-
-The **LogDensityProblems route** wraps the same core in a flat-vector
-log-density with no DynamicPPL dependency.
+The **LogDensityProblems route** is the canonical, PPL-neutral front-end onto
+that core.
 [`as_logdensity`](@ref CensoredDistributions.as_logdensity)`(dist, priors, data)` assembles a
 [`ComposedLogDensity`](@ref CensoredDistributions.ComposedLogDensity) spec, and the `LogDensityProblemsExt` extension
 turns it into a standard `LogDensityProblems` problem over the unconstrained
@@ -28,23 +21,33 @@ parameter vector.
 That problem samples directly with AdvancedHMC, DynamicHMC, or Pathfinder, and
 differentiates through the existing AD backends via `LogDensityProblemsAD`, all
 without loading Turing.
+The same spec is also generative.
+`rand(prob)` draws the parameters from their priors and forward-simulates one
+record, the prior predictive counterpart of scoring the data.
 
-## Role: orthogonal, not a replacement
+## Turing is a consumer, not a second route
 
-The LogDensityProblems layer sits **orthogonal** to the DynamicPPL model.
-It does not call into, wrap, or replace [`composed_parameters_model`](@ref); the
-two never interact at runtime.
-They are alternative entry points onto one scoring core, so they evaluate the
-same log-posterior and a draw from either maps back to the same named,
-constrained parameters through the [`params_table`](@ref) row order.
-The default likelihood sums `logpdf(d, record)` over the data, the same
-contribution the DynamicPPL path adds per record with `@addlogprob!`.
+The DynamicPPL/Turing extension is one consumer of the same spec, kept for the
+one property a raw `LogDensityProblems` problem loses when handed to Turing.
+That property is a chain where **every parameter is a named site**, not one
+opaque parameter block.
+[`as_turing`](@ref CensoredDistributions.as_turing)`(prob)` is the bridge: it wraps
+the spec as a DynamicPPL model whose log-joint equals
+[`logdensity`](@ref CensoredDistributions.logdensity)`(prob, x)` on the constrained
+scale, so the two routes score the same target and a draw from either maps back
+to the same named, constrained parameters through the [`params_table`](@ref) row
+order.
+Under the hood it samples the free parameters through
+[`composed_parameters_model`](@ref)`(template, priors)`, the named-mode submodel
+that places each prior as its own `~` site, and scores the data with the spec's
+own `loglik` (which defaults to summing `logpdf(d, record)`, the contribution the
+LogDensityProblems path also sums).
 
-Use the Turing route when a fit belongs inside a larger Turing model or wants the
-chain ecosystem.
-Use the LogDensityProblems route to sample a composed model on its own with a
-non-Turing sampler, or to hand the log-density to any tool that speaks the
-`LogDensityProblems` interface.
+Reach for the LogDensityProblems route by default, or to hand the log-density to
+any tool that speaks the `LogDensityProblems` interface.
+Reach for [`as_turing`](@ref CensoredDistributions.as_turing) when a fit belongs
+inside a larger Turing program or wants named chain sites and the chain
+ecosystem.
 
 ## What the layer adds
 
