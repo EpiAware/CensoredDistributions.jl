@@ -216,6 +216,26 @@ rand(double_censored_dist, 10)
 
 or do any of the other common distribution operations.
 
+## Marginal and latent event-time forms
+
+By default a censored delay is *marginal*, with each within-window primary event time integrated out inside the likelihood, leaving only the delay parameters to infer.
+The package also provides a *latent* form that instead treats the primary event times as model variables, drawn from [`PrimaryEvent`](@ref), the distribution of the primary event times, with the observed delays following [`PrimaryConditional`](@ref), their distribution given those primaries.
+Both forms describe the same model and agree in expectation.
+Prefer the marginal form for speed, and reach for the latent form when you want the per-record primary event times in the posterior.
+
+Convert any censored delay to its latent form with [`latent`](@ref).
+A draw pairs the sampled primary event time with the observed delay it implies, as a labelled record:
+
+```@example getting-started
+latent_dist = latent(double_censored_dist)
+
+Random.seed!(123)
+rand(latent_dist)
+```
+
+[`marginal`](@ref) inverts this to recover the marginal distribution.
+See [the latent section](@ref "Fitting the same model in latent form") of the Fitting with Turing.jl tutorial.
+
 ## Key package features
 
 In addition to these main functions, the package also includes:
@@ -227,14 +247,6 @@ In addition to these main functions, the package also includes:
 - **Automatic differentiation compatibility:** Full support for automatic differentiation backends including ForwardDiff.jl, ReverseDiff.jl, Mooncake.jl, and Enzyme.jl for use in probabilistic programming and optimisation.
 
 - **Type stability:** Efficient implementation with type-stable operations for high-performance computation.
-
-## Marginal and latent event-time forms
-
-By default a censored delay is *marginal*, with each within-window primary event time integrated out inside the likelihood, leaving only the delay parameters to infer.
-The package also provides a *latent* form that instead treats the primary event times as model variables, drawn from [`PrimaryEvent`](@ref), the distribution of the primary event times, with the observed delays following [`PrimaryConditional`](@ref), their distribution given those primaries.
-Both forms describe the same model and agree in expectation.
-Prefer the marginal form for speed, and reach for the latent form when you want the per-record primary event times in the posterior.
-See [the latent section](@ref "Fitting the same model in latent form") of the Fitting with Turing.jl tutorial.
 
 ## Learning more
 
