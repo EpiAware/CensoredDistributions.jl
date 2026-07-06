@@ -2,6 +2,31 @@
 # helper that samples a composed distribution's parameters from user priors and
 # returns the reconstructed distribution, ready to score.
 
+# Exported/public API name-parity guard: the registry-driven collapse of the
+# parameter dispatch must not rename or drop any public entry point. This pins
+# the surface so a refactor that changes an exported name fails loudly.
+@testitem "Turing/LDP bridge exported + public names are stable" begin
+    using CensoredDistributions
+
+    exported = names(CensoredDistributions)
+    for nm in (:primary_censored_model, :interval_censored_model,
+        :double_interval_censored_model, :composed_distribution_model,
+        :composed_parameters_model, :renewal_model, :recurrent_states_model,
+        :chain_to_params, :param_draws, :strip_prefix)
+        @test nm in exported
+        @test isdefined(CensoredDistributions, nm)
+    end
+    # Public-but-not-exported LDP layer + the as_turing bridge: reached by the
+    # qualified name, so assert they are defined (and `public`, hence in the
+    # all-names list) rather than exported.
+    allnames = names(CensoredDistributions; all = false)
+    for nm in (:as_turing, :as_logdensity, :logdensity, :flatten, :unflatten,
+        :flat_dimension, :free_dimension, :to_constrained, :ComposedLogDensity)
+        @test isdefined(CensoredDistributions, nm)
+        @test nm in allnames
+    end
+end
+
 @testitem "composed_parameters_model: round-trip structure + names" tags=[:turing] begin
     using CensoredDistributions, Distributions, DynamicPPL, Random
 
