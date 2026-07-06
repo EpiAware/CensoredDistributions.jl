@@ -1663,51 +1663,111 @@ _params_submodel(leaf, priors, shared) = _leaf_params_model(leaf, priors, shared
 const _rebuild = CensoredDistributions._rebuild
 
 # ---------------------------------------------------------------------------
-# Shared-parameter tracking (tie a leaf across branches by name)
+# Registry-driven parameter sampling (the params_table walk)
 # ---------------------------------------------------------------------------
 #
-# A shared-tagged leaf (`shared(:inc, dist)`) is one free parameter even when it
-# occurs in several branches. Its prior lives at the top level of `priors` under
-# the tag (matching `params_table`'s tag edge). The public model samples each
-# shared group once up front (named `tag.param`, prefixed by the tag), then
-# threads the sampled value tuples down as `shared`; every occurrence of the tag
-# reconstructs from the one sampled tuple, re-applying its own censoring, so the
-# same tracked value flows to all occurrences (AD-safe).
+# `composed_parameters_model(template, priors)` samples the template's free
+# parameters and returns the reconstructed distribution. Rather than a
+# per-composer submodel dispatch, it walks `params_table(template)` once — the
+# same registry that fixes the flat<->nested codec order — and emits one `~` per
+# estimated row, named by the row's edge path, so the chain records the same
+# `<edge>.<param>` names the codec and the chain readback use. It rebuilds the
+# distribution through the core `update(template, unflatten(template, x))` codec,
+# the AD-hardened reconstruction the LogDensityProblems path also uses, so both
+# routes share one reconstruction. A shared-tagged leaf is one table row (keyed
+# by its tag), sampled once and placed everywhere by the codec; a `branch_probs`
+# row is optional (held at the template value when the priors omit it); a fixed
+# parameter (a plain value in `priors`) is substituted, never sampled — exactly
+# as on the LogDensityProblems path.
 
-# Sample one shared group from its top-level prior, returning its sampled value
-# tuple. Names each parameter `tag.param` via a prefixed leaf-sampling submodel.
-@model function _shared_group_model(leaf, priors::NamedTuple)
-    pnames = CensoredDistributions._leaf_param_names(leaf)
-    _check_prior_keys(priors, pnames, "shared $(repr(CensoredDistributions._shared_tag(leaf)))")
-    ctx = __model__.context
-    vals = ntuple(length(pnames)) do i
-        p = pnames[i]
-        prior = priors[p]
-        CensoredDistributions._is_sampled_prior(prior) || return prior
-        v,
-        __varinfo__ = DynamicPPL.tilde_assume!!(
-            ctx, prior, VarName{p}(), nothing, __varinfo__)
-        v
-    end
-    return vals
+# `AbstractPPL` (parent of `VarName`, re-exported by DynamicPPL) supplies the
+# `Property`/`Iden` optic pieces the edge-path VarName is built from.
+const _APPL = DynamicPPL.AbstractPPL
+
+# The dotted parameter name of a row, for error messages.
+_param_dotted(path::Tuple, param::Symbol) = join(string.((path..., param)), ".")
+
+# The edge-path VarName for a params_table row: the base symbol plus a
+# right-nested `Property` optic, matching how `@varname(<edge>.<param>)` lowers,
+# so the sampled site strings to the same name the codec / chain readback use.
+function _row_varname(edge::Symbol, param::Symbol)
+    segs = (CensoredDistributions._edge_path(edge)..., param)
+    optic = foldr((k, inner) -> _APPL.Property{k}(inner), Base.tail(segs);
+        init = _APPL.Iden())
+    return VarName{first(segs)}(optic)
 end
 
-# The public entry. Samples each shared group once (prefixed by its tag), then
-# builds the tree, threading the sampled shared value tuples to every occurrence.
-# With no shared tags this is exactly the per-node recursive builder.
-@model function composed_parameters_model(template, priors)
-    groups = CensoredDistributions._collect_shared(template)
-    shared = NamedTuple()
-    for (tag, leaf) in groups
-        haskey(priors, tag) || throw(ArgumentError(
-            "missing prior for shared parameter $(repr(tag)); expected a " *
-            "top-level `$tag` entry in the priors"))
-        sub = DynamicPPL.prefix(_shared_group_model(leaf, priors[tag]), Val(tag))
-        vals ~ to_submodel(sub, false)
-        shared = merge(shared, NamedTuple{(tag,)}((vals,)))
+# Read a row's prior from the nested `priors`. Returns `(value, is_sampled)`: a
+# `branch_probs` row is optional (absent -> held at the template `tmpl`); any
+# other missing key errors. A present prior is sampled when it is a distribution.
+function _row_prior(priors, path::Tuple, param::Symbol, tmpl)
+    node = priors
+    for k in path
+        if !(node isa NamedTuple && haskey(node, k))
+            k === :branch_probs && return (tmpl, false)
+            throw(ArgumentError("composed_parameters_model is missing a prior " *
+                                "for '$(_param_dotted(path, param))'"))
+        end
+        node = getproperty(node, k)
     end
-    d ~ to_submodel(_params_submodel(template, priors, shared), false)
-    return d
+    (node isa NamedTuple && haskey(node, param)) || throw(ArgumentError(
+        "composed_parameters_model is missing a prior for " *
+        "'$(_param_dotted(path, param))'"))
+    prior = getproperty(node, param)
+    return (prior, CensoredDistributions._is_sampled_prior(prior))
+end
+
+# The set of inventoried (edge-path, param) rows for the exact-cover check.
+function _expected_rows(table)
+    edges = Tables.getcolumn(table, :edge)
+    pcol = Tables.getcolumn(table, :param)
+    return Set((CensoredDistributions._edge_path(edges[i]), pcol[i])
+    for i in eachindex(edges))
+end
+
+# Assert every leaf of the nested `priors` is an inventoried table row, erroring
+# on any extra (unexpected) key — the exact-cover half the per-row read misses.
+function _check_no_extra_priors(expected::Set, priors::NamedTuple, path::Tuple)
+    for k in keys(priors)
+        v = getproperty(priors, k)
+        if v isa NamedTuple
+            _check_no_extra_priors(expected, v, (path..., k))
+        else
+            (path, k) in expected || throw(ArgumentError(
+                "composed_parameters_model has an unexpected prior key " *
+                "'$(_param_dotted(path, k))'"))
+        end
+    end
+    return nothing
+end
+
+# The public entry. Walk the table, sample each estimated row at its edge-path
+# VarName (fixed rows substituted, shared tags one row placed everywhere by the
+# codec), then reconstruct through the core codec.
+@model function composed_parameters_model(template, priors::NamedTuple)
+    table = CensoredDistributions.params_table(template)
+    edges = Tables.getcolumn(table, :edge)
+    pcol = Tables.getcolumn(table, :param)
+    vals = Tables.getcolumn(table, :value)
+    _check_no_extra_priors(_expected_rows(table), priors, ())
+    ctx = __model__.context
+    n = length(edges)
+    x = Vector{Any}(undef, n)
+    for i in 1:n
+        path = CensoredDistributions._edge_path(edges[i])
+        prior, sampled = _row_prior(priors, path, pcol[i], vals[i])
+        if sampled
+            v,
+            __varinfo__ = DynamicPPL.tilde_assume!!(
+                ctx, prior, _row_varname(edges[i], pcol[i]), nothing,
+                __varinfo__)
+            x[i] = v
+        else
+            x[i] = prior
+        end
+    end
+    return CensoredDistributions.update(template,
+        CensoredDistributions.unflatten(template, identity.(x)))
 end
 
 # --- per-stratum (varying / partially-pooled) parameter sampling -------------
