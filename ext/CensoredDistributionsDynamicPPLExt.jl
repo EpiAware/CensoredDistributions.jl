@@ -1344,327 +1344,8 @@ end
 
 # ===========================================================================
 # composed_parameters_model: priors -> sampled, reconstructed composed dist
+# (the params_table registry walk)
 # ===========================================================================
-#
-# `composed_parameters_model(template, priors)` is a submodel that samples a
-# composed distribution's free parameters from user priors and returns the
-# reconstructed distribution, ready for the matching record submodel to score.
-# It completes the prior workflow: `compose` -> `params_table` (the
-# inventory) -> the user keys priors against it -> this helper materialises
-# the sampling submodel.
-#
-# `priors` is a nested `NamedTuple` mirroring `params(template)`: a leaf is keyed
-# by its parameter names (`_leaf_param_names`), a `Sequential`/`Parallel` by its
-# edge/event names, a `Resolve` by its outcome names plus an optional
-# `branch_probs` entry. The traversal reuses the composers' `component_names` and
-# the leaf `params`/`_leaf_param_names` introspection for both structure
-# and names, never re-walking the tree by hand, and rebuilds the same structure
-# and names so the result matches the record submodel's by-name expectations
-# (Option A).
-#
-# Names are namespaced by edge path through nested submodel prefixing
-# (`DynamicPPL.prefix(child_model, Val(name))`), so a multi-edge chain produces
-# readable, groupable Turing chain names like `onset_admit.shape` and
-# `resolution.death.scale`.
-
-# --- prior-key validation --------------------------------------------------
-
-# Validate that `priors` (a NamedTuple) covers exactly `expected` (a tuple of
-# names) at the current node, with a clear error on a missing or extra key. The
-# `what` label names the node in the message (e.g. `"edge :onset_admit"`).
-function _check_prior_keys(priors::NamedTuple, expected::Tuple, what::AbstractString)
-    have = keys(priors)
-    missing_keys = filter(k -> !(k in have), expected)
-    extra_keys = filter(k -> !(k in expected), have)
-    isempty(missing_keys) || throw(ArgumentError(
-        "$what is missing priors for $(collect(missing_keys)); " *
-        "expected $(collect(expected))"))
-    isempty(extra_keys) || throw(ArgumentError(
-        "$what has unexpected prior keys $(collect(extra_keys)); " *
-        "expected $(collect(expected))"))
-    return nothing
-end
-
-function _check_prior_keys(priors, ::Tuple, what::AbstractString)
-    throw(ArgumentError(
-        "$what expects a NamedTuple of priors; got $(typeof(priors))"))
-end
-
-# --- leaf reconstruction ---------------------------------------------------
-
-# The base (un-parameterised) constructor of a leaf distribution, so a leaf
-# reconstructs from sampled parameters carrying any (AD) element type rather than
-# the template's concrete one (e.g. `Gamma` from a `Gamma{Float64}` template).
-# Resolves the inner free delay of a (possibly censored) leaf so a censored leaf
-# rebuilds its delay family, not the censoring wrapper.
-_base_ctor(leaf) = CensoredDistributions._leaf_ctor(
-    CensoredDistributions.free_leaf(leaf))
-
-# Reconstruct a leaf from sampled parameters. For a censored leaf the inner free
-# delay is rebuilt from the params and the fixed censoring is re-applied via
-# `rewrap_leaf`, so a `double_interval_censored(Gamma)` round-trips to the same
-# censored distribution. Argument checks are skipped (`check_args = false`) so a
-# sampler probing an out-of-support point yields `-Inf` rather than throwing
-# mid-gradient; families whose constructor lacks the keyword fall back to the
-# plain (checked) constructor.
-function _reconstruct_leaf(leaf, vals::Tuple)
-    ctor = _base_ctor(leaf)
-    if CensoredDistributions._thin_factor(leaf) === nothing
-        inner = _construct_unchecked(ctor, vals)
-        return CensoredDistributions.rewrap_leaf(leaf, inner)
-    end
-    # A thinned leaf carries a trailing `thin` weight: rebuild the inner delay
-    # from the remaining sampled values and route the new factor into the op.
-    inner = _construct_unchecked(ctor, vals[1:(end - 1)])
-    rebuilt = CensoredDistributions.rewrap_leaf(leaf, inner)
-    return CensoredDistributions._set_thin_factor(rebuilt, vals[end])
-end
-
-# Reconstruct a leaf's inner delay from sampled params, skipping the argument check
-# where the family's constructor supports a `check_args` keyword (so a sampler
-# probing an out-of-support point yields `-Inf` rather than throwing mid-gradient).
-#
-# Whether the constructor accepts `check_args` is decided by
-# `CensoredDistributions._ctor_has_check_args` (a pure `hasmethod` reflection
-# returning a `Bool`), not a `try`/`catch`. The original try/catch fallback (catch a
-# `MethodError` from the missing keyword) could not be differentiated by Mooncake
-# reverse on Julia LTS: `_construct_unchecked` is on the AD'd reconstruction path
-# (`composed_parameters_model` rebuilds each leaf from tracked params), and Mooncake
-# LTS cannot trace the `try`/`catch`, failing the nested-Resolve (bdbv) and
-# Choose-top (andv) models. The reflection helper carries a Mooncake `@zero_adjoint`
-# (it is constant w.r.t. the params, returning a `Bool`), so Mooncake never traces
-# its `jl_gf_invoke_lookup` foreigncall on LTS; the differentiated path is then a
-# plain `if` over a single ctor call with no exception handling, and the gradient
-# flows through `vals` unchanged on every backend and Julia version.
-function _construct_unchecked(ctor, vals::Tuple)
-    if CensoredDistributions._ctor_has_check_args(ctor, vals)
-        return ctor(vals...; check_args = false)
-    else
-        return ctor(vals...)
-    end
-end
-
-# --- recursive submodel builder --------------------------------------------
-#
-# `_params_submodel(template, priors)` returns a DynamicPPL submodel sampling the
-# node's parameters and returning the reconstructed node. Each composer level
-# nests a child submodel per named child, prefixed by that child's name, so the
-# sampled parameter names carry the full edge path. Leaf parameters are sampled
-# directly under their parameter names via `tilde_assume!!`, so a leaf's chain
-# names are exactly `<path>.<param>` (no synthetic inner variable).
-
-# A leaf: sample each parameter (in `params` order) from its named prior and
-# rebuild the leaf via its base constructor. `tilde_assume!!` with `VarName{p}()`
-# gives each sampled parameter the bare name `p`; the enclosing submodel prefixes
-# add the edge path, so the chain name is `<edge>.<p>`. A shared-tagged leaf is
-# not sampled here: its value tuple is already in `shared` (sampled once up
-# front), so the occurrence reconstructs from that tracked tuple, re-applying its
-# own censoring.
-@model function _leaf_params_model(leaf, priors::NamedTuple, shared)
-    tag = CensoredDistributions._shared_tag(leaf)
-    if tag !== nothing
-        return _reconstruct_leaf(leaf, shared[tag])
-    end
-    pnames = CensoredDistributions._leaf_param_names(leaf)
-    _check_prior_keys(priors, pnames, "leaf $(nameof(typeof(leaf)))")
-    ctx = __model__.context
-    vals = ntuple(length(pnames)) do i
-        p = pnames[i]
-        prior = priors[p]
-        # A fixed parameter sits as a plain value: substitute it directly, no
-        # tilde, so it never enters the sampler.
-        CensoredDistributions._is_sampled_prior(prior) || return prior
-        v,
-        __varinfo__ = DynamicPPL.tilde_assume!!(
-            ctx, prior, VarName{p}(), nothing, __varinfo__)
-        v
-    end
-    return _reconstruct_leaf(leaf, vals)
-end
-
-# A child's per-occurrence priors: a shared-tagged child carries no per-occurrence
-# prior (its prior lives at the top level under the tag), so an absent key yields
-# an empty NamedTuple and the leaf reads `shared`.
-function _child_priors(priors::NamedTuple, name::Symbol)
-    haskey(priors, name) ? priors[name] : NamedTuple()
-end
-
-# Sample a composer's children into the component tuple the rebuild expects via a
-# head/tail recursive submodel, instead of writing each into a `Vector{Any}` slot
-# and converting with `Tuple(parts)`.
-#
-# The original `parts = Vector{Any}(...); parts[i] ~ ...; Tuple(parts)` lowered the
-# tilde to a `BangBang._setindex!` into the untyped vector and the conversion to a
-# `svec` build over `Vector{Any}`. Under Mooncake reverse that path produces a
-# heterogeneous `RData` tuple whose per-slot reverse-data layout it then cannot
-# `increment!!` (the cotangent of one whole composer node gets accumulated against a
-# single leaf child's reverse data, a structural type mismatch), so a
-# nested-`Resolve` (bdbv / andv) model fell back to `AutoForwardDiff`.
-#
-# `_children_params_model` peels one child per recursion: it samples the head child
-# through its prefixed submodel into a scalar `head` (no indexed lvalue, so no
-# `setindex!` on an `Any` vector), recurses for the tail, and conses `(head,
-# rest...)`. Each `~` value keeps its own concrete type and the tuple is built by
-# tuple `cons`, so Mooncake sees a uniform per-slot `RData` and the reverse rule
-# succeeds. The result is identical to the old `Tuple(parts)` (same children, same
-# order, same prefixed varnames); only the construction path differs, so a
-# `Dual`/tracked reconstructed child (ForwardDiff / ReverseDiff) still flows through.
-#
-# The children tuple and names are split head/tail so the recursion specialises on
-# each child type (the same shape the composer `logpdf` recursion already
-# differentiates). An empty children tuple returns `()`.
-@model function _children_params_model(
-        children::Tuple{}, names::Tuple, priors::NamedTuple, shared)
-    return ()
-end
-@model function _children_params_model(
-        children::Tuple, names::Tuple, priors::NamedTuple, shared)
-    child = first(children)
-    name = first(names)
-    sub = DynamicPPL.prefix(
-        _params_submodel(child, _child_priors(priors, name), shared), Val(name))
-    head ~ to_submodel(sub, false)
-    rest ~ to_submodel(
-        _children_params_model(
-            Base.tail(children), Base.tail(names), priors, shared),
-        false)
-    return (head, rest...)
-end
-
-# A `Sequential` / `Parallel`: sample each named child through a prefixed child
-# submodel, then rebuild the same composer type with the same names. A child whose
-# only params are shared has no own prior key and samples nothing locally.
-@model function _composer_params_model(
-        d::Union{Sequential, Parallel}, priors::NamedTuple, shared)
-    names = component_names(d)
-    _check_composer_prior_keys(priors, names, "$(nameof(typeof(d)))", shared)
-    parts ~ to_submodel(
-        _children_params_model(d.components, names, priors, shared), false)
-    return _rebuild(d, parts)
-end
-
-# A `Choose`: sample each named alternative through a prefixed child submodel; a
-# tag shared across alternatives is sampled once (up front) and reused, so the
-# alternative that only carries the shared parameter samples nothing locally.
-@model function _choose_params_model(d::Choose, priors::NamedTuple, shared)
-    _check_composer_prior_keys(priors, d.names, "Choose", shared)
-    alts ~ to_submodel(
-        _children_params_model(d.alternatives, d.names, priors, shared), false)
-    return Choose(d.names, alts, d.selector)
-end
-
-# A `Resolve`: sample each outcome delay through a prefixed child submodel; the
-# branch probabilities are kept fixed from the template unless a `branch_probs`
-# entry of priors is supplied (then each is sampled, prefixed under
-# `branch_probs`). Rebuild the `Resolve` with the same outcome names.
-@model function _one_of_params_model(c::Resolve, priors::NamedTuple, shared)
-    expected = (c.names..., :branch_probs)
-    have = keys(priors)
-    # `branch_probs` is optional, and a no-event outcome carries no parameters
-    # (it is never inventoried by `build_priors`/`params_table`), so it needs no
-    # prior key; every other outcome is required.
-    has_params = map(!CensoredDistributions._is_no_event, c.delays)
-    required = Tuple(c.names[i] for i in eachindex(c.names) if has_params[i])
-    _check_one_of_keys(priors, required, expected, shared)
-    delays ~ to_submodel(
-        _children_params_model(c.delays, c.names, priors, shared), false)
-    if :branch_probs in have
-        bp_priors = priors.branch_probs
-        _check_prior_keys(bp_priors, c.names, "Resolve branch_probs")
-        sub = DynamicPPL.prefix(
-            _branch_probs_model(c, bp_priors), Val(:branch_probs))
-        probs ~ to_submodel(sub, false)
-    else
-        probs = c.branch_probs
-    end
-    return Resolve(c.names, delays, Tuple(probs))
-end
-
-# A racing-hazard `Compete`: sample each racing outcome delay through a
-# prefixed child submodel and rebuild with the same outcome names. There is no
-# `branch_probs` block (the winning probability is derived from the hazards).
-@model function _hazard_one_of_params_model(
-        c::CensoredDistributions.Compete, priors::NamedTuple, shared)
-    _check_composer_prior_keys(priors, c.names, "Compete", shared)
-    delays ~ to_submodel(
-        _children_params_model(c.delays, c.names, priors, shared), false)
-    return CensoredDistributions.Compete(c.names, delays)
-end
-
-# Sample the one_of branch probabilities from their named priors. Returns the
-# tuple in outcome order; `tilde_assume!!` names each by its outcome name so the
-# chain names are `branch_probs.<outcome>`.
-@model function _branch_probs_model(c::Resolve, priors::NamedTuple)
-    ctx = __model__.context
-    probs = ntuple(length(c.names)) do i
-        name = c.names[i]
-        prior = priors[name]
-        CensoredDistributions._is_sampled_prior(prior) || return prior
-        v,
-        __varinfo__ = DynamicPPL.tilde_assume!!(
-            ctx, prior, VarName{name}(), nothing, __varinfo__)
-        v
-    end
-    return probs
-end
-
-# `branch_probs` is optional, the outcome names are required unless an outcome's
-# only params are shared (its prior is top-level, no per-outcome key): validate the
-# required outcome priors are present and no key outside `expected`/shared appears.
-function _check_one_of_keys(priors::NamedTuple, required::Tuple,
-        expected::Tuple, shared)
-    have = keys(priors)
-    missing_keys = filter(k -> !(k in have), required)
-    extra_keys = filter(k -> !(k in expected) && !(k in keys(shared)), have)
-    isempty(missing_keys) || throw(ArgumentError(
-        "Resolve is missing priors for $(collect(missing_keys)); " *
-        "expected outcomes $(collect(required))"))
-    isempty(extra_keys) || throw(ArgumentError(
-        "Resolve has unexpected prior keys $(collect(extra_keys)); " *
-        "expected $(collect(expected))"))
-    return nothing
-end
-
-# A composer node's child prior keys. A child key may be absent (its only params
-# are shared; the prior is top-level under the tag), so missing names are
-# tolerated; an unexpected key (not a child name or a shared tag) errors. With no
-# shared tags this is the exact-cover check of `_check_prior_keys`.
-function _check_composer_prior_keys(priors::NamedTuple, names::Tuple, what, shared)
-    no_shared = isempty(keys(shared))
-    if no_shared
-        return _check_prior_keys(priors, names, what)
-    end
-    allowed = (names..., keys(shared)...)
-    extra_keys = filter(k -> !(k in allowed), keys(priors))
-    isempty(extra_keys) || throw(ArgumentError(
-        "$what has unexpected prior keys $(collect(extra_keys)); " *
-        "expected $(collect(names))"))
-    return nothing
-end
-
-# Dispatch a node to its parameter submodel: a composer to its composer model, a
-# `Resolve` to its one_of model, any other (leaf) distribution to the leaf
-# model. Mirrors the `params`/`params_table` traversal dispatch. The
-# `shared` NamedTuple (tag -> sampled value tuple) is threaded so a shared-tagged
-# leaf reuses the one sampled group rather than sampling again.
-function _params_submodel(d::Union{Sequential, Parallel}, priors, shared)
-    _composer_params_model(d, priors, shared)
-end
-_params_submodel(d::Choose, priors, shared) = _choose_params_model(d, priors, shared)
-_params_submodel(c::Resolve, priors, shared) = _one_of_params_model(c, priors, shared)
-function _params_submodel(
-        c::CensoredDistributions.Compete, priors, shared)
-    return _hazard_one_of_params_model(c, priors, shared)
-end
-_params_submodel(leaf, priors, shared) = _leaf_params_model(leaf, priors, shared)
-
-# `_rebuild` (preserve composer type + names) is shared with the core `update`
-# helper; reuse it rather than redefining.
-const _rebuild = CensoredDistributions._rebuild
-
-# ---------------------------------------------------------------------------
-# Registry-driven parameter sampling (the params_table walk)
-# ---------------------------------------------------------------------------
 #
 # `composed_parameters_model(template, priors)` samples the template's free
 # parameters and returns the reconstructed distribution. Rather than a
@@ -1874,11 +1555,11 @@ end
 #
 # The cyclic analogue of `composed_parameters_model`. Each state's transition
 # node (a `Compete` / `Resolve` / leaf edge) is reconstructed from its per-state
-# priors through the same `_params_submodel` the acyclic builder uses, prefixed
-# by the state name so the chain reads `infected.recovered.shape`, etc. A lone
-# `dest => dist` edge rebuilds the leaf and re-pairs it with its destination.
-# The rebuilt nodes reassemble into a fresh `RecurrentStates`; the user scores
-# paths with `@addlogprob! logpdf(model, path)`.
+# priors through the same `composed_parameters_model` registry walk the acyclic
+# builder uses, prefixed by the state name so the chain reads
+# `infected.recovered.shape`, etc. A lone `dest => dist` edge rebuilds the leaf
+# and re-pairs it with its destination. The rebuilt nodes reassemble into a fresh
+# `RecurrentStates`; the user scores paths with `@addlogprob! logpdf(model, path)`.
 @model function recurrent_states_model(
         template::RecurrentStates, priors::NamedTuple)
     states = sort!(collect(keys(template.nodes)))
@@ -1896,24 +1577,26 @@ end
     return RecurrentStates(nodes, template.start)
 end
 
-# Rebuild one state's transition node from its priors. A one_of node routes to
-# the shared `_params_submodel`; a lone `dest => dist` edge rebuilds the leaf
-# and re-pairs it with the destination so the edge keeps its target.
+# Rebuild one state's transition node from its priors through the shared
+# `composed_parameters_model` registry walk. A `Resolve`/`Compete` node's
+# `params_table` edges are the destination names, so the sampled sites read
+# `<dest>.<param>` and, under the enclosing state prefix, `<state>.<dest>.<param>`
+# — the same names the per-composer dispatch produced.
 @model function _state_node_model(node::Union{Resolve, Compete},
         priors::NamedTuple)
-    rebuilt ~ to_submodel(_params_submodel(node, priors, NamedTuple()), false)
+    rebuilt ~ to_submodel(composed_parameters_model(node, priors), false)
     return rebuilt
 end
 
-# A lone `dest => dist` edge: its priors are nested under the destination name
-# (mirroring the per-edge keying of a one_of node), so unwrap `priors.<dest>`
-# before sampling the leaf and re-pair the rebuilt leaf with its destination.
+# A lone `dest => dist` edge: its leaf priors are nested under the destination
+# name, so reconstruct the leaf through `composed_parameters_model` prefixed by
+# that name and re-pair the rebuilt leaf with its destination.
 @model function _state_node_model(edge::Pair, priors::NamedTuple)
     haskey(priors, edge.first) || throw(ArgumentError(
         "a lone edge to $(edge.first) needs its leaf priors nested under " *
         "`$(edge.first)`; got keys $(collect(keys(priors)))"))
     sub = DynamicPPL.prefix(
-        _params_submodel(edge.second, priors[edge.first], NamedTuple()),
+        composed_parameters_model(edge.second, priors[edge.first]),
         Val(edge.first))
     leaf ~ to_submodel(sub, false)
     return edge.first => leaf
