@@ -570,7 +570,7 @@ observed delays follow `obs ~ PrimaryConditional(dists, ps)`, their distribution
 given those primaries.
 It conditions on the *same* observed records; the primary is latent either way,
 so there is no separate latent dataset.
-We fit a subsample of the shared records to keep the docs build light.
+We fit a subsample of the shared records as typically the latent approach scales less well than the marginal approach.
 """
 
 latent_n = 120
