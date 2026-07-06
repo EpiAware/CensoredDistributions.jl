@@ -339,6 +339,7 @@ sim_delays = delay_mean_draws(sim_chain)
 coef_draws(name) = vec(sim_chain[Parameter(name)])
 
 recovery = let
+    tm = flat_means(template)
     qs = [ci(sim_delays.onset_admit), ci(sim_delays.admit_death),
         ci(sim_delays.admit_discharge), ci(sim_delays.onset_notif),
         ci(coef_draws(@varname(β0))),
@@ -349,10 +350,10 @@ recovery = let
         quantity = ["onset → admission mean", "admission → death mean",
             "admission → discharge mean", "onset → notification mean",
             "β0", "β_hcw", "β_def", "β_age"],
-        truth = [round(mean(Gamma(1.2, 3.0)), digits = 2),
-            round(mean(Gamma(2.0, 3.5)), digits = 2),
-            round(mean(Gamma(1.0, 8.0)), digits = 2),
-            round(mean(Gamma(0.7, 20.0)), digits = 2),
+        truth = [round(tm.onset_admit, digits = 2),
+            round(tm.admit_death, digits = 2),
+            round(tm.admit_discharge, digits = 2),
+            round(tm.onset_notif, digits = 2),
             sim_truth.β0, sim_truth.β_hcw, sim_truth.β_def, sim_truth.β_age],
         post_mean = [round(q.mean, digits = 2) for q in qs],
         post_lower = [round(q.lower, digits = 2) for q in qs],

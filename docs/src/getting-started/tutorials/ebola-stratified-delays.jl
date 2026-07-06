@@ -479,8 +479,9 @@ from onset to test than women, the direction the vignette reports.
 ### Per-district mean delays
 
 The recovered delay for each district is read off the fitted censored leaf.
-For each posterior draw we rebuild the template with [`update`](@ref) at that
-draw, pull the baseline-district delay's inner LogNormal off the leaf with
+For each posterior draw and district we rebuild the template with
+[`update`](@ref) at that draw's intercept plus the district's random effect,
+pull the district delay's inner LogNormal off the leaf with
 [`free_leaf`](@ref CensoredDistributions.free_leaf), and take its mean, so the
 reported delay comes straight from the composed object rather than from a
 hand-built distribution.
@@ -495,13 +496,12 @@ function district_mean_draws(chain)
     deff = reduce(hcat, [g.district_effect for g in vec(gq)])
     means = Matrix{Float64}(undef, n_district, length(ic))
     for i in eachindex(ic)
-        fit = update(template, (mu = ic[i], sigma = sig[i]))
-        baseline = CensoredDistributions.free_leaf(fit)
         for d in 1:n_district
             ## Baseline-district delay: the female intercept plus this district's
             ## random effect, read through the censored leaf's LogNormal.
-            mu = ic[i] + deff[d, i]
-            means[d, i] = mean(LogNormal(mu, baseline.σ))
+            leaf = CensoredDistributions.free_leaf(
+                update(template, (mu = ic[i] + deff[d, i], sigma = sig[i])))
+            means[d, i] = mean(leaf)
         end
     end
     return means
@@ -535,7 +535,10 @@ district_fig = let df = district_means
     end
     ic = draws(real_chain, :intercept)
     sig = draws(real_chain, :sigma)
-    pooled = mean(mean(LogNormal(ic[i], sig[i])) for i in eachindex(ic))
+    pooled = mean(
+        mean(CensoredDistributions.free_leaf(
+            update(template, (mu = ic[i], sigma = sig[i]))))
+    for i in eachindex(ic))
     vlines!(ax, [pooled]; color = :grey, linestyle = :dash)
     f
 end
