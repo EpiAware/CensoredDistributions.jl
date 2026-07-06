@@ -389,6 +389,42 @@ end
     end
 end
 
+@testitem "latent truncated equivalence guards the marginal Z" begin
+    using Distributions
+    using CensoredDistributions: PrimaryConditional
+
+    # E_p[latent] over the primary reproduces the analytic
+    # double_interval_censored marginal to the numerical floor even for a
+    # sensitive truncation window: the lower bound sits near the delay mode, so a
+    # one-day primary shift swings the per-primary truncation mass materially.
+    # This locks in the marginal (primary-integrated) truncation constant; a
+    # per-primary Z with the plain prior would bias this by ~1e-3 and up to ~21%
+    # for coarse primary windows (see PR #832), far above the floor here.
+    function integrate_joint(marg, pe, y; n = 200_000)
+        ld = latent(marg)
+        lo, hi = minimum(pe), maximum(pe)
+        ps = range(lo, hi; length = n)
+        vals = map(
+            p -> pdf(pe, p) * exp(logpdf(PrimaryConditional(ld, p), y)), ps)
+        return sum((vals[1:(end - 1)] .+ vals[2:end]) ./ 2) * step(ps)
+    end
+
+    delay = LogNormal(1.0, 0.5)
+    for (pe,
+        lower,
+        upper,
+        ys) in [
+        (Uniform(0, 1), 2.0, 6.0, 0.0:1.0:6.0),
+        (Uniform(0, 3), 2.0, 8.0, 0.0:1.0:8.0)
+    ]
+        marg = double_interval_censored(delay; primary_event = pe,
+            lower = lower, upper = upper, interval = 1)
+        err = maximum(abs(integrate_joint(marg, pe, y) - pdf(marg, y))
+        for y in ys)
+        @test err < 1e-9
+    end
+end
+
 @testitem "latent reaches through interval/truncation wrappers" begin
     using Distributions
     using CensoredDistributions: get_primary_event, get_dist, PrimaryConditional

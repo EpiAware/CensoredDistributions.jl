@@ -64,6 +64,13 @@ _insupport(::Nothing, d::_SecondaryConditional, y::Real) = d.lower <= y <= d.upp
 # not a per-`p` truncation). An untruncated pipeline (both bounds infinite) has
 # Z = 1, short-circuited to skip building the primary-censored cdf; otherwise Z is
 # the primary-censored mass between the bounds.
+#
+# Z here is the marginal (primary-integrated) truncation constant. A per-`p`
+# Z = F_D(upper - p) - F_D(lower - p) would only be same-in-expectation under a
+# selection-reweighted primary prior g(p) * Z_p / Z_marg; with the plain prior
+# the sampler uses, marginal Z is the correct, equivalent choice (per-`p` Z
+# biases the primary-marginalised density by ~1e-3, up to ~21% for coarse
+# primary windows). See PR #832.
 function _secondary_logZ(d::_SecondaryConditional)
     (isinf(d.lower) && isinf(d.upper)) && return zero(float(d.upper))
     pc = primary_censored(d.delay, d.primary_event)
