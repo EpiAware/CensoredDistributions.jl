@@ -17,9 +17,9 @@ The model has five parts, each mapped onto a CensoredDistributions tool:
 1. An **expectation process**: a log-normal random walk for the expected final
    counts ``\lambda_t`` over reference date ``t``.
 2. A **branched reporting delay**: infection to symptom onset, then a branch from
-   onset to a reported **case** and onset to a reported **death**, built as one
-   shared-origin [`compose`](@ref) stack of
-   [`double_interval_censored`](@ref) delays.
+   onset to a reported **case** and onset to a reported **death**, each a shared
+   incubation [`convolved`](@ref) with its onset-to-report
+   [`double_interval_censored`](@ref) tail.
 3. A **discrete-time reporting hazard** with **reference-date** and
    **report-date** effects: each branch's composed delay has its hazard modified
    by a reference-date random walk (slow drift in reporting speed) and a
@@ -43,7 +43,8 @@ CensoredDistributions.jl](@ref getting-started), the composer reference
 ([Composing censored distributions](@ref composer-toolkit)) and the renewal
 observation layer ([An Rt renewal model with delay
 convolution](@ref)).
-We reuse the branched [`compose`](@ref) stack from the renewal tutorial and add
+We reuse the branched reporting delay of the renewal tutorial, a shared
+incubation [`convolved`](@ref) with each branch's onset-to-report tail, and add
 the discrete-time hazard layer on top.
 
 ### The epinowcast model
@@ -96,12 +97,9 @@ md"""
 
 Both streams share the infection-to-onset incubation period, then branch: onset
 to case report and onset to death.
-We build the whole delay as one shared-origin [`compose`](@ref) stack of
-[`double_interval_censored`](@ref) delays, exactly as in the renewal tutorial.
-[`double_interval_censored`](@ref) applies primary-event censoring, truncation and daily
-interval censoring in one call, so each branch is a daily-resolution delay.
-The hazard layer below modifies each branch's composed delay directly, so this
-stack is the model's actual input rather than a PMF read off it once.
+[`double_interval_censored`](@ref) applies primary-event censoring, truncation
+and daily interval censoring in one call, so each leaf is a daily-resolution
+delay.
 """
 
 incubation = double_interval_censored(
@@ -113,13 +111,12 @@ onset_case = double_interval_censored(
 onset_death = double_interval_censored(
     Gamma(3.0, 4.0); upper = 30.0, interval = 1.0)
 
-delay_stack = compose(incubation; case = onset_case, death = onset_death);
-
 md"""
 The maximum reporting delay caps the number of delay bins we track per reference
 date.
-We keep each branch's total delay as a single [`Convolved`](@ref CensoredDistributions.Convolved) chain, the
-incubation chained with the branch tail, with [`convolved`](@ref).
+Each stream's total delay is the shared incubation chained with its branch tail,
+kept as a single [`Convolved`](@ref CensoredDistributions.Convolved) chain with
+[`convolved`](@ref).
 This composed two-delay distribution is the hazard layer's input directly: the
 reporting hazard modifies the composed delay's hazard per reference date (see
 [The hazard effects](@ref)), so the composition is load-bearing rather than a
@@ -627,10 +624,11 @@ md"""
 ## Summary
 
 - The model is the epinowcast nowcasting model assembled from
-  CensoredDistributions tools: a log-normal random-walk expectation, a shared-
-  origin branched [`compose`](@ref) stack of [`double_interval_censored`](@ref) delays for
-  the case and death streams, a discrete-time reporting hazard with reference-
-  date and report-date effects, and real-time right-truncation.
+  CensoredDistributions tools: a log-normal random-walk expectation, a shared
+  incubation [`convolved`](@ref) with each branch's onset-to-report
+  [`double_interval_censored`](@ref) tail for the case and death streams, a
+  discrete-time reporting hazard with reference-date and report-date effects, and
+  real-time right-truncation.
 - The hazard layer is the one new piece: [`reference_report_matrix`](@ref) turns
   a baseline delay PMF into a per-reference-date hazard, reshapes it by a
   reference-date random walk and a report-date day-of-week term, and forms the
