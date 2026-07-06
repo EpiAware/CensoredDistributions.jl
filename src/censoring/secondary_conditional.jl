@@ -133,6 +133,40 @@ function _secondary_logpdf(::Nothing, d::_SecondaryConditional, y::Real)
     return logpdf(d.delay, y - d.p) - _secondary_logZ(d)
 end
 
+# --- Per-`p` truncation variant (design experiment) -----------------------
+# An alternative truncation normaliser proposed as the "forward" per-`p`
+# constant: Z_p(p) = F_D(upper - p) - F_D(lower - p), the delay-cdf mass of the
+# shifted window for THIS primary `p`, rather than the primary-integrated
+# marginal `_secondary_logZ` shared across `p`. Kept AD-safe with `_delay_cdf`
+# (same below-support guard as the marginal path). Provided so both normalisers
+# can be scored side by side (see `test/experiments/latent_truncation_z.jl`);
+# the default pipeline logpdf still uses the marginal Z.
+function _secondary_logZ_perp(d::_SecondaryConditional)
+    (isinf(d.lower) && isinf(d.upper)) && return zero(float(d.upper))
+    hi = isinf(d.upper) ? one(float(d.upper)) : _delay_cdf(d.delay, d.upper - d.p)
+    lo = isinf(d.lower) ? zero(float(d.lower)) : _delay_cdf(d.delay, d.lower - d.p)
+    return log(hi - lo)
+end
+
+# Per-`p` counterpart of `_secondary_logpdf`: identical numerator (the interval
+# mass in delay space, or the shifted continuous density) but normalised by the
+# per-`p` Z_p rather than the marginal Z.
+function _secondary_logpdf_perp(d::_SecondaryConditional, y::Real)
+    return _secondary_logpdf_perp(d.interval, d, y)
+end
+function _secondary_logpdf_perp(interval, d::_SecondaryConditional, y::Real)
+    lo, hi = _interval_bounds(interval, y)
+    lo = max(lo, d.lower, d.p) - d.p
+    hi = min(hi, d.upper) - d.p
+    hi > lo || return oftype(float(y), -Inf)
+    mass = _delay_cdf(d.delay, hi) - _delay_cdf(d.delay, lo)
+    return log(max(mass, zero(mass))) - _secondary_logZ_perp(d)
+end
+function _secondary_logpdf_perp(::Nothing, d::_SecondaryConditional, y::Real)
+    (d.lower <= y <= d.upper) || return oftype(float(y), -Inf)
+    return logpdf(d.delay, y - d.p) - _secondary_logZ_perp(d)
+end
+
 # The half-open interval `[lo, hi)` of the absolute grid containing `y`, from the
 # pipeline's secondary interval spec (a regular width or arbitrary boundaries).
 function _interval_bounds(width::Real, y::Real)
