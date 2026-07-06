@@ -607,7 +607,7 @@ subsampled record.
 length(latent_records.obs)
 
 md"""
-Printing the full summary would dump every one of those primaries, so we index
+Printing the full summary would show every one of those primaries, so we index
 the chain down to the two delay parameters and pass that sub-chain to the
 built-in `summarystats`, which reports the posterior mean, standard deviation
 and the usual MCMC diagnostics (`mcse`, `ess`, `rhat`):
