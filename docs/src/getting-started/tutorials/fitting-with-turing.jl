@@ -594,7 +594,7 @@ size) to suppress them while still recovering the delay parameters.
 
 t_latent = @elapsed latent_fit = sample(
     latent_mdl,
-    NUTS(0.9; adtype = AutoMooncake(; config = nothing)), 250;
+    NUTS(0.9; adtype = AutoMooncake(; config = nothing)), 250, 4;
     chain_type = VNChain, progress = false
 );
 
@@ -623,9 +623,6 @@ summarystats(
 md"""
 The pairplot shows the true `mu` and `sigma` inside the posterior, now with the
 primary sampled per record rather than integrated out.
-The records mix censoring resolutions, and the finely (daily) censored records
-carry most of the delay-spread information, so recovery is approximate at this
-docs scale.
 """
 
 plot_fit_with_truth(
@@ -637,9 +634,8 @@ md"""
 ### Runtime: marginal versus latent
 
 This is an indicative comparison, not a like-for-like benchmark: the marginal
-fit draws 1000 samples over 4 chains while the latent fit draws 250 in a single
-chain.
-Even so, the latent form's per-record primaries make each gradient markedly more
+fit draws 1000 samples over 4 chains while the latent fit draws 250
+Even so, the latent form's per-record primaries make each gradient more
 expensive:
 """
 
