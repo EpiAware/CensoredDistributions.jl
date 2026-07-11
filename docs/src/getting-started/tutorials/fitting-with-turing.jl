@@ -595,7 +595,7 @@ size) to suppress them while still recovering the delay parameters.
 
 t_latent = @elapsed latent_fit = sample(
     latent_mdl,
-    NUTS(0.9; adtype = AutoMooncake(; config = nothing)), 250, 4;
+    NUTS(0.9; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 250, 4;
     chain_type = VNChain, progress = false
 );
 
