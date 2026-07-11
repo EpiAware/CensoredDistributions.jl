@@ -27,5 +27,6 @@ pages = [
     "Getting started" => getting_started_pages,
     "Modules" => module_pages,
     "Development" => dev_pages,
+    "Benchmarks" => "benchmarks.md",
     "Release notes" => "release-notes.md"
 ]

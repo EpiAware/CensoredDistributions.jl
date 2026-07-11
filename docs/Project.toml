@@ -17,6 +17,7 @@ DocumenterCitations = "daee34ce-89f3-4625-b898-19384cb65244"
 DocumenterVitepress = "4710194d-e776-4893-9690-8d956a29c365"
 DynamicPPL = "366bfd00-2699-11ea-058f-f148b4cae6d8"
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 FlexiChains = "4a37a8b9-6e57-4b92-8664-298d46e639f7"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 Integrals = "de52edbc-65ea-441a-8357-d3a637375a31"
@@ -26,6 +27,7 @@ Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
 Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"
 OptimizationOptimJL = "36348300-93cb-4f02-beb5-3c3902f8871e"
 PairPlots = "43a3c2be-4208-490b-832a-a21dcd55d7da"
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
@@ -37,3 +39,7 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 [sources]
 ADFixtures = {path = "../test/ADFixtures"}
 CensoredDistributions = {path = ".."}
+# Until EpiAwarePackageTools is registered, it is pinned by git so the
+# env resolves out of the box. Switch to a local path to develop the
+# kit alongside this package.
+EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl", rev = "main"}

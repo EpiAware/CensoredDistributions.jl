@@ -1,0 +1,132 @@
+name: Benchmark history
+
+# Persistent benchmark timeline. The PR-comparison workflow
+# (`benchmark.yaml`) runs on `pull_request` and only posts a base-vs-head
+# comment; it never records history. This workflow instead runs on pushes
+# to `main` and on tags, benchmarking the last few tagged releases plus
+# HEAD so a timeline accumulates. Triggers are disjoint from
+# `benchmark.yaml` (push/tags here vs pull_request there), so the two
+# never run on the same event.
+#
+# Content mirrors EpiAwarePackageTools.jl's managed
+# `benchmark-history.yaml` template (the kit was itself modelled on this
+# package's benchmark setup); kept as a plain file here rather than
+# pulled in via `scaffold_update` since this repo's docs build stays
+# bespoke (#202) rather than adopting the kit's managed `docs/make.jl`.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+# `contents: write` lets JamesIves/github-pages-deploy-action push the
+# generated plots to the `benchmarks` branch.
+permissions:
+  contents: write
+
+# Serialise history deploys so concurrent pushes/tags don't race on the
+# `benchmarks` branch. Not keyed on ref so a tag push and a main push
+# queue rather than clobber. cancel-in-progress: false keeps every
+# recorded point.
+concurrency:
+  group: benchmark-history-deploy
+  cancel-in-progress: false
+
+jobs:
+  history:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 so all tags resolve; benchpkg checks out each
+      # historical rev from this working tree.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+
+      - uses: julia-actions/cache@v3
+
+      # benchmark/Project.toml declares ADFixtures as a path source at
+      # `../test/ADFixtures`. benchpkg copies `benchmark/Project.toml`
+      # into a tempdir under `/tmp/` and Pkg resolves the relative source
+      # to `/tmp/test/ADFixtures`. Stage it there so resolution succeeds
+      # (same workaround as `benchmark.yaml`).
+      - name: Stage ADFixtures for AirspeedVelocity
+        run: |
+          mkdir -p /tmp/test
+          cp -r test/ADFixtures /tmp/test/ADFixtures
+
+      - name: Install AirspeedVelocity
+        run: |
+          julia -e 'ENV["JULIA_PKG_PRECOMPILE_AUTO"]=0;
+                    import Pkg; Pkg.add("AirspeedVelocity");
+                    Pkg.build("AirspeedVelocity")'
+          echo "$HOME/.julia/bin" >> "$GITHUB_PATH"
+
+      # Last 5 tags (newest first) plus the pushed commit. On a tag push
+      # GITHUB_SHA already points at the tagged commit, so HEAD is the
+      # newest point on the timeline either way.
+      - name: Collect revs (last 5 tags + HEAD)
+        id: revs
+        run: |
+          TAGS=$(git tag --sort=-v:refname | head -5 | paste -sd, -)
+          if [ -n "$TAGS" ]; then
+            echo "revs=${TAGS},${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          else
+            echo "revs=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # benchpkg benchmarks each rev against benchmark/benchmarks.jl
+      # (the default script benchpkg discovers in benchmark/). --bench-on
+      # pins the benchmark *script* to HEAD so older revs are measured
+      # with the current suite definition. --tune re-tunes parameters per
+      # run to quieten run-to-run noise on shared runners.
+      - name: Run benchmarks
+        run: |
+          mkdir -p results
+          benchpkg CensoredDistributions \
+            --rev="${{ steps.revs.outputs.revs }}" \
+            --bench-on="${{ github.sha }}" \
+            --output-dir=results \
+            --tune
+
+      # benchpkgplot auto-flattens the BenchmarkGroup into one PNG per
+      # leaf benchmark (SVG is unsupported). benchpkgtable emits a
+      # markdown ratio summary linked from the index.
+      - name: Plot timeline and table
+        run: |
+          mkdir -p public
+          benchpkgplot CensoredDistributions \
+            --rev="${{ steps.revs.outputs.revs }}" \
+            --npart=20 --format=png \
+            --input-dir=results --output-dir=public
+          benchpkgtable CensoredDistributions \
+            --rev="${{ steps.revs.outputs.revs }}" \
+            --input-dir=results --ratio --mode time,memory \
+            > public/table.md
+
+      # Minimal index so the published folder lists the generated plots.
+      - name: Write index page
+        run: |
+          {
+            echo "# CensoredDistributions.jl benchmark history"
+            echo
+            echo "Revisions: ${{ steps.revs.outputs.revs }}"
+            echo
+            echo "See \`table.md\` for the ratio summary and the PNG"
+            echo "files in this folder for per-benchmark timelines."
+          } > public/README.md
+
+      # Deploy to a dedicated `benchmarks` branch under `history/`. This
+      # is deliberately NOT gh-pages: Documenter force-pushes gh-pages on
+      # every docs build, which would clobber anything written there. A
+      # separate branch keeps the two deploys fully independent.
+      - name: Deploy to benchmarks branch
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: benchmarks
+          folder: public
+          target-folder: history
+          clean: true

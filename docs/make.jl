@@ -5,6 +5,10 @@ using DocumenterVitepress
 using Documenter
 using DocumenterCitations
 using CensoredDistributions
+# Only the benchmark-page generator is used from the kit (`build_docs`
+# itself stays unadopted here — this repo's docs build predates it and
+# stays bespoke, #202); everything else in this file is unchanged.
+using EpiAwarePackageTools: DocsBuild
 
 # Check for skip notebooks option
 skip_notebooks = "--skip-notebooks" in ARGS ||
@@ -109,6 +113,22 @@ else
     println("NEWS.md not found in project root")
 end
 
+# Generate benchmarks.md: an overall summary table + combined trend plot
+# (kit-side, #202) rendered from the timeline `benchmark-history.yaml`
+# publishes to the `benchmarks` branch, plus the package-owned narrative
+# (`docs/benchmarks.md`) and skipped/broken-benchmarks notes
+# (`docs/benchmarks_notes.md`). Returns linkcheck-ignore regexes for the
+# history URLs, which do not resolve until the first `benchmark-history`
+# run has published the `benchmarks` branch.
+benchmark_linkcheck = DocsBuild.build_benchmark_page(;
+    dest = joinpath(@__DIR__, "src", "benchmarks.md"),
+    repo = "EpiAware/CensoredDistributions.jl",
+    package = "CensoredDistributions",
+    prose_file = joinpath(@__DIR__, "benchmarks.md"),
+    project_root = dirname(@__DIR__),
+    notes_file = joinpath(@__DIR__, "benchmarks_notes.md")
+)
+
 DocMeta.setdocmeta!(CensoredDistributions, :DocTestSetup,
     :(using CensoredDistributions); recursive = true)
 
@@ -121,6 +141,7 @@ bib = CitationBibliography(
 makedocs(; sitename = "CensoredDistributions.jl",
     authors = "Sam Abbott, and contributors",
     clean = true, doctest = false, linkcheck = true,
+    linkcheck_ignore = benchmark_linkcheck,
     warnonly = [
         :docs_block, :missing_docs,
         :autodocs_block
