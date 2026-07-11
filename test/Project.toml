@@ -2,6 +2,7 @@
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 CensoredDistributions = "b2eeebe4-5992-4301-9193-7ebc9f62c855"
+ConvolvedDistributions = "f5b942c9-bc5b-4664-8486-7f531bb06742"
 Coverage = "a2441757-f6aa-5fb2-8edb-039e3f45d037"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
@@ -23,3 +24,7 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [sources]
 CensoredDistributions = {path = ".."}
+# ConvolvedDistributions is not yet registered (registration in flight),
+# so the extension's weakdep resolves from git main until it lands in the
+# General registry. See EpiAware/ConvolvedDistributions.jl#31.
+ConvolvedDistributions = {url = "https://github.com/EpiAware/ConvolvedDistributions.jl", rev = "main"}
