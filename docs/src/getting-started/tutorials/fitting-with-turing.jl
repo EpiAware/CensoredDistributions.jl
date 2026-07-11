@@ -570,7 +570,8 @@ observed delays follow `obs ~ PrimaryConditional(dists, ps)`, their distribution
 given those primaries.
 It conditions on the *same* observed records; the primary is latent either way,
 so there is no separate latent dataset.
-We fit a subsample of the shared records as typically the latent approach scales less well than the marginal approach.
+We fit a subsample of the shared records as typically the latent approach
+scales less well than the marginal approach.
 """
 
 latent_n = 120
@@ -634,7 +635,7 @@ md"""
 ### Runtime: marginal versus latent
 
 This is an indicative comparison, not a like-for-like benchmark: the marginal
-fit draws 1000 samples over 4 chains while the latent fit draws 250
+fit draws 1000 samples over 4 chains while the latent fit draws 250.
 Even so, the latent form's per-record primaries make each gradient more
 expensive:
 """
