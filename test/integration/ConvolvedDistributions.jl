@@ -69,22 +69,60 @@ end
     @test convolve_series(ic, series) ≈ convolve_series(pmf, series)
 end
 
-@testitem "convolve_series extension rejects non-unit grids" begin
+@testitem "convolve_series extension: weekly (w = 7) grid masses" begin
+    using CensoredDistributions
+    using ConvolvedDistributions: convolve_series
+    using Distributions
+
+    # The grid width comes from the censored distribution's own interval, so
+    # a weekly (interval = 7) delay discretises onto the 7-day grid. The
+    # lag-k mass is the interval mass on [7k, 7(k + 1)), i.e.
+    # cdf(inner, 7(k + 1)) - cdf(inner, 7k) of the inner (truncated,
+    # primary-censored) distribution.
+    w = 7
+    dic = double_interval_censored(
+        LogNormal(2.5, 0.75); upper = 70, interval = w)
+    inner = CensoredDistributions.get_dist(dic)
+    n = 8
+
+    ref_pmf = [cdf(inner, w * (k + 1)) - cdf(inner, w * k) for k in 0:(n - 1)]
+    # The extension reads pdf(dic, w * k) as the lag-k mass on [7k, 7(k+1));
+    # it must equal the inner CDF difference on the weekly grid.
+    for k in 0:(n - 1)
+        @test pdf(dic, w * k) ≈ ref_pmf[k + 1]
+    end
+
+    # The series is read on the same weekly grid: convolve_series through the
+    # extension equals the PMF-vector method fed the hand-computed weekly
+    # masses.
+    series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0, 1.0]
+    @test convolve_series(dic, series) ≈ convolve_series(ref_pmf, series)
+end
+
+@testitem "convolve_series extension: bare weekly interval_censored" begin
+    using CensoredDistributions
+    using ConvolvedDistributions: convolve_series
+    using Distributions
+
+    # A bare interval_censored(dist, 7) discretises onto the same weekly grid
+    # and is accepted; the width is read off the distribution, not assumed.
+    w = 7
+    ic = interval_censored(Normal(35, 8), w)
+    series = [1.0, 2.0, 3.0, 4.0, 5.0]
+    n = length(series)
+    pmf = [pdf(ic, w * k) for k in 0:(n - 1)]
+    @test convolve_series(ic, series) ≈ convolve_series(pmf, series)
+end
+
+@testitem "convolve_series extension rejects irregular boundaries" begin
     using CensoredDistributions
     using ConvolvedDistributions: convolve_series
     using Distributions
 
     series = [1.0, 2.0, 3.0]
 
-    # Non-unit regular interval.
-    ic_wide = interval_censored(Normal(5, 2), 2.0)
-    @test_throws ArgumentError convolve_series(ic_wide, series)
-
-    # double_interval_censored with a non-unit interval is the same reject.
-    dic_wide = double_interval_censored(LogNormal(1.5, 0.75); interval = 2)
-    @test_throws ArgumentError convolve_series(dic_wide, series)
-
-    # Arbitrary interval boundaries.
+    # Arbitrary (irregular) interval boundaries have no single grid step for
+    # the causal convolution to shift by, so they are rejected.
     ic_arb = interval_censored(Normal(5, 2), [0.0, 1.0, 3.0, 6.0])
     @test_throws ArgumentError convolve_series(ic_arb, series)
 end
