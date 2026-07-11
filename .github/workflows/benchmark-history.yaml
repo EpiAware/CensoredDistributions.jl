@@ -52,7 +52,10 @@ jobs:
       # `../test/ADFixtures`. benchpkg copies `benchmark/Project.toml`
       # into a tempdir under `/tmp/` and Pkg resolves the relative source
       # to `/tmp/test/ADFixtures`. Stage it there so resolution succeeds
-      # (same workaround as `benchmark.yaml`).
+      # (this workflow is the only one in this repo still using
+      # benchpkg/AirspeedVelocity for a full historical-revision sweep;
+      # the PR-comparison `benchmark.yaml` runs a different per-revision
+      # job that resolves the package directly and needs no such staging).
       - name: Stage ADFixtures for AirspeedVelocity
         run: |
           mkdir -p /tmp/test
