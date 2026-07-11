@@ -58,6 +58,11 @@ end
     # The no-rng count form batches too, and a seeded rng is reproducible.
     @test length(rand(ld, 4)) == 4
     @test rand(MersenneTwister(7), ld, 3) == rand(MersenneTwister(7), ld, 3)
+
+    # A non-`Int` `Integer` count (e.g. `Int32`) dispatches to the generic
+    # `::Integer` batch methods rather than the `::Int` disambiguator.
+    @test length(rand(rng, ld, Int32(3))) == 3
+    @test length(rand(ld, Int32(2))) == 2
 end
 
 @testitem "marginal is the inverse of latent (idempotent)" begin
