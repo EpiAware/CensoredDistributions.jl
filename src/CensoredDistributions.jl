@@ -31,6 +31,15 @@ using Optimization: OptimizationFunction, OptimizationProblem, solve, ReturnCode
 
 using OptimizationOptimJL: NelderMead
 
+# The composer-leaf hooks CD extends so a censored delay behaves like any other
+# leaf of a ComposedDistributions tree (see `censoring/composed_leaves.jl`).
+# `_shared_tag` and `_uncertain_specs` are ComposedDistributions internals that
+# a leaf-wrapper package must extend: without them a tied delay is estimated
+# twice and an attached prior is silently dropped. Tracked upstream for
+# promotion to the public surface.
+import ComposedDistributions: free_leaf, rewrap_leaf, _shared_tag,
+                              _uncertain_specs
+
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
 
@@ -59,6 +68,7 @@ include("censoring/primarycensored_cdf.jl")
 include("censoring/PrimaryCensored.jl")
 include("censoring/IntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
+include("censoring/composed_leaves.jl")
 
 include("distributions/ExponentiallyTilted.jl")
 include("distributions/Convolved.jl")
