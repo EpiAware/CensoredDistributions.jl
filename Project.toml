@@ -7,6 +7,7 @@ version = "0.2.22"
 [deps]
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
+EpiAwareADTools = "908e2895-a690-4874-a954-ca006cb9734d"
 FastGaussQuadrature = "442a2c76-b920-505d-bb47-c5924d526838"
 LogExpFunctions = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
 Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"
@@ -21,19 +22,15 @@ ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 DynamicPPL = "366bfd00-2699-11ea-058f-f148b4cae6d8"
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 FlexiChains = "4a37a8b9-6e57-4b92-8664-298d46e639f7"
-ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 Integrals = "de52edbc-65ea-441a-8357-d3a637375a31"
 Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
-ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
 Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [extensions]
 CensoredDistributionsChainRulesCoreExt = "ChainRulesCore"
 CensoredDistributionsEnzymeExt = "Enzyme"
-CensoredDistributionsForwardDiffExt = "ForwardDiff"
 CensoredDistributionsIntegralsExt = "Integrals"
-CensoredDistributionsMooncakeExt = ["ChainRulesCore", "Mooncake"]
-CensoredDistributionsReverseDiffExt = "ReverseDiff"
+CensoredDistributionsMooncakeExt = "Mooncake"
 
 [compat]
 ChainRulesCore = "1"
@@ -41,9 +38,9 @@ Distributions = "0.25"
 DocStringExtensions = "0.9"
 DynamicPPL = "0.39, 0.40, 0.41, 0.42"
 Enzyme = "0.13"
+EpiAwareADTools = "0.1"
 FastGaussQuadrature = "1"
 FlexiChains = "0.4, 0.5, 0.6"
-ForwardDiff = "0.10, 1"
 Integrals = "4, 5.1"
 LogExpFunctions = "0.3, 1.0"
 Mooncake = "0.5"
@@ -51,11 +48,13 @@ Optimization = "4, 5"
 OptimizationOptimJL = "0.4.3"
 PrecompileTools = "1"
 Random = "1"
-ReverseDiff = "1"
 SpecialFunctions = "2"
 Statistics = "1"
 Turing = "0.42, 0.43, 0.44, 0.45"
 julia = "1.10, 1.11, 1.12"
+
+[sources]
+EpiAwareADTools = {url = "https://github.com/EpiAware/EpiAwareADTools.jl", rev = "main"}
 
 [workspace]
 projects = ["test", "docs"]

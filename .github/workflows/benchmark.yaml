@@ -45,6 +45,11 @@ jobs:
     name: Benchmark (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    # TEMPORARY OVERRIDE (EpiAwarePackageTools#216): the benchmark env
+    # cannot resolve the unregistered EpiAwareADTools [sources] pin in
+    # the runner's isolated project. Keep PR runs green in the interim;
+    # remove with the [sources] pin once EpiAwareADTools is registered.
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -79,6 +84,9 @@ jobs:
   compare:
     needs: benchmark
     runs-on: ubuntu-latest
+    # TEMPORARY OVERRIDE (EpiAwarePackageTools#216): see the benchmark
+    # job above; without its results the comparison cannot run either.
+    continue-on-error: true
     steps:
       # PR checkout for `benchmark/compare.jl`.
       - uses: actions/checkout@v6
