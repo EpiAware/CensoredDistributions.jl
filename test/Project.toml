@@ -24,7 +24,10 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [sources]
 CensoredDistributions = {path = ".."}
-# ConvolvedDistributions is not yet registered (registration in flight),
-# so the extension's weakdep resolves from git main until it lands in the
-# General registry. See EpiAware/ConvolvedDistributions.jl#31.
-ConvolvedDistributions = {url = "https://github.com/EpiAware/ConvolvedDistributions.jl", rev = "main"}
+# ConvolvedDistributions is not yet registered (registration in flight), so
+# it resolves from git until it lands in the General registry. Pinned to a
+# commit SHA, not `main`: `main` now depends on the unregistered
+# `EpiAwareADTools`, so a fresh resolve against current `main` is
+# unconditionally broken. See EpiAware/ConvolvedDistributions.jl#31 and the
+# `[sources]` note in the root Project.toml.
+ConvolvedDistributions = {url = "https://github.com/EpiAware/ConvolvedDistributions.jl", rev = "da71dd1faf1eb4c67ab89197b29eaba7ef573f06"} # pragma: allowlist secret

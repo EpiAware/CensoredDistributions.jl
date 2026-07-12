@@ -1,5 +1,3 @@
-module CensoredDistributionsConvolvedDistributionsExt
-
 # Bridge CensoredDistributions' explicit censoring schemes into
 # ConvolvedDistributions' timeseries convolution.
 #
@@ -8,9 +6,9 @@ module CensoredDistributionsConvolvedDistributionsExt
 # before it can be convolved with a series sampled on that same grid. The
 # statistically correct discretisation for interval-binned primary events is
 # double interval censoring, which is exactly what
-# `double_interval_censored(dist; interval = w)` builds. This extension lets
-# such a censoring object be passed straight to `convolve_series`: it reads
-# the discretised delay PMF off the censoring scheme and forwards to the
+# `double_interval_censored(dist; interval = w)` builds. These methods let
+# such a censoring object be passed straight to `convolve_series`: they read
+# the discretised delay PMF off the censoring scheme and forward to the
 # stable PMF-vector method `convolve_series(pmf, series)`.
 #
 # The grid width is NOT assumed to be 1. It comes from the censored
@@ -23,14 +21,9 @@ module CensoredDistributionsConvolvedDistributionsExt
 # The methods dispatch ONLY on CensoredDistributions-owned types
 # (`IntervalCensored`, `PrimaryCensored`), never on plain Distributions
 # types, so there is no type piracy: `convolve_series` is owned by
-# ConvolvedDistributions and the dispatched argument is owned by
-# CensoredDistributions, the two packages that trigger this extension.
+# ConvolvedDistributions (a hard dependency; see the `sources` note in
+# Project.toml) and the dispatched argument is owned by CensoredDistributions.
 # See https://github.com/EpiAware/ConvolvedDistributions.jl/issues/31.
-
-import ConvolvedDistributions: convolve_series
-import CensoredDistributions: IntervalCensored, PrimaryCensored,
-                              is_regular_intervals, interval_width
-using Distributions: pdf
 
 # The discretised delay PMF at grid lags `0..(n - 1)` for a regular
 # interval-censored distribution of width `w = interval_width(d)`.
@@ -136,6 +129,4 @@ function convolve_series(
         "not bin the delay onto a grid; add a secondary interval censoring " *
         "step first, e.g. double_interval_censored(dist; interval = w) or " *
         "interval_censored(primary_censored(dist, primary_event), w)."))
-end
-
 end

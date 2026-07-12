@@ -31,6 +31,13 @@ using Optimization: OptimizationFunction, OptimizationProblem, solve, ReturnCode
 
 using OptimizationOptimJL: NelderMead
 
+# Hard dep (dev, unregistered; see the `[sources]` note in Project.toml):
+# `censoring/convolve_series.jl` extends `convolve_series` for
+# CensoredDistributions' own censoring wrappers (`IntervalCensored`,
+# `PrimaryCensored`) so a discretised delay can be passed straight to
+# ConvolvedDistributions' timeseries convolution.
+import ConvolvedDistributions: convolve_series
+
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
 
@@ -59,6 +66,7 @@ include("censoring/primarycensored_cdf.jl")
 include("censoring/PrimaryCensored.jl")
 include("censoring/IntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
+include("censoring/convolve_series.jl")
 
 include("distributions/ExponentiallyTilted.jl")
 include("distributions/Convolved.jl")

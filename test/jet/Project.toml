@@ -1,7 +1,12 @@
 [deps]
 CensoredDistributions = "b2eeebe4-5992-4301-9193-7ebc9f62c855"
+ConvolvedDistributions = "f5b942c9-bc5b-4664-8486-7f531bb06742"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
 
 [sources]
 CensoredDistributions = {path = "../.."}
+# ConvolvedDistributions is a hard dep of CensoredDistributions (not yet
+# registered); pinned to a commit SHA, not `main` -- see the root
+# Project.toml `sources` note.
+ConvolvedDistributions = {url = "https://github.com/EpiAware/ConvolvedDistributions.jl", rev = "da71dd1faf1eb4c67ab89197b29eaba7ef573f06"} # pragma: allowlist secret

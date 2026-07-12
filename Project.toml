@@ -5,6 +5,7 @@ authors = ["Sam Abbott", "Damon Bayer", "Sam Brand", "Michael DeWitt", "Joseph L
 version = "0.2.22"
 
 [deps]
+ConvolvedDistributions = "f5b942c9-bc5b-4664-8486-7f531bb06742"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 FastGaussQuadrature = "442a2c76-b920-505d-bb47-c5924d526838"
@@ -18,7 +19,6 @@ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [weakdeps]
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
-ConvolvedDistributions = "f5b942c9-bc5b-4664-8486-7f531bb06742"
 DynamicPPL = "366bfd00-2699-11ea-058f-f148b4cae6d8"
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 FlexiChains = "4a37a8b9-6e57-4b92-8664-298d46e639f7"
@@ -30,7 +30,6 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [extensions]
 CensoredDistributionsChainRulesCoreExt = "ChainRulesCore"
-CensoredDistributionsConvolvedDistributionsExt = "ConvolvedDistributions"
 CensoredDistributionsEnzymeExt = "Enzyme"
 CensoredDistributionsForwardDiffExt = "ForwardDiff"
 CensoredDistributionsIntegralsExt = "Integrals"
@@ -39,7 +38,7 @@ CensoredDistributionsReverseDiffExt = "ReverseDiff"
 
 [compat]
 ChainRulesCore = "1"
-ConvolvedDistributions = "0.1, 0.2"
+ConvolvedDistributions = "0.2"
 Distributions = "0.25"
 DocStringExtensions = "0.9"
 DynamicPPL = "0.39, 0.40, 0.41, 0.42"
@@ -59,6 +58,17 @@ SpecialFunctions = "2"
 Statistics = "1"
 Turing = "0.42, 0.43, 0.44, 0.45"
 julia = "1.10, 1.11, 1.12"
+
+# Dev (unregistered) git source; CD is not releasable until ConvolvedDistributions
+# registers. Pinned to a commit SHA, not `main`: `main` now depends on
+# `EpiAwareADTools`, which has no registered versions anywhere, so a fresh
+# resolve against current `main` is unconditionally broken. `da71dd1` is the
+# last commit before that migration landed. Repoint once EpiAwareADTools
+# registers. Same pattern as #851/#853 -- this Project.toml block is expected
+# to collide (identically) with theirs; whichever PR merges first, the others
+# pick up a no-op rebase here.
+[sources]
+ConvolvedDistributions = {url = "https://github.com/EpiAware/ConvolvedDistributions.jl", rev = "da71dd1faf1eb4c67ab89197b29eaba7ef573f06"} # pragma: allowlist secret
 
 [workspace]
 projects = ["test", "docs"]
