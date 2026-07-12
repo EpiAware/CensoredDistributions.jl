@@ -14,6 +14,15 @@
 # driver verbatim would break every AD test. Once `ADFixtures` migrates to
 # the `ADRegistry` contract (kit issue #16 — done on `integration`, not yet
 # on `main`), drop this override and take the kit's managed version.
+#
+# EPIAWARE_AD_SETUP_OWNED (kit #162): this marker tells `scaffold_update`/the
+# scheduled template-sync to preserve this file instead of force-overwriting
+# it with the generic managed driver. Without it, a resync clobbers this
+# override outright: re-running `scaffold_update` against a newer kit tip
+# while refreshing #821 confirmed the managed driver's `category = :marginal`
+# default breaks every AD test here, since this repo's `ADFixtures.scenarios`
+# does not accept a `category` keyword. Remove the marker once `ADFixtures`
+# migrates to the `ADRegistry` contract.
 
 @testsnippet ADHelpers begin
     using ADTypes

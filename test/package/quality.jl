@@ -37,7 +37,19 @@ end
 @testitem "Quality: README sections" tags=[:quality] begin
     using EpiAwarePackageTools
     include(joinpath(@__DIR__, "qa_config.jl"))
-    cfg = QA_CONFIG.readme
+    # `readme` is a newer package-owned `QA_CONFIG` field; `qa_config.jl` is
+    # package-owned (not re-applied by `scaffold_update`), so an adopter predating it has
+    # no `readme` key. Default to the repo-root README with the standard section
+    # requirements (#163) rather than erroring on the missing field. Warn, so a
+    # typoed key does not quietly revert to the defaults (#188).
+    cfg = if hasproperty(QA_CONFIG, :readme)
+        QA_CONFIG.readme
+    else
+        @warn "QA_CONFIG has no `readme` field; checking the repo-root " *
+              "README with the standard sections. Add one to qa_config.jl " *
+              "to configure (or confirm) this."
+        (; path = joinpath(@__DIR__, "..", ".."))
+    end
     test_readme_sections(cfg.path;
         (k => v for (k, v) in pairs(cfg) if k !== :path)...)
 end

@@ -1,6 +1,6 @@
 # MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 #
 # Default code owners for automatic review requests. Driven by the `reviewer`
-# input (a GitHub handle); change it by re-running scaffold/update with a new
+# input (a GitHub handle); change it by re-running scaffold/scaffold_update with a new
 # `reviewer`. See https://docs.github.com/articles/about-code-owners
 * @seabbs

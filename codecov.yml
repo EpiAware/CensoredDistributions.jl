@@ -19,6 +19,10 @@
 # targets use `auto` (compare against the parent commit) with a small
 # threshold so the diff is judged on its true coverage rather than a transient
 # under-count.
+#
+# Only the `unit` flag claims `ext`: the AD jobs run without the package's
+# weakdeps loaded, so extension files never execute there and an `ext` path
+# under an `ad-*` flag would report 0% and drag the aggregate down (#180).
 codecov:
   notify:
     after_n_builds: 7
@@ -47,30 +51,24 @@ flags:
   ad-forwarddiff:
     paths:
       - src
-      - ext
     carryforward: true
   ad-reversediff:
     paths:
       - src
-      - ext
     carryforward: true
   ad-enzyme-forward:
     paths:
       - src
-      - ext
     carryforward: true
   ad-enzyme-reverse:
     paths:
       - src
-      - ext
     carryforward: true
   ad-mooncake-reverse:
     paths:
       - src
-      - ext
     carryforward: true
   ad-mooncake-forward:
     paths:
       - src
-      - ext
     carryforward: true

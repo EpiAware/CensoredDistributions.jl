@@ -17,8 +17,15 @@ jobs:
     steps:
       - name: Parse version command
         id: parse-command
+        # Pass the untrusted comment body through an env var, never inline via
+        # ${{ }} into the shell script: interpolating it directly is a
+        # script-injection vector (a comment like `$(...)` or backticks would
+        # execute) and also breaks the run on any shell-special character (a
+        # codecov comment such as `91% <100%> (+0.01%)` produced a syntax
+        # error). Every use below quotes "$COMMENT".
+        env:
+          COMMENT: ${{ github.event.comment.body }}
         run: |
-          COMMENT="${{ github.event.comment.body }}"
           echo "Comment: $COMMENT"
 
           # Check if comment contains version increment command

@@ -1,14 +1,14 @@
 # MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 #
 # Scheduled template-sync. Re-applies the managed EpiAware standard
-# (`update("."; ad = true, benchmarks = true, downgrade_compat = false)`) and, when the
+# (`scaffold_update("."; ad = true, benchmarks = true, downgrade_compat = false)`) and, when the
 # committed infra has drifted from
 # the kit, opens (or refreshes) a PR with the refresh. This is the auto-refresh
 # half of the self-sync loop: the `self-drift` check guards every push/PR, and
 # this workflow proactively pulls the newest standard on a schedule and reacts
 # to Dependabot action bumps so a repo never silently falls behind.
 #
-# Refs are preserved: `update` keeps whatever reusable-workflow SHA Dependabot
+# Refs are preserved: `scaffold_update` keeps whatever reusable-workflow SHA Dependabot
 # has pinned in this repo, so a sync never reverts a Dependabot bump — it only
 # re-applies the rest of the managed standard.
 
@@ -55,7 +55,7 @@ jobs:
               using Pkg
               Pkg.activate(; temp = true); Pkg.add(url = "https://github.com/EpiAware/EpiAwarePackageTools.jl", rev = "main")
               using EpiAwarePackageTools
-              res = update("."; ad = true, benchmarks = true, downgrade_compat = false)
+              res = scaffold_update("."; ad = true, benchmarks = true, downgrade_compat = false)
               println("re-applied ", length(res.updated), " managed files")'
       # Dependabot PR: commit the refresh onto the PR branch so the action bump
       # and the infra refresh land together. Needs "Allow GitHub Actions to
@@ -86,7 +86,7 @@ jobs:
             ci
           body: |
             Automated re-apply of the managed EpiAwarePackageTools standard
-            (`update("."; ad = true, benchmarks = true, downgrade_compat = false)`).
+            (`scaffold_update("."; ad = true, benchmarks = true, downgrade_compat = false)`).
 
             Merge to bring this repo's managed infra back in line with the kit.
             Package-owned files (unit tests, `qa_config.jl`, AD scenarios,

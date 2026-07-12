@@ -1,7 +1,7 @@
 # managed:start
 # MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 # Standard ignore rules live between the markers below and are
-# replaced on every update. Add package-specific rules after the
+# replaced on every scaffold_update. Add package-specific rules after the
 # closing marker — they are preserved across updates.
 # Julia: Manifest.toml records a resolved env. For a package (not an
 # application) it must NOT be committed — a committed Manifest resolved on the
