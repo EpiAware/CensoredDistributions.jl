@@ -3,6 +3,8 @@ ADFixtures = "f4c5db17-3a4c-4f8b-b1de-e1f76a5b8e84"
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 CensoredDistributions = "b2eeebe4-5992-4301-9193-7ebc9f62c855"
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+ComposedDistributions = "2f642b71-32a9-4f47-97c4-6deb7517f7a7"
+ConvolvedDistributions = "f5b942c9-bc5b-4664-8486-7f531bb06742"
 DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
 DifferentiationInterfaceTest = "a82114a7-5aa3-49a8-9643-716bb13727a3"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
@@ -21,3 +23,5 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 [sources]
 ADFixtures = {path = "../ADFixtures"}
 CensoredDistributions = {path = "../.."}
+ComposedDistributions = {url = "https://github.com/EpiAware/ComposedDistributions.jl", rev = "chore/convolved-0.2-compat"}
+ConvolvedDistributions = {url = "https://github.com/EpiAware/ConvolvedDistributions.jl", rev = "da71dd1faf1eb4c67ab89197b29eaba7ef573f06"} # pragma: allowlist secret
