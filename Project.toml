@@ -68,9 +68,18 @@ julia = "1.10, 1.11, 1.12"
 # compat` rather than `main` only because its `main` still caps
 # ConvolvedDistributions at 0.1 while its own source targets 0.2, so `main`
 # cannot resolve; repoint to `main` once that compat bump lands.
+#
+# ConvolvedDistributions is pinned to a commit SHA, not `main`: `main` moved
+# to depend on `EpiAwareADTools`, which has no registered versions anywhere
+# (CD's own migration onto it, #850, is not merged either), so a fresh
+# resolve against current `main` is unconditionally broken -- unsatisfiable,
+# not merely undesirable. A cached Manifest can mask this (it did here).
+# `da71dd1` is the last commit before that migration landed. Repoint once
+# EpiAwareADTools is registered (or ConvolvedDistributions reverts/completes
+# that migration on a resolvable line). Same fix applied on #853 (E3).
 [sources]
 ComposedDistributions = {url = "https://github.com/EpiAware/ComposedDistributions.jl", rev = "chore/convolved-0.2-compat"}
-ConvolvedDistributions = {url = "https://github.com/EpiAware/ConvolvedDistributions.jl", rev = "main"}
+ConvolvedDistributions = {url = "https://github.com/EpiAware/ConvolvedDistributions.jl", rev = "da71dd1faf1eb4c67ab89197b29eaba7ef573f06"} # pragma: allowlist secret
 
 [workspace]
 projects = ["test", "docs"]
