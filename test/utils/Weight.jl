@@ -104,6 +104,30 @@ end
     @test std(samples_d) ≈ std(samples_wd) atol=0.1
 end
 
+@testitem "Test Weight batch sampling for sampler-object bases" begin
+    using Distributions
+    using Random
+    using Statistics
+
+    # Bases whose `sampler` returns a dedicated sampler object rather than the
+    # distribution itself (Normal/LogNormal return themselves and so mask this).
+    # The weight must not participate in sampling, so `sampler` delegates
+    # straight through to the base distribution.
+    for base in (Gamma(2.0, 3.0), Poisson(4.0))
+        wd = weight(base, 3.0)
+
+        @test sampler(wd) == sampler(base)
+
+        # Batch `rand` goes via `sampler` and previously threw a MethodError.
+        samples = rand(MersenneTwister(123), wd, 10_000)
+        @test length(samples) == 10_000
+
+        # Samples follow the unweighted base distribution.
+        @test mean(samples)≈mean(base) rtol=0.05
+        @test std(samples)≈std(base) rtol=0.05
+    end
+end
+
 @testitem "Test Weight with different numeric types" begin
     using Distributions
 
