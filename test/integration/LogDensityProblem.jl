@@ -368,3 +368,123 @@ end
         collect(Tables.getcolumn(params_table(tree), :value))))
     @test isfinite(logdensity(fix1, [2.0, 1.0, 0.5]))
 end
+
+# ---------------------------------------------------------------------------
+# as_turing: the Turing adaptor over the same spec. The load-bearing checks are
+# that the adapted model's log-joint EQUALS the LDP `logdensity` on the same
+# parameters (both routes score one target), and that every parameter is a named
+# site in the chain (what a raw LogDensityProblem handed to Turing would lose).
+# ---------------------------------------------------------------------------
+
+@testitem "as_turing: model log-joint == LDP logdensity" tags=[:turing] begin
+    using CensoredDistributions, Distributions, Random
+    using CensoredDistributions: flatten, as_logdensity, as_turing
+    using DynamicPPL, Turing
+    using FlexiChains: FlexiChains, VNChain, Extra
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    priors = build_priors(tree)
+    data = [[0.5, 2.0], [1.0, 3.0], [0.8, 2.5]]
+    prob = as_logdensity(tree, priors, data)
+
+    # The adaptor turns the SAME spec into a Turing model; its stored per-draw
+    # log-joint must reproduce the LDP constrained logdensity at those params,
+    # so the two routes are interchangeable.
+    m = as_turing(prob)
+
+    Random.seed!(11)
+    chain = sample(m, NUTS(), 40; progress = false, chain_type = VNChain)
+    draws = param_draws(tree, chain)
+    ljs = vec(chain[Extra(:logjoint)])
+    diffs = [abs(CensoredDistributions.logdensity(prob, flatten(tree, draws[i]))
+                 - ljs[i]) for i in eachindex(draws)]
+    @test maximum(diffs) < 1e-8
+end
+
+@testitem "as_turing: every parameter is a named site" tags=[:turing] begin
+    using CensoredDistributions, Distributions, Random
+    using CensoredDistributions: as_logdensity, as_turing
+    using DynamicPPL, Turing
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    priors = build_priors(tree)
+    data = [[0.5, 2.0], [1.0, 3.0]]
+
+    m = as_turing(as_logdensity(tree, priors, data))
+    # Sampled varnames carry the edge path under the default `d` prefix, so the
+    # chain records every parameter (the `chain_to_params`/`param_draws` read).
+    vns = Set(string.(collect(keys(VarInfo(m)))))
+    @test "d.onset_admit.shape" in vns
+    @test "d.onset_admit.scale" in vns
+    @test "d.admit_death.mu" in vns
+    @test "d.admit_death.sigma" in vns
+
+    # The convenience form assembles the spec first, giving the same sites.
+    m2 = as_turing(tree, priors, data)
+    @test Set(string.(collect(keys(VarInfo(m2))))) == vns
+    # The data-only convenience form (default priors) also builds a valid model.
+    m3 = as_turing(tree, data)
+    @test m3() isa CensoredDistributions.Parallel
+end
+
+@testitem "as_turing: a fixed parameter is not a sampled site" tags=[:turing] begin
+    using CensoredDistributions, Distributions
+    using CensoredDistributions: as_logdensity, as_turing
+    using DynamicPPL, Turing
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    data = [[0.5, 2.0], [1.0, 3.0]]
+    # Fix one parameter to a constant: it must not enter the chain, matching the
+    # LDP path (which excludes it from the free vector).
+    priors = build_priors(tree; fix = (admit_death = (sigma = 0.4,),))
+    m = as_turing(as_logdensity(tree, priors, data))
+    vns = Set(string.(collect(keys(VarInfo(m)))))
+    @test !("d.admit_death.sigma" in vns)
+    @test "d.admit_death.mu" in vns
+    # The reconstructed distribution holds the fixed value.
+    @test params(event(m(), :admit_death))[2] == 0.4
+end
+
+# ---------------------------------------------------------------------------
+# rand: the LDP spec forward-simulates (the prior predictive). It is the
+# generative counterpart of `logdensity` (which scores data under the spec) and
+# needs no Turing: the same PPL-neutral spec both fits and simulates.
+# ---------------------------------------------------------------------------
+
+@testitem "rand: LDP spec forward-simulates a record" begin
+    using CensoredDistributions, Distributions, Random
+    using CensoredDistributions: as_logdensity
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    data = [[0.5, 2.0], [1.0, 3.0]]
+    prob = as_logdensity(tree, build_priors(tree), data)
+
+    # A draw is reproducible under a seeded RNG and shaped like a data record
+    # (one value per event of the composed distribution).
+    r = rand(MersenneTwister(1), prob)
+    @test r == rand(MersenneTwister(1), prob)
+    @test keys(r) == (:onset_admit, :admit_death)
+    @test all(isfinite, values(r))
+    # The zero-arg form draws (a different record) without erroring.
+    @test rand(prob) isa typeof(r)
+end
+
+@testitem "rand: a fully-fixed leaf still forward-simulates" begin
+    using CensoredDistributions, Distributions, Random
+    using CensoredDistributions: as_logdensity, free_dimension
+
+    tree = compose((onset_admit = Gamma(2.0, 1.0),
+        admit_death = LogNormal(0.5, 0.4)))
+    # Fix one leaf entirely: only the two `onset_admit` params stay free, so the
+    # prior draw covers fewer parameters yet `rand` still returns a full record.
+    priors = build_priors(tree; fix = (admit_death = (mu = 0.5, sigma = 0.4),))
+    prob = as_logdensity(tree, priors, [[0.5, 2.0]])
+    @test free_dimension(prob) == 2
+    r = rand(MersenneTwister(1), prob)
+    @test keys(r) == (:onset_admit, :admit_death)
+    @test all(isfinite, values(r))
+end

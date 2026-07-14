@@ -12,7 +12,8 @@ import CensoredDistributions: primary_censored_model, interval_censored_model,
                               double_interval_censored_model,
                               composed_distribution_model,
                               composed_parameters_model, renewal_model,
-                              recurrent_states_model
+                              recurrent_states_model, as_turing
+using CensoredDistributions: ComposedLogDensity, as_logdensity
 using DynamicPPL: DynamicPPL, @model, to_submodel, VarName
 using Distributions: Distributions, UnivariateDistribution, Truncated, logpdf,
                      product_distribution
@@ -1453,13 +1454,29 @@ end
 # directly under their parameter names via `tilde_assume!!`, so a leaf's chain
 # names are exactly `<path>.<param>` (no synthetic inner variable).
 
+# Sample one value per named prior into a tuple in `names` order, substituting a
+# fixed (non-distribution) prior directly so it never enters the sampler. Each
+# site is named by its bare parameter symbol via `tilde_assume!!`; the enclosing
+# submodel prefix supplies the edge path, so the chain name is `<edge>.<name>`.
+# The three samplers below (leaf params, a shared group, branch probabilities)
+# differ only in what they do with the returned tuple, so they share this loop.
+# `vi` is threaded through the `ntuple` (run in order) and returned so the caller
+# keeps the updated trace.
+function _sample_named_params(names::Tuple, priors::NamedTuple, ctx, vi)
+    vals = ntuple(length(names)) do i
+        nm = names[i]
+        prior = priors[nm]
+        CensoredDistributions._is_sampled_prior(prior) || return prior
+        v, vi = DynamicPPL.tilde_assume!!(ctx, prior, VarName{nm}(), nothing, vi)
+        v
+    end
+    return vals, vi
+end
+
 # A leaf: sample each parameter (in `params` order) from its named prior and
-# rebuild the leaf via its base constructor. `tilde_assume!!` with `VarName{p}()`
-# gives each sampled parameter the bare name `p`; the enclosing submodel prefixes
-# add the edge path, so the chain name is `<edge>.<p>`. A shared-tagged leaf is
-# not sampled here: its value tuple is already in `shared` (sampled once up
-# front), so the occurrence reconstructs from that tracked tuple, re-applying its
-# own censoring.
+# rebuild the leaf via its base constructor. A shared-tagged leaf is not sampled
+# here: its value tuple is already in `shared` (sampled once up front), so the
+# occurrence reconstructs from that tracked tuple, re-applying its own censoring.
 @model function _leaf_params_model(leaf, priors::NamedTuple, shared)
     tag = CensoredDistributions._shared_tag(leaf)
     if tag !== nothing
@@ -1467,18 +1484,9 @@ end
     end
     pnames = CensoredDistributions._leaf_param_names(leaf)
     _check_prior_keys(priors, pnames, "leaf $(nameof(typeof(leaf)))")
-    ctx = __model__.context
-    vals = ntuple(length(pnames)) do i
-        p = pnames[i]
-        prior = priors[p]
-        # A fixed parameter sits as a plain value: substitute it directly, no
-        # tilde, so it never enters the sampler.
-        CensoredDistributions._is_sampled_prior(prior) || return prior
-        v,
-        __varinfo__ = DynamicPPL.tilde_assume!!(
-            ctx, prior, VarName{p}(), nothing, __varinfo__)
-        v
-    end
+    vals,
+    __varinfo__ = _sample_named_params(
+        pnames, priors, __model__.context, __varinfo__)
     return _reconstruct_leaf(leaf, vals)
 end
 
@@ -1595,16 +1603,9 @@ end
 # tuple in outcome order; `tilde_assume!!` names each by its outcome name so the
 # chain names are `branch_probs.<outcome>`.
 @model function _branch_probs_model(c::Resolve, priors::NamedTuple)
-    ctx = __model__.context
-    probs = ntuple(length(c.names)) do i
-        name = c.names[i]
-        prior = priors[name]
-        CensoredDistributions._is_sampled_prior(prior) || return prior
-        v,
-        __varinfo__ = DynamicPPL.tilde_assume!!(
-            ctx, prior, VarName{name}(), nothing, __varinfo__)
-        v
-    end
+    probs,
+    __varinfo__ = _sample_named_params(
+        c.names, priors, __model__.context, __varinfo__)
     return probs
 end
 
@@ -1678,17 +1679,11 @@ const _rebuild = CensoredDistributions._rebuild
 # tuple. Names each parameter `tag.param` via a prefixed leaf-sampling submodel.
 @model function _shared_group_model(leaf, priors::NamedTuple)
     pnames = CensoredDistributions._leaf_param_names(leaf)
-    _check_prior_keys(priors, pnames, "shared $(repr(CensoredDistributions._shared_tag(leaf)))")
-    ctx = __model__.context
-    vals = ntuple(length(pnames)) do i
-        p = pnames[i]
-        prior = priors[p]
-        CensoredDistributions._is_sampled_prior(prior) || return prior
-        v,
-        __varinfo__ = DynamicPPL.tilde_assume!!(
-            ctx, prior, VarName{p}(), nothing, __varinfo__)
-        v
-    end
+    _check_prior_keys(priors, pnames,
+        "shared $(repr(CensoredDistributions._shared_tag(leaf)))")
+    vals,
+    __varinfo__ = _sample_named_params(
+        pnames, priors, __model__.context, __varinfo__)
     return vals
 end
 
@@ -1857,6 +1852,45 @@ end
         Val(edge.first))
     leaf ~ to_submodel(sub, false)
     return edge.first => leaf
+end
+
+# ===========================================================================
+# as_turing: adapt a ComposedLogDensity spec into a Turing/DynamicPPL model
+# ===========================================================================
+#
+# `as_turing(prob)` wraps the PPL-neutral `ComposedLogDensity` (from
+# `as_logdensity`) as a DynamicPPL model, so a single spec drives both the Turing
+# route and the LogDensityProblems route. It samples the free parameters as named
+# sites via `composed_parameters_model` under the `d` prefix (so the chain records
+# `d.<edge>.<param>` and the default `chain_to_params`/`param_draws` read applies),
+# then scores the data with the spec's own `loglik` through `@addlogprob!`. Reusing
+# the spec's `dist`/`priors`/`data`/`loglik` makes the model's log-posterior equal
+# `logdensity(prob, x)` on the constrained scale, so both routes evaluate the same
+# target. A fixed parameter (a plain value in `priors`) is substituted inside
+# `composed_parameters_model` exactly as on the LDP path, so it never enters the
+# chain. The likelihood is added with `@addlogprob!` (the parameters are the only
+# `~` sites), matching the per-record contribution the LDP path's default `loglik`
+# sums, so the two are name- and value-identical.
+@model function _composed_turing_model(dist, priors, data, loglik)
+    d ~ to_submodel(composed_parameters_model(dist, priors))
+    DynamicPPL.@addlogprob! loglik(d, data)
+    return d
+end
+
+# The headline adaptor: build the model straight from the assembled spec.
+function as_turing(prob::ComposedLogDensity)
+    return _composed_turing_model(prob.dist, prob.priors, prob.data, prob.loglik)
+end
+
+# Convenience forms mirroring `as_logdensity`'s signatures: assemble the spec
+# first (default priors = `build_priors(dist)`, default `loglik` = summed
+# per-record `logpdf`), then adapt it. Keywords (`loglik`) forward to
+# `as_logdensity`, which owns the defaults.
+function as_turing(dist, priors, data; kwargs...)
+    return as_turing(as_logdensity(dist, priors, data; kwargs...))
+end
+function as_turing(dist, data; kwargs...)
+    return as_turing(as_logdensity(dist, data; kwargs...))
 end
 
 end
