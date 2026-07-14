@@ -145,6 +145,65 @@ end
     @test logpdf(wd_array, x) ≈ expected_logpdf
 end
 
+@testitem "Vectorised weighted logpdf equals per-obs weighted sum" begin
+    using Distributions
+
+    # The `weight(dist, weights)` aggregation pattern: one shared
+    # distribution, many duplicate observation/window combinations collapsed to
+    # weighted unique values. The Product{Weighted} logpdf is scored in a single
+    # vectorised `logpdf(dist, x)` call (reusing the cached-CDF batched PDF) and
+    # must equal the per-observation weighted-sum loop EXACTLY.
+    d = interval_censored(LogNormal(1.5, 0.5), 1.0)
+    x = [2.0, 3.0, 2.0, 5.0, 3.0, 2.0]   # duplicates drive CDF cache reuse
+    weights = [3.0, 2.0, 5.0, 1.0, 4.0, 2.0]
+    wd = weight(d, weights)
+
+    loop = sum(w * logpdf(d, xi) for (w, xi) in zip(weights, x))
+    @test logpdf(wd, x) == loop
+
+    # The shared-dist vectorised path is detected: all components wrap `d`.
+    @test all(c -> c.dist === d, wd.v)
+
+    # Joint observation form (constructor weight * observation weight) matches.
+    obs_w = [1.0, 2.0, 1.0, 3.0, 1.0, 2.0]
+    loop_joint = sum((cw * ow) * logpdf(d, xi)
+    for (cw, ow, xi) in zip(weights, obs_w, x))
+    @test logpdf(wd, (values = x, weights = obs_w)) == loop_joint
+
+    # A plain (non-batched) shared distribution still matches the loop.
+    dn = Normal(2.0, 1.0)
+    wdn = weight(dn, weights)
+    @test logpdf(wdn, x) == sum(w * logpdf(dn, xi)
+    for (w, xi) in zip(weights, x))
+end
+
+@testitem "Vectorised weighted logpdf: mixed distributions fall back" begin
+    using Distributions
+
+    # When the components wrap DIFFERENT distributions the shared-dist
+    # vectorised path is not taken; the per-component loop still gives the exact
+    # weighted sum.
+    dists = [interval_censored(LogNormal(1.5, 0.5), 1.0),
+        interval_censored(LogNormal(1.0, 0.7), 1.0),
+        interval_censored(Gamma(2.0, 1.5), 1.0)]
+    weights = [2.0, 3.0, 1.0]
+    x = [2.0, 3.0, 4.0]
+    wd = weight(dists, weights)
+
+    expected = sum(w * logpdf(di, xi)
+    for (w, di, xi) in zip(weights, dists, x))
+    @test logpdf(wd, x) == expected
+end
+
+@testitem "Vectorised weighted logpdf: zero weight gives -Inf" begin
+    using Distributions
+
+    d = interval_censored(LogNormal(1.5, 0.5), 1.0)
+    x = [2.0, 3.0, 2.0]
+    wd = weight(d, [3.0, 0.0, 5.0])  # a zero weight short-circuits to -Inf
+    @test logpdf(wd, x) == -Inf
+end
+
 @testitem "Test Weight with truncated distributions" begin
     using Distributions
 
@@ -556,4 +615,72 @@ end
     @test wd_single_vec isa Product
     @test length(wd_single_vec) == 3
     @test all([wd_single_vec.v[i].weight == weights_single[i] for i in 1:3])
+end
+
+@testitem "weight is deprecated but still forwards correctly" begin
+    using Distributions
+    using Test: @test_deprecated, @test_logs
+
+    d = LogNormal(1.5, 0.5)
+    Weighted = CensoredDistributions.Weighted
+
+    # `weight` is deprecated (issue #128): the surface moves to the standalone
+    # ModifiedDistributions.jl package. The deprecation warning fires at most
+    # once per session, gated on a module-level flag (PR #799) so the
+    # constructor stays AD-safe inside differentiated closures. Reset the flag
+    # so the first call below is the one that warns; without this the gate may
+    # already be tripped by precompile or an earlier test, leaving the
+    # `@test_deprecated` check with no warning to see. Resetting also makes this
+    # testitem order-independent.
+    gate = CensoredDistributions._WEIGHT_DEPRECATION_WARNED
+    gate[] = false
+    @test gate[] == false
+
+    # The first call warns under `--depwarn=yes` (forced by `Pkg.test`);
+    # `@test_deprecated` adapts to the active flag, so under the default `no` it
+    # just checks the call runs cleanly.
+    @test_deprecated weight(d, 2.5)
+
+    # Once-only: the first call latched the gate, so the warning has fired and
+    # every later call is a single `Bool` read with no further warning.
+    @test gate[] == true
+
+    # Each deprecated constructor still FORWARDS to the underlying
+    # (non-deprecated) `Weighted`/`Product` types. The gate is tripped now, so
+    # these run without re-warning yet still build the right objects.
+    wd = weight(d, 2.5)
+    direct = Weighted(d, 2.5)
+    @test wd isa Weighted
+    @test wd.dist === direct.dist
+    @test wd.weight == direct.weight
+    @test logpdf(wd, 2.0) == logpdf(direct, 2.0)
+
+    # The `nothing` weight returns the distribution unchanged.
+    @test weight(d, nothing) === d
+
+    # The missing-weight scalar form.
+    @test ismissing(weight(d).weight)
+
+    # The vector forms build `Product`s of `Weighted` leaves.
+    prod_vec = weight(d, [1.0, 2.0])
+    @test prod_vec isa Product
+    @test [c.weight for c in prod_vec.v] == [1.0, 2.0]
+
+    prod_pair = weight([d, Normal(0, 1)], [1.0, 2.0])
+    @test prod_pair isa Product
+    @test [c.weight for c in prod_pair.v] == [1.0, 2.0]
+
+    prod_missing = weight([d, Normal(0, 1)])
+    @test prod_missing isa Product
+    @test all(ismissing(c.weight) for c in prod_missing.v)
+
+    # Explicit once-only behaviour: with a freshly reset gate the first call
+    # emits exactly one deprecation warning and the next call emits none. Only
+    # observable under `--depwarn=yes`, where `Base.depwarn` routes through the
+    # logging system that `@test_logs` captures.
+    if Base.JLOptions().depwarn == 1
+        gate[] = false
+        @test_logs (:warn,) weight(d, 2.5)
+        @test_logs weight(d, 2.5)
+    end
 end

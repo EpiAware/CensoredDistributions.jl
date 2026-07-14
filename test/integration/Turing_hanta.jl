@@ -18,25 +18,19 @@
 # Each hand-rolled piece is isolated into a small function so it can be
 # swapped for a package feature as that feature lands, with an equivalence
 # assertion against this baseline. The swap-in points are marked with
-# `TODO(#NNN)` comments referencing:
-#   - #295  Convolved distribution (sum of independent delays): the
-#           generation interval GI = incubation + transmission-timing is a
-#           convolution that `hanta_generation_interval` currently builds
-#           by hand.
-#   - #298  Tree-structured censored distribution: the per-pair
-#           source -> secondary conjunction (and the zoonotic-index root)
-#           is the disjunctive/conjunctive tree that
-#           `latent_times_model` currently expresses with an explicit loop
-#           and a `-Inf` reject.
-#   - #299  Latent mode for primary-/double-interval-censored
-#           distributions: the data augmentation over the continuous
-#           latent infection and onset times (`T_inf`, `T_onset`) within
-#           recorded windows is exactly what latent mode is meant to
-#           provide; `hanta_window_prior` currently does this with raw
-#           `Uniform` priors.
-#
-# Cross-representation validation of these swaps lives in #301; the
-# walkthrough docs that build on this scaffold are #302. Part of #253.
+# `TODO` comments referencing planned package features:
+#   - Convolved distribution (sum of independent delays): the generation
+#     interval GI = incubation + transmission-timing is a convolution that
+#     `hanta_generation_interval` currently builds by hand.
+#   - Tree-structured censored distribution: the per-pair
+#     source -> secondary conjunction (and the zoonotic-index root) is the
+#     disjunctive/conjunctive tree that `latent_times_model` currently
+#     expresses with an explicit loop and a `-Inf` reject.
+#   - Latent mode for primary-/double-interval-censored distributions: the
+#     data augmentation over the continuous latent infection and onset times
+#     (`T_inf`, `T_onset`) within recorded windows is exactly what latent
+#     mode is meant to provide; `hanta_window_prior` currently does this with
+#     raw `Uniform` priors.
 #
 # Data licence
 # ------------
@@ -46,7 +40,7 @@
 # are out of scope for the latent-only model. Instead we SIMULATE a tiny
 # line list from the generative latent model with known parameters, which
 # also gives ground truth for parameter recovery. A future PR may add the
-# real data behind the equivalence checks once #299 lands.
+# real data behind the equivalence checks once latent mode lands.
 
 @testitem "hanta latent: simulate -> recover (no Rt)" tags=[:turing] begin
     using Turing
@@ -58,20 +52,20 @@
 
     # --- Isolated hand-rolled pieces (swap points) ----------------------
 
-    # TODO(#299): latent mode. A case's continuous infection/onset times
+    # TODO: latent mode. A case's continuous infection/onset times
     # are augmented within their recorded `[lo, hi)` windows. Replace these
     # raw Uniform window priors with a latent-mode censored distribution.
     hanta_window_prior(lo, hi) = Uniform(lo, hi)
 
-    # TODO(#295): Convolved. The incubation period (T_onset - T_inf) is a
+    # TODO: Convolved. The incubation period (T_onset - T_inf) is a
     # single delay here; the GI = incubation + transmission-timing is a
     # convolution assembled post hoc. Replace with `Convolved`.
     hanta_incubation(μ_inc, σ_inc) = LogNormal(μ_inc, σ_inc)
 
-    # TODO(#295)/TODO(#298): the generation interval is the source's
+    # TODO: Convolved + tree. The generation interval is the source's
     # incubation plus the transmission-timing offset. Currently derived
     # arithmetically from latents; this is the convolution `Convolved`
-    # (#295) wired into the per-pair tree (#298).
+    # wired into the per-pair tree.
     function hanta_generation_interval(T_inf_sec, T_inf_src)
         return T_inf_sec - T_inf_src
     end
@@ -141,14 +135,13 @@
         T = typeof(μ_inc)
         inc_dist = hanta_incubation(μ_inc, σ_inc)
 
-        # TODO(#299): latent onset times via data augmentation.
+        # TODO: latent onset times via data augmentation.
         T_onset = Vector{T}(undef, N)
         for i in 1:N
             T_onset[i] ~ hanta_window_prior(onset_lo[i], onset_hi[i])
         end
 
-        # TODO(#298): per-pair source tree; TODO(#299) latent infection
-        # times; TODO(#295) GI convolution.
+        # TODO: per-pair source tree; latent infection times; GI convolution.
         T_inf = Vector{T}(undef, N)
         for i in 1:N
             if source_idx[i] == 0
@@ -208,9 +201,9 @@ end
 
 @testitem "hanta latent: swap-point functions are isolated" tags=[:turing] begin
     # A guard test asserting the hand-rolled swap points behave as the
-    # package features they will be replaced by must behave. When #295 /
-    # #298 / #299 land, these become equivalence checks against the
-    # package implementations.
+    # package features they will be replaced by must behave. When those
+    # features land, these become equivalence checks against the package
+    # implementations.
     using Distributions
 
     # Local copies of the swap-point helpers (kept in sync with the model
@@ -219,16 +212,16 @@ end
     hanta_incubation(μ, σ) = LogNormal(μ, σ)
     hanta_gi(sec, src) = sec - src
 
-    # TODO(#299): window prior is a Uniform over the recorded window.
+    # TODO: window prior is a Uniform over the recorded window.
     wp = hanta_window_prior(2.0, 5.0)
     @test wp isa Uniform
     @test minimum(wp) == 2.0 && maximum(wp) == 5.0
 
-    # TODO(#295): incubation is the delay distribution to convolve.
+    # TODO: incubation is the delay distribution to convolve.
     inc = hanta_incubation(3.0, 0.25)
     @test inc isa LogNormal
     @test params(inc) == (3.0, 0.25)
 
-    # TODO(#295)/TODO(#298): GI is the (latent) infection-time gap.
+    # TODO: GI is the (latent) infection-time gap.
     @test hanta_gi(10.0, 4.0) == 6.0
 end

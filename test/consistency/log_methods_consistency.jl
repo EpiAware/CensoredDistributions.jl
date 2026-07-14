@@ -406,9 +406,16 @@ end
                     # Test relationship with non-truncated distribution
                     base_logpdf = logpdf(base_d, x)
                     if isfinite(base_logpdf) && isfinite(logpdf_val)
-                        # Truncated logpdf should be different (normalized)
-                        # but both should be finite for values in support
-                        @test true  # Just check they're both finite
+                        # Both densities are finite in-support, and the
+                        # truncated density is the base density renormalised
+                        # by the retained mass on [1, 8]:
+                        #   logpdf(trunc, x) = logpdf(base, x) - log Z,
+                        # log Z = log(cdf(base, 8) - cdf(base, 1)) ≤ 0, so
+                        # the truncated density is never below the base one.
+                        @test isfinite(logpdf_val)
+                        log_z = log(cdf(base_d, 8.0) - cdf(base_d, 1.0))
+                        @test logpdf_val ≈ base_logpdf - log_z
+                        @test logpdf_val ≥ base_logpdf - 1e-10
                     end
                 end
             end

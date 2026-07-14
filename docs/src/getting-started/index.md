@@ -2,6 +2,19 @@
 
 Welcome to the `CensoredDistributions` documentation! This section is designed to help you get started with the package. It includes a quickstart guide, frequently asked questions (FAQ) section, and tutorials that will help you get started with `CensoredDistributions` for specific tasks. See the sidebar for the list of topics.
 
+## What is in the package
+
+The package has four layers, each building on the one before:
+
+- **Censoring leaves** wrap a delay distribution to account for primary-event censoring, truncation, and interval censoring.
+The quickstart below builds these step by step (`primary_censored`, `interval_censored`, `double_interval_censored`).
+- **Composers** assemble per-event delays into one object per record.
+[Composing censored distributions](@ref composer-toolkit) is the conceptual hub, covering `compose` and the five composers (`Sequential`, `Parallel`, `Resolve`, `Compete`, `Choose`) and the `modify` hazard leaf.
+- **Fitting** attaches parameters and priors and runs a Turing fit ([Fitting with Turing.jl](@ref), [Fit marginal, sample event based](@ref fit-marginal-sample-event-based)).
+- **Bridges and case studies** apply the stack to line lists, renewal models, nowcasting, and ODE compartments.
+
+A first-time reader can read the quickstart below for censoring, then move to [Composing censored distributions](@ref composer-toolkit) for the composed stack.
+
 # Introduction
 
 Delay distributions play a crucial role in various fields, including epidemiology, reliability analysis, and survival analysis. These distributions describe the time between two events of interest, such as the incubation period of a disease or the time to failure of a component.
@@ -26,6 +39,13 @@ In this quickstart, we will provide a quick introduction to the main functions a
 We will cover the mathematical formulation of the problem, demonstrate the usage of the key functions, and provide signposting on how to learn more.
 
 ## Packages used in this getting started guide
+
+Alongside `CensoredDistributions.jl` itself, this guide uses a small set of supporting packages:
+
+- `Distributions.jl` supplies the base distributions (such as `LogNormal` and `Gamma`) that we censor and truncate.
+- `Random` seeds the generators so the sampled values and plots are reproducible.
+- `CairoMakie` and `AlgebraOfGraphics` render the figures.
+- `DataFramesMeta` builds and reshapes the data frames used for plotting.
 
 ## Loading the packages
 
@@ -232,11 +252,35 @@ In addition to these main functions, the package also includes:
 
 ### [Tutorials](@id tutorials)
 
-For more information on the package and its integration with other packages, see the tutorials in this getting started section:
+For more information on the package and its integration with other packages, see the tutorials in this getting started section.
+
+**Distributions and censoring**
 
 - **[Analytical CDF solutions](tutorials/analytical-primarycensored-cdfs.md)**: Understanding analytical solutions for common distribution pairs
-- **[Fitting with Turing.jl](tutorials/fitting-with-turing.md)**: Bayesian inference with censored distributions
 - **[Exponentially tilted primary events](tutorials/exponentially-tilted-primary-events.md)**: Understanding the impact of exponentially tilted primary events on primary event timing and the knock on impact to primary event censored distributions
+- **[Delay families from SurvivalDistributions.jl](@ref survival-delay-families)**: Using parametric survival families as delay leaves in the composed stack
+
+**Composing and fitting**
+
+- **[Composing censored distributions](@ref composer-toolkit)**: The composer reference for building one object per record from per-event delays
+- **[Fitting with Turing.jl](tutorials/fitting-with-turing.md)**: Bayesian inference with censored distributions
+- **[Fit marginal, sample event based](@ref fit-marginal-sample-event-based)**: Fitting in the efficient marginal form, then drawing full event paths
+- **[Automatic differentiation backends](@ref ad-backends)**: The AD support matrix and per-backend benchmarks
+
+**Case studies and applications**
+
+Pick a case study by the concept it shows:
+
+| Concept | Case study |
+|---|---|
+| Fixed-probability resolution (case-fatality split) | [Bundibugyo Ebola delays](@ref bdbv-linelist-analysis) |
+| Marginal-versus-latent delay fitting | [Real-time Andes virus delays](@ref andv-linelist-analysis) |
+| Partially pooled stratification | [Stratified Sierra Leone Ebola delays](@ref ebola-stratified-delays) |
+| Fixed-probability and racing-hazard outcomes in a simulator | [Branching-process competing outcomes](@ref branching-competing) |
+| Racing hazards for who-infected-whom | [Pairwise survival of transmission](@ref pairwise-survival-transmission) |
+| Renewal Rt through a shared delay stack | [An Rt renewal model with delay convolution](@ref rt-renewal-convolution) |
+| Reporting-hazard nowcasting | [Epinowcast-style hazard nowcasting](@ref epinowcast-nowcasting) |
+| ODE-compartment bridge (the linear chain trick) | [Composed delay as ODE compartments](@ref linear-chain-sir) |
 
 ### Methodological background
 

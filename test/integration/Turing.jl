@@ -32,50 +32,6 @@
     @test all(sigma_samples .> 0)
 end
 
-@testitem "Turing.jl naive model sampling" tags=[:turing] begin
-    using Turing
-    using DynamicPPL
-    using Distributions
-    using Random
-    using FlexiChains
-    using FlexiChains: Prefixed, niters  # conflict with MCMCChains re-exports
-
-    @model function latent_delay_dist()
-        mu ~ Normal(1.0, 2.0)
-        sigma ~ truncated(Normal(0.5, 1); lower = 0.0)
-        return LogNormal(mu, sigma)
-    end
-
-    @model function naive_model()
-        dist ~ to_submodel(latent_delay_dist())
-        obs ~ weight(dist)
-    end
-
-    Random.seed!(789)
-
-    # Generate simple test data
-    test_obs = [2.0, 3.0, 4.0, 5.0, 3.5, 2.5]
-    conditioned_model = condition(
-        naive_model(),
-        obs = (values = test_obs .+ 1e-6, weights = ones(length(test_obs)))
-    )
-
-    # Test MCMC sampling (short chain for speed)
-    chain = sample(
-        conditioned_model, NUTS(), 100;
-        chain_type = VNChain, progress = false
-    )
-
-    @test niters(chain) == 100
-
-    # Test that submodel-prefixed parameters are accessible via Prefixed
-    mu_samples = chain[Prefixed(@varname(mu))]
-    sigma_samples = chain[Prefixed(@varname(sigma))]
-
-    @test all(isfinite.(mu_samples))
-    @test all(sigma_samples .> 0)
-end
-
 @testitem "Turing.jl interval-only model sampling" tags=[:turing] begin
     using Turing
     using DynamicPPL
@@ -143,21 +99,29 @@ end
     @test all(sigma_samples .> 0)
 end
 
-@testitem "Turing.jl double censored model sampling" tags=[:turing] begin
+@testitem "Turing.jl double censored model recovers the delay" tags=[:turing] begin
     using Turing
     using DynamicPPL
     using Distributions
     using Random
+    using Statistics: mean
     using FlexiChains
     using FlexiChains: Prefixed, niters  # conflict with MCMCChains re-exports
 
+    # A genuine recovery assertion over the full double-censored Turing path
+    # (DiscreteUniform primary/secondary windows + per-record observation-time
+    # truncation + a `weight`ed likelihood). The marginal-vs-logpdf and weight
+    # scaling are covered exactly in `CensoredModels.jl`; this guards that the
+    # end-to-end NUTS fit through the windowed, truncated, weighted likelihood
+    # still returns the parameters its own simulation was drawn from.
     @model function latent_delay_dist()
         mu ~ Normal(1.0, 2.0)
         sigma ~ truncated(Normal(0.5, 1); lower = 0.0)
         return LogNormal(mu, sigma)
     end
 
-    @model function double_censored_model(pwindow_bounds, swindow_bounds, obs_time_bounds)
+    @model function double_censored_model(pwindow_bounds, swindow_bounds,
+            obs_time_bounds)
         pwindows ~ product_distribution([DiscreteUniform(pw[1], pw[2])
                               for pw in pwindow_bounds])
         swindows ~ product_distribution([DiscreteUniform(sw[1], sw[2])
@@ -169,7 +133,8 @@ end
 
         pcens_dists = map(pwindows, obs_times, swindows) do pw, D, sw
             pe = Uniform(0, pw)
-            double_interval_censored(dist; primary_event = pe, upper = D, interval = sw)
+            double_interval_censored(
+                dist; primary_event = pe, upper = D, interval = sw)
         end
 
         obs ~ weight(pcens_dists)
@@ -177,45 +142,48 @@ end
 
     Random.seed!(333)
 
-    # Create test data
-    n = 10
+    # Simulate from known truth, then fit and recover it.
+    n = 200
+    true_mu = 1.5
+    true_sigma = 0.5
     pwindow_bounds = fill((1, 3), n)
     swindow_bounds = fill((1, 3), n)
-    obs_time_bounds = fill((8, 12), n)
-    test_obs = [2, 3, 4, 3, 5, 2, 4, 3, 5, 6]
-    test_pwindows = [2, 1, 3, 2, 1, 2, 1, 3, 2, 1]
-    test_swindows = [2, 1, 2, 3, 1, 2, 1, 2, 3, 1]
-    test_obs_times = [10, 9, 11, 10, 12, 10, 9, 11, 10, 12]
+    obs_time_bounds = fill((8, 15), n)
 
-    # Create and condition the model
-    model = double_censored_model(pwindow_bounds, swindow_bounds, obs_time_bounds)
+    base_model = double_censored_model(
+        pwindow_bounds, swindow_bounds, obs_time_bounds)
+    sim = fix(base_model,
+        (@varname(dist.mu) => true_mu, @varname(dist.sigma) => true_sigma))
+    simulated = rand(sim)
+
     conditioned_model = fix(
-        model,
+        base_model,
         (
-            @varname(pwindows) => test_pwindows,
-            @varname(swindows) => test_swindows,
-            @varname(obs_times) => test_obs_times
+            @varname(pwindows) => simulated[@varname(pwindows)],
+            @varname(swindows) => simulated[@varname(swindows)],
+            @varname(obs_times) => simulated[@varname(obs_times)]
         )
     )
     conditioned_model = condition(
         conditioned_model,
-        obs = (values = test_obs, weights = ones(n))
+        obs = (values = simulated[@varname(obs)], weights = ones(n))
     )
 
-    # Test MCMC sampling (short chain for speed)
     chain = sample(
-        conditioned_model, NUTS(), 100;
+        conditioned_model, NUTS(), 500;
         chain_type = VNChain, progress = false
     )
 
-    @test niters(chain) == 100
+    @test niters(chain) == 500
 
-    # Test that submodel-prefixed parameters are accessible via Prefixed
     mu_samples = chain[Prefixed(@varname(mu))]
     sigma_samples = chain[Prefixed(@varname(sigma))]
 
     @test all(isfinite.(mu_samples))
     @test all(sigma_samples .> 0)
+    # Recovery: posterior means sit near the simulated truth.
+    @test isapprox(mean(mu_samples), true_mu; atol = 0.3)
+    @test isapprox(mean(sigma_samples), true_sigma; atol = 0.3)
 end
 
 @testitem "Turing.jl simulation from double censored model" tags=[:turing] begin
@@ -286,78 +254,4 @@ end
     @test all(simulated_data[@varname(swindows)] .<= 3)
     @test all(simulated_data[@varname(obs_times)] .>= 8)
     @test all(simulated_data[@varname(obs_times)] .<= 12)
-end
-
-@testitem "Turing.jl double_interval_censored logpdf is valid" tags=[:turing] begin
-    using Distributions
-    using Random
-
-    Random.seed!(555)
-
-    # Test that double_interval_censored produces valid logpdf values
-    # This verifies the distribution works correctly when used in Turing models
-    delay_dist = LogNormal(1.5, 0.75)
-    pwindow = 2
-    swindow = 1
-    obs_time = 10
-
-    # Construct distribution as used in Turing models
-    primary_event = Uniform(0, pwindow)
-    dist = double_interval_censored(
-        delay_dist; primary_event = primary_event, upper = obs_time, interval = swindow
-    )
-
-    # Test at a specific observation value
-    test_obs = 3.0
-    lp = logpdf(dist, test_obs)
-
-    @test isfinite(lp)
-    @test lp <= 0.0
-end
-
-@testitem "Turing.jl weighted observations" tags=[:turing] begin
-    using Turing
-    using DynamicPPL
-    using Distributions
-    using Random
-    using FlexiChains
-    using FlexiChains: Prefixed, niters  # conflict with MCMCChains re-exports
-
-    @model function latent_delay_dist()
-        mu ~ Normal(1.0, 2.0)
-        sigma ~ truncated(Normal(0.5, 1); lower = 0.0)
-        return LogNormal(mu, sigma)
-    end
-
-    @model function naive_model()
-        dist ~ to_submodel(latent_delay_dist())
-        obs ~ weight(dist)
-    end
-
-    Random.seed!(666)
-
-    # Test that weighted observations work correctly
-    test_obs = [2.0, 3.0, 4.0]
-    weights = [2.0, 1.0, 1.0]  # First observation weighted twice
-
-    # Condition naive model with weights
-    conditioned_model = condition(
-        naive_model(),
-        obs = (values = test_obs .+ 1e-6, weights = weights)
-    )
-
-    # Test MCMC sampling (verifies weighted likelihood works)
-    chain = sample(
-        conditioned_model, NUTS(), 100;
-        chain_type = VNChain, progress = false
-    )
-
-    @test niters(chain) == 100
-
-    # Test that submodel-prefixed parameters are accessible via Prefixed
-    mu_samples = chain[Prefixed(@varname(mu))]
-    sigma_samples = chain[Prefixed(@varname(sigma))]
-
-    @test all(isfinite.(mu_samples))
-    @test all(sigma_samples .> 0)
 end

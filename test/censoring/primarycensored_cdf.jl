@@ -60,7 +60,7 @@
         numerical_called[] = false
 
         # Create distribution with forced numerical
-        d = primary_censored(TestDistribution(), Uniform(0.0, 1.0); force_numeric = true)
+        d = primary_censored(TestDistribution(), Uniform(0.0, 1.0); method = NumericSolver())
 
         # Call CDF
         result = cdf(d, 2.0)
@@ -125,7 +125,7 @@ end
     d_analytical = primary_censored(dist, primary)
 
     # Numerical solution
-    d_numerical = primary_censored(dist, primary; force_numeric = true)
+    d_numerical = primary_censored(dist, primary; method = NumericSolver())
 
     # Compare CDFs
     cdf_analytical = cdf.(Ref(d_analytical), x_vals)
@@ -158,7 +158,7 @@ end
     d_analytical = primary_censored(dist, primary)
 
     # Numerical solution
-    d_numerical = primary_censored(dist, primary; force_numeric = true)
+    d_numerical = primary_censored(dist, primary; method = NumericSolver())
 
     # Compare CDFs
     cdf_analytical = cdf.(Ref(d_analytical), x_vals)
@@ -185,7 +185,7 @@ end
     d_analytical = primary_censored(dist, primary)
 
     # Numerical solution
-    d_numerical = primary_censored(dist, primary; force_numeric = true)
+    d_numerical = primary_censored(dist, primary; method = NumericSolver())
 
     # Compare CDFs
     cdf_analytical = cdf.(Ref(d_analytical), x_vals)
@@ -208,7 +208,7 @@ end
     primary = Uniform(2.0, 3.0)  # Window from 2 to 3
 
     d_analytical = primary_censored(dist, primary)
-    d_numerical = primary_censored(dist, primary; force_numeric = true)
+    d_numerical = primary_censored(dist, primary; method = NumericSolver())
 
     # Adjust x_vals for the shifted window
     x_vals_shifted = range(2.1, 22, 50)
@@ -237,7 +237,7 @@ end
 
                 # Create analytical and numerical versions
                 d_analytical = primary_censored(dist, primary)
-                d_numerical = primary_censored(dist, primary; force_numeric = true)
+                d_numerical = primary_censored(dist, primary; method = NumericSolver())
                 # Sample vectorised values to use for benchmarking
                 x_vals = rand(dist, 100)
 
@@ -307,7 +307,7 @@ end
     # Test 1: Standard case with distributions starting at 0
     @testset "Standard distributions" begin
         pc = CensoredDistributions.primary_censored(
-            Exponential(1.0), Uniform(0.0, 1.0); force_numeric = true)
+            Exponential(1.0), Uniform(0.0, 1.0); method = NumericSolver())
 
         # Should work for various x values
         @test cdf(pc, 0.5) ≥ 0.0
@@ -331,7 +331,7 @@ end
     # Test 3: Edge case with small x values
     @testset "Small x values" begin
         pc = CensoredDistributions.primary_censored(
-            Gamma(2.0, 1.0), Uniform(0.0, 2.0); force_numeric = true)
+            Gamma(2.0, 1.0), Uniform(0.0, 2.0); method = NumericSolver())
 
         # Should handle small x gracefully
         @test cdf(pc, 0.1) ≥ 0.0
@@ -351,7 +351,7 @@ end
 
         pc_analytical = CensoredDistributions.primary_censored(delay_dist, primary_event)
         pc_numerical = CensoredDistributions.primary_censored(
-            delay_dist, primary_event; force_numeric = true)
+            delay_dist, primary_event; method = NumericSolver())
 
         x_values = [0.5, 1.0, 2.0, 5.0, 10.0]
         for x in x_values

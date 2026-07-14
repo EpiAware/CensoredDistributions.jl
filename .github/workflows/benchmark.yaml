@@ -1,116 +1,89 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 name: Benchmark
 
-# Custom benchmark comparison that covers the evaluation AND AD gradient
-# suites against `main`, and posts a single PR comment grouped into
-# "Changed vs main" (inline) and "All benchmarks" (collapsed), each split
-# into Evaluation and AD gradients.
-#
-# Each revision is benchmarked in its OWN job (a fresh runner checked out
-# at that revision), so `main` runs `main`'s sources and AD fixtures while
-# the PR runs its own. This is what lets the AD gradient benchmarks be
-# compared across an API change, where staging one set of fixtures against
-# both packages (the previous AirspeedVelocity setup) could not. Splitting
-# the revisions into separate jobs also keeps a single runner from loading
-# two heavy AD stacks (Enzyme + Mooncake) at once, which exhausted it.
-#
-# Uses `pull_request` (not `pull_request_target`): the comparison runs the
-# PR's own code, so the workflow under test is the PR's and the
-# comment-posting token stays scoped to same-repo PRs. Fork PRs get a
-# read-only token and will not post a comment.
-
 on:
-  pull_request:
+  pull_request_target:
     branches: [main]
     paths:
       - 'src/**'
       - 'ext/**'
       - 'benchmark/**'
       - 'test/ADFixtures/**'
-      - '.github/workflows/benchmark.yaml'
 
 permissions:
-  contents: read
   pull-requests: write
-  issues: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # One revision per job. `ref` selects the checkout; `name` labels the
-  # uploaded results artifact. The runner inlines a tiny runner script so
-  # it works even on `main`, which predates `benchmark/run.jl`.
   benchmark:
-    name: Benchmark (${{ matrix.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: pr
-            ref: ${{ github.event.pull_request.head.sha }}
-          - name: main
-            ref: ${{ github.event.pull_request.base.sha }}
     steps:
+      # Full checkout: AirspeedVelocity's action reads the repo-root
+      # `Project.toml` (to get the package name) and benchmarks `src/` +
+      # `benchmark/`, so the working tree needs the whole package, not a
+      # sparse slice.
       - uses: actions/checkout@v6
         with:
-          ref: ${{ matrix.ref }}
-      - uses: julia-actions/setup-julia@v3
-        with:
-          version: '1'
-      - uses: julia-actions/cache@v3
-      - name: Run benchmark suite
-        run: |
-          julia --project=benchmark -e '
-            using Pkg
-            Pkg.develop(path = pwd())
-            Pkg.instantiate()
-            using BenchmarkTools
-            include("benchmark/benchmarks.jl")
-            results = run(SUITE; verbose = true, seconds = 1)
-            BenchmarkTools.save("results-${{ matrix.name }}.json", results)'
-      - uses: actions/upload-artifact@v7
-        with:
-          name: bench-${{ matrix.name }}
-          path: results-${{ matrix.name }}.json
+          ref: ${{ github.event.pull_request.head.sha }}
 
-  compare:
-    needs: benchmark
-    runs-on: ubuntu-latest
-    steps:
-      # PR checkout for `benchmark/compare.jl`.
-      - uses: actions/checkout@v6
-      - uses: julia-actions/setup-julia@v3
-        with:
-          version: '1'
-      - uses: actions/download-artifact@v8
-        with:
-          path: artifacts
-      - name: Build comparison comment
+      # `benchmark/Project.toml` declares ADFixtures as a path source at
+      # `../test/ADFixtures`. AirspeedVelocity runs `benchpkg`, which calls
+      # `mktempdir()` (default `/tmp/`) and copies just
+      # `benchmark/Project.toml` into that env. Pkg then resolves the
+      # relative source path to `/tmp/test/ADFixtures` — which doesn't
+      # exist, so the run aborts before any benchmarking. Staging
+      # ADFixtures into `/tmp/test/` gives Pkg the path it expects without
+      # touching the action or the project file. Guarded so a non-AD
+      # package (no `test/ADFixtures`, no path source to stage) is a no-op.
+      - name: Stage ADFixtures for AirspeedVelocity
         run: |
-          julia -e '
-            import Pkg
-            Pkg.activate(; temp = true)
-            Pkg.add("BenchmarkTools")
-            include("benchmark/compare.jl")' \
-            artifacts/bench-pr/results-pr.json \
-            artifacts/bench-main/results-main.json comment.md
-      - name: Post comparison comment
+          if [ -d test/ADFixtures ]; then
+            mkdir -p /tmp/test
+            cp -r test/ADFixtures /tmp/test/ADFixtures
+          fi
+
+      # Run the suite (core + AD gradients). `job-summary: true` makes the
+      # action write its flat table to the job summary instead of posting a
+      # PR comment, so we can post a single legible comment ourselves below
+      # from the same `results/` JSON it leaves behind (#290).
+      - uses: MilesCranmer/AirspeedVelocity.jl@action-v1
+        with:
+          julia-version: '1'
+          mode: 'time,memory'
+          job-summary: true
+
+      # Build a grouped, readable comment from the AirspeedVelocity result
+      # JSON: a "most changed" summary, a compact AD scenario x backend
+      # ratio matrix, and the full table folded away. The raw flat table
+      # (every scenario x backend AD row) is otherwise unreadable.
+      - name: Build benchmark comment
+        run: |
+          julia --project=benchmark/comment -e \
+            'using Pkg; Pkg.instantiate()'
+          julia --project=benchmark/comment benchmark/comment/comment.jl \
+            results CensoredDistributions \
+            "${{ github.event.repository.default_branch }}" \
+            "${{ github.event.pull_request.head.sha }}" \
+            benchmark-comment.md
+
+      - name: Post benchmark comment
         uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
-            const body = fs.readFileSync('comment.md', 'utf8');
-            const marker = '<!-- benchmark-comparison -->';
+            const marker = '<!-- benchmark-comment -->';
+            const body = marker + '\n' +
+              fs.readFileSync('benchmark-comment.md', 'utf8');
             const { owner, repo } = context.repo;
-            const issue_number = context.issue.number;
+            const issue_number = context.payload.pull_request.number;
             const comments = await github.paginate(
               github.rest.issues.listComments,
               { owner, repo, issue_number });
             const existing = comments.find(
-              (c) => c.body && c.body.includes(marker));
+              c => c.body && c.body.includes(marker));
             if (existing) {
               await github.rest.issues.updateComment(
                 { owner, repo, comment_id: existing.id, body });

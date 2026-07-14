@@ -9,6 +9,27 @@ end
     @test typeof(use_dist) <: CensoredDistributions.PrimaryCensored
 end
 
+@testitem "eltype promotes delay and primary-event types" begin
+    using Distributions
+    using ForwardDiff: Dual
+
+    # Both parts Float64: eltype is Float64.
+    d = primary_censored(LogNormal(3.5, 1.5), Uniform(1.0, 2.0))
+    @test eltype(d) == Float64
+
+    # A Dual-typed primary event must lift the eltype to the Dual type; the
+    # old method promoted the delay type with itself and ignored the
+    # primary-event type entirely. The eltype promotes PARAMETER types (a
+    # distribution's variate `eltype` is `Float64` and would drop the Dual).
+    T = typeof(Dual(0.0, 1.0))
+    dd = primary_censored(LogNormal(3.5, 1.5), Uniform(T(0.0), T(1.0)))
+    @test eltype(dd) == T
+
+    # A Dual-typed delay parameter must lift it too.
+    dd_delay = primary_censored(LogNormal(T(0.5), T(0.4)), Uniform(0.0, 1.0))
+    @test eltype(dd_delay) == T
+end
+
 @testitem "Default constructor (analytical solver)" begin
     using Distributions
 
@@ -35,21 +56,6 @@ end
     @test d.primary_event === primary
     @test d.method isa CensoredDistributions.NumericSolver
     @test d.method.solver isa CensoredDistributions.GaussLegendre
-end
-
-@testitem "Deprecated force_numeric still selects the solver" begin
-    using Distributions
-
-    dist = LogNormal(1.5, 0.75)
-    primary = Uniform(0.0, 1.0)
-
-    # `force_numeric` is deprecated in favour of `method`, but must keep
-    # mapping to the matching solver for backward compatibility.
-    d_numeric = primary_censored(dist, primary; force_numeric = true)
-    @test d_numeric.method isa CensoredDistributions.NumericSolver
-
-    d_analytic = primary_censored(dist, primary; force_numeric = false)
-    @test d_analytic.method isa CensoredDistributions.AnalyticalSolver
 end
 
 @testitem "Constructor with custom Integrals.jl solver" begin

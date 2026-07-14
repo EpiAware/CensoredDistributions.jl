@@ -540,7 +540,7 @@ CensoredDistributions.jl provide:
 2. **Significant speedup**: 15-100x performance
    improvement over numerical integration
 3. **Machine precision accuracy**: Errors typically
-   < 1e-15
+   a few times 1e-15
 4. **Consistent API**: Same interface whether using
    analytical or numerical methods
 5. **Flexibility**: Can force numerical methods or use
