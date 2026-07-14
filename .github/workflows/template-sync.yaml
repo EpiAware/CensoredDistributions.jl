@@ -1,0 +1,93 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
+#
+# Scheduled template-sync. Re-applies the managed EpiAware standard
+# (`scaffold_update("."; ad = true, benchmarks = true, downgrade_compat = false)`) and, when the
+# committed infra has drifted from
+# the kit, opens (or refreshes) a PR with the refresh. This is the auto-refresh
+# half of the self-sync loop: the `self-drift` check guards every push/PR, and
+# this workflow proactively pulls the newest standard on a schedule and reacts
+# to Dependabot action bumps so a repo never silently falls behind.
+#
+# Refs are preserved: `scaffold_update` keeps whatever reusable-workflow SHA Dependabot
+# has pinned in this repo, so a sync never reverts a Dependabot bump — it only
+# re-applies the rest of the managed standard.
+
+name: Template sync
+
+on:
+  schedule:
+    # Weekly, Monday 04:00 UTC.
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+  # React to Dependabot action/package bumps (the job below gates to the
+  # dependabot actor so other PRs do not trigger a sync).
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    # Schedule / manual runs always; PR runs only for Dependabot.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      # For a Dependabot PR, check out its branch so the sync amends that PR;
+      # otherwise check out the triggering ref (the default branch).
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - name: Re-apply the managed EpiAware standard
+        run: |
+          julia --color=yes -e '
+              using Pkg
+              Pkg.activate(; temp = true); Pkg.add(url = "https://github.com/EpiAware/EpiAwarePackageTools.jl", rev = "main")
+              using EpiAwarePackageTools
+              res = scaffold_update("."; ad = true, benchmarks = true, downgrade_compat = false)
+              println("re-applied ", length(res.updated), " managed files")'
+      # Dependabot PR: commit the refresh onto the PR branch so the action bump
+      # and the infra refresh land together. Needs "Allow GitHub Actions to
+      # create and approve pull requests" enabled and Dependabot write access.
+      - name: Fold the refresh into the Dependabot PR
+        if: github.event_name == 'pull_request'
+        run: |
+          if git diff --quiet; then
+            echo "No drift from the standard."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "ci: re-apply the managed EpiAware standard"
+          git push
+      # Schedule / manual: open or refresh a sync PR when the standard drifted.
+      - name: Open a PR if the standard drifted
+        if: github.event_name != 'pull_request'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: chore/template-sync
+          delete-branch: true
+          commit-message: "ci: sync managed infra to the EpiAware standard"
+          title: "ci: sync managed infra to the EpiAware standard"
+          labels: |
+            ci
+          body: |
+            Automated re-apply of the managed EpiAwarePackageTools standard
+            (`scaffold_update("."; ad = true, benchmarks = true, downgrade_compat = false)`).
+
+            Merge to bring this repo's managed infra back in line with the kit.
+            Package-owned files (unit tests, `qa_config.jl`, AD scenarios,
+            `LICENSE`) are never touched.

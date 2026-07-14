@@ -1,17 +1,19 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 name: Benchmark
 
-# Custom benchmark comparison that covers the evaluation AND AD gradient
-# suites against `main`, and posts a single PR comment grouped into
-# "Changed vs main" (inline) and "All benchmarks" (collapsed), each split
-# into Evaluation and AD gradients.
+# Benchmarks the evaluation AND AD gradient suites against `main` and posts a
+# single PR comparison comment (a bucketed summary plus collapsed detail
+# tables split into Evaluation and AD gradients — see
+# `EpiAwarePackageTools.Benchmarks.compare_comment`, which the scaffolded
+# `benchmark/compare.jl` calls into below).
 #
-# Each revision is benchmarked in its OWN job (a fresh runner checked out
-# at that revision), so `main` runs `main`'s sources and AD fixtures while
-# the PR runs its own. This is what lets the AD gradient benchmarks be
-# compared across an API change, where staging one set of fixtures against
-# both packages (the previous AirspeedVelocity setup) could not. Splitting
-# the revisions into separate jobs also keeps a single runner from loading
-# two heavy AD stacks (Enzyme + Mooncake) at once, which exhausted it.
+# Each revision is benchmarked in its OWN job (a fresh runner checked out at
+# that revision), so `main` runs `main`'s sources and AD fixtures while the PR
+# runs its own. This is what lets the AD gradient benchmarks be compared
+# across an API change, where staging one set of fixtures against both
+# revisions could not. Splitting the revisions into separate jobs also keeps
+# a single runner from loading two heavy AD stacks (e.g. Enzyme + Mooncake)
+# at once, which can exhaust it.
 #
 # Uses `pull_request` (not `pull_request_target`): the comparison runs the
 # PR's own code, so the workflow under test is the PR's and the
@@ -39,8 +41,10 @@ concurrency:
 
 jobs:
   # One revision per job. `ref` selects the checkout; `name` labels the
-  # uploaded results artifact. The runner inlines a tiny runner script so
-  # it works even on `main`, which predates `benchmark/run.jl`.
+  # uploaded results artifact. The runner inlines a tiny runner script (a
+  # bare `BenchmarkTools` call) rather than calling the scaffolded
+  # `benchmark/run.jl`, so it also works when checking out an older revision
+  # that predates that script (e.g. the PR that first adopts this workflow).
   benchmark:
     name: Benchmark (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -80,7 +84,10 @@ jobs:
     needs: benchmark
     runs-on: ubuntu-latest
     steps:
-      # PR checkout for `benchmark/compare.jl`.
+      # PR checkout (no ref override, so this always runs the workflow's own
+      # commit) for the scaffolded `benchmark/compare.jl` — unlike the
+      # per-revision `benchmark` job above this never runs against an old
+      # baseline, so it can safely depend on the kit-shipped script.
       - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v3
         with:
@@ -89,11 +96,27 @@ jobs:
         with:
           path: artifacts
       - name: Build comparison comment
+        # `compare.jl` only needs the kit (for `compare_comment`) and
+        # `BenchmarkTools` (which `compare_comment` lazily `Base.require`s to
+        # load the saved result files), not the package's own benchmark
+        # deps, so it runs in a scratch env that always installs both from
+        # scratch rather than depending on `benchmark/Project.toml` having
+        # them pinned. That file is package-owned and, for an adopter that
+        # already had a `benchmark/` dir before opting into this workflow,
+        # scaffold never overwrites it — so either dependency can be
+        # silently missing (the #821 gap: this job first failed with
+        # "Package EpiAwarePackageTools not found", then, once that was
+        # fixed, with "Package BenchmarkTools ... is required but does not
+        # seem to be installed").
         run: |
           julia -e '
-            import Pkg
+            using Pkg
             Pkg.activate(; temp = true)
-            Pkg.add("BenchmarkTools")
+            Pkg.add([
+                Pkg.PackageSpec(
+                    url = "https://github.com/EpiAware/EpiAwarePackageTools.jl",
+                    rev = "main"),
+                Pkg.PackageSpec(name = "BenchmarkTools")])
             include("benchmark/compare.jl")' \
             artifacts/bench-pr/results-pr.json \
             artifacts/bench-main/results-main.json comment.md

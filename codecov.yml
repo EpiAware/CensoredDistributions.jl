@@ -1,11 +1,47 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 # Coverage is reported under flags so the main unit suite and each
 # per-backend AD gradient suite stay separately attributable (each gets
 # its own Codecov badge) while still rolling up into one project total.
 #
 # `carryforward: true` keeps a flag's last value when a given workflow run
-# does not re-upload it: the `unit` job (codecoverage.yaml) and the six AD
-# jobs (ad-*.yaml) run and upload independently, so without carryforward a
-# run that posts only some flags would blank the others.
+# does not re-upload it: the `unit` job (codecoverage.yaml) and each AD job
+# (ad.yaml, one per `_AD_BACKENDS` entry) run and upload independently, so
+# without carryforward a run that posts only some flags would blank the
+# others.
+#
+# The 7 flag uploads (unit + per-backend AD) arrive from
+# separate workflows that finish minutes apart. Codecov recomputes the
+# patch/project status on every upload, so without a gate it posts an early
+# FAILURE from a partial session set (a line only exercised by an AD backend
+# reads as a patch miss until that backend's upload lands). `after_n_builds`
+# holds the status notification until all uploads are in, and `wait_for_ci`
+# keeps Codecov from finalising before CI itself reports. The patch/project
+# targets use `auto` (compare against the parent commit) with a small
+# threshold so the diff is judged on its true coverage rather than a transient
+# under-count.
+#
+# Only the `unit` flag claims `ext`: the AD jobs run without the package's
+# weakdeps loaded, so extension files never execute there and an `ext` path
+# under an `ad-*` flag would report 0% and drag the aggregate down (#180).
+codecov:
+  notify:
+    after_n_builds: 7
+    wait_for_ci: true
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: auto
+        threshold: 1%
+
+comment:
+  after_n_builds: 7
+
 flags:
   unit:
     paths:
@@ -15,30 +51,24 @@ flags:
   ad-forwarddiff:
     paths:
       - src
-      - ext
     carryforward: true
   ad-reversediff:
     paths:
       - src
-      - ext
     carryforward: true
   ad-enzyme-forward:
     paths:
       - src
-      - ext
     carryforward: true
   ad-enzyme-reverse:
     paths:
       - src
-      - ext
     carryforward: true
   ad-mooncake-reverse:
     paths:
       - src
-      - ext
     carryforward: true
   ad-mooncake-forward:
     paths:
       - src
-      - ext
     carryforward: true

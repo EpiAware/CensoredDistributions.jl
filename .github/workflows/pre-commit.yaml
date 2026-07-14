@@ -1,3 +1,4 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 name: pre-commit
 
 on:
@@ -6,10 +7,6 @@ on:
     branches: [main]
   merge_group:
 
-# Cancel a superseded pre-commit run on a new push so a rapid series of
-# pushes leaves only the latest formatting check running, freeing the
-# runner immediately. This is the cheapest check and the one most worth
-# cancelling early; the other callers already do this.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -17,4 +14,10 @@ concurrency:
 jobs:
   pre-commit:
     uses: EpiAware/.github/.github/workflows/format-check.yml@6d4e35e2515f947acbf7d2a683cbf02b341005c7
+    # Pin the CI formatter to the same version as the local pre-commit hook and
+    # the isolated formatter env (single source: `2.10.1`).
+    # Without this the shared workflow installs its own default and reformats
+    # code the pinned local formatter left intact, failing the check (#114).
+    with:
+      juliaformatter_version: '2.10.1'
     secrets: inherit  # pragma: allowlist secret

@@ -1,101 +1,99 @@
+#src MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
+#src Generalised from CensoredDistributions.jl's AD-backends page (the org
+#src model page). The page body is re-applied on every scaffold_update so it
+#src stays kit-current; everything package-specific it reports (scenarios,
+#src backends, broken/skip declarations) is read at docs-build time from the
+#src package-owned `test/ADFixtures` registry, so declare a broken scenario
+#src there, never here. If this page cannot execute for this package, park it
+#src via `FORCE_STUB_TUTORIALS` in `docs/docs_config.jl` instead of editing it.
+
 md"""
 # [Automatic differentiation backends](@id ad-backends)
 
-CensoredDistributions.jl composes with Julia's automatic differentiation
-(AD) ecosystem, so the censored `logpdf` can be used as the likelihood in
-gradient-based inference, for example inside a
-[Turing.jl](https://turinglang.org) model.
+CensoredDistributions.jl composes with Julia's automatic differentiation (AD)
+ecosystem, so its differentiable quantities can be used in gradient-based
+inference, for example inside a [Turing.jl](https://turinglang.org) model.
 This page reports which backends work, how to configure the ones that
-need it, and what each costs on the package's shared scenario set.
+need it, and what each costs on the package's shared AD scenario set.
 Advice on choosing a backend and on debugging comes after the results.
 
 ## Backend support
 
-Each backend has its own AD gradient CI run, so a transiently unstable
-backend only reds its own badge.
-The badges below show the latest run of each on `main`, tested on Julia 1
-(the latest stable release).
+The AD gradient suite runs as one CI workflow with a job per backend, so a
+transiently unstable backend only reds its own job.
+The badge below is the latest run of that matrix on `main`, tested on
+Julia 1 (the latest stable release).
 
-```@raw html
-<table>
-<thead><tr>
-<th>ForwardDiff</th><th>ReverseDiff (tape)</th><th>Enzyme forward</th>
-<th>Enzyme reverse</th><th>Mooncake reverse</th><th>Mooncake forward</th>
-</tr></thead>
-<tbody><tr>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-forwarddiff.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-forwarddiff.yaml/badge.svg?branch=main" alt="AD ForwardDiff"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-reversediff.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-reversediff.yaml/badge.svg?branch=main" alt="AD ReverseDiff"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-forward.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-forward.yaml/badge.svg?branch=main" alt="AD Enzyme forward"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-reverse.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-reverse.yaml/badge.svg?branch=main" alt="AD Enzyme reverse"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-reverse.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-reverse.yaml/badge.svg?branch=main" alt="AD Mooncake reverse"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-forward.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-forward.yaml/badge.svg?branch=main" alt="AD Mooncake forward"></a></td>
-</tr>
-<tr>
-<td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-forwarddiff"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-forwarddiff" alt="coverage ForwardDiff"></a></td>
-<td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-reversediff"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-reversediff" alt="coverage ReverseDiff"></a></td>
-<td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-enzyme-forward"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-enzyme-forward" alt="coverage Enzyme forward"></a></td>
-<td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-enzyme-reverse"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-enzyme-reverse" alt="coverage Enzyme reverse"></a></td>
-<td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-mooncake-reverse"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-mooncake-reverse" alt="coverage Mooncake reverse"></a></td>
-<td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-mooncake-forward"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-mooncake-forward" alt="coverage Mooncake forward"></a></td>
-</tr></tbody>
-</table>
-```
+[![AD](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad.yaml/badge.svg?branch=main)](https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad.yaml)
 
-The top row is each backend's latest CI run: a green badge means that
-backend differentiates the scenarios we test for it, which does not by
-itself mean full coverage.
-The second row is each backend's code coverage from the gradient suite
+The table below is each backend's code coverage from the gradient suite
 (Codecov flag `ad-<backend>`), reporting which package lines that backend
 exercises.
-All six backends (ForwardDiff, ReverseDiff (tape), Enzyme forward, Enzyme
-reverse, Mooncake reverse, Mooncake forward) cover the whole scenario set.
 
+| ForwardDiff | ReverseDiff (tape) | Enzyme forward | Enzyme reverse | Mooncake reverse | Mooncake forward |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| [![cov ForwardDiff](https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-forwarddiff)](https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-forwarddiff) | [![cov ReverseDiff](https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-reversediff)](https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-reversediff) | [![cov Enzyme forward](https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-enzyme-forward)](https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-enzyme-forward) | [![cov Enzyme reverse](https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-enzyme-reverse)](https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-enzyme-reverse) | [![cov Mooncake reverse](https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-mooncake-reverse)](https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-mooncake-reverse) | [![cov Mooncake forward](https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-mooncake-forward)](https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-mooncake-forward) |
+
+A green matrix means each backend differentiates the scenarios we test for
+it, which does not by itself mean full coverage.
+The next table reports that coverage per backend, rendered directly from
+the package's AD-fixture registry (the `ADFixtures` path package at
+`test/ADFixtures`), the same registry the gradient tests and the benchmark
+below consume.
+A scenario is declared broken or skipped on a backend through the
+registry's optional `broken_scenario_names`, `backend_broken_scenarios`,
+and `backend_skip_scenarios` accessors, so what this table shows cannot
+drift from what the tests actually mark broken.
+"""
+
+md"""
+```@raw html
+<details><summary>Show table code</summary>
+```
+"""
+
+using EpiAwarePackageTools
+using ADFixtures
+import Markdown
+
+support_table = Markdown.parse(ad_backend_support_table(ADFixtures));
+
+md"""
+```@raw html
+</details>
+```
+"""
+
+support_table
+
+md"""
 ### Configuring Enzyme
 
-Enzyme needs one caller-side setting to work through the numerical
-(quadrature) paths.
+When the registry enables Enzyme, the standard configuration defers
+per-value activity decisions to runtime:
 
 ```julia
 using ADTypes, Enzyme
 AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Reverse))
 ```
 
-`set_runtime_activity` defers per-value activity decisions to runtime; see
-the [Enzyme FAQ](https://enzymead.github.io/Enzyme.jl/stable/faq/) for what
-it does.
-These are the settings the benchmark below uses.
-The observation data is passed as a `Constant` DifferentiationInterface
-context rather than captured in a closure, which keeps the differentiated
-function free of active fields.
-Runtime activity is not free.
-On the analytical paths, which do not need it, it makes Enzyme several
-times slower here, so its benchmark rows are conservative; the benchmark
-applies one Enzyme configuration to every scenario and only the numerical
-paths require it.
+See the [Enzyme FAQ](https://enzymead.github.io/Enzyme.jl/stable/faq/) for
+what `set_runtime_activity` does.
+Scenario data is passed as a `Constant` DifferentiationInterface context
+rather than captured in a closure, which keeps the differentiated function
+free of active fields.
+Runtime activity is not free: on paths that do not need it, it can make
+Enzyme several times slower, so where the registry applies one Enzyme
+configuration to every scenario its benchmark rows are conservative.
 Running through DifferentiationInterface, by contrast, adds no measurable
 overhead.
 
-The scenario set covers analytical and numerical paths for Gamma,
-LogNormal, and Weibull delays with both `Uniform` and
-`ExponentiallyTilted` primary events, plus `IntervalCensored` and
-`DoubleIntervalCensored` constructions.
-
-It spans two regimes so the comparison is not limited to the small fits
-that favour forward mode.
-Most scenarios are low-dimensional (two or three parameters), matching a
-single delay fit.
-A further set gives each observation its own delay parameter (32 in all),
-in analytical and numerical forms, to exercise the high-dimensional
-regime.
-The numerical (quadrature) paths also do much more work per call than the
-analytical ones, stressing how each backend differentiates the
-integration routine.
-
+The scenario set is package-owned.
 It is defined with
 [DifferentiationInterfaceTest.jl](https://juliadiff.org/DifferentiationInterface.jl/DifferentiationInterfaceTest/stable/)
 in the `ADFixtures` path package at `test/ADFixtures`, and shared with the
-gradient tests (`test/ad/runtests.jl`) and the benchmark suite
-(`benchmark/src/ad_gradients.jl`).
+gradient tests (`test/ad/runtests.jl`), so this page, the tests, and the
+per-backend CI all exercise the same set.
 """
 
 md"""
@@ -109,16 +107,7 @@ md"""
 """
 
 using CensoredDistributions
-using Distributions
-using ADTypes
-using DifferentiationInterface
 import DifferentiationInterfaceTest as DIT
-using ForwardDiff
-using ReverseDiff
-using Enzyme
-using Mooncake
-using Chairmarks
-using ADFixtures
 using DataFramesMeta
 using Statistics
 using CairoMakie
@@ -127,10 +116,19 @@ using AlgebraOfGraphics
 CairoMakie.activate!(type = "png", px_per_unit = 2)
 set_theme!(theme_latexfonts(); fontsize = 14)
 
-scenarios = ADFixtures.scenarios()
-all_backends = [entry.backend for entry in ADFixtures.backends()]
-backend_name = Dict(entry.backend => entry.name
-for entry in ADFixtures.backends())
+backend_entries = ADFixtures.backends()
+scenario_list = ADFixtures.scenarios()
+
+## The registry's optional bookkeeping accessors (see the ADRegistry
+## contract): a missing accessor means no broken or skipped scenarios.
+function _optional(name, default)
+    isdefined(ADFixtures, name) ? getfield(ADFixtures, name)() : default
+end
+global_broken = Set(String.(_optional(:broken_scenario_names, String[])))
+backend_broken = _optional(
+    :backend_broken_scenarios, Dict{String, Set{String}}())
+backend_skip = _optional(
+    :backend_skip_scenarios, Dict{String, Set{String}}());
 
 md"""
 ```@raw html
@@ -142,8 +140,11 @@ md"""
 ## Benchmark
 
 `DifferentiationInterfaceTest.benchmark_differentiation` runs every
-(backend, scenario) pair. We pass every backend and scenario so broken
-combinations show up as gaps rather than being hidden.
+(backend, scenario) pair the registry supports.
+Combinations declared broken or skipped in the registry are excluded from
+their backend's rows, so they show up as reduced scenario coverage here
+and as named entries in the support table above, rather than as timings
+of gradients that are wrong or crash.
 The figures are the prepared per-call cost.
 DifferentiationInterface prepares each backend once, recording a tape for
 ReverseDiff and compiling a rule for Enzyme and Mooncake, and we time the
@@ -153,6 +154,8 @@ amortised over many gradient calls.
 Each backend's time and allocations are then divided by the ForwardDiff
 value on the same scenario, so ForwardDiff sits at 1.0 by construction;
 values below 1.0 are faster (or lighter), above 1.0 slower (or heavier).
+Timings use short per-measurement budgets so the page stays cheap to
+build; treat small differences as indicative rather than exact.
 """
 
 md"""
@@ -169,26 +172,28 @@ md"""
 ```
 """
 
-raw_bench = DIT.benchmark_differentiation(
-    all_backends, scenarios;
-    logging = false,
-    benchmark_test = false
-)
-
-## `replace` order matters because `DoubleIntervalCensored` contains
-## `IntervalCensored`; the longer key is matched first.
-function _shorten(name)
-    replace(name,
-        "DoubleIntervalCensored" => "DIC",
-        "IntervalCensored" => "IC",
-        "PrimaryCensored" => "PC")
+bench_parts = map(backend_entries) do entry
+    excluded = union(global_broken,
+        get(backend_broken, entry.name, Set{String}()),
+        get(backend_skip, entry.name, Set{String}()))
+    scens = filter(s -> !(s.name in excluded), scenario_list)
+    part = DataFrame(DIT.benchmark_differentiation(
+        [entry.backend], scens;
+        logging = false,
+        benchmark_test = false,
+        benchmark_seconds = 0.5))
+    ## Label rows with the registry's backend name, which distinguishes
+    ## configurations (e.g. Enzyme forward vs reverse) that share a package.
+    part[!, :backend_label] .= entry.name
+    part
 end
+raw_bench = vcat(bench_parts...)
 
-bench_long = @chain DataFrame(raw_bench) begin
+bench_long = @chain raw_bench begin
     @rsubset :operator == ^(:gradient)
     @rtransform begin
-        :backend = backend_name[:backend]
-        :scenario = _shorten(:scenario.name)
+        :backend = :backend_label
+        :scenario = :scenario.name
         :time_us = :time * 1e6
         :bytes_kb = :bytes / 1024
     end
@@ -196,13 +201,19 @@ bench_long = @chain DataFrame(raw_bench) begin
     @select :backend :scenario :time_us :bytes_kb
 end;
 
+## The baseline every cost is divided by: ForwardDiff when the registry has
+## it (the org standard), otherwise the registry's first backend.
+baseline = any(e -> e.name == "ForwardDiff", backend_entries) ?
+           "ForwardDiff" : first(backend_entries).name
+
 ref = @chain bench_long begin
-    @rsubset :backend == "ForwardDiff"
+    @rsubset :backend == baseline
     @select :scenario :ref_time=:time_us :ref_bytes=:bytes_kb
 end
 
 rel = @chain bench_long begin
     leftjoin(ref, on = :scenario)
+    @rsubset !ismissing(:ref_time) && !ismissing(:ref_bytes)
     @rtransform begin
         :rel_time = :time_us / :ref_time
         :rel_bytes = :bytes_kb / :ref_bytes
@@ -216,9 +227,9 @@ function geomean(x)
     isempty(pos) ? NaN : exp(mean(log.(pos)))
 end
 
-n_total = length(unique(bench_long.scenario))
+n_total = length(scenario_list)
 
-summary = @chain rel begin
+summary_table = @chain rel begin
     @by :backend begin
         :rel_time = round(geomean(:rel_time); digits = 2)
         :rel_bytes = round(geomean(:rel_bytes); digits = 2)
@@ -238,14 +249,14 @@ md"""
 ```
 """
 
-summary
+summary_table
 
 md"""
 ### Spread across scenarios
 
 Each box summarises a backend's relative cost across the scenario set, on
-a log scale so speed-ups and slow-downs are symmetric around the
-ForwardDiff baseline at 1.0.
+a log scale so speed-ups and slow-downs are symmetric around the baseline
+at 1.0.
 """
 
 md"""
@@ -257,16 +268,12 @@ md"""
 plot_df = @chain rel begin
     stack([:rel_time, :rel_bytes],
         variable_name = :metric, value_name = :value)
-    @rsubset :value > 0
+    @rsubset isfinite(:value) && :value > 0
     @rtransform begin
         :metric = :metric == "rel_time" ? "Relative time" :
                   "Relative allocations"
-        :family = startswith(:backend, "Enzyme") ? "Enzyme" :
-                  startswith(:backend, "Mooncake") ? "Mooncake" :
-                  startswith(:backend, "ReverseDiff") ? "ReverseDiff" :
-                  "ForwardDiff"
-        :mode = (occursin("reverse", :backend) ||
-                 startswith(:backend, "ReverseDiff")) ? "reverse" :
+        :family = first(split(:backend))
+        :mode = occursin("reverse", lowercase(:backend)) ? "reverse" :
                 "forward"
     end
 end
@@ -278,7 +285,7 @@ fig_relative = draw(
     data(plot_df) *
     mapping(
         :backend => "",
-        :value => "Cost relative to ForwardDiff",
+        :value => "Cost relative to $baseline",
         col = :metric => metric_order) *
     visual(BoxPlot);
     figure = (size = (1200, 500),),
@@ -313,7 +320,7 @@ fig_scenarios = draw(
     data(plot_df) *
     mapping(
         :scenario => "",
-        :value => "Cost relative to ForwardDiff",
+        :value => "Cost relative to $baseline",
         color = :family => "Backend family",
         marker = :mode => "Mode",
         col = :metric => metric_order) *
@@ -343,16 +350,16 @@ on how many parameters you differentiate with respect to.
 
 - Forward mode (ForwardDiff, Enzyme forward, Mooncake forward) costs one
   pass per parameter, so it wins when the parameter count is small.
-  Fitting a single censored delay distribution has two or three
-  parameters, which is why ForwardDiff leads the low-dimensional rows.
-  Among the forward backends ForwardDiff is fastest on these small smooth
-  `logpdf`s; Enzyme and Mooncake forward do not beat it here.
+  Fitting a single distribution has a handful of parameters, which is why
+  ForwardDiff usually leads the low-dimensional rows; among the forward
+  backends it is typically the fastest on small smooth log densities.
 - Reverse mode (ReverseDiff, Enzyme reverse, Mooncake reverse) costs one
-  pass per output regardless of the parameter count, so it pays off once a
-  censored distribution sits inside a larger model with many latent
-  parameters. In the 32-parameter rows Enzyme reverse and Mooncake reverse
-  run several times faster than ForwardDiff; ReverseDiff's tape overhead
-  leaves it slower even there.
+  pass per output regardless of the parameter count, so it pays off once
+  this package's quantities sit inside a larger model with many latent
+  parameters.
+  In high-dimensional scenarios Enzyme reverse and Mooncake reverse tend
+  to run several times faster than ForwardDiff, while ReverseDiff's tape
+  overhead can leave it slower even there.
 
 Turing's
 [AD guidance](https://turinglang.org/docs/usage/automatic-differentiation/)
@@ -360,8 +367,7 @@ puts the crossover around 20 parameters: forward mode below, reverse mode
 above.
 ForwardDiff is the simplest fast default for the small-parameter case and
 needs no configuration.
-For a higher-dimensional model, switch to a reverse-mode backend; Enzyme
-and Mooncake show their strength here, in reverse rather than forward mode.
+For a higher-dimensional model, switch to a reverse-mode backend.
 In a Turing model you set this through the sampler's `adtype`, for example
 `sample(model, NUTS(; adtype = AutoMooncake()), 1000)`, and the surest
 choice is to benchmark the backends on your own model.
@@ -384,8 +390,13 @@ on the same input (which is what the gradient tests do).
 DIT runs a single function across several backends at once and flags the
 ones that disagree with the reference.
 Work bottom-up: differentiate one small piece first (a single `logpdf`,
-then a `primary_censored` logpdf), confirm it, and build up to the full
-model, so the construct a backend chokes on is easy to isolate.
+then one of this package's own quantities), confirm it, and build up to
+the full model, so the construct a backend chokes on is easy to isolate.
+When a genuinely broken combination is confirmed, declare it in the
+`ADFixtures` registry (`backend_broken_scenarios`, or
+`backend_skip_scenarios` when it cannot run at all): the gradient tests
+then record it as `@test_broken` and this page reports it in the support
+table, instead of the suite going red.
 
 ## Reproducing this page
 
@@ -410,7 +421,8 @@ julia --project=docs docs/make.jl
   `DifferentiationInterfaceTest.test_differentiation`. Pass a backend tag
   (e.g. `TAG=enzyme_reverse task test-ad-backend`) to run a single
   backend, as the per-backend CI does.
-- `benchmark/src/ad_gradients.jl` runs the same scenarios under
-  AirspeedVelocity. A benchmark history timeline is tracked in
-  [#224](https://github.com/EpiAware/CensoredDistributions.jl/issues/224).
+- `test/ADFixtures` is the package-owned registry this page renders from;
+  scenarios, backends, and broken/skip declarations all live there.
+- The shared harness and the `ADRegistry` contract live in
+  [EpiAwarePackageTools.jl](https://github.com/EpiAware/EpiAwarePackageTools.jl).
 """

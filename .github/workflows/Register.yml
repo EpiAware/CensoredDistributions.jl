@@ -1,0 +1,74 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
+#
+# Triggers Julia General Registry registration by posting the
+# `@JuliaRegistrator register` comment on the `main` branch's HEAD commit —
+# the same comment a maintainer would type by hand on the commit page, so no
+# extra registration service or token beyond the default `GITHUB_TOKEN` is
+# needed. Two ways to fire it, both gated on the actor having write access:
+#
+#   - Comment `/register` on any issue or pull request.
+#   - Run this workflow manually (Actions -> Register -> Run workflow).
+#
+# JuliaRegistrator (the separate GitHub App installed on the org) then reacts
+# to the posted commit comment, opens the registry PR, and TagBot creates the
+# GitHub release once it merges — see docs/src/developer/release-process.md.
+
+name: Register
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+
+jobs:
+  register:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.comment.body, '/register')
+    runs-on: ubuntu-latest
+    # `contents: write` — posting the `@JuliaRegistrator register` commit
+    # comment (`POST .../commits/{sha}/comments`) needs Contents write.
+    # `issues: write` — posting the permission-denied reaction
+    # (`POST .../issues/comments/{id}/reactions`) needs Issues write (a PR
+    # conversation comment is an issue comment for this endpoint). The
+    # collaborator-permission check below needs no extra scope: `Metadata`
+    # read is always available to `GITHUB_TOKEN`, permissions block or not.
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Check permissions
+        id: check-permissions
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ACTOR="${{ github.actor }}"
+          else
+            ACTOR="${{ github.event.comment.user.login }}"
+          fi
+          PERMISSION=$(gh api "repos/${{ github.repository }}/collaborators/$ACTOR/permission" --jq '.permission')
+          echo "$ACTOR has permission: $PERMISSION"
+          if [[ "$PERMISSION" == "admin" || "$PERMISSION" == "write" || "$PERMISSION" == "maintain" ]]; then
+            echo "has_permission=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_permission=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger JuliaRegistrator
+        if: steps.check-permissions.outputs.has_permission == 'true'
+        run: |
+          gh api "repos/${{ github.repository }}/commits/main/comments" \
+            --method POST --field body='@JuliaRegistrator register'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: React with permission denied
+        if: >-
+          github.event_name == 'issue_comment' &&
+          steps.check-permissions.outputs.has_permission == 'false'
+        run: |
+          gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            --method POST --field content='-1'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

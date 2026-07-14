@@ -1,4 +1,6 @@
-<!-- GitHub stars component for navbar -->
+<!-- MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand. -->
+<!-- GitHub stars widget for the docs navbar. Shows the repo's live star -->
+<!-- count (from stargazers.data.ts) and links to the repository. -->
 <!-- Adapted from https://github.com/LuxDL/DocumenterVitepress.jl -->
 <script setup>
 import {formatPrefix} from "d3-format";

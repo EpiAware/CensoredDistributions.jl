@@ -1,15 +1,24 @@
+# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
 name: AD
+
+# Drives the per-backend AD gradient matrix (the shipped `test/ad/` harness).
+# The per-flag coverage upload and job mechanics live in the reusable; this is
+# the thin caller. Without it the AD harness the kit ships never runs in CI.
+#
+# `backends` is passed explicitly (built from `_AD_BACKENDS`, the kit's single
+# source of truth for the AD infra) rather than left to the reusable's own
+# default, so the actual CI matrix can never drift from the badges/codecov
+# flags this same package generates.
 
 on:
   push:
     branches: [main]
-    # Don't fire the 6-backend AD sweep (the heaviest, slowest matrix)
-    # for changes that cannot alter a gradient result. Only clearly
-    # AD-irrelevant paths are ignored: prose docs and markdown. Anything
-    # touching src/, ext/, test/, Project.toml, benchmark/ or the
-    # workflow itself still triggers the full matrix. paths-ignore only
-    # skips when EVERY changed file matches, so a mixed docs+src PR still
-    # runs.
+    # Don't fire the 6-backend AD sweep (the heaviest, slowest matrix) for
+    # changes that cannot alter a gradient result. Only clearly AD-irrelevant
+    # paths are ignored: prose docs and markdown. Anything touching src/,
+    # ext/, test/, Project.toml, benchmark/ or the workflow itself still
+    # triggers the full matrix. paths-ignore only skips when EVERY changed
+    # file matches, so a mixed docs+src PR still runs.
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
@@ -28,4 +37,6 @@ concurrency:
 jobs:
   ad:
     uses: EpiAware/.github/.github/workflows/ad.yml@9692b37b9127099d9c1a51db5034a084edaeb56e
+    with:
+      backends: '[{"name":"ForwardDiff","tag":"forwarddiff","flag":"ad-forwarddiff"},{"name":"ReverseDiff (tape)","tag":"reversediff","flag":"ad-reversediff"},{"name":"Enzyme forward","tag":"enzyme_forward","flag":"ad-enzyme-forward"},{"name":"Enzyme reverse","tag":"enzyme_reverse","flag":"ad-enzyme-reverse"},{"name":"Mooncake reverse","tag":"mooncake_reverse","flag":"ad-mooncake-reverse"},{"name":"Mooncake forward","tag":"mooncake_forward","flag":"ad-mooncake-forward"}]'
     secrets: inherit  # pragma: allowlist secret
