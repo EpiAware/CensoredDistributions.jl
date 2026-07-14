@@ -1,7 +1,16 @@
 module CensoredDistributionsChainRulesCoreExt
 
 using CensoredDistributions: _gamma_cdf, _gamma_cdf_value_and_partials
+using CensoredDistributions: _collect_unique_boundaries
 using ChainRulesCore: ChainRulesCore, NoTangent
+
+# `_collect_unique_boundaries(d, x)` returns the batched-pdf boundaries:
+# functions of the (constant) lags and interval spec, not the AD parameters,
+# so they carry no tangent. `@non_differentiable` covers reverse-mode AD
+# (ReverseDiff) without tracing the `unique`/sort internals; the parameter
+# gradient flows through the CDF evaluation in `_compute_boundary_cdfs`
+# (#699, #701).
+ChainRulesCore.@non_differentiable _collect_unique_boundaries(::Any, ::Any)
 
 # Reverse- and forward-mode rules for `_gamma_cdf(k, θ, x) = P(k, x/θ)`.
 # The analytical partials live in `_gamma_cdf_value_and_partials` (in

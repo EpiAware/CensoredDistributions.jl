@@ -234,49 +234,84 @@ end
 Collect all unique interval boundaries needed for vectorised PDF computation.
 
 Returns a sorted vector of unique boundaries with appropriate type promotion.
+The boundaries are functions of the (constant) lags and the interval spec, not
+the distribution's AD parameters, so AD rules mark this non-differentiable (the
+`unique`/sort internals are never traced); see the AD extensions (#699, #701).
 """
 function _collect_unique_boundaries(d::IntervalCensored, x::AbstractVector{<:Real})
-    # Determine promoted type for type stability
     T = promote_type(eltype(x), eltype(d.boundaries))
 
-    # Collect all unique boundaries needed using functional approach
-    boundary_pairs = if is_regular_intervals(d)
+    boundaries = T[]
+    if is_regular_intervals(d)
         interval = interval_width(d)
-        map(x) do xi
+        for xi in x
             lower = floor_to_interval(xi, interval)
-            upper = lower + interval
-            (T(lower), T(upper))
+            push!(boundaries, T(lower), T(lower + interval))
         end
     else
-        # For arbitrary intervals, collect all boundaries that could be needed
-        boundary_pairs = map(x) do xi
+        for xi in x
             lower, upper = get_interval_bounds(d, xi)
             if !isnan(lower) && !isnan(upper)
-                (T(lower), T(upper))
-            else
-                ()  # Empty tuple for invalid bounds
+                push!(boundaries, T(lower), T(upper))
             end
         end
-        # Filter out empty tuples
-        filter(!isempty, boundary_pairs)
     end
 
-    # Flatten pairs to boundaries (single vcat operation)
-    boundaries = isempty(boundary_pairs) ? T[] :
-                 vcat([collect(pair) for pair in boundary_pairs]...)
-
-    # Return sorted unique boundaries without mutation
     return sort(unique(boundaries))
 end
 
 """
-    _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector, cdf_lookup::Dict)
+    _lookup_boundary_cdf(boundaries, cdf_values, b)
 
-Compute PDFs efficiently using cached CDF values.
+Look up the cached CDF for boundary `b` in the sorted, unique `boundaries`
+vector via `searchsortedfirst`, returning the matching `cdf_values` entry.
+The concretely-typed parallel arrays plus an index lookup keep the boundary
+CDF cache type-stable so the AD tangent is tracked through it (#699).
+"""
+function _lookup_boundary_cdf(boundaries::AbstractVector, cdf_values::AbstractVector, b)
+    idx = searchsortedfirst(boundaries, b)
+    return cdf_values[idx]
+end
+
+"""
+    _compute_boundary_cdfs(d::IntervalCensored, boundaries)
+
+Evaluate the boundary CDF once per unique boundary, returning a vector
+parallel to the sorted unique `boundaries`. `_cdf_ad_safe` keeps the
+`Gamma` path differentiable (see #257). CDF values keep their natural type
+so the AD tangent is not stripped. Boundaries at or below `minimum(dist)` /
+at or above `maximum(dist)` get the literal `0` / `1` (typed via
+`partype`) instead of an evaluation, mirroring the scalar [`pdf`](@ref)
+guard; evaluating `_cdf_ad_safe` at a degenerate boundary (e.g. `LogNormal`
+at `0`) would poison the reverse sweep with a `-Inf`/`NaN` adjoint (#699).
+"""
+function _compute_boundary_cdfs(d::IntervalCensored, boundaries::AbstractVector)
+    dist = get_dist(d)
+    dist_min = minimum(dist)
+    dist_max = maximum(dist)
+    z = zero(Distributions.partype(dist))
+    return map(boundaries) do b
+        if b <= dist_min
+            z
+        elseif b >= dist_max
+            z + one(z)
+        else
+            _cdf_ad_safe(dist, b)
+        end
+    end
+end
+
+"""
+    _compute_pdfs_with_cache(d, x, boundaries, cdf_values)
+
+Compute PDFs efficiently using the cached boundary CDFs held in the
+parallel arrays `boundaries` (sorted, unique) and `cdf_values`.
 
 Uses the same boundary case handling as the scalar method.
 """
-function _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector{<:Real}, cdf_lookup::Dict)
+function _compute_pdfs_with_cache(
+        d::IntervalCensored, x::AbstractVector{<:Real},
+        boundaries::AbstractVector, cdf_values::AbstractVector)
     # Get distribution bounds once for boundary case handling
     dist_min = minimum(get_dist(d))
     dist_max = maximum(get_dist(d))
@@ -291,11 +326,11 @@ function _compute_pdfs_with_cache(d::IntervalCensored, x::AbstractVector{<:Real}
         # Handle boundary cases for distributions with bounded support
         # For lower bound at or below distribution minimum, CDF is 0
         cdf_lower = lower <= dist_min ? zero(promote_type(eltype(x), eltype(d))) :
-                    cdf_lookup[lower]
+                    _lookup_boundary_cdf(boundaries, cdf_values, lower)
 
         # For upper bound at or above distribution maximum, CDF is 1
         cdf_upper = upper >= dist_max ? one(promote_type(eltype(x), eltype(d))) :
-                    cdf_lookup[upper]
+                    _lookup_boundary_cdf(boundaries, cdf_values, upper)
 
         return max(cdf_upper - cdf_lower, zero(cdf_upper))
     end
@@ -320,14 +355,12 @@ function pdf(d::IntervalCensored, x::AbstractVector{<:Real})
         return fill(zero(T), length(x))
     end
 
-    # Compute CDFs once for all unique boundaries using functional approach.
-    # `_cdf_ad_safe` keeps the `Gamma` path differentiable (see #257).
-    cdf_lookup = Dict(
-        boundary => T(_cdf_ad_safe(get_dist(d), boundary))
-    for boundary in boundaries)
+    # CDF once per unique boundary, stored parallel to `boundaries` for a
+    # `searchsortedfirst` lookup (concretely typed for AD, #699).
+    cdf_values = _compute_boundary_cdfs(d, boundaries)
 
     # Use cached values to compute PDFs efficiently
-    return _compute_pdfs_with_cache(d, x, cdf_lookup)
+    return _compute_pdfs_with_cache(d, x, boundaries, cdf_values)
 end
 
 @doc "
@@ -340,13 +373,13 @@ function logpdf(d::IntervalCensored, x::AbstractVector{<:Real})
     # Use vectorised PDF computation then handle logs with proper error handling
     pdf_vals = pdf(d, x)
 
-    T = promote_type(eltype(x), eltype(d))
-
+    # Derive the log-pdf type from the pdf values, not `eltype(d)`: under AD
+    # `pdf_val` is a tracked number and the value type would strip it (#699).
     return map(zip(x, pdf_vals)) do (xi, pdf_val)
         if !insupport(d, xi)
-            T(-Inf)
+            oftype(log(pdf_val), -Inf)
         else
-            T(log(pdf_val))
+            log(pdf_val)
         end
     end
 end
