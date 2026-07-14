@@ -25,6 +25,16 @@ for a new composer node, asserting its `child_nleaves` / `child_logpdf` /
 `child_rand!` methods round-trip on a flat event vector. [`test_interface`](@ref),
 `example_fixtures`, [`test_rejects_invalid`](@ref) and
 [`test_node_interface`](@ref) are exported from this submodule.
+
+# Examples
+
+```@example
+using CensoredDistributions, Distributions
+
+# Any leaf or composed distribution can be checked against the interface.
+CensoredDistributions.TestUtils.test_interface(
+    primary_censored(LogNormal(1.5, 0.75), Uniform(0.0, 1.0)))
+```
 """
 module TestUtils
 
@@ -40,8 +50,7 @@ using ..CensoredDistributions: CensoredDistributions, Sequential, Parallel,
                                double_interval_censored, primary_censored,
                                interval_censored, resolve, compete,
                                affine, modify, thin, difference,
-                               convolved,
-                               from_moments, MomentParams,
+                               convolved, reparameterise, Reparameterised,
                                Affine, Modified, Weighted, Transformed,
                                Convolved, Difference, ExponentiallyTilted,
                                PrimaryCensored, IntervalCensored,
@@ -742,13 +751,13 @@ function example_fixtures()
     et = ExponentiallyTilted(0.0, 5.0, 0.5)
     et_ad = (θ -> Distributions.logpdf(
             ExponentiallyTilted(0.0, 5.0, θ[1]), 2.0), [0.5])
-    # MomentParams: a Gamma reparameterised by (mean, shape) via the generic
-    # moment wrapper, density-identical to `Gamma(shape, mean / shape)`. The AD
-    # closure differentiates the log density wrt the (mean, shape) pair.
-    mg = from_moments(Distributions.Gamma; mean = 5.0, shape = 2.0)
+    # Reparameterised: a Gamma reparameterised by (mean, shape) via the moment
+    # wrapper, density-identical to `Gamma(shape, mean / shape)`. The AD closure
+    # differentiates the log density wrt the (mean, shape) pair.
+    mg = reparameterise(Distributions.Gamma; mean = 5.0, shape = 2.0)
     mg_ad = (
         θ -> Distributions.logpdf(
-            from_moments(Distributions.Gamma; mean = θ[1], shape = θ[2]),
+            reparameterise(Distributions.Gamma; mean = θ[1], shape = θ[2]),
             4.0),
         [5.0, 2.0])
     # Compete (racing hazards): a univariate time-to-first-event marginal, an
@@ -882,8 +891,9 @@ function example_fixtures()
         # ExponentiallyTilted: a bounded exponentially-tilted leaf.
         InterfaceFixture(; name = "ExponentiallyTilted", dist = et, draw = 2.0,
             univariate = true, overall = :scalar, ad = et_ad),
-        # MomentParams: a (mean, shape)-reparameterised Gamma leaf, scalar moment.
-        InterfaceFixture(; name = "MomentParams", dist = mg, draw = 4.0,
+        # Reparameterised: a (mean, shape)-reparameterised Gamma leaf, scalar
+        # moment.
+        InterfaceFixture(; name = "Reparameterised", dist = mg, draw = 4.0,
             univariate = true, overall = :scalar, ad = mg_ad),
         # Compete (racing hazards): a univariate time-to-first-event marginal.
         # Scalar marginal moments, but `rand` returns the named winning-cause
@@ -960,7 +970,7 @@ documented reason in the source.
         PrimaryCensored, IntervalCensored, Latent,
         # distribution-modifier / derived leaves
         Affine, Modified, Weighted, Transformed, Convolved, Difference,
-        ExponentiallyTilted, MomentParams
+        ExponentiallyTilted, Reparameterised
     ]
 end
 
@@ -1248,7 +1258,7 @@ consistent: every composer node subtypes `AbstractComposedDistribution`, every
 single-base modifier leaf subtypes `AbstractModifiedDistribution`, the
 primary-censored family subtypes `AbstractPrimaryCensored`, and the multi-base
 combinations subtype `AbstractCombinedDistribution`. `IntervalCensored`,
-`MomentParams` and `ExponentiallyTilted` are standalone (under none). A type
+`Reparameterised` and `ExponentiallyTilted` are standalone (under none). A type
 filed under the wrong family fails here. Returns the `@testset` object.
 """ function test_abstract_membership()
     return @testset "abstract hierarchy membership" begin
@@ -1276,7 +1286,7 @@ filed under the wrong family fails here. Returns the `@testset` object.
         @test !(IntervalCensored <: AbstractPrimaryCensored)
         @test IntervalCensored <: Distributions.UnivariateDistribution
         # Reparameterised leaf / base family stay plain (no shared abstract).
-        for T in (MomentParams, ExponentiallyTilted)
+        for T in (Reparameterised, ExponentiallyTilted)
             @test !(T <: AbstractModifiedDistribution)
             @test !(T <: AbstractCombinedDistribution)
             @test !(T <: AbstractComposedDistribution)

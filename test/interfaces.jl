@@ -201,7 +201,7 @@ end
 
     # The combined-family conformance entry: Convolved (sum of independent
     # components) and Difference (Z = X - Y) subtype AbstractCombinedDistribution
-    # and carry params / a finite logpdf / show. MomentParams and
+    # and carry params / a finite logpdf / show. Reparameterised and
     # ExponentiallyTilted stay plain (see the membership meta-test).
     conv = convolved(Gamma(2.0, 1.0), LogNormal(0.5, 0.4))
     test_combined_interface(conv; name = "Convolved", x = 3.0)

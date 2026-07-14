@@ -154,7 +154,7 @@ Required of a concrete subtype:
 Verify a subtype with
 `CensoredDistributions.TestUtils.test_combined_interface`.
 
-`MomentParams` (a reparameterised single-base leaf) and `ExponentiallyTilted` (a
+`Reparameterised` (a moment-parameterised single-base leaf) and `ExponentiallyTilted` (a
 base family) are not combinations and stay plain `UnivariateDistribution`s.
 """
 abstract type AbstractCombinedDistribution{F <: VariateForm,

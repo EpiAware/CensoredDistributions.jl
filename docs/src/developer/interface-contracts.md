@@ -44,7 +44,7 @@ Distribution{F, S}
 
 plain UnivariateDistributions (no shared abstract):
     IntervalCensored        standalone interval censoring
-    MomentParams            a (mean, ...)-reparameterised leaf
+    Reparameterised         a (mean, ...)-reparameterised leaf
     ExponentiallyTilted     a bounded exponentially-tilted base family
 ```
 
@@ -225,8 +225,9 @@ family abstract, each for a documented reason:
 
 - [`IntervalCensored`](@ref CensoredDistributions.IntervalCensored) — interval censoring is distinct from primary
   censoring and stays in the package independently;
-- `MomentParams` — a `(mean, ...)`-reparameterised single-base leaf, a
-  reparameterisation rather than a combination;
+- `Reparameterised` — a `(mean, ...)`-reparameterised single-base leaf, owned by
+  ReparameterisedDistributions and re-exported here, a reparameterisation rather
+  than a combination;
 - `ExponentiallyTilted` — a bounded exponentially-tilted base family.
 
 Any plain univariate distribution (these, or any `Distributions.jl` leaf) is a
@@ -246,7 +247,7 @@ is the meta-test for the whole hierarchy: every composer subtypes
 `AbstractComposedDistribution`, every single-base modifier subtypes
 `AbstractModifiedDistribution`, the primary-censored family subtypes
 `AbstractPrimaryCensored`, the multi-base combinations subtype
-`AbstractCombinedDistribution`, and `IntervalCensored` / `MomentParams` /
+`AbstractCombinedDistribution`, and `IntervalCensored` / `Reparameterised` /
 `ExponentiallyTilted` stay standalone.
 Run it after adding a type to a family, alongside that family's
 `test_*_interface`.

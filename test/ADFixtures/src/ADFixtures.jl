@@ -773,10 +773,10 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :all)
     # density wrt the (mean, shape) pair (θ), so the gradient flows through the
     # derived scale `mean / shape` into the underlying Gamma density. This is
     # the scoring path a mean-coupled upstream prior uses (#710).
-    _push!("MomentParams Gamma logpdf wrt mean+shape",
+    _push!("Reparameterised Gamma logpdf wrt mean+shape",
         (θ,
             obs) -> sum(
-            x -> logpdf(from_moments(Gamma; mean = θ[1], shape = θ[2]), x),
+            x -> logpdf(reparameterise(Gamma; mean = θ[1], shape = θ[2]), x),
             obs),
         [5.0, 2.0], (Constant(obs),))
 
