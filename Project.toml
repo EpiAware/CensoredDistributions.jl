@@ -78,13 +78,14 @@ SurvivalDistributions = "0.1"
 Tables = "1"
 Test = "1"
 Turing = "0.42, 0.43, 0.44, 0.45"
-julia = "1.10, 1.11, 1.12"
+julia = "1.11, 1.12"
 
 # ReparameterisedDistributions is not yet registered, so its location is pinned
-# here for development and CI. Note `[sources]` is only honoured on Julia 1.11+,
-# and it does not survive registration: a released CensoredDistributions cannot
-# depend on an unregistered package, so cutting a version that carries this dep
-# is gated on ReparameterisedDistributions reaching the General registry.
+# here for development and CI. `[sources]` is only honoured on Julia 1.11+ (hence
+# the 1.11 floor above) and does not survive registration: a released
+# CensoredDistributions cannot depend on an unregistered package, so cutting a
+# version that carries this dep is gated on ReparameterisedDistributions reaching
+# the General registry.
 [sources]
 ReparameterisedDistributions = {url = "https://github.com/EpiAware/ReparameterisedDistributions.jl", rev = "main"}
 
