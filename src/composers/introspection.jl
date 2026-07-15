@@ -320,20 +320,24 @@ end
 # path (`_update_leaf`) and the extension's AD reconstruction.
 _leaf_ctor(inner) = Base.typename(typeof(inner)).wrapper
 
-# A `MomentParams` keeps its family `D` and alternative names in its type, which
-# the base wrapper strips, so reconstruction routes through the registered map.
-function _leaf_ctor(::MomentParams{D, names}) where {D, names}
-    return MomentParamsCtor{D, names}()
+# A `Reparameterised` keeps its family `D` and moment names in its type, which the
+# base wrapper strips, so reconstruction has to carry them back.
+function _leaf_ctor(::Reparameterised{D, names}) where {D, names}
+    return ReparameterisedCtor{D, names}()
 end
 
-# A callable rebuilding a `MomentParams{D, names}` from a value tuple. A concrete
-# type (not a closure) so `_ctor_has_check_args` reflection sees its `check_args`
-# method on the AD path.
-struct MomentParamsCtor{D, names} end
+# A callable rebuilding a `Reparameterised{D, names}` from a value tuple. A
+# concrete type (not a closure) so `_ctor_has_check_args` reflection sees its
+# `check_args` method on the AD path. Reconstruction goes through
+# `reparameterise`, the public front door, rather than reaching into the
+# package's internals: the front door canonicalises the moment names and promotes
+# the values, so a leaf rebuilt here is identical to one written by hand.
+struct ReparameterisedCtor{D, names} end
 
-function (::MomentParamsCtor{D, names})(vals...;
+function (::ReparameterisedCtor{D, names})(vals...;
         check_args::Bool = true) where {D, names}
-    return _moment_params(D, names, vals; check_args = check_args)
+    return reparameterise(D; check_args = check_args,
+        NamedTuple{names}(vals)...)
 end
 
 # --- parameter-name introspection for leaves -------------------------------
@@ -345,10 +349,10 @@ end
 _param_names(::Distributions.Normal) = (:mu, :sigma)
 _param_names(::Distributions.LogNormal) = (:mu, :sigma)
 _param_names(::Distributions.Gamma) = (:shape, :scale)
-# A moment-parameterised leaf surfaces its registered alternative names (e.g.
-# `(:mean, :shape)`), read generically from the type, so a prior on a derived
-# quantity couples correctly.
-_param_names(d::MomentParams) = _moment_names(d)
+# A moment-parameterised leaf surfaces its moment names (e.g. `(:mean, :shape)`),
+# read generically from the type, so a prior on a derived quantity couples
+# correctly.
+_param_names(::Reparameterised{D, names}) where {D, names} = names
 _param_names(::Distributions.Weibull) = (:shape, :scale)
 _param_names(::Distributions.Exponential) = (:scale,)
 _param_names(::Distributions.Uniform) = (:lower, :upper)

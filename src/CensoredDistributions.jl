@@ -27,6 +27,12 @@ using LogExpFunctions: logsubexp, log1mexp
 
 using SpecialFunctions: gamma, gamma_inc, loggamma, digamma
 
+# The moment parameterisation, which this package used to own. `Reparameterised`
+# is the leaf type (needed to dispatch the composer's reconstruction hooks on
+# it); `reparameterise` is the front door, re-exported above.
+using ReparameterisedDistributions: ReparameterisedDistributions, Reparameterised,
+                                    reparameterise
+
 import Tables
 
 import FastGaussQuadrature  # provides Gauss-Legendre nodes for the default solver
@@ -53,13 +59,15 @@ export AnalyticalSolver, NumericSolver
 # Exported distributions
 export ExponentiallyTilted
 
-# Exported moment-parameterisation wrapper: parameterises any registered family
-# by its moments / alternative parameters (e.g. a Gamma by `(mean, shape)`, the
-# scale derived), so a prior on a derived quantity couples correctly through the
-# prior front-door where the native parameterisation cannot. `from_moments` is
-# the front-end; `register_moment_params` adds a family; `MomentParams` is the
-# type (exported for dispatch / extension).
-export MomentParams, from_moments, register_moment_params
+# Re-exported moment parameterisation. This used to live here as `MomentParams` /
+# `from_moments`; it now comes from ReparameterisedDistributions, which owns it
+# for the whole ecosystem. `reparameterise` parameterises a family by its moments
+# (a Gamma by `(mean, shape)`, the scale derived), so a prior on a derived
+# quantity couples correctly through the prior front-door where the native
+# parameterisation cannot. A family is added by extending
+# `ReparameterisedDistributions._to_native` — method dispatch, rather than the
+# runtime `@eval` registry this package used to keep.
+export reparameterise
 
 # Exported hazard-modified distribution: modify the hazard of a base delay
 # through a link, `h*(t) = g⁻¹(g(h(t)) + effect)`. `modify` is the verb;
@@ -222,8 +230,6 @@ include("censoring/IntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")
-# Moment-parameterisation leaf; reconstruction hooks in introspection.jl.
-include("distributions/MomentParams.jl")
 include("distributions/Convolved.jl")
 # Difference (Z = X - Y); reuses Convolved's quadrature-window helpers.
 include("distributions/Difference.jl")
