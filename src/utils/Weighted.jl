@@ -540,9 +540,13 @@ Base.rand(rng::AbstractRNG, d::Weighted) = rand(rng, get_dist(d))
 
 Create a sampler for efficient sampling (delegates to underlying distribution).
 
+The weight only scales the log-density, so it plays no part in sampling and is
+dropped here. Rewrapping would also be invalid: `sampler` may return a sampler
+object (e.g. `GammaMTSampler`) rather than a `UnivariateDistribution`.
+
 See also: [`rand`](@ref)
 "
-sampler(d::Weighted) = Weighted(sampler(get_dist(d)), d.weight)
+sampler(d::Weighted) = sampler(get_dist(d))
 
 # ============================================================================
 # Helper Functions for Observation and Weight Processing
