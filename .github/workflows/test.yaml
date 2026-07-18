@@ -13,20 +13,9 @@ concurrency:
 
 jobs:
   test:
-    uses: EpiAware/.github/.github/workflows/tests.yml@6d4e35e2515f947acbf7d2a683cbf02b341005c7
-    # lts (1.10) excluded while the unregistered EpiAwareADTools is
-    # pinned via [sources], which Pkg only understands on >= 1.11.
-    # Remove once EpiAwareADTools is registered (same pattern as
-    # ConvolvedDistributions' kit pin, EpiAwarePackageTools#115).
-    with:
-      julia_versions: '["1", "pre"]'
+    uses: EpiAware/.github/.github/workflows/tests.yml@6fcdcde033ec670ac3832b239427fd2ded591bbc
     secrets: inherit  # pragma: allowlist secret
 
   downgrade-compat:
-    uses: EpiAware/.github/.github/workflows/downgrade.yml@6d4e35e2515f947acbf7d2a683cbf02b341005c7
-    # TEMPORARILY DISABLED (EpiAwarePackageTools#216): the downgrade
-    # harness cannot see [sources]-pinned deps ("could not find manifest
-    # entry" for the unregistered EpiAwareADTools), at any Julia
-    # version. Re-enable once EpiAwareADTools is registered.
-    if: false
+    uses: EpiAware/.github/.github/workflows/downgrade.yml@6fcdcde033ec670ac3832b239427fd2ded591bbc
     secrets: inherit  # pragma: allowlist secret
