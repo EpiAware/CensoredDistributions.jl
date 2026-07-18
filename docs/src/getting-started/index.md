@@ -230,6 +230,9 @@ In addition to these main functions, the package also includes:
 
 ## Learning more
 
+Want the packages CensoredDistributions works alongside? See
+[Related packages](../index.md) on the home page.
+
 ### [Tutorials](@id tutorials)
 
 For more information on the package and its integration with other packages, see the tutorials in this getting started section:
