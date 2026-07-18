@@ -1,89 +1,147 @@
-# MANAGED by EpiAwarePackageTools.scaffold — do not edit by hand.
-#
-# Thin entry point for the standard EpiAware documentation build. All build
-# logic lives in `EpiAwarePackageTools.DocsBuild.build_docs` (versioned +
-# tested in the kit); this file only wires the package-owned `pages.jl` +
-# `docs_config.jl` into that call, so it can be re-applied on every `scaffold_update`
-# without losing package content.
-#
-# `build_docs`:
-#   - runs the Literate tutorial pipeline (light in-process, heavy one per
-#     subprocess) driven by `docs_config.jl`; under `--skip-notebooks` the
-#     light tutorials still render in-process (cheap) and only the heavy ones
-#     fall back to fast-build heading stubs; independent of that flag, any
-#     `FORCE_STUB_TUTORIALS` entry always renders from its heading stub
-#     without running, while its heavy siblings still execute normally,
-#   - generates `src/index.md` from the README (badges stripped, any
-#     `INDEX_STRIP_SECTIONS` removed, link rewrites applied),
-#   - generates `src/release-notes.md` from a project-root `NEWS.md`,
-#   - generates `src/benchmarks.md` (a tight skeleton + the package-owned
-#     `docs/benchmarks.md` prose hook + the rendered performance history),
-#   - generates the API pages from the module's documented bindings, and
-#   - renders + deploys with DocumenterVitepress.
-#
-# Build it with `task docs` (or `julia --project=docs docs/make.jl`).
-
 using Pkg: Pkg
 Pkg.instantiate()
 
-using EpiAwarePackageTools
+using DocumenterVitepress
+using Documenter
+using DocumenterCitations
 using CensoredDistributions
 
-# The docs navigation tree (`pages.jl`) and package-specific build config
-# (`docs_config.jl`: tutorial lists, README/index link rewrites, named-section
-# strips, linkcheck ignores). Both are package-owned — written on `scaffold`,
-# never re-applied by `scaffold_update` — so an adopter predating either file has none.
-# Guard the include so a re-applied managed `make.jl` still loads and falls
-# back to defaults (#163) rather than erroring on a missing file; `_cfg` then
-# defaults every key a missing or older config predates. The fallback warns
-# because a build that silently defaults `pages` publishes a Home-only
-# navigation, which a green docs run would otherwise hide (#188).
-for _f in ("pages.jl", "docs_config.jl")
-    if isfile(joinpath(@__DIR__, _f))
-        include(joinpath(@__DIR__, _f))
-    else
-        @warn "docs/$(_f) not found; building with defaults " *
-              "(a missing pages.jl leaves the site with a Home-only nav). " *
-              "Write it if this package should own one."
+# Check for skip notebooks option
+skip_notebooks = "--skip-notebooks" in ARGS ||
+                 get(ENV, "SKIP_NOTEBOOKS", "false") == "true"
+
+include("pages.jl")
+
+if !skip_notebooks
+    using Literate
+
+    tutorials_dir = joinpath(
+        @__DIR__, "src", "getting-started", "tutorials"
+    )
+    tutorial_files = [
+        "analytical-primarycensored-cdfs.jl",
+        "exponentially-tilted-primary-events.jl",
+        "ad-backends.jl",
+        "fitting-with-turing.jl"
+    ]
+
+    println(
+        "Building Literate tutorials " *
+        "(this may take several minutes)..."
+    )
+    for file in tutorial_files
+        Literate.markdown(
+            joinpath(tutorials_dir, file),
+            tutorials_dir;
+            flavor = Literate.DocumenterFlavor(),
+            mdstrings = true,
+            credit = false
+        )
+    end
+    println("Literate tutorial processing complete")
+else
+    println(
+        "Skipping Literate tutorial processing " *
+        "(--skip-notebooks or SKIP_NOTEBOOKS=true)"
+    )
+end
+
+# Generate index.md from README.md
+open(joinpath(joinpath(@__DIR__, "src"), "index.md"), "w") do io
+    println(io, "```@meta")
+    println(io,
+        "EditURL = " *
+        "\"https://github.com/EpiAware/" *
+        "CensoredDistributions.jl/blob/main/" *
+        "README.md\"")
+    println(io, "```")
+
+    for line in eachline(
+        joinpath(dirname(@__DIR__), "README.md")
+    )
+        # Replace ```julia with ```@example readme
+        if startswith(line, "```julia")
+            println(io, "```@example readme")
+            # Remove logo from title line for docs
+        elseif contains(line, "docs/src/assets/logo.svg")
+            println(io, replace(line,
+                r"\s*<img[^>]*docs/src/assets/logo\.svg[^>]*>" => ""))
+            # Skip badge table and Websites line
+        elseif startswith(line, "|")  # Table rows
+            continue
+        elseif startswith(line, "**Websites**")
+            continue
+        else
+            # Convert absolute doc URLs to @ref links
+            # so links stay within the current version
+            line = replace(line,
+                "[Getting Started documentation](https://censoreddistributions.epiaware.org/stable/getting-started/)" => "[Getting Started documentation](@ref getting-started)",
+                "[Getting Started Tutorials](https://censoreddistributions.epiaware.org/stable/getting-started/)" => "[Getting Started Tutorials](@ref getting-started)",
+                "[API Reference](https://censoreddistributions.epiaware.org/stable/lib/public)" => "[API Reference](@ref public-api)",
+                "[Developer Documentation](https://censoreddistributions.epiaware.org/stable/developer/)" => "[Developer Documentation](@ref developer)",
+                "[developer documentation](https://censoreddistributions.epiaware.org/stable/developer/)" => "[developer documentation](@ref developer)",
+                "[Automatic differentiation backends](https://censoreddistributions.epiaware.org/stable/getting-started/tutorials/ad-backends/)" => "[Automatic differentiation backends](@ref ad-backends)")
+            println(io, line)
+        end
     end
 end
 
-# Read a package-owned config const, defaulting when a missing or older
-# `docs_config.jl`/`pages.jl` (package-owned, not re-applied by `scaffold_update`)
-# predates it.
-_cfg(sym, default) = isdefined(@__MODULE__, sym) ?
-                     getfield(@__MODULE__, sym) : default
+# Generate release-notes.md by combining header with NEWS.md
+include("release_notes_header.jl")
 
-build_docs(
-    CensoredDistributions;
-    repo = "EpiAware/CensoredDistributions.jl",
+news_src = joinpath(dirname(@__DIR__), "NEWS.md")
+release_notes_dest = joinpath(
+    joinpath(@__DIR__, "src"), "release-notes.md"
+)
+
+if isfile(news_src)
+    open(release_notes_dest, "w") do io
+        # Write the header content
+        print(io, RELEASE_NOTES_HEADER)
+
+        # Append the NEWS.md content
+        for line in eachline(news_src)
+            println(io, line)
+        end
+    end
+    println("Generated release-notes.md from header + NEWS.md")
+else
+    println("NEWS.md not found in project root")
+end
+
+DocMeta.setdocmeta!(CensoredDistributions, :DocTestSetup,
+    :(using CensoredDistributions); recursive = true)
+
+# Set up citations
+bib = CitationBibliography(
+    joinpath(@__DIR__, "src", "refs.bib");
+    style = :numeric
+)
+
+makedocs(; sitename = "CensoredDistributions.jl",
     authors = "Sam Abbott, and contributors",
-    deploy_url = "https://censoreddistributions.epiaware.org",
-    pages = _cfg(:pages, ["Home" => "index.md"]),
-    skip_notebooks = "--skip-notebooks" in ARGS ||
-                     get(ENV, "SKIP_NOTEBOOKS", "false") == "true",
-    tutorials_subdir = _cfg(:TUTORIALS_SUBDIR,
-        joinpath("getting-started", "tutorials")),
-    light_tutorials = _cfg(:LIGHT_TUTORIALS, String[]),
-    heavy_tutorials = _cfg(:HEAVY_TUTORIALS, String[]),
-    tutorial_stubs = _cfg(:TUTORIAL_STUBS, Pair{String, String}[]),
-    force_stub_tutorials = _cfg(:FORCE_STUB_TUTORIALS, String[]),
-    linkcheck_ignore = _cfg(:LINKCHECK_IGNORE, Regex[]),
-    index_rewrites = _cfg(:INDEX_REWRITES, Pair{String, String}[]),
-    readme_execute = _cfg(:README_EXECUTE, true),
-    index_strip_sections = _cfg(:INDEX_STRIP_SECTIONS, String[]),
-    benchmark_page = _cfg(:BENCHMARK_PAGE, false),
-    # Performance-history rendering (#193): restrict to headline suites and cap
-    # the overall summary/detail to the most-recent revisions. Both default to
-    # the whole timeline when a package predates these config keys.
-    history_suites = _cfg(:HISTORY_SUITES, String[]),
-    history_commits = _cfg(:HISTORY_COMMITS, 5),
-    # Overall-summary regression cutoff: the ratio (against the oldest shown
-    # revision) at or above which a suite's `Status` flags "⚠ reg". Defaults
-    # when a package predates this config key.
-    history_regression_threshold = _cfg(:HISTORY_REGRESSION_THRESHOLD, 1.1),
-    # Extra docstring-owning modules for a re-export the alias walk cannot
-    # reach (e.g. one referenced only from prose); owners of re-exported API
-    # bindings are auto-discovered, so most packages leave this empty (#175).
-    extra_modules = _cfg(:EXTRA_MODULES, Module[])
+    clean = true, doctest = false, linkcheck = true,
+    warnonly = [
+        :docs_block, :missing_docs,
+        :autodocs_block
+    ],
+    modules = [CensoredDistributions],
+    pages = pages,
+    format = DocumenterVitepress.MarkdownVitepress(
+        repo = "github.com/EpiAware/" *
+               "CensoredDistributions.jl",
+        devbranch = "main",
+        devurl = "dev",
+        deploy_url = "https://censoreddistributions.epiaware.org",
+        keep = :patch
+    ),
+    plugins = [bib]
+)
+
+DocumenterVitepress.deploydocs(
+    repo = "github.com/EpiAware/CensoredDistributions.jl",
+    target = "build",
+    branch = "gh-pages",
+    devbranch = "main",
+    push_preview = true
 )
