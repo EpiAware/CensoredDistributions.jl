@@ -14,4 +14,3 @@ ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
 
 [sources]
 ADFixtures = {path = "../test/ADFixtures"}
-EpiAwareADTools = {url = "https://github.com/EpiAware/EpiAwareADTools.jl", rev = "main"}

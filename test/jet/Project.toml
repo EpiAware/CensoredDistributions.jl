@@ -6,4 +6,3 @@ JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
 
 [sources]
 CensoredDistributions = {path = "../.."}
-EpiAwareADTools = {url = "https://github.com/EpiAware/EpiAwareADTools.jl", rev = "main"}

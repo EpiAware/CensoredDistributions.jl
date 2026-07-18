@@ -22,4 +22,3 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 [sources]
 ADFixtures = {path = "../ADFixtures"}
 CensoredDistributions = {path = "../.."}
-EpiAwareADTools = {url = "https://github.com/EpiAware/EpiAwareADTools.jl", rev = "main"}
