@@ -59,16 +59,5 @@ Statistics = "1"
 Turing = "0.42, 0.43, 0.44, 0.45, 0.46"
 julia = "1.10, 1.11, 1.12"
 
-# Dev (unregistered) git source; CD is not releasable until ConvolvedDistributions
-# registers. Pinned to a commit SHA, not `main`: `main` now depends on
-# `EpiAwareADTools`, which has no registered versions anywhere, so a fresh
-# resolve against current `main` is unconditionally broken. `da71dd1` is the
-# last commit before that migration landed. Repoint once EpiAwareADTools
-# registers. Same pattern as #851/#853 -- this Project.toml block is expected
-# to collide (identically) with theirs; whichever PR merges first, the others
-# pick up a no-op rebase here.
-[sources]
-ConvolvedDistributions = {url = "https://github.com/EpiAware/ConvolvedDistributions.jl", rev = "da71dd1faf1eb4c67ab89197b29eaba7ef573f06"} # pragma: allowlist secret
-
 [workspace]
 projects = ["test", "docs"]

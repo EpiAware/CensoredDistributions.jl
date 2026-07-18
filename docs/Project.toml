@@ -38,7 +38,3 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 [sources]
 ADFixtures = {path = "../test/ADFixtures"}
 CensoredDistributions = {path = ".."}
-# ConvolvedDistributions is a hard dep of CensoredDistributions (not yet
-# registered); pinned to a commit SHA, not `main` -- see the root
-# Project.toml `sources` note.
-ConvolvedDistributions = {url = "https://github.com/EpiAware/ConvolvedDistributions.jl", rev = "da71dd1faf1eb4c67ab89197b29eaba7ef573f06"} # pragma: allowlist secret
