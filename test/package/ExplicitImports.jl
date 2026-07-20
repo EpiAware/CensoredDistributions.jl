@@ -29,12 +29,17 @@
         #   public-by-convention tape value type, neither marked `public`.
         # - _collect_unique_boundaries: internal boundary builder the AD
         #   extensions import to mark non-differentiable (zero-tangent rule).
+        # - _shared_tag, _uncertain_specs: ComposedDistributions leaf-protocol
+        #   hooks a leaf-wrapper package must forward through its wrappers.
+        #   Not yet marked `public` upstream; without them a tied delay is
+        #   estimated twice and an attached prior is silently dropped.
         ignore = (
             :Censored, :_in_closed_interval, :_gamma_cdf, :_grad_p_a_series,
             :_gamma_cdf_value_and_partials,
             :Dual, :value, :partials,
             Symbol("@grad_from_chainrules"), :TrackedReal,
-            :_collect_unique_boundaries
+            :_collect_unique_boundaries,
+            :_shared_tag, :_uncertain_specs
         )
     ) === nothing
 
