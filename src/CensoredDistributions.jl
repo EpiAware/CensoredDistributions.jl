@@ -31,6 +31,11 @@ using Optimization: OptimizationFunction, OptimizationProblem, solve, ReturnCode
 
 using OptimizationOptimJL: NelderMead
 
+# Hard dep (dev, unregistered; see the `[sources]` note in Project.toml): the
+# composer-leaf hooks (`composed_leaves.jl`) and `as_turing`'s tree walk both
+# read the composer's public introspection surface directly.
+using ComposedDistributions: ComposedDistributions
+
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
 
@@ -66,6 +71,8 @@ include("distributions/Convolved.jl")
 include("utils/Weighted.jl")
 include("utils/get_dist.jl")
 include("utils/quantile_optimization.jl")
+
+include("integration/turing.jl")
 
 # Public API - functions that are part of public interface but not exported
 @static if VERSION >= v"1.11"

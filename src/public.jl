@@ -18,3 +18,9 @@ public primarycensored_uniform_cdf_formula
 # unexported to avoid clashing with `Integrals.GaussLegendre` when both
 # are loaded; the Integrals.jl extension adds an `integrate` method.
 public GaussLegendre, integrate, gl_integrate
+
+# Adapt an upstream `ComposedDistributions.ComposedLogDensity` spec into a
+# Turing/DynamicPPL model (public but not exported, mirroring
+# `ComposedDistributions.as_logdensity`). Method lives in the DynamicPPL
+# extension.
+public as_turing
