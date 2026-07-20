@@ -153,7 +153,7 @@ makedocs(; sitename = "CensoredDistributions.jl",
                "CensoredDistributions.jl",
         devbranch = "main",
         devurl = "dev",
-        deploy_url = "censoreddistributions.epiaware.org",
+        deploy_url = "https://censoreddistributions.epiaware.org",
         keep = :patch
     ),
     plugins = [bib]
