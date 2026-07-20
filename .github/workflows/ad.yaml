@@ -27,5 +27,5 @@ concurrency:
 
 jobs:
   ad:
-    uses: EpiAware/.github/.github/workflows/ad.yml@9692b37b9127099d9c1a51db5034a084edaeb56e
+    uses: EpiAware/.github/.github/workflows/ad.yml@6fcdcde033ec670ac3832b239427fd2ded591bbc
     secrets: inherit  # pragma: allowlist secret

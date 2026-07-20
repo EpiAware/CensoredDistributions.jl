@@ -23,7 +23,15 @@ using PrecompileTools: @setup_workload, @compile_workload
 
 using LogExpFunctions: logsubexp, log1mexp
 
-using SpecialFunctions: gamma, gamma_inc, loggamma, digamma
+using SpecialFunctions: gamma
+
+# Shared AD-safety machinery (EpiAware/CensoredDistributions.jl#850): the
+# gamma-CDF helper carrying the shape-parameter derivative and the AD-safe
+# cdf/logcdf hooks, formerly duplicated in `src/utils/gamma_ad.jl`. `_gamma_cdf`
+# is EpiAwareADTools-internal (its per-backend rules key on it) but reached
+# directly by the analytical Weibull/Gamma path, the same as the sibling
+# ConvolvedDistributions.jl.
+using EpiAwareADTools: _gamma_cdf, cdf_ad_safe, logcdf_ad_safe
 
 import FastGaussQuadrature  # provides Gauss-Legendre nodes for the default solver
 
@@ -50,8 +58,6 @@ export convolve_distributions
 export weight, get_dist, get_dist_recursive
 
 include("docstrings.jl")
-
-include("utils/gamma_ad.jl")
 
 include("integration/integration.jl")
 
