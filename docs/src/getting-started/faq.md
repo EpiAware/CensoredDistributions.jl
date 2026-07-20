@@ -48,7 +48,7 @@ censored_dist = primary_censored(delay_dist, primary_dist)
 
 ### Q: How do I convolve a censored delay with a timeseries?
 
-**A:** CensoredDistributions depends on [ConvolvedDistributions.jl](https://github.com/EpiAware/ConvolvedDistributions.jl), so also loading it lets you pass a regular-grid interval-censored delay straight to `convolve_series`, which reads the delay's discretised mass function and convolves it with a series sampled on the same grid (e.g. infections to expected observations).
+**A:** Loading [ConvolvedDistributions.jl](https://github.com/EpiAware/ConvolvedDistributions.jl) alongside CensoredDistributions activates a bridge that lets you pass a regular-grid interval-censored delay straight to `convolve_series`, which reads the delay's discretised mass function and convolves it with a series sampled on the same grid (e.g. infections to expected observations).
 The grid width comes from the delay itself, the `interval` you chose when building it, so the series is interpreted at steps of that width.
 Use `double_interval_censored(dist; interval = w)` for the statistically correct interval-binned discretisation of a continuous delay.
 

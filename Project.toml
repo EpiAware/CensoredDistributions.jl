@@ -5,7 +5,6 @@ authors = ["Sam Abbott", "Damon Bayer", "Sam Brand", "Michael DeWitt", "Joseph L
 version = "0.2.22"
 
 [deps]
-ConvolvedDistributions = "f5b942c9-bc5b-4664-8486-7f531bb06742"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 FastGaussQuadrature = "442a2c76-b920-505d-bb47-c5924d526838"
@@ -19,6 +18,7 @@ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [weakdeps]
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+ConvolvedDistributions = "f5b942c9-bc5b-4664-8486-7f531bb06742"
 DynamicPPL = "366bfd00-2699-11ea-058f-f148b4cae6d8"
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 FlexiChains = "4a37a8b9-6e57-4b92-8664-298d46e639f7"
@@ -30,6 +30,7 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [extensions]
 CensoredDistributionsChainRulesCoreExt = "ChainRulesCore"
+CensoredDistributionsConvolvedDistributionsExt = "ConvolvedDistributions"
 CensoredDistributionsEnzymeExt = "Enzyme"
 CensoredDistributionsForwardDiffExt = "ForwardDiff"
 CensoredDistributionsIntegralsExt = "Integrals"

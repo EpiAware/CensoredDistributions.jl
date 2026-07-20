@@ -32,6 +32,15 @@ using DifferentiationInterface: DifferentiationInterface, Constant
 import ForwardDiff, ReverseDiff, Mooncake, Enzyme
 import DifferentiationInterfaceTest as DIT
 
+# ConvolvedDistributions became a CensoredDistributions weakdep in #847, so
+# not every environment loading this fixtures file has it (e.g. the `main`
+# baseline AirspeedVelocity benchmarks the PR against). Try to load it and
+# gate the convolve_series scenario on whether it succeeded.
+try
+    import ConvolvedDistributions
+catch
+end
+
 export scenarios, backends, working_backends, broken_backends,
        broken_scenario_names, backend_broken_scenarios
 
@@ -117,16 +126,9 @@ backend `name` from [`working_backends`](@ref).
 """
 function backend_broken_scenarios()
     # Both Enzyme directions fail "convolve_series IntervalCensored LogNormal
-    # daily grid" (#847): `IllegalTypeAnalysisException` (reverse) / no
-    # `frule!!` match (forward), both originating in `_grid_pmf`'s vectorised
-    # `pdf(d, w .* (0:(n - 1)))` call when `d` is the stacked
-    # `IntervalCensored{Truncated{PrimaryCensored{...}}}` type
-    # `double_interval_censored` builds -- Enzyme's type analysis trips on a
-    # `Union` it finds in that composite type's dispatch, not present in the
-    # single-layer `IntervalCensored`/`PrimaryCensored` scenarios elsewhere in
-    # this file (which both Enzyme directions differentiate cleanly). Every
-    # other backend (ForwardDiff, ReverseDiff, Mooncake reverse, Mooncake
-    # forward) differentiates this scenario correctly.
+    # daily grid" on the stacked `IntervalCensored{Truncated{PrimaryCensored}}`
+    # type `double_interval_censored` builds; every other backend passes.
+    # Investigated but unresolved -- see #889.
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
@@ -461,22 +463,15 @@ function scenarios(; with_reference::Bool = false)
     end
 
     # convolve_series bridge (#847): an IntervalCensored delay's PMF fed to
-    # ConvolvedDistributions' timeseries convolution. The series is a
-    # `Constant` context like every other scenario's observation data; the
-    # output is summed to a scalar for `DIT`'s `:gradient` kind. Literal
-    # `LogNormal` constructor keeps Enzyme forward working (#278), same
-    # reasoning as the analytical `PrimaryCensored` scenarios above.
-    # Guarded on `convolve_series` existing: AirspeedVelocity benchmarks the
-    # PR against the `main` baseline, building the baseline package while
-    # still loading this (PR-tree) fixtures module; referencing
-    # `convolve_series` unconditionally would throw `UndefVarError` on the
-    # baseline, where ConvolvedDistributions is not yet a dependency at all.
-    # The guard lets the baseline skip this scenario and the PR include it.
-    if isdefined(CensoredDistributions, :convolve_series)
+    # ConvolvedDistributions' timeseries convolution. Literal `LogNormal`
+    # constructor keeps Enzyme forward working (#278). Guarded on the
+    # `ConvolvedDistributions` import above (skipped on baseline builds that
+    # predate #847; see that comment).
+    if isdefined(@__MODULE__, :ConvolvedDistributions)
         _push!("convolve_series IntervalCensored LogNormal daily grid",
             (θ,
                 series) -> sum(
-                CensoredDistributions.convolve_series(
+                ConvolvedDistributions.convolve_series(
                 double_interval_censored(LogNormal(θ[1], θ[2]);
                     upper = 10.0, interval = 1),
                 series)),

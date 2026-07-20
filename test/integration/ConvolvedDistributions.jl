@@ -1,8 +1,8 @@
-# Tests for the `convolve_series` bridge (src/censoring/convolve_series.jl):
-# discretises a censoring scheme onto its own grid and forwards to
-# ConvolvedDistributions' PMF-vector convolution. ConvolvedDistributions is a
-# hard dependency (see the `sources` note in Project.toml), so these methods
-# are always available -- no extension-load gate to test. See
+# Tests for the `convolve_series` bridge
+# (ext/CensoredDistributionsConvolvedDistributionsExt.jl): discretises a
+# censoring scheme onto its own grid and forwards to ConvolvedDistributions'
+# PMF-vector convolution. `test/Project.toml` lists ConvolvedDistributions
+# directly, so the extension is always loaded here. See
 # EpiAware/ConvolvedDistributions.jl#31.
 
 @testitem "convolve_series PMF matches hand-computed masses" begin
