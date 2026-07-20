@@ -17,25 +17,15 @@
         # Skip check for internal/non-public functions that we need to use:
         # - Censored: Used in get_dist.jl for Distributions.jl compatibility
         # - _in_closed_interval: Internal Distributions utility used for bounds checking
-        # - _gamma_cdf, _grad_p_a_series, _gamma_cdf_value_and_partials:
-        #   Internal AD-safe gamma CDF helpers used by the ChainRulesCore
-        #   and ForwardDiff extensions
-        # - Dual, value, partials: ForwardDiff internals used by the
-        #   ForwardDiff extension to construct Dual return values; no public
-        #   alternative for the Dual reconstruction pattern.
-        # - @grad_from_chainrules, TrackedReal: ReverseDiff internals used by
-        #   the ReverseDiff extension; @grad_from_chainrules is the standard
-        #   ChainRules-to-ReverseDiff bridge macro and TrackedReal is the
-        #   public-by-convention tape value type, neither marked `public`.
+        # - _gamma_cdf: EpiAwareADTools-internal AD-safe gamma CDF helper the
+        #   analytical Weibull/Gamma path calls directly so the per-backend
+        #   rules keyed on it fire (EpiAware/CensoredDistributions.jl#850).
         # - _collect_unique_boundaries: internal boundary builder the AD
         #   extensions import to mark non-differentiable (zero-tangent rule).
         # - interval_width, is_regular_intervals: internal interval helpers
         #   the ConvolvedDistributions extension imports for convolve_series.
         ignore = (
-            :Censored, :_in_closed_interval, :_gamma_cdf, :_grad_p_a_series,
-            :_gamma_cdf_value_and_partials,
-            :Dual, :value, :partials,
-            Symbol("@grad_from_chainrules"), :TrackedReal,
+            :Censored, :_in_closed_interval, :_gamma_cdf,
             :_collect_unique_boundaries,
             :interval_width, :is_regular_intervals
         )
