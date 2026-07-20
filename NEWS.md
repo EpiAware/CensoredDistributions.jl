@@ -80,6 +80,16 @@
   path used by `IntervalCensored Gamma arbitrary`),
   [#225](https://github.com/EpiAware/CensoredDistributions.jl/issues/225)
   (Enzyme + DIT-Mooncake interaction).
+- The AD-safety machinery (the `_gamma_cdf` gamma-CDF helper with its
+  shape-parameter derivative, and the `cdf_ad_safe`/`logcdf_ad_safe`
+  hooks) now lives in the shared
+  [EpiAwareADTools.jl](https://github.com/EpiAware/EpiAwareADTools.jl)
+  package rather than being duplicated here. The per-backend
+  ForwardDiff and ReverseDiff extensions carried only gamma-CDF rules
+  and are removed; the ChainRulesCore, Enzyme, and Mooncake extensions
+  keep their censoring-specific `_collect_unique_boundaries`
+  zero-tangent rules. Behaviour is unchanged. Closes
+  [#850](https://github.com/EpiAware/CensoredDistributions.jl/issues/850).
 
 ## v0.1.0 - Initial Release
 

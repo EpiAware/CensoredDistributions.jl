@@ -196,7 +196,7 @@ function primarycensored_cdf(
     end
 
     function integrand(u, x)
-        return exp(_logcdf_ad_safe(dist, u) +
+        return exp(logcdf_ad_safe(dist, u) +
                    logpdf(primary_event, x - u))
     end
 
@@ -212,7 +212,7 @@ function primarycensored_cdf(
     # When the delay CDF at the lower bound is effectively 1,
     # integration is unnecessary and may produce NaN.
     if lower > minimum(dist)
-        cdf_lower = _cdf_ad_safe(dist, lower)
+        cdf_lower = cdf_ad_safe(dist, lower)
         if cdf_lower > 1 - eps(one(eltype(dist)))
             return one(cdf_lower)
         end
