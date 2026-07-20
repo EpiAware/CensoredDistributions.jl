@@ -116,15 +116,19 @@ backend `name` from [`working_backends`](@ref).
 
 """
 function backend_broken_scenarios()
-    # Empty: every backend differentiates every scenario, including the batched
-    # `pdf(::IntervalCensored, ::AbstractVector)` path (#699, #701).
+    # Enzyme (both modes) hits `EnzymeNoTypeError` on the batched multivariate
+    # `PrimaryConditional(dists, ps)` path (type analysis through the
+    # vector-of-dists construction); the value is correct and the other backends
+    # differentiate it. The per-record and single-dist batched paths are clean.
+    enzyme_broken = Set(["PrimaryConditional batched double_interval_censored " *
+                         "LogNormal"])
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => Set{String}(),
         "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => Set{String}(),
-        "Enzyme forward" => Set{String}()
+        "Enzyme reverse" => enzyme_broken,
+        "Enzyme forward" => enzyme_broken
     )
 end
 
@@ -471,6 +475,109 @@ function scenarios(; with_reference::Bool = false)
                     x),
                 obs),
             [2.0, 1.5], (Constant(obs),))
+    end
+
+    # Latent scalar conditional `logpdf(latent(d), y; primary = p)`: the
+    # deterministic `PrimaryConditional(d, p)` path (AD-safe, no quadrature).
+    # Gradient flows w.r.t. the delay params; the primaries ride as inactive
+    # `Constant`. Guarded on `latent` so the AirspeedVelocity baseline skips it.
+    if isdefined(CensoredDistributions, :latent)
+        primaries = [0.2, 0.5, 0.3, 0.7, 0.4]
+        _push!("Latent PrimaryConditional LogNormal scalar logpdf",
+            (θ, obs,
+                prim) -> sum(
+                i -> logpdf(
+                    latent(primary_censored(LogNormal(θ[1], θ[2]),
+                        Uniform(0.0, 1.0))),
+                    obs[i]; primary = prim[i]),
+                eachindex(obs)),
+            [1.0, 0.75], (Constant(obs), Constant(primaries)))
+
+        # Interval-of-latent conditional: scored with a passed primary through
+        # `_SecondaryConditional` (interval + truncation, secondary >= primary).
+        # Gradient w.r.t. the delay params flows via the interval-mass cdf and Z.
+        dic_obs = [2.0, 3.0, 4.0, 5.0, 6.0]
+        _push!("Latent double_interval_censored LogNormal scalar logpdf",
+            (θ, obs,
+                prim) -> sum(
+                i -> logpdf(
+                    latent(double_interval_censored(LogNormal(θ[1], θ[2]);
+                        primary_event = Uniform(0.0, 1.0),
+                        upper = 10.0, interval = 1.0)),
+                    obs[i]; primary = prim[i]),
+                eachindex(obs)),
+            [1.0, 0.75], (Constant(dic_obs), Constant(primaries)))
+
+        # Zero-delay interval-of-latent conditional: an obs floored to zero puts
+        # the interval's lower edge at the delay's support boundary, where a naive
+        # `cdf(LogNormal, 0)` has a `0 * Inf = NaN` derivative. Regresses that the
+        # value and delay-parameter gradient stay finite on every backend.
+        zero_obs = [0.0, 0.0, 0.0, 1.0, 2.0]
+        zero_prim = [0.2, 0.4, 0.6, 0.3, 0.5]
+        _push!("Latent double_interval_censored LogNormal zero-delay logpdf",
+            (θ, obs,
+                prim) -> sum(
+                i -> logpdf(
+                    latent(double_interval_censored(LogNormal(θ[1], θ[2]);
+                        primary_event = Uniform(0.0, 3.0),
+                        upper = 10.0, interval = 1.0)),
+                    obs[i]; primary = prim[i]),
+                eachindex(obs)),
+            [1.0, 0.75], (Constant(zero_obs), Constant(zero_prim)))
+
+        # Batched interval-of-latent conditional: the vectorised
+        # `logpdf(latent(d), ys; primary = ps)`. Gradient w.r.t. the delay params
+        # and the whole primary vector; a zero-delay record keeps the guard.
+        batch_obs = [0.0, 1.0, 2.0, 0.0, 5.0, 3.0]
+        _push!("Latent double_interval_censored LogNormal batched logpdf",
+            (θ,
+                obs) -> logpdf(
+                latent(double_interval_censored(LogNormal(θ[1], θ[2]);
+                    primary_event = Uniform(0.0, 3.0),
+                    upper = 10.0, interval = 1.0)),
+                obs; primary = θ[3:end]),
+            vcat(1.0, 0.75, [0.2, 0.4, 0.6, 0.9, 0.5, 0.3]),
+            (Constant(batch_obs),))
+
+        # Batched multivariate `PrimaryConditional(dists, ps)` over heterogeneous
+        # per-record distributions. Gradient w.r.t. the delay params and the
+        # per-record primaries. Literal constructors keep Enzyme forward working.
+        pc_obs = [0.0, 6.0, 4.0, 0.0]
+        _push!("PrimaryConditional batched double_interval_censored LogNormal",
+            (θ,
+                obs) -> logpdf(
+                CensoredDistributions.PrimaryConditional(
+                    [
+                        double_interval_censored(LogNormal(θ[1], θ[2]);
+                            primary_event = Uniform(0.0, 1.0), upper = 8.0,
+                            interval = 1.0),
+                        double_interval_censored(LogNormal(θ[1], θ[2]);
+                            primary_event = Uniform(0.0, 3.0), upper = 12.0,
+                            interval = 3.0),
+                        double_interval_censored(LogNormal(θ[1], θ[2]);
+                            primary_event = Uniform(0.0, 2.0), upper = 10.0,
+                            interval = 2.0),
+                        double_interval_censored(LogNormal(θ[1], θ[2]);
+                            primary_event = Uniform(0.0, 1.0), upper = 8.0,
+                            interval = 1.0)],
+                    θ[3:end]),
+                obs),
+            vcat(1.0, 0.75, [0.2, 1.5, 0.8, 0.4]), (Constant(pc_obs),))
+
+        # `PrimaryEvent(dists)` prior over the per-record primaries; gradient wrt
+        # the primary vector `θ` (the delay params do not enter the flat priors).
+        _push!("PrimaryEvent product prior over primaries",
+            (θ,) -> logpdf(
+                CensoredDistributions.PrimaryEvent(
+                    [
+                    double_interval_censored(LogNormal(1.5, 0.75);
+                        primary_event = Uniform(0.0, 1.0), upper = 8.0,
+                        interval = 1.0),
+                    double_interval_censored(LogNormal(1.5, 0.75);
+                        primary_event = Uniform(0.0, 3.0), upper = 12.0,
+                        interval = 3.0)]),
+                θ),
+            [0.4, 1.7], ())
     end
 
     # High-dimensional scenarios. Each observation carries its own delay

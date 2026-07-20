@@ -47,9 +47,9 @@ using Random
 using CairoMakie, PairPlots
 using StatsBase
 using FlexiChains
-using FlexiChains: Prefixed, parameters
+using FlexiChains: Parameter, Prefixed, parameters
 using CensoredDistributions
-using ADTypes: AutoMooncakeForward
+using ADTypes: AutoMooncakeForward, AutoMooncake
 import Mooncake
 
 md"""
@@ -159,11 +159,26 @@ plot_fit_with_truth(
 md"""
 ### Define the double censored model for simulation and fitting
 
-Now we define our full model that incorporates double censoring and
-right truncation. This model uses the `latent_delay_dist()` submodel
-via `to_submodel()` to include the delay distribution parameters.
-It also uses our `double_interval_censored()` function to define
-each double censored and right truncated delay:
+We first factor the shared structure into a submodel, `censored_delays`, that
+draws the delay distribution parameters (via the `latent_delay_dist()` submodel)
+and builds one [`double_interval_censored`](@ref) distribution per record from
+its primary window, secondary interval and observation time:
+"""
+
+@model function censored_delays(pwindows, swindows, obs_times)
+    dist ~ to_submodel(latent_delay_dist())
+    return map(pwindows, obs_times, swindows) do pw, D, sw
+        double_interval_censored(
+            dist; primary_event = Uniform(0, pw), upper = D, interval = sw)
+    end
+end
+
+md"""
+The full model samples the observation windows, calls `censored_delays` to build
+the per-record distributions, and scores the weighted observations. Reusing this
+submodel lets the marginal fit here and the latent fit later share one model up
+to the observation step (`to_submodel(...; false)` keeps the delay parameters at
+`dist.mu`/`dist.sigma` rather than nesting a further prefix):
 """
 
 @model function CensoredDistributions_model(
@@ -179,21 +194,10 @@ each double censored and right truncated delay:
         [DiscreteUniform(ot[1], ot[2]) for ot in obs_time_bounds]
     )
 
-    dist ~ to_submodel(latent_delay_dist())
+    dists ~ to_submodel(
+        censored_delays(pwindows, swindows, obs_times), false)
 
-    pcens_dists = map(
-        pwindows, obs_times, swindows
-    ) do pw, D, sw
-        pe = Uniform(0, pw)
-        double_interval_censored(
-            dist;
-            primary_event = pe,
-            upper = D,
-            interval = sw
-        )
-    end
-
-    obs ~ weight(pcens_dists)
+    obs ~ weight(dists)
 end
 
 md"""
@@ -515,7 +519,7 @@ package's ability to perform accurate parameter recovery when
 the censoring process is properly modelled.
 """
 
-CensoredDistributions_fit = sample(
+t_marginal = @elapsed CensoredDistributions_fit = sample(
     CensoredDistributions_mdl,
     NUTS(; adtype = AutoMooncakeForward()), MCMCThreads(), 1000, 4;
     chain_type = VNChain
@@ -537,6 +541,109 @@ We see that the model has converged and the diagnostics look good.
 We also see that the posterior means are near the true parameters
 and the 90% credible intervals include the true parameters.
 """
+
+md"""
+## Fitting the same model in latent form
+
+Every fit so far is marginal: the within-window primary event time is
+integrated out inside the primary-censored `logpdf`, leaving only the delay
+parameters in the chain.
+The latent form instead samples it.
+
+The latent model reuses the same `censored_delays` submodel as the marginal
+model and swaps only the final observation step:
+"""
+
+@model function latent_double_censored_model(
+        obs, pwindows, swindows, obs_times)
+    dists ~ to_submodel(
+        censored_delays(pwindows, swindows, obs_times), false)
+    ps ~ PrimaryEvent(dists)
+    obs ~ PrimaryConditional(dists, ps)
+end
+
+md"""
+Where the marginal model ends in `obs ~ weight(dists)`, integrating each primary
+out, the latent model draws one within-window primary per record from
+`ps ~ PrimaryEvent(dists)`, the distribution of the primary event times, and the
+observed delays follow `obs ~ PrimaryConditional(dists, ps)`, their distribution
+given those primaries.
+It conditions on the *same* observed records; the primary is latent either way,
+so there is no separate latent dataset.
+We fit a subsample of the shared records as typically the latent approach
+scales less well than the marginal approach.
+"""
+
+latent_n = 120
+
+latent_records = simulated_data[1:latent_n, :]
+
+latent_mdl = latent_double_censored_model(
+    latent_records.obs, latent_records.pwindows,
+    latent_records.swindows, latent_records.obs_times);
+
+md"""
+The latent form adds one sampled primary per record on top of the two delay
+parameters, so it is high-dimensional where the marginal fit is not.
+We fit it with reverse-mode Mooncake (`AutoMooncake`), whose cost scales with
+the delay-parameter count rather than the record count, unlike the forward mode
+the low-dimensional marginal fits use.
+The high-dimensional, per-record geometry makes the sampler prone to
+divergences, so we raise the target acceptance to `NUTS(0.9)` (a smaller step
+size) to suppress them while still recovering the delay parameters.
+"""
+
+t_latent = @elapsed latent_fit = sample(
+    latent_mdl,
+    NUTS(0.9; adtype = AutoMooncake(; config = nothing)), MCMCThreads(), 250, 4;
+    chain_type = VNChain, progress = false
+);
+
+md"""
+The chain now carries the two delay parameters and one sampled primary per
+record, so it holds many more latent variables than the marginal fit: one per
+subsampled record.
+"""
+
+length(latent_records.obs)
+
+md"""
+Printing the full summary would show every one of those primaries, so we index
+the chain down to the two delay parameters and pass that sub-chain to the
+built-in `summarystats`, which reports the posterior mean, standard deviation
+and the usual MCMC diagnostics (`mcse`, `ess`, `rhat`):
+"""
+
+summarystats(
+    latent_fit[[
+    Parameter(@varname(dist.mu)),
+    Parameter(@varname(dist.sigma))
+]]
+)
+
+md"""
+The pairplot shows the true `mu` and `sigma` inside the posterior, now with the
+primary sampled per record rather than integrated out.
+"""
+
+plot_fit_with_truth(
+    latent_fit,
+    (; mu = meanlog, sigma = sdlog)
+)
+
+md"""
+### Runtime: marginal versus latent
+
+This is an indicative comparison, not a like-for-like benchmark: the marginal
+fit draws 1000 samples over 4 chains while the latent fit draws 250.
+Even so, the latent form's per-record primaries make each gradient more
+expensive:
+"""
+
+DataFrame(
+    model = ["marginal (weighted)", "latent (per-record primary)"],
+    seconds = round.([t_marginal, t_latent], digits = 1)
+)
 
 md"""
 ## Working with FlexiChains output
