@@ -32,6 +32,15 @@ using DifferentiationInterface: DifferentiationInterface, Constant
 import ForwardDiff, ReverseDiff, Mooncake, Enzyme
 import DifferentiationInterfaceTest as DIT
 
+# ConvolvedDistributions became a CensoredDistributions weakdep in #847, so
+# not every environment loading this fixtures file has it (e.g. the `main`
+# baseline AirspeedVelocity benchmarks the PR against). Try to load it and
+# gate the convolve_series scenario on whether it succeeded.
+try
+    import ConvolvedDistributions
+catch
+end
+
 export scenarios, backends, working_backends, broken_backends,
        broken_scenario_names, backend_broken_scenarios
 
@@ -116,15 +125,19 @@ backend `name` from [`working_backends`](@ref).
 
 """
 function backend_broken_scenarios()
-    # Empty: every backend differentiates every scenario, including the batched
-    # `pdf(::IntervalCensored, ::AbstractVector)` path (#699, #701).
+    # Both Enzyme directions fail "convolve_series IntervalCensored LogNormal
+    # daily grid" on the stacked `IntervalCensored{Truncated{PrimaryCensored}}`
+    # type `double_interval_censored` builds; every other backend passes.
+    # Investigated but unresolved -- see #889.
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => Set{String}(),
         "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => Set{String}(),
-        "Enzyme forward" => Set{String}()
+        "Enzyme reverse" => Set{String}([
+            "convolve_series IntervalCensored LogNormal daily grid"]),
+        "Enzyme forward" => Set{String}([
+            "convolve_series IntervalCensored LogNormal daily grid"])
     )
 end
 
@@ -447,6 +460,22 @@ function scenarios(; with_reference::Bool = false)
                         Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), x),
                 obs),
             [2.0, 1.0], (Constant(obs),))
+    end
+
+    # convolve_series bridge (#847): an IntervalCensored delay's PMF fed to
+    # ConvolvedDistributions' timeseries convolution. Literal `LogNormal`
+    # constructor keeps Enzyme forward working (#278). Guarded on the
+    # `ConvolvedDistributions` import above (skipped on baseline builds that
+    # predate #847; see that comment).
+    if isdefined(@__MODULE__, :ConvolvedDistributions)
+        _push!("convolve_series IntervalCensored LogNormal daily grid",
+            (θ,
+                series) -> sum(
+                ConvolvedDistributions.convolve_series(
+                double_interval_censored(LogNormal(θ[1], θ[2]);
+                    upper = 10.0, interval = 1),
+                series)),
+            [1.5, 0.75], (Constant([0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0, 1.0]),))
     end
 
     # Pluggable integration path (#208). The numeric primary-censored CDF

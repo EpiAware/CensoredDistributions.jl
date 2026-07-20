@@ -46,6 +46,25 @@ censored_dist = primary_censored(delay_dist, primary_dist)
 - **Interval censoring**: Continuous values are observed only within discrete intervals. See the [API documentation](@ref "Public API") for `interval_censored`.
 - **Double interval censoring**: Combines both types of censoring. See `double_interval_censored` in the [API documentation](@ref "Public API").
 
+### Q: How do I convolve a censored delay with a timeseries?
+
+**A:** Loading [ConvolvedDistributions.jl](https://github.com/EpiAware/ConvolvedDistributions.jl) alongside CensoredDistributions activates a bridge that lets you pass a regular-grid interval-censored delay straight to `convolve_series`, which reads the delay's discretised mass function and convolves it with a series sampled on the same grid (e.g. infections to expected observations).
+The grid width comes from the delay itself, the `interval` you chose when building it, so the series is interpreted at steps of that width.
+Use `double_interval_censored(dist; interval = w)` for the statistically correct interval-binned discretisation of a continuous delay.
+
+```julia
+using CensoredDistributions, ConvolvedDistributions, Distributions
+
+# Daily grid (interval = 1): series is one value per day.
+delay = double_interval_censored(LogNormal(1.5, 0.75); interval = 1)
+infections = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
+expected_counts = convolve_series(delay, infections)
+
+# Weekly grid (interval = 7): the same call reads the series per week.
+weekly_delay = double_interval_censored(LogNormal(2.5, 0.75); interval = 7)
+weekly_expected = convolve_series(weekly_delay, infections)
+```
+
 ### Q: How do I fit censored distributions to data?
 
 **A:** See the Fitting with Turing.jl tutorial in the [tutorials](@ref tutorials) section for Bayesian inference examples using Turing.jl.
