@@ -426,7 +426,14 @@ Create a sampler for efficient sampling (delegates to underlying distribution).
 
 See also: [`rand`](@ref)
 "
-sampler(d::Weighted) = Weighted(sampler(get_dist(d)), d.weight)
+# The weight never touches sampling, so batch sampling uses the base
+# distribution's specialised sampler directly. Re-wrapping it in `Weighted`
+# would crash for bases whose sampler is a dedicated sampler object rather
+# than a distribution (Gamma, Poisson): the `Weighted` constructor requires
+# `D <: UnivariateDistribution`, and `GammaMTSampler`/`PoissonCountSampler`
+# are not. Bases whose sampler is the distribution itself (Normal,
+# LogNormal, ...) masked this bug.
+sampler(d::Weighted) = sampler(get_dist(d))
 
 # ============================================================================
 # Helper Functions for Observation and Weight Processing
