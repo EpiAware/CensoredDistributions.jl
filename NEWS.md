@@ -24,6 +24,22 @@
 
 ### Added
 
+- `indicate_censoring(dist)` wraps a censored, truncated, or
+  interval-censored distribution `dist` in a `CensoringIndicator`, so a
+  dataset mixing exact and bounded observations can be scored row by row
+  without splitting the data by observation type. A joint observation
+  `(value = x, exact = flag)` selects the exact density of `get_dist(dist)`
+  when `flag` is `true`, or `dist`'s own (censored) density otherwise; a
+  table form `(values = [...], exacts = [...])` sums the per-record
+  contribution via `loglikelihood`. A bounded record scored through the
+  indicator is identical to the same record scored by placing the censored
+  leaf directly in the tree — the invariant this feature exists to
+  guarantee. Every other method (`pdf`, `cdf`, sampling, etc.) delegates to
+  the wrapped distribution unchanged. Part of
+  [#892](https://github.com/EpiAware/CensoredDistributions.jl/issues/892).
+  Closes
+  [#894](https://github.com/EpiAware/CensoredDistributions.jl/issues/894).
+
 - `primary_censored` and `double_interval_censored` accept a `method`
   keyword taking a solver object, `AnalyticalSolver()` (the default) or
   `NumericSolver()`, each optionally given a quadrature solver

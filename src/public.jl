@@ -5,6 +5,7 @@ public PrimaryCensored
 public IntervalCensored
 public Weighted
 public Convolved
+public CensoringIndicator
 
 # Primary censoring solver supertype (public but not exported).
 # `AnalyticalSolver` and `NumericSolver` are exported in the main module.

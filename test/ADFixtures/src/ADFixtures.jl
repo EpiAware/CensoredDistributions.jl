@@ -348,6 +348,30 @@ function scenarios(; with_reference::Bool = false)
             cts) -> logpdf(weight(LogNormal(θ[1], θ[2]), cts), obs),
         [1.0, 0.75], (Constant(obs), Constant(counts)))
 
+    # CensoringIndicator (#894): a per-record `Bool` selects the exact vs
+    # interval-censored contribution. The flags are inactive `Constant`
+    # data, not model parameters, so branching on `obs.exact` inside
+    # `logpdf` is AD-safe on every backend; this scenario exercises both
+    # branches (a mix of `true`/`false` flags) in the same gradient call.
+    #
+    # Interior observations, not `obs_int` (which starts at 0.0): the
+    # `exact` branch scores the UNDERLYING LogNormal directly, and a
+    # LogNormal has zero density at its support boundary, so pairing
+    # `value = 0.0` with `exact = true` gives a `-Inf`/`NaN` gradient in
+    # every backend, including the ForwardDiff reference itself -
+    # discovered by comparing the raw backend gradients against each
+    # other before assuming a backend bug.
+    obs_indicator = [0.5, 1.5, 2.5, 3.5, 4.5]
+    exact_flags = [true, false, true, false, true]
+    _push!("CensoringIndicator LogNormal mixed exact/censored",
+        (θ, obs,
+            flags) -> sum(
+            i -> logpdf(
+                indicate_censoring(interval_censored(LogNormal(θ[1], θ[2]), 1.0)),
+                (value = obs[i], exact = flags[i])),
+            eachindex(obs)),
+        [1.0, 0.75], (Constant(obs_indicator), Constant(exact_flags)))
+
     # PrimaryCensored with a NON-Uniform primary event: a truncated Normal
     # whose mean is a differentiable parameter (θ[3]). No analytical
     # `primarycensored_cdf(::Delay, ::Truncated, ...)` exists, so this runs
