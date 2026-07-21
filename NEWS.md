@@ -2,6 +2,17 @@
 
 ### Bug fixes
 
+- `sampler(d::Weighted)` now delegates directly to `sampler(get_dist(d))`
+  instead of re-wrapping the result in `Weighted`. The weight never affects
+  sampling, and the previous form crashed batch `rand` for any base whose
+  `sampler` returns a dedicated sampler object rather than a distribution
+  (e.g. `Gamma`'s `GammaMTSampler`, `Poisson`'s `PoissonCountSampler`) — the
+  `Weighted` constructor requires a `UnivariateDistribution`, so
+  `rand(weight(Gamma(2, 3), 3.0), 4)` threw a `MethodError`. Bases whose
+  `sampler` returns the distribution itself (`Normal`, `LogNormal`, ...)
+  masked the bug. Closes
+  [#835](https://github.com/EpiAware/CensoredDistributions.jl/issues/835).
+
 - `double_interval_censored` and `primary_censored` now select the
   analytic-vs-numeric solver by dispatching on the argument types rather
   than branching on a `Bool` value, so the return type stays concrete

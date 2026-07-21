@@ -104,6 +104,31 @@ end
     @test std(samples_d) ≈ std(samples_wd) atol=0.1
 end
 
+@testitem "Test Weight batch sampling for sampler-object bases (#835)" begin
+    using Distributions
+    using Random
+    using Statistics
+
+    # `sampler(Gamma)` returns a `GammaMTSampler` and `sampler(Poisson)` a
+    # `PoissonCountSampler` — neither is a `Distribution`, so re-wrapping it
+    # in `Weighted` (whose constructor requires `D <: UnivariateDistribution`)
+    # crashed batch `rand`. Normal/LogNormal mask the bug because their
+    # `sampler` returns the distribution itself.
+    for d in (Gamma(2.0, 3.0), Poisson(4.0))
+        wd = weight(d, 3.0)
+
+        @test sampler(wd) === sampler(d)
+
+        samples = rand(Xoshiro(1), wd, 4)
+        @test length(samples) == 4
+        @test all(x -> insupport(d, x), samples)
+
+        # Weighting must not perturb the sampling distribution.
+        many = rand(Xoshiro(2), wd, 20_000)
+        @test mean(many)≈mean(d) rtol=0.05
+    end
+end
+
 @testitem "Test Weight with different numeric types" begin
     using Distributions
 
