@@ -125,19 +125,19 @@ backend `name` from [`working_backends`](@ref).
 
 """
 function backend_broken_scenarios()
-    # Both Enzyme directions fail "convolve_series IntervalCensored LogNormal
-    # daily grid" on the stacked `IntervalCensored{Truncated{PrimaryCensored}}`
-    # type `double_interval_censored` builds; every other backend passes.
-    # Investigated but unresolved -- see #889.
+    # Empty: every backend differentiates every scenario. The convolve_series
+    # stacked-delay scenario previously broke both Enzyme directions because
+    # `_grid_pmf` read the delay PMF through the batched `pdf(d, vector)` path,
+    # which Enzyme cannot differentiate for a `Truncated{PrimaryCensored}` inner
+    # (#889). `_grid_pmf` now uses the scalar `pdf` path (identical values), so
+    # Enzyme fwd + rev pass.
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => Set{String}(),
         "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => Set{String}([
-            "convolve_series IntervalCensored LogNormal daily grid"]),
-        "Enzyme forward" => Set{String}([
-            "convolve_series IntervalCensored LogNormal daily grid"])
+        "Enzyme reverse" => Set{String}(),
+        "Enzyme forward" => Set{String}()
     )
 end
 

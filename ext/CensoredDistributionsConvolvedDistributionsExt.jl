@@ -17,9 +17,18 @@ using Distributions: pdf
 # Delay PMF at grid lags `0..(n - 1)` for a regular interval-censored delay
 # of width `w = interval_width(d)`. `pdf(d, k * w)` is the censored mass on
 # `[k * w, (k + 1) * w)` for any `w`.
+#
+# Scalar `pdf` per grid point rather than the batched `pdf(d, vector)`: the
+# batched path (`_compute_boundary_cdfs`) cannot be differentiated by Enzyme
+# (fwd + rev) when the inner delay is a stacked `Truncated{PrimaryCensored}`
+# (the extra truncation layer trips Enzyme's shadow/type analysis;
+# `IllegalTypeAnalysisException`/`EnzymeNoShadowError`, #889). The scalar `pdf`
+# path is Enzyme-clean at every layer and returns identical values, so the grid
+# builds through it. Every other backend already differentiated the batched
+# path; this keeps convolve_series AD-safe across all six.
 function _grid_pmf(d::IntervalCensored, n::Integer)
     w = interval_width(d)
-    return pdf(d, w .* (0:(n - 1)))
+    return [pdf(d, w * k) for k in 0:(n - 1)]
 end
 
 @doc "
