@@ -8,6 +8,14 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Bundle every github-actions bump (third-party actions + the EpiAware
+    # reusable-workflow SHAs) into a single grouped PR per run, so one
+    # EpiAware/.github change no longer spawns a separate PR per workflow
+    # file that references it (#249).
+    groups:
+      github-actions:
+        patterns:
+          - "*"
     open-pull-requests-limit: 10
     reviewers:
       - "seabbs"
@@ -24,6 +32,12 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # One grouped PR per run for all Julia dependency bumps across the
+    # workspace environments, rather than a separate PR per package (#249).
+    groups:
+      julia:
+        patterns:
+          - "*"
     open-pull-requests-limit: 10
     reviewers:
       - "seabbs"
