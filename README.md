@@ -13,11 +13,11 @@
 
 ## Why CensoredDistributions.jl?
 
-- A study rarely observes exact event times: the initial event (e.g. exposure) is usually known only to within a window, and the delay itself is truncated by when observation stops; ignoring either biases the fitted distribution.
-- Primary event censoring, interval censoring, and their combination (double interval censoring) are each one function call on an ordinary `Distributions.jl` distribution, not a hand-derived likelihood correction.
-- Every result stays a `Distributions.jl` distribution, so it drops into [Turing.jl](https://github.com/TuringLang/Turing.jl) (or any PPL built on Distributions.jl) for Bayesian inference or maximum likelihood fitting exactly like an ordinary distribution.
-- Closed-form solutions are used where they exist, with numerical fallbacks otherwise, so correctness is not traded for convenience.
-- Automatic differentiation works across the same wrappers, so a censored or truncated delay is fit-ready with a gradient-based sampler.
+- Fitting observed delays as if they were exact biases the estimate, because the initial event is usually known only to within a window and the longest delays are missing wherever observation stopped.
+- Primary event censoring, interval censoring and double interval censoring are each one call on an existing `Distributions.jl` distribution, so the corrected likelihood does not have to be derived by hand.
+- The result is still a `Distributions.jl` distribution, so it can be fitted in [Turing.jl](https://github.com/TuringLang/Turing.jl), or anywhere else that takes a distribution, by Bayesian inference or maximum likelihood.
+- Gamma, lognormal and Weibull delays with a uniform primary event use analytical CDFs, and every other pairing falls back to numerical integration, so the common cases are fast and nothing is left unsupported.
+- Gradients are tested against ForwardDiff, ReverseDiff, Enzyme and Mooncake in CI, so a censored likelihood can be fitted with a gradient-based sampler such as NUTS.
 
 ## Getting started
 
@@ -107,10 +107,10 @@ CensoredDistributions.jl also works well with `truncated()` from Distributions.j
 
 ## Related packages
 
-- [ComposedDistributions.jl](https://composeddistributions.epiaware.org/dev/) composes any `Distributions.jl` distribution into event-tree chains, so a censored or truncated delay from this package works as an ordinary leaf.
-- [ConvolvedDistributions.jl](https://convolveddistributions.epiaware.org/dev/) convolves independent delays into sums, differences and products, and reads a double-interval-censored distribution's discretised masses directly when convolving a count series.
-- [ModifiedDistributions.jl](https://modifieddistributions.epiaware.org/dev/) rescales, weights and hazard-modifies any distribution; those modifiers compose with a censored or truncated distribution since it is an ordinary `Distributions.jl` distribution underneath.
-- [DistributionsInference.jl](https://github.com/EpiAware/DistributionsInference.jl) is the emerging fit-protocol and PPL-integration layer across the EpiAware distribution packages.
+- [ComposedDistributions.jl](https://composeddistributions.epiaware.org/dev/) is the general composition layer split out of this package, building event trees from chains, branches and competing outcomes, with a censored delay usable as one leaf.
+- [ConvolvedDistributions.jl](https://convolveddistributions.epiaware.org/dev/) convolves independent delays into sums, differences and products, and its `convolve_series` deliberately leaves discretisation to this package rather than binning a continuous delay itself.
+- [ModifiedDistributions.jl](https://modifieddistributions.epiaware.org/dev/) rescales, weights and hazard-modifies a distribution, and those modifiers wrap a censored distribution the same way they wrap any other.
+- [DistributionsInference.jl](https://distributionsinference.epiaware.org/dev/) supplies the fit protocol shared across these packages, so a censored distribution can be estimated without committing to one probabilistic programming language.
 
 ## Where to learn more
 
