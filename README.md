@@ -14,7 +14,7 @@
 ## Why CensoredDistributions.jl?
 
 - Fitting observed delays as if they were exact biases the estimate, because the initial event is usually known only to within a window and the longest delays are missing wherever observation stopped.
-- Primary event censoring, interval censoring and double interval censoring are each one call on an existing `Distributions.jl` distribution, so the corrected likelihood does not have to be derived by hand.
+- Primary event censoring and interval censoring are each one call on an existing `Distributions.jl` distribution, and `double_interval_censored` composes them with right truncation in the order that keeps the likelihood correct, so it does not have to be derived by hand.
 - The result is still a `Distributions.jl` distribution, so it can be fitted in [Turing.jl](https://github.com/TuringLang/Turing.jl), or anywhere else that takes a distribution, by Bayesian inference or maximum likelihood.
 - Gamma, lognormal and Weibull delays with a uniform primary event use analytical CDFs, and every other pairing falls back to numerical integration, so the common cases are fast and nothing is left unsupported.
 - Gradients are tested against ForwardDiff, ReverseDiff, Enzyme and Mooncake in CI, so a censored likelihood can be fitted with a gradient-based sampler such as NUTS.
@@ -110,7 +110,6 @@ CensoredDistributions.jl also works well with `truncated()` from Distributions.j
 - [ComposedDistributions.jl](https://composeddistributions.epiaware.org/dev/) is the general composition layer split out of this package, building event trees from chains, branches and competing outcomes, with a censored delay usable as one leaf.
 - [ConvolvedDistributions.jl](https://convolveddistributions.epiaware.org/dev/) convolves independent delays into sums, differences and products, and its `convolve_series` deliberately leaves discretisation to this package rather than binning a continuous delay itself.
 - [ModifiedDistributions.jl](https://modifieddistributions.epiaware.org/dev/) rescales, weights and hazard-modifies a distribution, and those modifiers wrap a censored distribution the same way they wrap any other.
-- [DistributionsInference.jl](https://distributionsinference.epiaware.org/dev/) supplies the fit protocol shared across these packages, so a censored distribution can be estimated without committing to one probabilistic programming language.
 
 ## Where to learn more
 
