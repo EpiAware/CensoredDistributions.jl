@@ -426,7 +426,7 @@ Create a sampler for efficient sampling (delegates to underlying distribution).
 
 See also: [`rand`](@ref)
 "
-sampler(d::Weighted) = Weighted(sampler(get_dist(d)), d.weight)
+sampler(d::Weighted) = sampler(get_dist(d))
 
 # ============================================================================
 # Helper Functions for Observation and Weight Processing
