@@ -109,11 +109,6 @@ end
     using Random
     using Statistics
 
-    # `sampler(Gamma)` returns a `GammaMTSampler` and `sampler(Poisson)` a
-    # `PoissonCountSampler` — neither is a `Distribution`, so re-wrapping it
-    # in `Weighted` (whose constructor requires `D <: UnivariateDistribution`)
-    # crashed batch `rand`. Normal/LogNormal mask the bug because their
-    # `sampler` returns the distribution itself.
     for d in (Gamma(2.0, 3.0), Poisson(4.0))
         wd = weight(d, 3.0)
 
