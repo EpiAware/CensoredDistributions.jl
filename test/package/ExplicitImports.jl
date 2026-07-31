@@ -22,9 +22,12 @@
         #   rules keyed on it fire (EpiAware/CensoredDistributions.jl#850).
         # - _collect_unique_boundaries: internal boundary builder the AD
         #   extensions import to mark non-differentiable (zero-tangent rule).
+        # - interval_width, is_regular_intervals: internal interval helpers
+        #   the ConvolvedDistributions extension imports for convolve_series.
         ignore = (
             :Censored, :_in_closed_interval, :_gamma_cdf,
-            :_collect_unique_boundaries
+            :_collect_unique_boundaries,
+            :interval_width, :is_regular_intervals
         )
     ) === nothing
 

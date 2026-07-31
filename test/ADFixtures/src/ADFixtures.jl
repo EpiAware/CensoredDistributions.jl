@@ -15,12 +15,6 @@ backend (ReverseDiff, Mooncake reverse/forward) to ~1e-6.
 """
 module ADFixtures
 
-# `__precompile__(false)` skips the precompile cache so the Mooncake
-# load chain (specifically `MooncakeAllocCheckExt.__init__` evaluating
-# into the already-closed `AllocCheck` module) doesn't break the
-# package build on CI. Negligible cost — this module is only loaded by
-# the AD test, benchmark, and docs scripts, each of which already pays
-# for Mooncake/Enzyme load time elsewhere.
 __precompile__(false)
 
 using CensoredDistributions
@@ -32,13 +26,14 @@ using DifferentiationInterface: DifferentiationInterface, Constant
 import ForwardDiff, ReverseDiff, Mooncake, Enzyme
 import DifferentiationInterfaceTest as DIT
 
+try
+    import ConvolvedDistributions
+catch
+end
+
 export scenarios, backends, working_backends, broken_backends,
        broken_scenario_names, backend_broken_scenarios
 
-# `contexts` is a tuple of `Constant`-wrapped data (the observations),
-# passed positionally to DI's `gradient` and to the differentiated
-# function. See `scenarios` for why data travels as a context rather
-# than a closure capture.
 function _reference(f, θ, contexts)
     DifferentiationInterface.gradient(f, AutoForwardDiff(), θ, contexts...)
 end
@@ -116,15 +111,19 @@ backend `name` from [`working_backends`](@ref).
 
 """
 function backend_broken_scenarios()
-    # Empty: every backend differentiates every scenario, including the batched
-    # `pdf(::IntervalCensored, ::AbstractVector)` path (#699, #701).
+    # Both Enzyme directions fail "convolve_series IntervalCensored LogNormal
+    # daily grid" on the stacked `IntervalCensored{Truncated{PrimaryCensored}}`
+    # type `double_interval_censored` builds; every other backend passes.
+    # Investigated but unresolved -- see #889.
     return Dict{String, Set{String}}(
         "ForwardDiff" => Set{String}(),
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => Set{String}(),
         "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => Set{String}(),
-        "Enzyme forward" => Set{String}()
+        "Enzyme reverse" => Set{String}([
+            "convolve_series IntervalCensored LogNormal daily grid"]),
+        "Enzyme forward" => Set{String}([
+            "convolve_series IntervalCensored LogNormal daily grid"])
     )
 end
 
@@ -447,6 +446,22 @@ function scenarios(; with_reference::Bool = false)
                         Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), x),
                 obs),
             [2.0, 1.0], (Constant(obs),))
+    end
+
+    # convolve_series bridge (#847): an IntervalCensored delay's PMF fed to
+    # ConvolvedDistributions' timeseries convolution. Literal `LogNormal`
+    # constructor keeps Enzyme forward working (#278). Guarded on the
+    # `ConvolvedDistributions` import above (skipped on baseline builds that
+    # predate #847; see that comment).
+    if isdefined(@__MODULE__, :ConvolvedDistributions)
+        _push!("convolve_series IntervalCensored LogNormal daily grid",
+            (θ,
+                series) -> sum(
+                ConvolvedDistributions.convolve_series(
+                double_interval_censored(LogNormal(θ[1], θ[2]);
+                    upper = 10.0, interval = 1),
+                series)),
+            [1.5, 0.75], (Constant([0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0, 1.0]),))
     end
 
     # Pluggable integration path (#208). The numeric primary-censored CDF
