@@ -13,11 +13,11 @@
 
 ## Why CensoredDistributions.jl?
 
-- **Primary event censoring**: Model delay distributions where the initial event occurs within a time window (e.g., exposure periods in epidemiology).
-- **Interval censoring**: Bin continuous distributions into discrete intervals (e.g., daily reporting) when exact values are not observed.
-- **Double interval censoring**: Combines both primary event and interval censoring for complex observation processes.
-- **Distribution fitting**: Integrates with [Turing.jl](https://github.com/TuringLang/Turing.jl) for both Bayesian inference and MLE of censored distributions.
-- **Analytical solutions**: Provides analytical solutions where possible with numerical fallbacks for efficiency.
+- Fitting observed delays as if they were exact biases the estimate, because the initial event is usually known only to within a window and the longest delays are missing wherever observation stopped.
+- Primary event censoring and interval censoring are each one call on an existing `Distributions.jl` distribution, and `double_interval_censored` composes them with right truncation in the order that keeps the likelihood correct, so it does not have to be derived by hand.
+- The result is still a `Distributions.jl` distribution, so it can be fitted in [Turing.jl](https://github.com/TuringLang/Turing.jl), or anywhere else that takes a distribution, by Bayesian inference or maximum likelihood.
+- Gamma, lognormal and Weibull delays with a uniform primary event use analytical CDFs, and every other pairing falls back to numerical integration, so the common cases are fast and nothing is left unsupported.
+- Gradients are tested against ForwardDiff, ReverseDiff, Enzyme and Mooncake in CI, so a censored likelihood can be fitted with a gradient-based sampler such as NUTS.
 
 ## Getting started
 
@@ -105,10 +105,11 @@ These approaches complement each other - you can apply observation limits to dis
 
 CensoredDistributions.jl also works well with `truncated()` from Distributions.jl and supports both primary event censoring (initial event timing uncertainty) and secondary event censoring (observation window effects).
 
-## What packages work well with CensoredDistributions.jl?
+## Related packages
 
-- [Distributions.jl](https://github.com/JuliaStats/Distributions.jl) provides the base functionality for working with distributions as well as tools for frequentist inference of distributions.
-- [Turing.jl](https://github.com/TuringLang/Turing.jl) for Bayesian inference of censored distributions. `CensoredDistributions.jl` is designed (and tested) to work well with Turing.jl.
+- [ComposedDistributions.jl](https://composeddistributions.epiaware.org/dev/) is the general composition layer split out of this package, building event trees from chains, branches and competing outcomes, with a censored delay usable as one leaf.
+- [ConvolvedDistributions.jl](https://convolveddistributions.epiaware.org/dev/) convolves independent delays into sums, differences and products, and its `convolve_series` deliberately leaves discretisation to this package rather than binning a continuous delay itself.
+- [ModifiedDistributions.jl](https://modifieddistributions.epiaware.org/dev/) rescales, weights and hazard-modifies a distribution, and those modifiers wrap a censored distribution the same way they wrap any other.
 
 ## Where to learn more
 

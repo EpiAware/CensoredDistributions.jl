@@ -223,7 +223,7 @@ _max2(a, b) = a > b ? a : b
 # Recursion bases / steps for the two kernels. For a single (degenerate)
 # component the kernel is just that component's CDF/PDF; for a nested
 # `Convolved` it recurses through the numeric routines.
-_convolution_cdf(d::UnivariateDistribution, x::Real) = _cdf_ad_safe(d, x)
+_convolution_cdf(d::UnivariateDistribution, x::Real) = cdf_ad_safe(d, x)
 _convolution_cdf(d::Convolved, x::Real) = _convolved_numeric_cdf(d, x)
 
 _convolution_pdf(d::UnivariateDistribution, x::Real) = pdf(d, x)
@@ -303,7 +303,7 @@ function _convolved_numeric_cdf(d::Convolved, x::Real)
 
     # Mass of C below the saturated cut (where F_R = 1). Guard the
     # support boundary, where cdf at minimum is 0 by construction.
-    saturated = cut > cmin ? _cdf_ad_safe(last_comp, cut) :
+    saturated = cut > cmin ? cdf_ad_safe(last_comp, cut) :
                 zero(float(typeof(x)))
 
     upper <= lower && return clamp(saturated, zero(saturated), one(saturated))
@@ -473,7 +473,7 @@ function _convolved_numeric_cdf_batched(d::Convolved, x::AbstractVector{<:Real})
         return map(xi -> _convolved_numeric_cdf(d, T(xi)), x)
     end
 
-    saturated = lower > cmin ? T(_cdf_ad_safe(last_comp, lower)) : zero(T)
+    saturated = lower > cmin ? T(cdf_ad_safe(last_comp, lower)) : zero(T)
     raw = _convolved_quadrature_batched(
         last_comp, rest, _convolution_cdf, x, lower, upper)
 

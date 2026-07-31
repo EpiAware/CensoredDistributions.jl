@@ -11,10 +11,10 @@ Advice on choosing a backend and on debugging comes after the results.
 
 ## Backend support
 
-Each backend has its own AD gradient CI run, so a transiently unstable
-backend only reds its own badge.
-The badges below show the latest run of each on `main`, tested on Julia 1
+One AD gradient CI run exercises every backend on `main`, tested on Julia 1
 (the latest stable release).
+The badge below shows its aggregate status; the row under it shows each
+backend's coverage from that run.
 
 ```@raw html
 <table>
@@ -22,14 +22,8 @@ The badges below show the latest run of each on `main`, tested on Julia 1
 <th>ForwardDiff</th><th>ReverseDiff (tape)</th><th>Enzyme forward</th>
 <th>Enzyme reverse</th><th>Mooncake reverse</th><th>Mooncake forward</th>
 </tr></thead>
-<tbody><tr>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-forwarddiff.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-forwarddiff.yaml/badge.svg?branch=main" alt="AD ForwardDiff"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-reversediff.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-reversediff.yaml/badge.svg?branch=main" alt="AD ReverseDiff"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-forward.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-forward.yaml/badge.svg?branch=main" alt="AD Enzyme forward"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-reverse.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-enzyme-reverse.yaml/badge.svg?branch=main" alt="AD Enzyme reverse"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-reverse.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-reverse.yaml/badge.svg?branch=main" alt="AD Mooncake reverse"></a></td>
-<td><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-forward.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad-mooncake-forward.yaml/badge.svg?branch=main" alt="AD Mooncake forward"></a></td>
-</tr>
+<tbody>
+<tr><td colspan="6" style="text-align: center"><a href="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad.yaml"><img src="https://github.com/EpiAware/CensoredDistributions.jl/actions/workflows/ad.yaml/badge.svg?branch=main" alt="AD"></a></td></tr>
 <tr>
 <td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-forwarddiff"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-forwarddiff" alt="coverage ForwardDiff"></a></td>
 <td><a href="https://app.codecov.io/gh/EpiAware/CensoredDistributions.jl?flags%5B0%5D=ad-reversediff"><img src="https://codecov.io/gh/EpiAware/CensoredDistributions.jl/graph/badge.svg?flag=ad-reversediff" alt="coverage ReverseDiff"></a></td>
@@ -41,10 +35,10 @@ The badges below show the latest run of each on `main`, tested on Julia 1
 </table>
 ```
 
-The top row is each backend's latest CI run: a green badge means that
-backend differentiates the scenarios we test for it, which does not by
-itself mean full coverage.
-The second row is each backend's code coverage from the gradient suite
+The AD badge is the aggregate gradient CI run: green means every backend
+differentiates the scenarios we test for it, which does not by itself mean
+full coverage.
+The row below it is each backend's code coverage from the gradient suite
 (Codecov flag `ad-<backend>`), reporting which package lines that backend
 exercises.
 All six backends (ForwardDiff, ReverseDiff (tape), Enzyme forward, Enzyme

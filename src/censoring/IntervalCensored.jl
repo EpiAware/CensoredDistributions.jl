@@ -202,13 +202,13 @@ function pdf(d::IntervalCensored, x::Real)
     dist_max = maximum(get_dist(d))
 
     # For lower bound at or below distribution minimum, CDF is 0.
-    # `_cdf_ad_safe` routes `Gamma` through `_gamma_cdf` so the boundary
+    # `cdf_ad_safe` routes `Gamma` through `_gamma_cdf` so the boundary
     # CDF stays differentiable; stock `cdf(Gamma, x)` hits `gamma_inc`,
     # which no AD backend can push `Dual`/tracked numbers through (#257).
-    cdf_lower = lower <= dist_min ? 0.0 : _cdf_ad_safe(get_dist(d), lower)
+    cdf_lower = lower <= dist_min ? 0.0 : cdf_ad_safe(get_dist(d), lower)
 
     # For upper bound at or above distribution maximum, CDF is 1
-    cdf_upper = upper >= dist_max ? 1.0 : _cdf_ad_safe(get_dist(d), upper)
+    cdf_upper = upper >= dist_max ? 1.0 : cdf_ad_safe(get_dist(d), upper)
 
     return max(cdf_upper - cdf_lower, zero(cdf_upper))
 end
@@ -277,12 +277,12 @@ end
     _compute_boundary_cdfs(d::IntervalCensored, boundaries)
 
 Evaluate the boundary CDF once per unique boundary, returning a vector
-parallel to the sorted unique `boundaries`. `_cdf_ad_safe` keeps the
+parallel to the sorted unique `boundaries`. `cdf_ad_safe` keeps the
 `Gamma` path differentiable (see #257). CDF values keep their natural type
 so the AD tangent is not stripped. Boundaries at or below `minimum(dist)` /
 at or above `maximum(dist)` get the literal `0` / `1` (typed via
 `partype`) instead of an evaluation, mirroring the scalar [`pdf`](@ref)
-guard; evaluating `_cdf_ad_safe` at a degenerate boundary (e.g. `LogNormal`
+guard; evaluating `cdf_ad_safe` at a degenerate boundary (e.g. `LogNormal`
 at `0`) would poison the reverse sweep with a `-Inf`/`NaN` adjoint (#699).
 """
 function _compute_boundary_cdfs(d::IntervalCensored, boundaries::AbstractVector)
@@ -296,7 +296,7 @@ function _compute_boundary_cdfs(d::IntervalCensored, boundaries::AbstractVector)
         elseif b >= dist_max
             z + one(z)
         else
-            _cdf_ad_safe(dist, b)
+            cdf_ad_safe(dist, b)
         end
     end
 end
@@ -395,7 +395,7 @@ function _interval_cdf(d::IntervalCensored, x::Real, f::Function)
 
     # Route through the AD-safe helpers so the `Gamma` path stays
     # differentiable rather than hitting `gamma_inc` directly (#257).
-    f_safe = f === logcdf ? _logcdf_ad_safe : _cdf_ad_safe
+    f_safe = f === logcdf ? logcdf_ad_safe : cdf_ad_safe
 
     if is_regular_intervals(d)
         # For regular intervals, use floor behavior from Discretised

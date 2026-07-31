@@ -7,9 +7,10 @@
         jet_env = joinpath(@__DIR__, "..", "jet")
         if isdir(jet_env) && isfile(joinpath(jet_env, "Project.toml"))
             # Instantiate the JET environment
+            prev = Base.active_project()
             Pkg.activate(jet_env)
             Pkg.instantiate()
-            Pkg.activate()  # Return to original environment
+            Pkg.activate(prev)  # Return to original environment
 
             # Run JET tests in the isolated environment
             # Pipe output to show JET results in test logs

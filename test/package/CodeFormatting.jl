@@ -5,9 +5,10 @@
     formatter_env = joinpath(@__DIR__, "..", "formatter")
     if isdir(formatter_env) && isfile(joinpath(formatter_env, "Project.toml"))
         # Instantiate the formatter environment
+        prev = Base.active_project()
         Pkg.activate(formatter_env)
         Pkg.instantiate()
-        Pkg.activate()  # Return to original environment
+        Pkg.activate(prev)  # Return to original environment
 
         # Run formatter check in the isolated environment
         # Pipe output to show formatting results in test logs

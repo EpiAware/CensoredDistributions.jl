@@ -13,7 +13,7 @@
     using SpecialFunctions: gamma_inc
     using FiniteDifferences: central_fdm
     using DifferentiationInterface: AutoFiniteDifferences, derivative
-    using CensoredDistributions: _grad_p_a_series
+    using EpiAwareADTools: _grad_p_a_series
 
     fd = AutoFiniteDifferences(; fdm = central_fdm(7, 1))
 
@@ -49,7 +49,7 @@ end
     # derivative match Richardson-extrapolated finite differences.
     using Random: MersenneTwister
     using Mooncake: Mooncake
-    using CensoredDistributions: _gamma_cdf
+    using EpiAwareADTools: _gamma_cdf
 
     cases = [
         (2.3, 1.7, 1.9),
@@ -73,7 +73,7 @@ end
 
 @testitem "Enzyme direct rule on _gamma_cdf (issue #259)" tags=[
     :ad, :enzyme, :enzyme_reverse] begin
-    # Pins the fix in CensoredDistributionsEnzymeExt: the original
+    # Pins the fix in EpiAwareADToolsEnzymeExt: the original
     # `Enzyme.@import_rrule` lift returned the wrong ∂P/∂k (~8% off). The
     # direct EnzymeRules.augmented_primal/reverse + forward rule should now
     # match the ForwardDiff reference on both modes.
@@ -81,7 +81,7 @@ end
     using DifferentiationInterface: gradient
     using Enzyme: Enzyme
     using ForwardDiff: ForwardDiff
-    using CensoredDistributions: _gamma_cdf
+    using EpiAwareADTools: _gamma_cdf
 
     f(v) = _gamma_cdf(v[1], v[2], v[3])
     cases = [
@@ -101,7 +101,7 @@ end
 
 @testitem "Enzyme gamma rule (issue #263)" tags=[:ad, :enzyme, :enzyme_reverse] begin
     # Pins the `SpecialFunctions.gamma` rule in
-    # CensoredDistributionsEnzymeExt. With only EnzymeSpecialFunctionsExt
+    # EpiAwareADToolsEnzymeExt. With only EnzymeSpecialFunctionsExt
     # loaded, Enzyme mis-lowers `gamma` to the `loggamma` known-op and
     # returns `ψ(x)` instead of `Γ(x) ψ(x)` — silently wrong by a factor
     # of `Γ(x)` in both modes. The analytical Gamma/Weibull
@@ -129,7 +129,8 @@ end
     # x / t). Without this, the rrule's x <= 0 path and the Weibull g's
     # t <= 0 guard appear as uncovered defensive code in patch coverage.
     using ChainRulesCore: rrule, NoTangent
-    using CensoredDistributions: CensoredDistributions, _gamma_cdf
+    using CensoredDistributions: CensoredDistributions
+    using EpiAwareADTools: _gamma_cdf
     _make_weibull_g = CensoredDistributions._make_weibull_g
 
     Ω, pb = rrule(_gamma_cdf, 2.0, 1.5, 0.0)
