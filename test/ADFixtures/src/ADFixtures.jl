@@ -15,12 +15,6 @@ backend (ReverseDiff, Mooncake reverse/forward) to ~1e-6.
 """
 module ADFixtures
 
-# `__precompile__(false)` skips the precompile cache so the Mooncake
-# load chain (specifically `MooncakeAllocCheckExt.__init__` evaluating
-# into the already-closed `AllocCheck` module) doesn't break the
-# package build on CI. Negligible cost — this module is only loaded by
-# the AD test, benchmark, and docs scripts, each of which already pays
-# for Mooncake/Enzyme load time elsewhere.
 __precompile__(false)
 
 using CensoredDistributions
@@ -32,10 +26,6 @@ using DifferentiationInterface: DifferentiationInterface, Constant
 import ForwardDiff, ReverseDiff, Mooncake, Enzyme
 import DifferentiationInterfaceTest as DIT
 
-# ConvolvedDistributions became a CensoredDistributions weakdep in #847, so
-# not every environment loading this fixtures file has it (e.g. the `main`
-# baseline AirspeedVelocity benchmarks the PR against). Try to load it and
-# gate the convolve_series scenario on whether it succeeded.
 try
     import ConvolvedDistributions
 catch
@@ -44,10 +34,6 @@ end
 export scenarios, backends, working_backends, broken_backends,
        broken_scenario_names, backend_broken_scenarios
 
-# `contexts` is a tuple of `Constant`-wrapped data (the observations),
-# passed positionally to DI's `gradient` and to the differentiated
-# function. See `scenarios` for why data travels as a context rather
-# than a closure capture.
 function _reference(f, θ, contexts)
     DifferentiationInterface.gradient(f, AutoForwardDiff(), θ, contexts...)
 end
