@@ -1,25 +1,68 @@
 module CensoredDistributionsConvolvedDistributionsExt
 
-# Bridges CensoredDistributions' explicit censoring schemes into
-# ConvolvedDistributions' discrete-only `convolve_series`: these methods
-# read a discretised delay PMF off `IntervalCensored`/`PrimaryCensored` and
-# forward to the stable `convolve_series(pmf, series)`. Dispatch is on
-# CensoredDistributions-owned types only, so no type piracy. See
-# https://github.com/EpiAware/ConvolvedDistributions.jl/issues/31 and
-# https://github.com/EpiAware/ConvolvedDistributions.jl/issues/68 (this
-# package is the intended discretisation route for continuous delays).
+# Bridges CensoredDistributions' censoring schemes into
+# ConvolvedDistributions' discrete `convolve_series`. A continuous delay is
+# discretised by double interval censoring, an interval-censored delay has
+# its grid PMF read off directly, and a bare primary-censored delay is
+# rejected until a secondary censoring step is added. CensoredDistributions
+# is the intended discretisation route for continuous delays, so the
+# continuous method deliberately extends `convolve_series` for a foreign
+# type.
 
-import ConvolvedDistributions: convolve_series
+import ConvolvedDistributions: convolve_series, delay_masses
 using CensoredDistributions: IntervalCensored, PrimaryCensored,
-                             interval_width, is_regular_intervals
-using Distributions: pdf
+                             double_interval_censored, interval_width,
+                             is_regular_intervals
+using Distributions: ContinuousUnivariateDistribution, pdf
 
 # Delay PMF at grid lags `0..(n - 1)` for a regular interval-censored delay
 # of width `w = interval_width(d)`. `pdf(d, k * w)` is the censored mass on
-# `[k * w, (k + 1) * w)` for any `w`.
+# `[k * w, (k + 1) * w)` for any `w`. Arbitrary boundaries have no single
+# grid step to shift by, so they are rejected here.
 function _grid_pmf(d::IntervalCensored, n::Integer)
+    is_regular_intervals(d) || throw(ArgumentError(
+        "convolve_series needs a regular-grid interval-censored delay, but " *
+        "got arbitrary interval boundaries. Use a regular interval instead " *
+        "(e.g. interval_censored(dist, w) or double_interval_censored(dist; " *
+        "interval = w)); the width w becomes the series grid."))
     w = interval_width(d)
     return pdf(d, w .* (0:(n - 1)))
+end
+
+@doc "
+
+Convolve a timeseries with a continuous delay, discretised by double
+interval censoring.
+
+`convolve_series(d, series)` for a continuous `d` wraps it with
+[`double_interval_censored`](@ref) and convolves `series` with the resulting
+grid PMF. `interval` sets the grid step and defaults to 1, so `series` entry
+`i` is read at time `(i - 1) * interval`. Any other keyword arguments pass
+through to [`double_interval_censored`](@ref), so the primary event,
+truncation, and solver can be set.
+
+A continuous delay carries no mass on the lag grid until it is discretised,
+and the discretisation is a censoring choice; this method makes the usual
+epidemiological choice for you. Pass a pre-built censored delay to control
+it exactly.
+
+# Examples
+```@example
+using CensoredDistributions, ConvolvedDistributions, Distributions
+
+infections = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
+expected_counts = convolve_series(LogNormal(1.5, 0.75), infections)
+```
+
+# See also
+- [`double_interval_censored`](@ref): the discretisation this dispatches to
+- [`interval_censored`](@ref): the regular-grid discretisation
+"
+function convolve_series(
+        d::ContinuousUnivariateDistribution,
+        series::AbstractVector{<:Real}; interval::Real = 1, kwargs...)
+    return convolve_series(
+        double_interval_censored(d; interval = interval, kwargs...), series)
 end
 
 @doc "
@@ -51,13 +94,7 @@ expected_counts = convolve_series(delay, infections)
 "
 function convolve_series(
         d::IntervalCensored, series::AbstractVector{<:Real})
-    is_regular_intervals(d) || throw(ArgumentError(
-        "convolve_series needs a regular-grid interval-censored delay, but " *
-        "got arbitrary interval boundaries. Use a regular interval instead " *
-        "(e.g. interval_censored(dist, w) or double_interval_censored(dist; " *
-        "interval = w)); the width w becomes the series grid."))
-    pmf = _grid_pmf(d, length(series))
-    return convolve_series(pmf, series)
+    return convolve_series(_grid_pmf(d, length(series)), series)
 end
 
 @doc "
@@ -84,5 +121,12 @@ function convolve_series(
         "interval = w) or interval_censored(primary_censored(dist, " *
         "primary_event), w)."))
 end
+
+# Fast path for a time-varying delay. `convolve_series(delays, series)` reads
+# each delay's masses through `delay_masses`; the generic hook recovers them
+# by convolving a unit impulse, which round-trips through the O(n) kernel. An
+# interval-censored delay has its masses in hand, so read the grid PMF
+# directly. This is where a vector of `double_interval_censored` delays lands.
+delay_masses(d::IntervalCensored, n::Int) = _grid_pmf(d, n)
 
 end
