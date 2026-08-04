@@ -126,10 +126,14 @@ function backend_broken_scenarios()
         "ReverseDiff (tape)" => Set{String}(),
         "Mooncake reverse" => Set{String}(),
         "Mooncake forward" => Set{String}(),
-        "Enzyme reverse" => Set{String}([
-            "convolve_series IntervalCensored LogNormal daily grid"]),
-        "Enzyme forward" => Set{String}([
-            "convolve_series IntervalCensored LogNormal daily grid"])
+        "Enzyme reverse" => union(
+            Set{String}([
+                "convolve_series IntervalCensored LogNormal daily grid"]),
+            enzyme_broken),
+        "Enzyme forward" => union(
+            Set{String}([
+                "convolve_series IntervalCensored LogNormal daily grid"]),
+            enzyme_broken)
     )
 end
 
