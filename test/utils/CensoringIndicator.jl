@@ -38,7 +38,7 @@ end
     @test quantile(d, 0.4) == quantile(ic, 0.4)
 end
 
-@testitem "Test CensoringIndicator scalar logpdf defaults to the censored contribution" begin
+@testitem "Test CensoringIndicator scalar scoring defaults to censored" begin
     using Distributions
 
     ic = interval_censored(Normal(0, 1), 1.0)
@@ -46,8 +46,13 @@ end
     x = 0.5
 
     # With no indicator supplied, a bare scalar observation scores exactly
-    # as `dist` (the censored leaf) would.
+    # as `dist` (the censored leaf) would, for every scoring function.
+    @test pdf(d, x) == pdf(ic, x)
     @test logpdf(d, x) == logpdf(ic, x)
+    @test cdf(d, x) == cdf(ic, x)
+    @test logcdf(d, x) == logcdf(ic, x)
+    @test ccdf(d, x) == ccdf(ic, x)
+    @test logccdf(d, x) == logccdf(ic, x)
 end
 
 @testitem "Test CensoringIndicator joint observation selects exact vs censored" begin
@@ -58,18 +63,46 @@ end
     d = indicate_censoring(ic)
     x = 0.5
 
-    # exact = true: the exact density of the UNDERLYING (unwrapped) dist.
-    @test logpdf(d, (value = x, exact = true)) == logpdf(base, x)
+    # censored = true: `dist` itself (the bounded/censored leaf).
+    @test logpdf(d, (value = x, censored = true)) == logpdf(ic, x)
 
-    # exact = false: the invariant this feature exists for — a bounded
-    # record scored via the indicator equals the same record scored by
-    # placing the censored leaf directly in the tree (CensoredDistributions#894).
-    @test logpdf(d, (value = x, exact = false)) == logpdf(ic, x)
+    # censored = false: the exact density of the UNDERLYING (unwrapped)
+    # dist - the invariant this feature exists for (CensoredDistributions#894).
+    @test logpdf(d, (value = x, censored = false)) == logpdf(base, x)
 
-    # And that is NOT the same value as the exact contribution (interval
+    # And that is NOT the same value as the censored contribution (interval
     # censoring genuinely changes the density here), so the two branches
     # are not accidentally aliasing.
-    @test logpdf(d, (value = x, exact = true)) != logpdf(d, (value = x, exact = false))
+    @test logpdf(d, (value = x, censored = true)) !=
+          logpdf(d, (value = x, censored = false))
+end
+
+@testitem "Test CensoringIndicator joint observation dispatch for every scorer" begin
+    using Distributions
+
+    base = Normal(0, 1)
+    ic = interval_censored(base, 1.0)
+    d = indicate_censoring(ic)
+    x = 0.5
+
+    # pdf, cdf, logcdf, ccdf, and logccdf all recognise the same
+    # `(value, censored)` joint observation as logpdf, and dispatch the
+    # same way: `censored = true` scores against `dist`, `censored = false`
+    # scores against the unwrapped `get_dist(dist)`.
+    @test pdf(d, (value = x, censored = true)) == pdf(ic, x)
+    @test pdf(d, (value = x, censored = false)) == pdf(base, x)
+
+    @test cdf(d, (value = x, censored = true)) == cdf(ic, x)
+    @test cdf(d, (value = x, censored = false)) == cdf(base, x)
+
+    @test logcdf(d, (value = x, censored = true)) == logcdf(ic, x)
+    @test logcdf(d, (value = x, censored = false)) == logcdf(base, x)
+
+    @test ccdf(d, (value = x, censored = true)) == ccdf(ic, x)
+    @test ccdf(d, (value = x, censored = false)) == ccdf(base, x)
+
+    @test logccdf(d, (value = x, censored = true)) == logccdf(ic, x)
+    @test logccdf(d, (value = x, censored = false)) == logccdf(base, x)
 end
 
 @testitem "Test CensoringIndicator with PrimaryCensored" begin
@@ -79,8 +112,8 @@ end
     d = indicate_censoring(pc)
     x = 3.0
 
-    @test logpdf(d, (value = x, exact = true)) == logpdf(get_dist(pc), x)
-    @test logpdf(d, (value = x, exact = false)) == logpdf(pc, x)
+    @test logpdf(d, (value = x, censored = true)) == logpdf(pc, x)
+    @test logpdf(d, (value = x, censored = false)) == logpdf(get_dist(pc), x)
 end
 
 @testitem "Test CensoringIndicator with Distributions.censored and truncated" begin
@@ -90,13 +123,13 @@ end
 
     cens = censored(base; upper = 4.0)
     d_cens = indicate_censoring(cens)
-    @test logpdf(d_cens, (value = 4.0, exact = true)) == logpdf(base, 4.0)
-    @test logpdf(d_cens, (value = 4.0, exact = false)) == logpdf(cens, 4.0)
+    @test logpdf(d_cens, (value = 4.0, censored = true)) == logpdf(cens, 4.0)
+    @test logpdf(d_cens, (value = 4.0, censored = false)) == logpdf(base, 4.0)
 
     trunc = truncated(base; lower = 0.5)
     d_trunc = indicate_censoring(trunc)
-    @test logpdf(d_trunc, (value = 1.0, exact = true)) == logpdf(base, 1.0)
-    @test logpdf(d_trunc, (value = 1.0, exact = false)) == logpdf(trunc, 1.0)
+    @test logpdf(d_trunc, (value = 1.0, censored = true)) == logpdf(trunc, 1.0)
+    @test logpdf(d_trunc, (value = 1.0, censored = false)) == logpdf(base, 1.0)
 end
 
 @testitem "Test CensoringIndicator loglikelihood over a mixed table" begin
@@ -107,16 +140,17 @@ end
     d = indicate_censoring(ic)
 
     values = [0.5, 1.5, -0.5]
-    exacts = [true, false, true]
-    obs = (values = values, exacts = exacts)
+    censored_flags = [true, false, true]
+    obs = (values = values, censored = censored_flags)
 
-    expected = sum(logpdf(d, (value = v, exact = e)) for (v, e) in zip(values, exacts))
+    expected = sum(logpdf(d, (value = v, censored = c))
+    for (v, c) in zip(values, censored_flags))
     @test loglikelihood(d, obs) ≈ expected
 
     # Cross-check against manual per-row selection, tying the table form
     # back to the same invariant as the scalar joint-observation test.
     manual = sum(
-        e ? logpdf(base, v) : logpdf(ic, v) for (v, e) in zip(values, exacts))
+        c ? logpdf(ic, v) : logpdf(base, v) for (v, c) in zip(values, censored_flags))
     @test loglikelihood(d, obs) ≈ manual
 end
 
@@ -125,7 +159,7 @@ end
 
     ic = interval_censored(Normal(0, 1), 1.0)
     d = indicate_censoring(ic)
-    obs = (value = 0.5, exact = false)
+    obs = (value = 0.5, censored = false)
 
     @test loglikelihood(d, obs) == logpdf(d, obs)
 end
@@ -151,6 +185,8 @@ end
     @test d isa
           CensoredDistributions.CensoringIndicator{<:CensoredDistributions.IntervalCensored}
     @test logpdf(d, 0.5) isa Float64
-    @test logpdf(d, (value = 0.5, exact = true)) isa Float64
-    @test logpdf(d, (value = 0.5, exact = false)) isa Float64
+    @test logpdf(d, (value = 0.5, censored = true)) isa Float64
+    @test logpdf(d, (value = 0.5, censored = false)) isa Float64
+    @test pdf(d, (value = 0.5, censored = true)) isa Float64
+    @test cdf(d, (value = 0.5, censored = true)) isa Float64
 end
