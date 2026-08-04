@@ -36,7 +36,7 @@ CensoredDistributionsMooncakeExt = "Mooncake"
 
 [compat]
 ChainRulesCore = "1"
-ConvolvedDistributions = "0.2"
+ConvolvedDistributions = "0.2, 0.3"
 Distributions = "0.25"
 DocStringExtensions = "0.9"
 DynamicPPL = "0.39, 0.40, 0.41, 0.42"
