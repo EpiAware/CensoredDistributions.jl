@@ -9,5 +9,5 @@ permissions:
 
 jobs:
   doc-preview-cleanup:
-    uses: EpiAware/.github/.github/workflows/docs-preview-cleanup.yml@4ade02869137af2a1799c704df8a0256ef5b5de6
+    uses: EpiAware/.github/.github/workflows/docs-preview-cleanup.yml@c8f00e8d2e64d3f7e7afc64666041cf8595ff7ae
     secrets: inherit  # pragma: allowlist secret
