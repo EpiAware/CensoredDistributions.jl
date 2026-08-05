@@ -6,6 +6,17 @@ public IntervalCensored
 public Weighted
 public Convolved
 
+# The latent event-time wrapper (public but not exported; `latent` builds it).
+public Latent
+
+# `PrimaryConditional` and `PrimaryEvent` are exported from the main module (the
+# latent-form observation distributions). `_SecondaryConditional` and
+# `_BatchedPrimaryConditional`, the internal kernels underneath them, stay
+# private.
+
+# The primary-censored family supertype (public but not exported).
+public AbstractPrimaryCensored
+
 # Primary censoring solver supertype (public but not exported).
 # `AnalyticalSolver` and `NumericSolver` are exported in the main module.
 public AbstractSolverMethod
