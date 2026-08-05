@@ -55,7 +55,7 @@ export ExponentiallyTilted
 export convolve_distributions
 
 # Exported utilities
-export weight, get_dist, get_dist_recursive
+export weight, get_dist, get_dist_recursive, indicate_censoring
 
 include("docstrings.jl")
 
@@ -71,6 +71,7 @@ include("distributions/Convolved.jl")
 
 include("utils/Weighted.jl")
 include("utils/get_dist.jl")
+include("utils/CensoringIndicator.jl")
 include("utils/quantile_optimization.jl")
 
 # Public API - functions that are part of public interface but not exported
