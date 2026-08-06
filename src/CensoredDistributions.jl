@@ -17,10 +17,11 @@ using Distributions: Distributions, UnivariateDistribution,
                      ContinuousUnivariateDistribution, Continuous,
                      ValueSupport, Truncated, Product, Censored, truncated,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
-                     Weibull, Normal, shape, scale, meanlogx, stdlogx,
-                     _in_closed_interval
+                     Weibull, _in_closed_interval
 
 import ConvolvedDistributions: convolve_series, delay_masses, quantile_by_optimization
+import ConvolvedDistributions: Convolved, AnalyticalSolver, NumericSolver,
+                               AbstractSolverMethod
 
 # The `quantile_by_optimization` method is added by ConvolvedDistributions'
 # `ConvolvedDistributionsOptimizationExt` extension, which only loads once its
@@ -36,49 +37,38 @@ import OptimizationOptimJL
 
 using PrecompileTools: @setup_workload, @compile_workload
 
-using LogExpFunctions: logsubexp, log1mexp
-
-using SpecialFunctions: gamma
+using LogExpFunctions: log1mexp
 
 # Shared AD-safety machinery (EpiAware/CensoredDistributions.jl#850): the
-# gamma-CDF helper carrying the shape-parameter derivative and the AD-safe
-# cdf/logcdf hooks, formerly duplicated in `src/utils/gamma_ad.jl`. `_gamma_cdf`
-# is EpiAwareADTools-internal (its per-backend rules key on it) but reached
-# directly by the analytical Weibull/Gamma path, the same as the sibling
-# ConvolvedDistributions.jl.
-using EpiAwareADTools: _gamma_cdf, cdf_ad_safe, logcdf_ad_safe
-
-import FastGaussQuadrature  # provides Gauss-Legendre nodes for the default solver
+# AD-safe cdf/logcdf hooks, used by the discretisation (IntervalCensored etc.).
+using EpiAwareADTools: cdf_ad_safe, logcdf_ad_safe
 
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
 
-# Export underlying methods for user extension
-export primarycensored_cdf, primarycensored_logcdf
-
-# Exported solver methods for selecting the primary-censoring CDF backend
+# Exported solver methods for selecting the primary-censoring CDF backend.
+# These are re-exported from ConvolvedDistributions (which owns the types, so
+# `PrimaryCensored.method` holds a ConvolvedDistributions solver and there is
+# a single source of truth for `AnalyticalSolver`/`NumericSolver`).
 export AnalyticalSolver, NumericSolver
 
 # Exported distributions
 export ExponentiallyTilted
 
-# Exported convolution constructor
-export convolve_distributions
+# Exported convolution constructor from ConvolvedDistributions (the old
+# standalone `CensoredDistributions.Convolved`/`convolve_distributions` was
+# removed; `convolved`/`Convolved` now come from ConvolvedDistributions).
 
 # Exported utilities
 export weight, get_dist, get_dist_recursive
 
 include("docstrings.jl")
 
-include("integration/integration.jl")
-
-include("censoring/primarycensored_cdf.jl")
 include("censoring/PrimaryCensored.jl")
 include("censoring/IntervalCensored.jl")
 include("censoring/double_interval_censored.jl")
 
 include("distributions/ExponentiallyTilted.jl")
-include("distributions/Convolved.jl")
 
 include("utils/Weighted.jl")
 include("utils/get_dist.jl")

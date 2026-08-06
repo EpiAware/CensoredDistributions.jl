@@ -66,6 +66,8 @@ function double_interval_censored(
         lower::Union{Real, Nothing} = nothing,
         upper::Union{Real, Nothing} = nothing,
         interval::Union{Real, Nothing} = nothing,
+        # The solver method is a ConvolvedDistributions.AbstractSolverMethod
+        # (re-exported from ConvolvedDistributions; see the module head).
         method::Union{AbstractSolverMethod, Nothing} = nothing,
         force_numeric = nothing
 )

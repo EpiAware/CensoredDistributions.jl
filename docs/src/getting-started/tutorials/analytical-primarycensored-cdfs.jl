@@ -452,81 +452,74 @@ md"""
 ## Exploring available methods
 
 You can use Julia's `methods` function to discover which
-distribution combinations have analytical solutions:
+component pairs have analytical solutions. The analytical
+Uniform-window forms now live in ConvolvedDistributions
+(`convolved_cdf`), since `PrimaryCensored` delegates to
+`ConvolvedDistributions.Convolved((primary_event, dist))`:
 """
 
-## Find all analytical CDF implementations
+## Find all analytical ConvolvedDistributions methods
 analytical_methods = methods(
-    CensoredDistributions.primarycensored_cdf,
-    (
-        Any, Any, Real,
-        CensoredDistributions.AnalyticalSolver
-    )
+    ConvolvedDistributions.convolved_cdf
 )
 
 md"""
-The above shows all methods defined for
-`primarycensored_cdf` with an `AnalyticalSolver`.
-Each method signature shows which distribution
-combinations have analytical solutions implemented.
+The above shows all methods defined for `convolved_cdf`.
+Each method signature shows which distribution pairs have
+analytical solutions implemented in ConvolvedDistributions.
 """
 
 md"""
 ## Custom solver options
 
-You can also customise the numerical solver when needed:
+You can force the numerical backend with
+`method = NumericSolver()` when you want quadrature
+(ConvolvedDistributions' [`NumericSolver`](@ref)):
 """
 
 ## Create an exponential distribution
 ## (no analytical solution available)
 exponential_delay = Exponential(2.0)
 
-## Default solver (GaussLegendre, AD-friendly)
+## Default: AnalyticalSolver (automatic)
 pc_default = primary_censored(
     exponential_delay, primary_uniform
 )
 
-## Custom solver (HCubatureJL for multidimensional)
-pc_custom = primary_censored(
+## Force numeric quadrature for debugging/validation
+pc_numeric = primary_censored(
     exponential_delay, primary_uniform;
-    solver = HCubatureJL()
-)
-
-## With analytical solutions available, you can specify
-## a custom solver (used if you force numeric or for
-## distributions without analytical solutions)
-pc_gamma_custom = primary_censored(
-    gamma_delay, primary_uniform;
-    solver = HCubatureJL()
+    method = NumericSolver()
 )
 
 ## Store solver information for display
 solver_info = (
-    default = typeof(pc_default.method.solver),
-    custom = typeof(pc_custom.method.solver)
+    default = typeof(pc_default.method),
+    numeric = typeof(pc_numeric.method)
 )
 
 md"""
 ## Implementing new analytical solutions
 
 If you have derived an analytical solution for a new
-distribution combination, you can extend the package by
-defining a new method for `primarycensored_cdf`.
-The key steps are:
+distribution combination, you extend ConvolvedDistributions
+by defining a new method for `convolved_cdf` (the generic
+that `Convolved` dispatches on), supplying the partial first
+moment via `partial_expectation` and calling
+`uniform_window_cdf`. The key steps are:
 
 1. **Derive the mathematical formula** following the
    methodology in the
    [primarycensored R package vignette](https://primarycensored.epinowcast.org/articles/analytic-solutions.html)
-2. **Define a new method** for the specific distribution
-   types making sure to define it for the
-   `AnalyticalSolver` method.
+2. **Define a new `partial_expectation` method** and a
+   `convolved_cdf` method on the pair's tuple type.
 3. **Use log-space computations** with LogExpFunctions.jl
    for numerical stability
 4. **Test thoroughly** against numerical integration
 
 For detailed implementation guidance, see the existing
-implementations in the source code at
-`src/censoring/primarycensored_cdf.jl`.
+implementations in ConvolvedDistributions at
+`src/uniform_window.jl`.
 """
 
 md"""

@@ -131,7 +131,12 @@ end
     using ChainRulesCore: rrule, NoTangent
     using CensoredDistributions: CensoredDistributions
     using EpiAwareADTools: _gamma_cdf
-    _make_weibull_g = CensoredDistributions._make_weibull_g
+    using LegacyPrimaryCensored: LegacyPrimaryCensored
+    # `_make_weibull_g` moved out of CensoredDistributions into the
+    # `LegacyPrimaryCensored` fixture when PrimaryCensored was reimplemented
+    # on ConvolvedDistributions; it still exercises the same Weibull g
+    # t <= 0 guard and the `_gamma_cdf` zero-input branches above.
+    _make_weibull_g = LegacyPrimaryCensored._make_weibull_g
 
     Ω, pb = rrule(_gamma_cdf, 2.0, 1.5, 0.0)
     @test Ω == 0.0
