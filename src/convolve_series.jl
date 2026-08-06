@@ -1,4 +1,3 @@
-module CensoredDistributionsConvolvedDistributionsExt
 
 # Bridges CensoredDistributions' censoring schemes into
 # ConvolvedDistributions' discrete `convolve_series`. A continuous delay is
@@ -8,12 +7,6 @@ module CensoredDistributionsConvolvedDistributionsExt
 # is the intended discretisation route for continuous delays, so the
 # continuous method deliberately extends `convolve_series` for a foreign
 # type.
-
-import ConvolvedDistributions: convolve_series, delay_masses
-using CensoredDistributions: IntervalCensored, PrimaryCensored,
-                             double_interval_censored, interval_width,
-                             is_regular_intervals
-using Distributions: ContinuousUnivariateDistribution, pdf
 
 # Delay PMF at grid lags `0..(n - 1)` for a regular interval-censored delay
 # of width `w = interval_width(d)`. `pdf(d, k * w)` is the censored mass on
@@ -128,5 +121,3 @@ end
 # interval-censored delay has its masses in hand, so read the grid PMF
 # directly. This is where a vector of `double_interval_censored` delays lands.
 delay_masses(d::IntervalCensored, n::Int) = _grid_pmf(d, n)
-
-end

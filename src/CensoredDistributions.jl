@@ -13,11 +13,26 @@ import Distributions: params, insupport, pdf, logpdf, cdf, logcdf,
 # Import from Base for functions we extend that are re-exported by Distributions
 import Base: minimum, maximum
 # Use explicit using for types, constructors, and utility functions (no method extension)
-using Distributions: Distributions, UnivariateDistribution, Continuous,
+using Distributions: Distributions, UnivariateDistribution,
+                     ContinuousUnivariateDistribution, Continuous,
                      ValueSupport, Truncated, Product, Censored, truncated,
                      product_distribution, Exponential, Gamma, LogNormal, Uniform,
                      Weibull, Normal, shape, scale, meanlogx, stdlogx,
                      _in_closed_interval
+
+import ConvolvedDistributions: convolve_series, delay_masses, quantile_by_optimization
+
+# The `quantile_by_optimization` method is added by ConvolvedDistributions'
+# `ConvolvedDistributionsOptimizationExt` extension, which only loads once its
+# trigger weakdeps -- Optimization and OptimizationOptimJL -- are loaded. Both
+# are hard deps of CensoredDistributions (the quantile for PrimaryCensored /
+# IntervalCensored lives behind that extension), so import them at module scope
+# to guarantee the extension, and hence inverse-CDF support, is available
+# whenever CensoredDistributions is loaded. They are imported for this
+# load-order side effect, not for any symbol (hence the stale-import ignore in
+# test/package/ExplicitImports.jl).
+import Optimization
+import OptimizationOptimJL
 
 using PrecompileTools: @setup_workload, @compile_workload
 
@@ -34,10 +49,6 @@ using SpecialFunctions: gamma
 using EpiAwareADTools: _gamma_cdf, cdf_ad_safe, logcdf_ad_safe
 
 import FastGaussQuadrature  # provides Gauss-Legendre nodes for the default solver
-
-using Optimization: OptimizationFunction, OptimizationProblem, solve, ReturnCode
-
-using OptimizationOptimJL: NelderMead
 
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
@@ -71,7 +82,7 @@ include("distributions/Convolved.jl")
 
 include("utils/Weighted.jl")
 include("utils/get_dist.jl")
-include("utils/quantile_optimization.jl")
+include("convolve_series.jl")
 
 # Public API - functions that are part of public interface but not exported
 @static if VERSION >= v"1.11"

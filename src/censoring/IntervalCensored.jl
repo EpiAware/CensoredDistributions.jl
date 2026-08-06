@@ -497,7 +497,7 @@ See also: [`cdf`](@ref)
 "
 function quantile(d::IntervalCensored, p::Real)
     # Post-processing function to snap result to interval boundary
-    result_postprocess_fn = function (result)
+    postprocess = function (result)
         return if is_regular_intervals(d)
             floor_to_interval(result, interval_width(d))
         else
@@ -505,9 +505,11 @@ function quantile(d::IntervalCensored, p::Real)
         end
     end
 
-    return _quantile_optimization(d, p;
-        result_postprocess_fn = result_postprocess_fn,
-        check_nan = true)
+    # Guarded so an out-of-range or NaN `p` reaches
+    # `quantile_by_optimization`'s own validation (ArgumentError) instead of
+    # surfacing a DomainError from the underlying `quantile` first.
+    initial_guess = [0 <= p <= 1 ? float(quantile(get_dist(d), p)) : float(p)]
+    return quantile_by_optimization(d, p, initial_guess; postprocess = postprocess)
 end
 
 # Sampler method for efficient sampling

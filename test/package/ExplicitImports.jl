@@ -5,8 +5,13 @@
     # Use the testing-specific functions from ExplicitImports.jl
     # These are designed to be used in test suites and give clear pass/fail results
 
-    # Test that there are no stale explicit imports
-    @test check_no_stale_explicit_imports(CensoredDistributions) === nothing
+    # Test that there are no stale explicit imports. Optimization and
+    # OptimizationOptimJL are imported at module scope solely to load the
+    # ConvolvedDistributionsOptimizationExt extension that provides
+    # `quantile_by_optimization` for the primary/interval-censored quantile
+    # methods, so they are intentionally unused symbols and are ignored here.
+    @test check_no_stale_explicit_imports(CensoredDistributions;
+        ignore = (:Optimization, :OptimizationOptimJL)) === nothing
 
     # Test that there are no implicit imports
     @test check_no_implicit_imports(CensoredDistributions) === nothing
@@ -22,12 +27,9 @@
         #   rules keyed on it fire (EpiAware/CensoredDistributions.jl#850).
         # - _collect_unique_boundaries: internal boundary builder the AD
         #   extensions import to mark non-differentiable (zero-tangent rule).
-        # - interval_width, is_regular_intervals: internal interval helpers
-        #   the ConvolvedDistributions extension imports for convolve_series.
         ignore = (
             :Censored, :_in_closed_interval, :_gamma_cdf,
-            :_collect_unique_boundaries,
-            :interval_width, :is_regular_intervals
+            :_collect_unique_boundaries
         )
     ) === nothing
 

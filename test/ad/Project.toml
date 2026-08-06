@@ -23,4 +23,3 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 [sources]
 ADFixtures = {path = "../ADFixtures"}
 CensoredDistributions = {path = "../.."}
-ConvolvedDistributions = {url = "https://github.com/EpiAware/ConvolvedDistributions.jl", rev = "main"}

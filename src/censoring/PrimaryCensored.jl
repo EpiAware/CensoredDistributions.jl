@@ -247,14 +247,13 @@ Compute the quantile (inverse CDF) using numerical optimization.
 See also: [`cdf`](@ref)
 "
 function quantile(d::PrimaryCensored, p::Real)
-    # Custom initial guess: underlying quantile + mean of primary event
-    initial_guess_fn = function (d, p)
-        underlying_quantile = quantile(get_dist(d), p)
-        primary_mean = mean(d.primary_event)
-        return [underlying_quantile + primary_mean]
-    end
-
-    return _quantile_optimization(d, p; initial_guess_fn = initial_guess_fn)
+    # Custom initial guess: underlying quantile + mean of primary event. Guarded
+    # so an out-of-range or NaN `p` reaches `quantile_by_optimization`'s own
+    # validation (which throws an ArgumentError) instead of surfacing a
+    # DomainError from the underlying `quantile` first.
+    initial_guess = [0 <= p <= 1 ?
+                     quantile(get_dist(d), p) + mean(d.primary_event) : p]
+    return quantile_by_optimization(d, p, initial_guess)
 end
 
 #### Sampling
