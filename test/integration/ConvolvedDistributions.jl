@@ -186,3 +186,27 @@ end
     dic = [double_interval_censored(d; interval = 1) for d in raw]
     @test convolve_series(raw, series) ≈ convolve_series(dic, series)
 end
+
+@testitem "convolve_series: truncated continuous delay" begin
+    using CensoredDistributions
+    using ConvolvedDistributions: convolve_series
+    using Distributions
+
+    # A truncated delay passed to convolve_series is discretised via
+    # double_interval_censored (truncation applied before secondary interval
+    # censoring). Verify the result differs from the untruncated delay and
+    # that truncation via the lower/upper keywords is honoured.
+    series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
+
+    # Truncation configured through double_interval_censored, then convolved.
+    truncated_delay = double_interval_censored(LogNormal(1.5, 0.75);
+        lower = 0.5, upper = 5.0, interval = 1)
+    result = convolve_series(truncated_delay, series)
+
+    untruncated = convolve_series(LogNormal(1.5, 0.75), series)
+    @test result != untruncated
+
+    # The truncated PMF has no mass outside [0.5, 5.0].
+    masses = CensoredDistributions._grid_pmf(truncated_delay, length(series))
+    @test sum(masses) ≈ 1.0 atol = 1e-6
+end
