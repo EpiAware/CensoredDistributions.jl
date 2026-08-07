@@ -11,6 +11,7 @@ ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 FlexiChains = "4a37a8b9-6e57-4b92-8664-298d46e639f7"
 HypothesisTests = "09f84164-cd44-5f33-b23f-e6b0d136a0d5"
 Integrals = "de52edbc-65ea-441a-8357-d3a637375a31"
+LegacyPrimaryCensored = "0361a9aa-24f0-45dd-b20d-2bf92d1c42ef"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 Markdown = "d6f4376e-aef5-505a-96c1-9c027394607a"
 Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
@@ -24,3 +25,4 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [sources]
 CensoredDistributions = {path = ".."}
+LegacyPrimaryCensored = {path = "fixtures/LegacyPrimaryCensored"}
