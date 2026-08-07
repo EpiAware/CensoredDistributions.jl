@@ -43,6 +43,7 @@ md"""
 
 using CensoredDistributions
 using Distributions
+import ConvolvedDistributions
 using BenchmarkTools
 using CairoMakie
 using AlgebraOfGraphics
@@ -452,21 +453,24 @@ md"""
 ## Exploring available methods
 
 You can use Julia's `methods` function to discover which
-component pairs have analytical solutions. The analytical
-Uniform-window forms now live in ConvolvedDistributions
-(`convolved_cdf`), since `PrimaryCensored` delegates to
-`ConvolvedDistributions.Convolved((primary_event, dist))`:
+distribution combinations have analytical solutions. The
+analytical Uniform-window forms are implemented in
+ConvolvedDistributions as `convolved_cdf` methods
+dispatched on [`AnalyticalSolver`](@ref):
 """
 
-## Find all analytical ConvolvedDistributions methods
+## Find all analytical CDF implementations
+## (filtered to the AnalyticalSolver dispatch to show the
+## analytical path)
 analytical_methods = methods(
-    ConvolvedDistributions.convolved_cdf
+    ConvolvedDistributions.convolved_cdf,
+    (ConvolvedDistributions.Convolved, Tuple, Any, AnalyticalSolver)
 )
 
 md"""
-The above shows all methods defined for `convolved_cdf`.
-Each method signature shows which distribution pairs have
-analytical solutions implemented in ConvolvedDistributions.
+The above shows the `convolved_cdf` methods dispatched on
+`AnalyticalSolver`. Each method signature shows which
+distribution combinations have analytical solutions.
 """
 
 md"""
@@ -493,33 +497,26 @@ pc_numeric = primary_censored(
 )
 
 ## Store solver information for display
+## (.method.solver is the ConvolvedDistributions quadrature solver)
 solver_info = (
-    default = typeof(pc_default.method),
-    numeric = typeof(pc_numeric.method)
+    default = typeof(pc_default.method.solver),
+    numeric = typeof(pc_numeric.method.solver)
 )
 
 md"""
 ## Implementing new analytical solutions
 
 If you have derived an analytical solution for a new
-distribution combination, you extend ConvolvedDistributions
-by defining a new method for `convolved_cdf` (the generic
-that `Convolved` dispatches on), supplying the partial first
-moment via `partial_expectation` and calling
-`uniform_window_cdf`. The key steps are:
-
-1. **Derive the mathematical formula** following the
-   methodology in the
-   [primarycensored R package vignette](https://primarycensored.epinowcast.org/articles/analytic-solutions.html)
-2. **Define a new `partial_expectation` method** and a
-   `convolved_cdf` method on the pair's tuple type.
-3. **Use log-space computations** with LogExpFunctions.jl
-   for numerical stability
-4. **Test thoroughly** against numerical integration
-
-For detailed implementation guidance, see the existing
-implementations in ConvolvedDistributions at
-`src/uniform_window.jl`.
+distribution combination, implement it in
+ConvolvedDistributions by defining a new `partial_expectation`
+method and a `convolved_cdf` method on the pair's tuple type,
+calling `uniform_window_cdf` for the shared arithmetic. For
+full guidance see the
+[ConvolvedDistributions documentation](https://github.com/EpiAware/ConvolvedDistributions.jl)
+and its existing implementations in
+[`src/uniform_window.jl`](https://github.com/EpiAware/ConvolvedDistributions.jl/blob/main/src/uniform_window.jl),
+plus the mathematical derivations in the
+[primarycensored R package vignette](https://primarycensored.epinowcast.org/articles/analytic-solutions.html).
 """
 
 md"""
