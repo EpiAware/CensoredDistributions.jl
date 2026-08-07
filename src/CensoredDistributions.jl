@@ -23,15 +23,9 @@ import ConvolvedDistributions: convolve_series, delay_masses, quantile_by_optimi
 import ConvolvedDistributions: Convolved, AnalyticalSolver, NumericSolver,
                                AbstractSolverMethod
 
-# The `quantile_by_optimization` method is added by ConvolvedDistributions'
-# `ConvolvedDistributionsOptimizationExt` extension, which only loads once its
-# trigger weakdeps -- Optimization and OptimizationOptimJL -- are loaded. Both
-# are hard deps of CensoredDistributions (the quantile for PrimaryCensored /
-# IntervalCensored lives behind that extension), so import them at module scope
-# to guarantee the extension, and hence inverse-CDF support, is available
-# whenever CensoredDistributions is loaded. They are imported for this
-# load-order side effect, not for any symbol (hence the stale-import ignore in
-# test/package/ExplicitImports.jl).
+# Force ConvolvedDistributions' Optimization extension to load for qualified
+# `quantile_by_optimization` support (imported for the side effect, not for any
+# symbol; see the stale-import ignore in test/package/ExplicitImports.jl).
 import Optimization
 import OptimizationOptimJL
 
@@ -46,18 +40,11 @@ using EpiAwareADTools: cdf_ad_safe, logcdf_ad_safe
 # Exported censoring functions
 export primary_censored, interval_censored, double_interval_censored
 
-# Exported solver methods for selecting the primary-censoring CDF backend.
-# These are re-exported from ConvolvedDistributions (which owns the types, so
-# `PrimaryCensored.method` holds a ConvolvedDistributions solver and there is
-# a single source of truth for `AnalyticalSolver`/`NumericSolver`).
+# Re-exported from ConvolvedDistributions.
 export AnalyticalSolver, NumericSolver
 
 # Exported distributions
 export ExponentiallyTilted
-
-# Exported convolution constructor from ConvolvedDistributions (the old
-# standalone `CensoredDistributions.Convolved`/`convolve_distributions` was
-# removed; `convolved`/`Convolved` now come from ConvolvedDistributions).
 
 # Exported utilities
 export weight, get_dist, get_dist_recursive

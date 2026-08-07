@@ -12,11 +12,9 @@ the sum of the primary event time and the delay.
 The distribution is a thin wrapper over
 `ConvolvedDistributions.Convolved((primary_event, dist))`. The default
 [`AnalyticalSolver`](@ref) uses ConvolvedDistributions' closed-form solutions
-for these distribution pairs with `Uniform` primary events, falling back to
-its numeric quadrature otherwise:
-- `Gamma` delay distribution
-- `LogNormal` delay distribution
-- `Weibull` delay distribution
+for distribution pairs with `Uniform` primary events (see the
+[`convolved_cdf` implementations](https://github.com/EpiAware/ConvolvedDistributions.jl/blob/main/src/uniform_window.jl)
+for the supported families), falling back to its numeric quadrature otherwise.
 
 [`NumericSolver`](@ref) (re-exported from ConvolvedDistributions) always uses
 quadrature integration, which may be necessary for certain AD backends or
@@ -24,7 +22,10 @@ when debugging.
 
 Passing the solver method as a concrete object keeps the return type concrete
 even when the delay parameters are runtime values (e.g. inside a probabilistic
-model), so it is preferred over the deprecated `force_numeric` flag.
+model). The former `solver` keyword has been removed: numeric integration now
+lives in ConvolvedDistributions and uses its fixed default quadrature (custom
+solver payloads are not yet honoured there — tracked as
+[ConvolvedDistributions#92](https://github.com/EpiAware/ConvolvedDistributions.jl/issues/92)).
 
 # Arguments
 - `dist`: The delay distribution from primary event to observation
@@ -34,7 +35,6 @@ model), so it is preferred over the deprecated `force_numeric` flag.
 - `method`: The solver method, an [`AnalyticalSolver`](@ref) or
   [`NumericSolver`](@ref), re-exported from `ConvolvedDistributions`.
   Defaults to `AnalyticalSolver()`.
-- `force_numeric`: Deprecated. Pass `method = NumericSolver()` instead.
 
 This is useful for modeling:
 - Infection-to-symptom onset times when infection time is uncertain
@@ -65,9 +65,8 @@ d_numeric = primary_censored(incubation, infection_window;
 "
 function primary_censored(
         dist::UnivariateDistribution, primary_event::UnivariateDistribution;
-        method::Union{AbstractSolverMethod, Nothing} = nothing,
-        force_numeric = nothing)
-    resolved = _resolve_solver_method(method, force_numeric)
+        method::Union{AbstractSolverMethod, Nothing} = nothing)
+    resolved = _resolve_solver_method(method)
     return PrimaryCensored(dist, primary_event; method = resolved)
 end
 
@@ -93,10 +92,8 @@ d2 = primary_censored(LogNormal(1.5, 0.75); primary_event=Uniform(0, 2))
 function primary_censored(
         dist::UnivariateDistribution;
         primary_event::UnivariateDistribution = Uniform(0, 1),
-        method::Union{AbstractSolverMethod, Nothing} = nothing,
-        force_numeric = nothing)
-    return primary_censored(dist, primary_event; method = method,
-        force_numeric = force_numeric)
+        method::Union{AbstractSolverMethod, Nothing} = nothing)
+    return primary_censored(dist, primary_event; method = method)
 end
 
 @doc "
@@ -149,11 +146,6 @@ function Base.eltype(::Type{<:PrimaryCensored{D1, D2}}) where {D1, D2}
     promote_type(eltype(D1), eltype(D2))
 end
 
-# `minimum`/`maximum`/`insupport` delegate to the wrapped convolution, so
-# they now span the sum of the primary-event and delay supports (the old
-# implementation reported delay-only support). For the common
-# `Uniform(0, a)` primary these coincide with the delay support; a shifted
-# primary moves the support accordingly.
 minimum(d::PrimaryCensored) = minimum(d.convolved)
 maximum(d::PrimaryCensored) = maximum(d.convolved)
 insupport(d::PrimaryCensored, x::Real) = insupport(d.convolved, x)
@@ -161,8 +153,6 @@ insupport(d::PrimaryCensored, x::Real) = insupport(d.convolved, x)
 @doc "
 
 Compute the cumulative distribution function.
-
-Delegates to the wrapped [`ConvolvedDistributions.Convolved`](@extref).
 
 See also: [`logcdf`](@ref)
 "
@@ -173,9 +163,6 @@ end
 @doc "
 
 Compute the log cumulative distribution function.
-
-Delegates to the wrapped [`ConvolvedDistributions.Convolved`](@extref). For
-window pairs this is analytically equivalent to `log(cdf(...))`.
 
 See also: [`cdf`](@ref)
 "
@@ -195,11 +182,6 @@ end
 
 Compute the probability density function.
 
-Delegates to the wrapped [`ConvolvedDistributions.Convolved`](@extref): the
-analytic window density for Uniform-primary analytic pairs, or the kernel
-density of the numeric quadrature path. This replaces the old
-finite-difference-of-CDF density.
-
 See also: [`logpdf`](@ref)
 "
 function pdf(d::PrimaryCensored, x::Real)
@@ -209,11 +191,6 @@ end
 @doc "
 
 Compute the log probability density function.
-
-Delegates to the wrapped [`ConvolvedDistributions.Convolved`](@extref): the
-tail-stable analytic `logpdf` for Uniform-primary analytic pairs, or the log
-of the numeric kernel density otherwise. This replaces the old
-finite-difference-of-log-CDF approximation.
 
 See also: [`pdf`](@ref), [`logcdf`](@ref)
 "
@@ -227,16 +204,12 @@ end
 
 Compute the quantile (inverse CDF) using numerical optimization.
 
-Inverts `cdf(d, ·)` (which delegates to the wrapped convolution) via
-`quantile_by_optimization`, seeded with a custom initial guess.
+Inverts `cdf(d, ·)` via `quantile_by_optimization`, seeded with a custom
+initial guess.
 
 See also: [`cdf`](@ref)
 "
 function quantile(d::PrimaryCensored, p::Real)
-    # Custom initial guess: underlying quantile + mean of primary event. Guarded
-    # so an out-of-range or NaN `p` reaches `quantile_by_optimization`'s own
-    # validation (which throws an ArgumentError) instead of surfacing a
-    # DomainError from the underlying `quantile` first.
     initial_guess = [0 <= p <= 1 ?
                      quantile(d.dist, p) + mean(d.primary_event) : p]
     return quantile_by_optimization(d, p, initial_guess)
@@ -271,19 +244,5 @@ end
 # Sampler method for efficient sampling
 sampler(d::PrimaryCensored) = d
 
-# Resolve the solver method from the keyword arguments. Dispatching on the
-# argument types (rather than branching on a `Bool` value) keeps the return
-# type concrete without relying on constant propagation through nested
-# keyword calls. The returned solver is a
-# `ConvolvedDistributions.AbstractSolverMethod` (re-exported below), which is
-# also what is stored on the wrapped `Convolved`.
-_resolve_solver_method(method::AbstractSolverMethod, force_numeric) = method
-_resolve_solver_method(::Nothing, ::Nothing) = AnalyticalSolver()
-function _resolve_solver_method(::Nothing, force_numeric::Bool)
-    Base.depwarn(
-        "`force_numeric` is deprecated; pass `method = NumericSolver()` to " *
-        "force numeric integration or `method = AnalyticalSolver()` for the " *
-        "analytical path.",
-        :primary_censored)
-    return force_numeric ? NumericSolver() : AnalyticalSolver()
-end
+_resolve_solver_method(method::AbstractSolverMethod) = method
+_resolve_solver_method(::Nothing) = AnalyticalSolver()

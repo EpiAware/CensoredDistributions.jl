@@ -5,7 +5,3 @@ public PrimaryCensored
 public IntervalCensored
 public Weighted
 public Convolved
-
-# Solver supertype is ConvolvedDistributions.AbstractSolverMethod, re-exported
-# (not defined locally); `AnalyticalSolver`/`NumericSolver` are exported from
-# the main module with their ConvolvedDistributions definitions.

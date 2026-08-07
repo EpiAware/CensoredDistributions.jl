@@ -20,8 +20,7 @@ end
     @test d.dist === dist
     @test d.primary_event === primary
     @test d.method isa CensoredDistributions.AnalyticalSolver
-    # The default numeric fallback is ConvolvedDistributions' own
-    # `GaussLegendre` solver (re-exported types; no Integrals.jl dependency).
+    # Default numeric fallback: ConvolvedDistributions' GaussLegendre solver.
     @test d.method.solver isa ConvolvedDistributions.GaussLegendre
 end
 
@@ -37,21 +36,6 @@ end
     @test d.primary_event === primary
     @test d.method isa CensoredDistributions.NumericSolver
     @test d.method.solver isa ConvolvedDistributions.GaussLegendre
-end
-
-@testitem "Deprecated force_numeric still selects the solver" begin
-    using Distributions
-
-    dist = LogNormal(1.5, 0.75)
-    primary = Uniform(0.0, 1.0)
-
-    # `force_numeric` is deprecated in favour of `method`, but must keep
-    # mapping to the matching solver for backward compatibility.
-    d_numeric = primary_censored(dist, primary; force_numeric = true)
-    @test d_numeric.method isa CensoredDistributions.NumericSolver
-
-    d_analytic = primary_censored(dist, primary; force_numeric = false)
-    @test d_analytic.method isa CensoredDistributions.AnalyticalSolver
 end
 
 @testitem "Test random generation" begin

@@ -115,9 +115,6 @@ function convolve_series(
         "primary_event), w)."))
 end
 
-# Fast path for a time-varying delay. `convolve_series(delays, series)` reads
-# each delay's masses through `delay_masses`; the generic hook recovers them
-# by convolving a unit impulse, which round-trips through the O(n) kernel. An
-# interval-censored delay has its masses in hand, so read the grid PMF
-# directly. This is where a vector of `double_interval_censored` delays lands.
+# Fast path: read an interval-censored delay's grid PMF directly, avoiding
+# the unit-impulse round-trip of the generic `delay_masses` fallback.
 delay_masses(d::IntervalCensored, n::Int) = _grid_pmf(d, n)

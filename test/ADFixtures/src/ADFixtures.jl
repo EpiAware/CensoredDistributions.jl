@@ -433,12 +433,6 @@ function scenarios(; with_reference::Bool = false)
             [1.5, 0.75], (Constant([0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0, 1.0]),))
     end
 
-    # The old `solver = GaussLegendre(; n = 128)` scenario was removed: the
-    # ConvolvedDistributions-backed PrimaryCensored no longer honours a
-    # custom quadrature payload (ConvolvedDistributions #92 rejects any but
-    # the default rule). The numeric path is covered by the
-    # `method = NumericSolver()` scenarios above.
-
     # High-dimensional scenarios. Each observation carries its own delay
     # parameter, so the gradient is taken with respect to many inputs.
     # These give the reverse-mode backends (ReverseDiff, Enzyme reverse,
