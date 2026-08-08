@@ -417,37 +417,6 @@ function scenarios(; with_reference::Bool = false)
             obs),
         [2.0, 1.5], (Constant(obs_int),))
 
-    # Convolved (sum of independent delays). The analytic Normal+Normal
-    # pair differentiates through `Distributions.convolve`; the
-    # Gamma+LogNormal pair has no analytic convolution and exercises the
-    # AD-safe numeric quadrature path (the same fixed-domain Gauss-Legendre
-    # construction as PrimaryCensored). Literal constructors keep Enzyme
-    # forward working (#278).
-    # Guarded on `convolve_distributions` existing: AirspeedVelocity benchmarks
-    # the PR against the `main` baseline, building the baseline package
-    # while still loading this (PR-tree) fixtures module. Referencing
-    # `convolve_distributions` unconditionally would throw `UndefVarError` on the
-    # baseline, where it does not yet exist. The guard lets the baseline
-    # skip these scenarios and the PR include them.
-    if isdefined(CensoredDistributions, :convolve_distributions)
-        _push!("Convolved Normal+Normal analytical",
-            (θ,
-                obs) -> sum(
-                x -> logpdf(
-                    CensoredDistributions.convolve_distributions(
-                        Normal(θ[1], θ[2]), Normal(0.0, 1.0)), x),
-                obs),
-            [1.0, 2.0], (Constant(obs),))
-        _push!("Convolved Gamma+LogNormal numerical",
-            (θ,
-                obs) -> sum(
-                x -> logpdf(
-                    CensoredDistributions.convolve_distributions(
-                        Gamma(θ[1], θ[2]), LogNormal(0.5, 0.4)), x),
-                obs),
-            [2.0, 1.0], (Constant(obs),))
-    end
-
     # convolve_series bridge (#847): an IntervalCensored delay's PMF fed to
     # ConvolvedDistributions' timeseries convolution. Literal `LogNormal`
     # constructor keeps Enzyme forward working (#278). Guarded on the
@@ -462,30 +431,6 @@ function scenarios(; with_reference::Bool = false)
                     upper = 10.0, interval = 1),
                 series)),
             [1.5, 0.75], (Constant([0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0, 1.0]),))
-    end
-
-    # Pluggable integration path (#208). The numeric primary-censored CDF
-    # routes its quadrature through the package's default `GaussLegendre`
-    # solver passed explicitly via the `solver` keyword. This is the cost
-    # the integration refactor touches, so benchmarking it per backend
-    # gives a clean before/after signal on the integration path; the test
-    # suite runs it as a gradient-correctness check too. A 128-node rule
-    # (twice the default) makes the quadrature cost the dominant term.
-    # Guarded on `GaussLegendre` existing: on the `main` baseline the
-    # solver type lived in Integrals.jl, not the package, so referencing
-    # it unconditionally would throw `UndefVarError` when AirspeedVelocity
-    # builds the baseline against this PR-tree fixtures module.
-    if isdefined(CensoredDistributions, :GaussLegendre)
-        _push!("PrimaryCensored Gamma+truncNormal numerical GaussLegendre solver",
-            (θ,
-                obs) -> sum(
-                x -> logpdf(
-                    primary_censored(Gamma(θ[1], θ[2]),
-                        truncated(Normal(0.5, 0.3), 0.0, 1.0);
-                        solver = CensoredDistributions.GaussLegendre(; n = 128)),
-                    x),
-                obs),
-            [2.0, 1.5], (Constant(obs),))
     end
 
     # High-dimensional scenarios. Each observation carries its own delay

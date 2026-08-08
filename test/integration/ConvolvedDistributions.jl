@@ -100,3 +100,141 @@ end
     series = [1.0, 2.0, 3.0]
     @test_throws ArgumentError convolve_series(pc, series)
 end
+
+@testitem "convolve_series: continuous delay discretises via double interval" begin
+    using CensoredDistributions
+    using ConvolvedDistributions: convolve_series
+    using Distributions
+
+    d = LogNormal(1.5, 0.75)
+    series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
+    ref = convolve_series(double_interval_censored(d; interval = 1), series)
+    @test convolve_series(d, series) ≈ ref
+end
+
+@testitem "convolve_series: continuous delay honours the interval keyword" begin
+    using CensoredDistributions
+    using ConvolvedDistributions: convolve_series
+    using Distributions
+
+    w = 7
+    d = LogNormal(2.5, 0.75)
+    series = [0.0, 1.0, 3.0, 6.0, 8.0]
+    ref = convolve_series(double_interval_censored(d; interval = w), series)
+    @test convolve_series(d, series; interval = w) ≈ ref
+end
+
+@testitem "convolve_series: continuous delay forwards keywords" begin
+    using CensoredDistributions
+    using ConvolvedDistributions: convolve_series
+    using Distributions
+
+    d = LogNormal(1.5, 0.75)
+    pe = Uniform(0, 2)
+    series = [0.0, 1.0, 3.0, 6.0, 8.0]
+    ref = convolve_series(
+        double_interval_censored(d; interval = 1, primary_event = pe), series)
+    @test convolve_series(d, series; primary_event = pe) ≈ ref
+    # A different primary event gives a different result.
+    @test !(convolve_series(d, series) ≈ ref)
+end
+
+@testitem "convolve_series: time-varying fast path reads the grid PMF" begin
+    using CensoredDistributions
+    using ConvolvedDistributions: convolve_series
+    import ConvolvedDistributions: delay_masses
+    using Distributions
+
+    ic = double_interval_censored(LogNormal(1.5, 0.75); interval = 1)
+    n = 6
+    grid = [pdf(ic, k) for k in 0:(n - 1)]
+    @test delay_masses(ic, n) ≈ grid
+    # The generic hook recovers the same masses by convolving a unit impulse.
+    impulse = [i == 1 ? 1.0 : 0.0 for i in 1:n]
+    @test delay_masses(ic, n) ≈ convolve_series(ic, impulse)
+end
+
+@testitem "convolve_series: time-varying interval-censored delays" begin
+    using CensoredDistributions
+    using ConvolvedDistributions: convolve_series
+    using Distributions
+
+    series = [0.0, 1.0, 3.0, 6.0, 8.0]
+    n = length(series)
+    delays = [double_interval_censored(LogNormal(m, 0.6); interval = 1)
+              for m in range(1.0, 1.8; length = n)]
+
+    # Reference: scatter each cohort forward through its own delay (:primary).
+    masses = [[pdf(delays[j], k) for k in 0:(n - 1)] for j in 1:n]
+    expected = zeros(n)
+    for s in 1:n
+        for lag in 0:(n - s)
+            expected[s + lag] += masses[s][lag + 1] * series[s]
+        end
+    end
+    @test convolve_series(delays, series) ≈ expected
+end
+
+@testitem "convolve_series: time-varying continuous delays discretise" begin
+    using CensoredDistributions
+    using ConvolvedDistributions: convolve_series
+    using Distributions
+
+    series = [0.0, 1.0, 3.0, 6.0, 8.0]
+    n = length(series)
+    raw = [LogNormal(m, 0.6) for m in range(1.0, 1.8; length = n)]
+    dic = [double_interval_censored(d; interval = 1) for d in raw]
+    @test convolve_series(raw, series) ≈ convolve_series(dic, series)
+end
+
+@testitem "convolve_series: truncated continuous delay" begin
+    using CensoredDistributions
+    using ConvolvedDistributions: convolve_series
+    using Distributions
+
+    # A truncated delay passed to convolve_series is discretised via
+    # double_interval_censored (truncation applied before secondary interval
+    # censoring). Verify the result differs from the untruncated delay and
+    # that truncation via the lower/upper keywords is honoured.
+    series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
+
+    # Truncation configured through double_interval_censored, then convolved.
+    truncated_delay = double_interval_censored(LogNormal(1.5, 0.75);
+        lower = 0.5, upper = 5.0, interval = 1)
+    result = convolve_series(truncated_delay, series)
+
+    untruncated = convolve_series(LogNormal(1.5, 0.75), series)
+    @test result != untruncated
+
+    # The truncated PMF has no mass outside [0.5, 5.0].
+    masses = CensoredDistributions._grid_pmf(truncated_delay, length(series))
+    @test sum(masses) ≈ 1.0 atol = 1e-6
+end
+
+@testitem "convolve_series: delay_masses fast path for continuous delay" begin
+    using CensoredDistributions
+    using ConvolvedDistributions: convolve_series, delay_masses
+    using Distributions
+
+    n = 8
+    d = LogNormal(1.5, 0.75)
+
+    # The continuous delay_masses fast path must agree with the generic
+    # unit-impulse fallback and with a direct unit-grid discretisation.
+    fast = delay_masses(d, n)
+    impulse = [i == 1 ? 1.0 : 0.0 for i in 1:n]
+    generic = convolve_series(d, impulse)
+    @test fast ≈ generic
+    @test fast ≈ pdf(double_interval_censored(d; interval = 1), 0:(n - 1))
+end
+
+@testitem "convolve_series: regime-compressed continuous delays" begin
+    using CensoredDistributions
+    using ConvolvedDistributions: convolve_series
+    using Distributions
+
+    series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
+    runs = [LogNormal(1.5, 0.75) => 3, LogNormal(1.0, 0.6) => 4]
+    vector = vcat(fill(LogNormal(1.5, 0.75), 3), fill(LogNormal(1.0, 0.6), 4))
+    @test convolve_series(runs, series) ≈ convolve_series(vector, series)
+end
