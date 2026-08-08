@@ -118,3 +118,12 @@ end
 # Fast path: read an interval-censored delay's grid PMF directly, avoiding
 # the unit-impulse round-trip of the generic `delay_masses` fallback.
 delay_masses(d::IntervalCensored, n::Int) = _grid_pmf(d, n)
+
+# Fast path: discretise a raw continuous delay on the unit grid and read its
+# grid PMF directly. This matches `convolve_series(d::ContinuousUnivariateDistribution,
+# series)`, which also defaults to `interval = 1`. Used by the time-varying /
+# regime-compressed vector forms, so a vector of continuous delays avoids the
+# O(n^2) unit-impulse round-trip of the generic `delay_masses` fallback.
+function delay_masses(d::ContinuousUnivariateDistribution, n::Int)
+    _grid_pmf(double_interval_censored(d; interval = 1), n)
+end

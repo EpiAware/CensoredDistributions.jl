@@ -40,7 +40,8 @@ end
     # Aqua is told to treat `ConvolvedDistributions.convolve_series` as ours to
     # extend here. Tracked in #927.
     Aqua.test_piracies(CensoredDistributions;
-        treat_as_own = (ConvolvedDistributions.convolve_series,))
+        treat_as_own = (ConvolvedDistributions.convolve_series,
+            ConvolvedDistributions.delay_masses))
 end
 
 @testitem "Aqua.jl - Ambiguities" tags=[:quality] begin
