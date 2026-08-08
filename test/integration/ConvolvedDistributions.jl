@@ -210,3 +210,31 @@ end
     masses = CensoredDistributions._grid_pmf(truncated_delay, length(series))
     @test sum(masses) ≈ 1.0 atol = 1e-6
 end
+
+@testitem "convolve_series: delay_masses fast path for continuous delay" begin
+    using CensoredDistributions
+    using ConvolvedDistributions: convolve_series, delay_masses
+    using Distributions
+
+    n = 8
+    d = LogNormal(1.5, 0.75)
+
+    # The continuous delay_masses fast path must agree with the generic
+    # unit-impulse fallback and with a direct unit-grid discretisation.
+    fast = delay_masses(d, n)
+    impulse = [i == 1 ? 1.0 : 0.0 for i in 1:n]
+    generic = convolve_series(d, impulse)
+    @test fast ≈ generic
+    @test fast ≈ pdf(double_interval_censored(d; interval = 1), 0:(n - 1))
+end
+
+@testitem "convolve_series: regime-compressed continuous delays" begin
+    using CensoredDistributions
+    using ConvolvedDistributions: convolve_series
+    using Distributions
+
+    series = [0.0, 1.0, 3.0, 6.0, 8.0, 5.0, 2.0]
+    runs = [LogNormal(1.5, 0.75) => 3, LogNormal(1.0, 0.6) => 4]
+    vector = vcat(fill(LogNormal(1.5, 0.75), 3), fill(LogNormal(1.0, 0.6), 4))
+    @test convolve_series(runs, series) ≈ convolve_series(vector, series)
+end
